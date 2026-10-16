@@ -1,11 +1,8 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
-	DEFAULT_TASK_TIER, budgetStatusLine, closeTaskClock, orchestratorTurnBudget, resetTaskClock,
-	resolveTaskBudget, resolveTurnBudget, taskClockElapsedMs,
+	DEFAULT_TASK_TIER, budgetStatusLine, closeTaskClock, resetTaskClock, resolveTurnBudget, taskClockElapsedMs,
 } from "../run-budget.js";
-import { buildBudgetContinuationAudit, buildHubAuditIdentity, buildTaskResetAudit } from "../hub-state-audit.js";
-import { turnBudgetActiveMs, type BudgetContinuationKind } from "../budget-continuation.ts";
-import type { BudgetCorrelation } from "../budget-recovery.ts";
+import { buildHubAuditIdentity, buildTaskResetAudit } from "../hub-state-audit.js";
 import type { ExecutionHistoryStore } from "../ui/history-store.ts";
 
 export interface TurnReport {
@@ -35,15 +32,8 @@ export interface BudgetStatePorts {
 	setTurnDispatchCount(value: number): void;
 	getTurnResearchCount(): number;
 	setTurnResearchCount(value: number): void;
-	getTurnBudgetAskUserWaitMs(): number;
-	setTurnBudgetAskUserWaitMs(value: number): void;
-	resetBudgetRecovery(): void;
 	resetNoProgress(persistTaskIdentity?: boolean): void;
 	resetUnknownToolCounter(): void;
-	getTaskContinuationCount(): number;
-	setTaskContinuationCount(value: number): void;
-	getTurnContinuationCount(): number;
-	setTurnContinuationCount(value: number): void;
 	getTaskDispatchCount(): number;
 	setTaskDispatchCount(value: number): void;
 	getTaskResearchCount(): number;
@@ -68,25 +58,19 @@ export interface BudgetStatePorts {
 	getAuditContext(): { cwd?: string; sessionId?: string; project?: string };
 	appendEntry(type: string, data: unknown): void;
 	executionHistory: ExecutionHistoryStore;
-	getWorkMode?(): string;
 }
 
 export interface BudgetContext {
+	/** Tier-owned child deadline, session recycling and delegation; no quotas. */
 	currentBudget(): ReturnType<typeof resolveTurnBudget>;
-	currentTaskBudget(): ReturnType<typeof resolveTaskBudget>;
 	taskCounters(): { dispatches: number; research: number };
 	taskActiveElapsedMs(now?: number): number;
-	turnBudgetActiveElapsedMs(now?: number): number;
-	renewTurnBudgetWindow(now?: number): void;
-	continueTaskBudgetWindow(now?: number): void;
 	closeTurnActiveTime(now?: number): void;
 	resetTaskWindow(label?: string | null, now?: number, persistTaskIdentity?: boolean, acceptedUserInput?: string): void;
 	hubAuditIdentity(ctx?: ExtensionContext): ReturnType<typeof buildHubAuditIdentity>;
 	hubLocationSuffix(ctx?: ExtensionContext): string;
 	taskResetSnapshot(now?: number): { tier: string | null; dispatches: number; research: number; reviewRounds: number; activeMs: number };
-	budgetContinuationSnapshot(kind: BudgetContinuationKind, now?: number): ReturnType<BudgetContext["taskResetSnapshot"]>;
 	appendTaskResetEntry(source: "tool:set_task_tier", label: string | null, prior: ReturnType<BudgetContext["taskResetSnapshot"]>, ctx?: ExtensionContext): void;
-	appendBudgetContinuationEntry(kind: BudgetContinuationKind, reason: string, prior: ReturnType<BudgetContext["taskResetSnapshot"]>, ctx?: ExtensionContext, correlation?: BudgetCorrelation): void;
 	updateModeStatus(): void;
 	ensureTaskTier(): void;
 }
@@ -100,32 +84,17 @@ export function createSessionTotals(): SessionTotals {
 }
 
 export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
-	const tierTurnBudget = () => resolveTurnBudget(state.getTaskTier() ?? DEFAULT_TASK_TIER, state.getBudgetOverrides());
-	const currentBudget = () => orchestratorTurnBudget(tierTurnBudget(), state.getWorkMode?.() ?? "operator", state.getBudgetOverrides().maxDispatches);
-	const currentTaskBudget = () => resolveTaskBudget(tierTurnBudget());
+	const currentBudget = () => resolveTurnBudget(state.getTaskTier() ?? DEFAULT_TASK_TIER, state.getBudgetOverrides());
 	const taskCounters = () => ({ dispatches: state.getTaskDispatchCount(), research: state.getTaskResearchCount() });
 	const taskActiveElapsedMs = (now = Date.now()) => taskClockElapsedMs(state.getTaskClock(), now, state.executionHistory.openAskUserWaitMs(now));
-	const turnBudgetActiveElapsedMs = (now = Date.now()) => turnBudgetActiveMs(
-		state.executionHistory.turnStartedAt(), now, state.getTurnBudgetAskUserWaitMs(), state.executionHistory.openAskUserWaitMs(now),
-	);
 	const updateModeStatus = () => {
 		const tier = state.getTaskTier();
 		const shownTier = tier && state.getTaskTierAssumed() ? `${tier}?` : (tier ?? DEFAULT_TASK_TIER);
 		try {
 			state.setStatus("hub-tier", budgetStatusLine(
-				{ dispatches: state.getTurnDispatchCount(), research: state.getTurnResearchCount() },
-				currentBudget(), shownTier, { counters: taskCounters(), budget: currentTaskBudget() },
+				{ dispatches: state.getTurnDispatchCount(), research: state.getTurnResearchCount() }, shownTier, taskCounters(),
 			));
 		} catch {}
-	};
-	const renewTurnBudgetWindow = (now = Date.now()) => {
-		state.setTurnDispatchCount(0);
-		state.setTurnResearchCount(0);
-		state.executionHistory.renewTurnStartedAt(now);
-		state.setTurnBudgetAskUserWaitMs(0);
-		state.clearTurnDispatchFingerprints();
-		state.setTurnContinuationCount(state.getTurnContinuationCount() + 1);
-		updateModeStatus();
 	};
 	const taskResetSnapshot = (now = Date.now()) => ({
 		tier: state.getTaskTier(), dispatches: state.getTaskDispatchCount(), research: state.getTaskResearchCount(),
@@ -141,24 +110,13 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 	};
 
 	return {
-		currentBudget, currentTaskBudget, taskCounters, taskActiveElapsedMs, turnBudgetActiveElapsedMs,
-		renewTurnBudgetWindow,
-		continueTaskBudgetWindow(now = Date.now()) {
-			state.setTaskDispatchCount(0);
-			state.setTaskResearchCount(0);
-			state.setTaskClock(resetTaskClock(state.getTaskClock(), now));
-			state.setTaskReviewRounds(0);
-			state.setTaskContinuationCount(state.getTaskContinuationCount() + 1);
-			renewTurnBudgetWindow(now);
-		},
+		currentBudget, taskCounters, taskActiveElapsedMs,
 		closeTurnActiveTime(now = Date.now()) { state.setTaskClock(closeTaskClock(state.getTaskClock(), now)); },
 		resetTaskWindow(label = null, now = Date.now(), persistTaskIdentity = true, acceptedUserInput = "") {
 			state.setTaskDispatchCount(0);
 			state.setTaskResearchCount(0);
 			state.setTaskClock(resetTaskClock(state.getTaskClock(), now));
 			state.setTaskReviewRounds(0);
-			state.setTaskContinuationCount(0);
-			state.resetBudgetRecovery();
 			state.resetNoProgress(persistTaskIdentity);
 			state.resetUnknownToolCounter();
 			state.setTaskLabel(label);
@@ -179,22 +137,8 @@ export function createBudgetContext(state: BudgetStatePorts): BudgetContext {
 			return `\nRepository: ${where.cwd ?? "unknown"}${where.herdr_pane_id ? ` · pane ${where.herdr_pane_id}` : ""}`;
 		},
 		taskResetSnapshot,
-		budgetContinuationSnapshot(kind, now = Date.now()) {
-			return kind === "task" ? taskResetSnapshot(now) : {
-				tier: state.getTaskTier(), dispatches: state.getTurnDispatchCount(), research: state.getTurnResearchCount(),
-				reviewRounds: 0, activeMs: turnBudgetActiveElapsedMs(now),
-			};
-		},
 		appendTaskResetEntry(source, label, prior, ctx) {
 			try { state.appendEntry("agent-hub-task-reset", buildTaskResetAudit({ source, label, prior, identity: hubAuditIdentity(ctx) })); } catch {}
-		},
-		appendBudgetContinuationEntry(kind, reason, prior, ctx, correlation) {
-			try {
-				state.appendEntry("agent-hub-budget-continuation", buildBudgetContinuationAudit({
-					kind, continuation: kind === "task" ? state.getTaskContinuationCount() : state.getTurnContinuationCount(),
-					reason, prior, identity: hubAuditIdentity(ctx), correlation,
-				}));
-			} catch {}
 		},
 		updateModeStatus,
 		ensureTaskTier() {

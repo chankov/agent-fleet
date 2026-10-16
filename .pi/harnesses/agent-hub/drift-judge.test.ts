@@ -273,6 +273,7 @@ test("native Layer 1 escalation is the only prepared-run consumer and records a 
 	const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [] };
 	const run: any = {
 		dispatchId: "dispatch-s1",
+		nativeAdmitted: () => true,
 		deps: {
 			displayName: (name: string) => name,
 			guardrailEnv: () => ({}),
@@ -365,6 +366,7 @@ test("BLK-1 a dispatch that completes with no System 1 does not dispose another 
 	const state: any = { def: { name: "builder" }, toolCount: 0, timeline: [] };
 	const run: any = {
 		dispatchId: "dispatch-A",
+		nativeAdmitted: () => true,
 		deps: {
 			displayName: (name: string) => name,
 			guardrailEnv: () => ({}),

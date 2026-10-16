@@ -1,11 +1,10 @@
 import {createHash} from 'node:crypto';
+import {processShared} from './process-shared.ts';
 
 export type DialogDecision='allow'|'deny';
 export type DialogOutcome=DialogDecision|'cancel';
 interface DialogState { remembered:Map<string,DialogDecision>; inflight:Map<string,Promise<DialogOutcome>>; generation:number; }
-const storeKey=Symbol.for('agent-fleet.identical-dialog.v1');
-const runtime=globalThis as typeof globalThis & {[key:symbol]:DialogState|undefined};
-const state=runtime[storeKey]??= {remembered:new Map(),inflight:new Map(),generation:0};
+const state=processShared<DialogState>('agent-fleet.identical-dialog.v1',()=>({remembered:new Map(),inflight:new Map(),generation:0}));
 const {remembered,inflight}=state;
 
 /** Stable identity of the human-visible dialog. Callers must omit volatile ids. */

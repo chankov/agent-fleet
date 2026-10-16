@@ -858,7 +858,6 @@
             ".pi/harnesses/agent-hub/context/hub-state.ts",
             ".pi/harnesses/agent-hub/context/budgets.ts",
             ".pi/harnesses/agent-hub/hub-state-audit.js",
-            ".pi/harnesses/agent-hub/budget-continuation.ts",
             ".pi/harnesses/agent-hub/budget-recovery.ts",
             ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
             ".pi/harnesses/agent-hub/provider-semaphore.js",

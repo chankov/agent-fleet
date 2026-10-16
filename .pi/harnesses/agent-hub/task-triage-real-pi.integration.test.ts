@@ -35,7 +35,9 @@ type ScriptStep = { text: string } | { tool: string; args: Record<string, unknow
 
 const PROBE_SOURCE = String.raw`
 import { appendFileSync } from "node:fs";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
+// Pi 1.1 declares the prompt and tools as system messages in the transcript.
+const toolNames = (ctx: any) => (ctx.tools?.length ? ctx.tools : getCurrentTools(ctx.messages ?? [])).map((t: any) => t.name);
 const eventsPath = process.env.TRIAGE_E2E_EVENTS as string;
 const contextsPath = process.env.TRIAGE_E2E_CONTEXTS as string;
 const script = JSON.parse(process.env.TRIAGE_E2E_SCRIPT as string);
@@ -57,8 +59,9 @@ export default function (pi: any) {
       const stream = createAssistantMessageEventStream(); calls++;
       queueMicrotask(() => {
         const step = script[Math.min(calls - 1, script.length - 1)];
-        rec(contextsPath, { call: calls, tools: (ctx.tools ?? []).map((t: any) => t.name), step,
-          promptSignals: { securityChange: String(ctx.systemPrompt ?? "").includes("security_change"), review: String(ctx.systemPrompt ?? "").includes("review") },
+        const systemPrompt = String(ctx.systemPrompt || getCurrentSystemPrompt(ctx.messages ?? []));
+        rec(contextsPath, { call: calls, tools: toolNames(ctx), step,
+          promptSignals: { securityChange: systemPrompt.includes("security_change"), review: systemPrompt.includes("review") },
           inbound: clip(JSON.stringify(ctx.messages ?? []), 30000),
           results: (ctx.messages ?? []).filter((m: any) => m.role === "toolResult").map((m: any) => ({
             id: m.toolCallId, isError: m.isError, details: m.details,
@@ -90,7 +93,9 @@ export default function (pi: any) {
 
 const CHILD_PROVIDER_SOURCE = String.raw`
 import { appendFileSync } from "node:fs";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
+// Pi 1.1 declares the prompt and tools as system messages in the transcript.
+const toolNames = (ctx: any) => (ctx.tools?.length ? ctx.tools : getCurrentTools(ctx.messages ?? [])).map((t: any) => t.name);
 let calls = 0;
 export default function (pi: any) {
   pi.on("tool_result", (event: any) => { if (event.toolName === "bash") appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ role: "tool_result", tool: "bash", isError: event.isError, runtimeTest: event.details?.runtimeTest ?? null }) + "\n"); });
@@ -113,7 +118,7 @@ export default function (pi: any) {
           : { text: readOk ? "VERDICT: APPROVE\nchanged_files: [README.md]\nassertions_proven: []\nassertions_unproven: []\nassertions_failed: []\ntests_run: full regression\nopen_risks: [fixture-only inspection; not an independent A1 return]\nrequires_user_decision: []" : "VERDICT: REJECT\nassertions_unproven: [README content not verified]" }
           : results.length ? { text: readOk ? "PLAN: Correct only wdiget renders to widget renders in README.md; preserve other bytes and verify the exact change before review." : "PLAN REFUSED: README read was not verified." }
           : { tool: "read", args: { path: "README.md" } };
-        appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ pid: process.pid, role, call: ++calls, tools: (ctx.tools ?? []).map((t: any) => t.name), readOk, lastOk, step: step.tool ?? "return" }) + "\n");
+        appendFileSync(process.env.TRIAGE_CHILD_EVENTS as string, JSON.stringify({ pid: process.pid, role, call: ++calls, tools: toolNames(ctx), readOk, lastOk, step: step.tool ?? "return" }) + "\n");
         const msg: any = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
           stopReason: "stop", timestamp: Date.now() };
@@ -586,7 +591,8 @@ test("real Pi first turn skips classification but retains S1 review on late bind
 });
 
 test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, fence refuses, recovery hint is actionable", { timeout: 180_000 }, async t => {
-  assert.match(JSON.parse(readFileSync(join(repoRoot, "node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8")).version, /^0\.84\.2/);
+  const pinned = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).devDependencies["@earendil-works/pi-coding-agent"];
+  assert.equal(JSON.parse(readFileSync(join(repoRoot, "node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8")).version, pinned);
   const dir = setupWorkspace(t);
   const fencedPath = join(dir, "transition-must-not-write.txt");
   const boundPath = join(dir, "bound-write.txt");
@@ -703,7 +709,10 @@ test("real Pi operator exact confirmation: deny, approve, then deny a separate w
   assert.deepEqual(session.decisions().map(d => d.value), ["No — deny", "Yes — authorize once", "No — deny"], "each write gets its own real Pi UI decision");
   for (const [i, d] of session.decisions().entries()) {
     const target = createHash("sha256").update(JSON.stringify(actions[i])).digest("hex");
-    assert.match(d.title, new RegExp(`Operation: write\\nTarget: ${target}\\nAction: e2e-${i + 1}\\b`), "UI decision binds the exact operation, arguments and call id");
+    // The dialog omits the volatile call id so identical dialogs coalesce; the one-use
+    // grant still binds the call id internally.
+    assert.match(d.title, new RegExp(`Operation: write\\nTarget: ${target}\\nWorking directory \\(JSON\\): `), "UI decision binds the exact operation and arguments");
+    assert.doesNotMatch(d.title, /\nAction: /);
     const shown = JSON.parse(d.title.split("BEGIN ACTION INPUT JSON\n")[1].split("\nEND ACTION INPUT JSON")[0]);
     assert.deepEqual(shown, actions[i], "human sees the actual path and complete proposed write content, not only a hash");
     assert.ok(d.title.includes(dir), "relative action working directory is shown");
@@ -943,7 +952,8 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
   const dir = setupWorkspace(t, { team: "stage", personas: ["planner", "probe-builder", "code-reviewer"], childProvider: true });
   const readme = join(dir, "README.md"), initial = "The wdiget renders a greeting.\n";
   writeFileSync(readme, initial);
-  writeFileSync(join(dir, ".gitignore"), ".pi/\n.ai/\nagent/\nhome/\nbin/\nprobe.ts\nchild-provider.ts\nchild-events-*.ndjson\nchild-wire-*.ndjson\nfake-calls-*.ndjson\ntriage-states-*.ndjson\ncontexts-*.ndjson\nevents-*.ndjson\n");
+  // Pi 1.1 enables Node's compile cache under TMPDIR, which these sessions point here.
+  writeFileSync(join(dir, ".gitignore"), ".pi/\n.ai/\nagent/\nhome/\nbin/\nnode-compile-cache/\nprobe.ts\nchild-provider.ts\nchild-events-*.ndjson\nchild-wire-*.ndjson\nfake-calls-*.ndjson\ntriage-states-*.ndjson\ncontexts-*.ndjson\nevents-*.ndjson\n");
   execFileSync("git", ["init", "-q"], { cwd: dir });
   execFileSync("git", ["add", "README.md", ".gitignore"], { cwd: dir });
   execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "synthetic baseline"], { cwd: dir });
@@ -1073,8 +1083,11 @@ test("real Pi continuation retains accepted input without repeated triage or pro
 
 test("real Pi projects historical coordination for the model while preserving its saved journal", {timeout:90_000},async t=>{
  const dir=setupWorkspace(t);
+ // Projections apply in batches of at least 32 KiB, so older inspection pages provide the batch.
+ for(const name of ["one","two","three"])writeFileSync(join(dir,`${name}.txt`),`${name} page ${"x".repeat(24)}\n`.repeat(1400));
  const session=await startSession(t,dir,{fake:"wide",persistSession:true,script:[
   {tool:"set_task_tier",args:{tier:"feature",risk:"high",scope:"wide",reason:"declared broad verification"}},
+  ...["one","two","three"].map(name=>({tool:"read",args:{path:`${name}.txt`}})),
   {tool:"set_assertions",args:{assertions:[{id:"A1",tag:"test",text:"Synthetic check",source:"user",test_command:"node --test fixture"}]}},
   {text:"done"},
  ]});

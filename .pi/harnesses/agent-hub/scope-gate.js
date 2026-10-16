@@ -98,7 +98,7 @@ export function diffAgainst(snapshot, cwd) {
   for (const repo of current.repositories) if (!snapshot.repositories.some(r => r.root === repo.root)) {
    for (const scope of repo.scopes) gaps.push({ scope, reason: "Repository was not observed before execution" });
   }
-  return { skipped: snapshot.skipped || current.skipped, reason: gaps.length ? "Declared scopes have incomplete Git observation" : undefined, paths: uniqueSorted(paths), gaps, repositories: current.repositories.map(({ root, prefix, head, scopes }) => ({ root, prefix, head, scopes })) };
+  return { skipped: snapshot.skipped || current.skipped, reason: gaps.length ? "Declared scopes have incomplete Git observation" : undefined, paths: uniqueSorted(paths), gaps, repositories: current.repositories.map(({ root, prefix, head, scopes }) => ({ root, prefix, head, scopes })), snapshot: current };
  }
  const current = snapshotWorktree(cwd);
  if (snapshot?.skipped || current.skipped || snapshot?.head !== current.head) {
@@ -106,7 +106,7 @@ export function diffAgainst(snapshot, cwd) {
  }
  try {
   const paths = changedPaths(snapshot, current, path => fileFingerprint(cwd, path));
-  return { skipped: false, paths };
+  return { skipped: false, paths, snapshot: current };
  } catch (error) { return { skipped: true, reason: String(error), paths: [] }; }
 }
 
@@ -137,7 +137,12 @@ export function reviewableChangedPaths(paths, cwd, sessionDir, scopes = [], deli
 
 /** Runtime outputs are not input progress. Callers add explicitly supplied evidence separately. */
 export function worktreeRevision(cwd, scopes = [], declaredScopes = scopes) {
- const snapshot = snapshotWorktree(cwd, declaredScopes);
+ return snapshotRevision(snapshotWorktree(cwd, declaredScopes), scopes);
+}
+
+/** The revision of an existing snapshot: equal to worktreeRevision taken at that moment,
+ * so one observation can serve several consumers without another git status and rehash. */
+export function snapshotRevision(snapshot, scopes = []) {
  if (snapshot.skipped || snapshot.gaps?.length) return "unavailable";
  const entries = [...snapshot.fingerprints].filter(([path]) => !isSessionOutput(path) && (snapshot.nested || !scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
  return createHash("sha256").update(JSON.stringify([snapshot.head, entries])).digest("hex");

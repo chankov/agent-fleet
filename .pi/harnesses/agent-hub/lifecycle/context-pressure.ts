@@ -3,7 +3,7 @@ import { COMPACTION_MAX_PERCENT } from "../../lib/context-compaction-policy.js";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 // Pi exposes image content through sendUserMessage even when it does not re-export its type.
 type ImageContent = Extract<Exclude<Parameters<ExtensionAPI["sendUserMessage"]>[0], string>[number], { type: "image" }>;
-import { AUTO_COMPACT_PERCENT, contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "../context-pressure.ts";
+import { AUTO_COMPACT_PERCENT, compactionShortOfTargetAfterRecovery, contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "../context-pressure.ts";
 import { estimatePromptTokens } from "../context-window.js";
 import { ContextContinuityCoordinator } from "../context-continuity.ts";
 import { contextContinuityCompatibility } from "../context-continuity-compat.ts";
@@ -43,7 +43,8 @@ export interface ContextPressurePorts {
 export interface ContextPressureLifecycle {
 	reset(ctx: ExtensionContext): void;
 	status(ctx: ExtensionContext): void;
-	observe(ctx: ExtensionContext, source: "message_end" | "turn_end" | "input" | "session_start", additionalTokens?: number): "none" | "expose-compaction" | "compact-now";
+	/** `usage` lets a caller that already measured reuse it: Pi projects the whole branch per call. */
+	observe(ctx: ExtensionContext, source: "message_end" | "turn_end" | "input" | "session_start", additionalTokens?: number, usage?: ReturnType<ExtensionContext["getContextUsage"]>): "none" | "expose-compaction" | "compact-now";
 	runCompaction(ctx: ExtensionContext, source: "input" | "agent_settled" | "session_start"): void | Promise<void>;
 	messageEnd(event: any, ctx: ExtensionContext): void;
 	turnEnd(ctx: ExtensionContext): void | Promise<void>;
@@ -66,7 +67,7 @@ const incomingText = (event: unknown): string => {
 
 export function createContextPressureLifecycle(ports: ContextPressurePorts): ContextPressureLifecycle {
 	const state = () => ports.getState();
- let interrupted=false, restored=false;
+ let interrupted=false, restored=false, ceilingNoticed=false;
  const monitor=createCompactionMonitor(event=>{state().pressure.monitor=monitor.snapshot();try{ports.appendEntry("agent-hub-compaction-monitor",event);}catch{}});
 
  const semantic=new ContextCompactionRuntime();let semanticPending:Promise<void>|null=null, turn=0, taskText="",cancelled=false;
@@ -95,23 +96,24 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
  // user intent. Preserve the current explicit compaction request until the
  // next accepted user input, without retaining it as a permanent task pack.
  const syncPolicy = () => { ports.resolveCapabilities("", false, true); ports.applyWorkMode(); };
-	const observe: ContextPressureLifecycle["observe"] = (ctx, source, additionalTokens = 0) => {
+	const observe: ContextPressureLifecycle["observe"] = (ctx, source, additionalTokens = 0, measured) => {
   if(coordinator) registerManagedCompaction(ctx.sessionManager,{request:request=>{explicitRequested=true;explicitInstructions=[explicitInstructions,request.instructions].filter(Boolean).join("\n\n");if(request.nextStep){nextStep=request.nextStep;interrupted=true;}state().automaticPending=true;}});
-		const usage = ctx.getContextUsage();
+		const usage = measured ?? ctx.getContextUsage();
         monitor.observe(usage);
 		const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
 		const tokens = usage?.tokens == null ? null : usage.tokens + Math.max(0, additionalTokens);
 		const percent = tokens != null && contextWindow != null && contextWindow > 0 ? tokens / contextWindow * 100 : usage?.percent ?? null;
 		const previous = state().pressure.phase;
-		const decision = transitionContextPressure(state().pressure, { type: "usage", usage: { tokens, contextWindow, percent } });
+		const decision = transitionContextPressure(state().pressure, { type: "usage", usage: { tokens, contextWindow, percent }, measuredTokens: usage?.tokens ?? null });
 		ports.setPressure(decision.state); status(ctx); syncPolicy();
 		if (decision.action !== "none" || previous !== decision.state.phase) record(source, decision.action, decision.reason);
 		if (decision.action === "compact-now") { state().automaticPending = true; if (ctx.hasUI) ctx.ui.notify(`Context reached ${AUTO_COMPACT_PERCENT}%; pausing the tool loop for automatic compaction.`, "warning"); }
 		return decision.action;
 	};
 	const markSucceeded = () => {
-		state().automaticPending = false;
-		if (state().pressure.phase === "recovered") return;
+		state().automaticPending = false; ceilingNoticed = false;
+		// Any later compaction, including an explicit one, sets a new baseline.
+		if (state().pressure.phase === "recovered") { ports.setPressure({ ...state().pressure, compactedTokens: null, awaitingCompactedUsage: true }); return; }
 		const decision = transitionContextPressure(state().pressure, { type: "compaction-succeeded" });
 		ports.setPressure(decision.state);
 		const ctx = ports.getCurrentContext(); if (ctx) status(ctx);
@@ -164,11 +166,11 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 		} });
 	};
 	return {
-		reset(ctx) { monitor.reset(); coordinator?.fence(); semantic.fence();semanticPending=null;turn=0;taskText="";explicitRequested=false;explicitInstructions="";nextStep="Resume the interrupted authorized step; retain all existing gates and budgets.";cancelled=false;interrupted=false; restored=false; const fresh = createContextPressureRootState(); fresh.pressure.monitor=monitor.snapshot(); ports.setPressure(fresh.pressure); Object.assign(state(), fresh); status(ctx); }, status, observe, runCompaction, replayDeferred,
+		reset(ctx) { monitor.reset(); ceilingNoticed=false; coordinator?.fence(); semantic.fence();semanticPending=null;turn=0;taskText="";explicitRequested=false;explicitInstructions="";nextStep="Resume the interrupted authorized step; retain all existing gates and budgets.";cancelled=false;interrupted=false; restored=false; const fresh = createContextPressureRootState(); fresh.pressure.monitor=monitor.snapshot(); ports.setPressure(fresh.pressure); Object.assign(state(), fresh); status(ctx); }, status, observe, runCompaction, replayDeferred,
 		messageEnd(event, ctx) { if (event.message.role !== "toolResult") return; const projected = estimatePromptTokens(JSON.stringify(event.message.content ?? [])); if (observe(ctx, "message_end", projected) === "compact-now") { interrupted=true; ctx.abort(); } },
 		async turnEnd(ctx) {
-   observe(ctx, "turn_end");turn++;
    const usage=ctx.getContextUsage();
+   observe(ctx, "turn_end", 0, usage);turn++;
    const measurement={tokens:usage?.tokens??null,window:usage?.contextWindow??ctx.model?.contextWindow??null,turn};
    const diagnostic=(result:unknown,details:unknown=measurement)=>{const metadata=contextAssessmentMetadata(result,details);try{ports.appendEntry("agent-hub-context-assessment",metadata);}catch{}ctx.ui.setStatus("context-assessment",`Context assessment: ${metadata.status} · ${metadata.reason}`);};
    if(!coordinator){diagnostic({status:"off",reason:"runtime_unsupported"});return;}
@@ -194,8 +196,12 @@ export function createContextPressureLifecycle(ports: ContextPressurePorts): Con
 		context(ctx) {
    const usage=ctx.getContextUsage();
    if((usage?.percent??0)>=COMPACTION_MAX_PERCENT && !state().automaticPending && !state().automaticRunning) {
-    observe(ctx,"turn_end");
-    if(!state().automaticPending){monitor.record("ceiling_blocked",usage);ctx.ui.notify("Context is at or above 80% after recovery. Work paused; inspect /af-context and use /compact to recover.","error");ctx.abort();return;}
+    observe(ctx,"turn_end",0,usage);
+    // Holding work stalls a small window whose compacted baseline sits between the
+    // target and the ceiling; growth re-arms compaction there instead.
+    if(!state().automaticPending && compactionShortOfTargetAfterRecovery(state().pressure)){
+     if(!ceilingNoticed){ceilingNoticed=true;monitor.record("ceiling_exceeded",usage);record("context","none","compaction-short-of-target");if(ctx.hasUI)ctx.ui.notify(`Context stayed above the ${AUTO_COMPACT_PERCENT}% target after compaction. Work continues and compaction re-arms after further growth; a larger-context model or lower compaction keepRecentTokens avoids this.`,"warning");}
+    } else if(!state().automaticPending){monitor.record("ceiling_blocked",usage);if(ctx.hasUI)ctx.ui.notify(`Context is at or above ${COMPACTION_MAX_PERCENT}% after recovery. Work paused; inspect /af-context and use /compact to recover, or switch to a larger-context model.`,"error");ctx.abort();return;}
    }
    if (!state().automaticPending) return; interrupted=true; record("context", "compact-now", "single-flight"); ctx.abort(); },
 		async agentSettled(ctx) { if(semanticPending){await semanticPending;semanticPending=null;} await runCompaction(ctx, "agent_settled"); },

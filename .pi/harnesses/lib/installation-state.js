@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { safeSourceRead } from './safe-source-read.js';
 
 export const INSTALLATION_STATE_MAX_BYTES = 1024 * 1024;
+export const INVALID_DESIRED_MESSAGE = '.ai/agent-fleet.json is not a JSON object; fix or remove that human configuration file. Installation state was not read.';
 export const RETIRED_INSTALLATION_OWNER_MESSAGE = 'installationOwner is no longer supported; use a standalone installation in the workspace (for multiple repositories, install at their common parent). No state is redirected or migrated automatically.';
 export function rejectInstallationOwner(config) {
   if (config && Object.hasOwn(config, 'installationOwner')) throw Error(RETIRED_INSTALLATION_OWNER_MESSAGE);
@@ -15,7 +16,10 @@ function present(path) {
 function desired(root) {
   const path = join(root, '.ai/agent-fleet.json');
   if (!present(path)) return null;
-  const value = JSON.parse(safeSourceRead(root, path, 64 * 1024).toString('utf8'));
+  const bytes = safeSourceRead(root, path, 64 * 1024);
+  let value;
+  // The human configuration, not the installation evidence, is broken here.
+  try { value = JSON.parse(bytes.toString('utf8')); } catch { throw Error('invalid_desired'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('invalid_desired');
   rejectInstallationOwner(value);
   return value;
@@ -45,7 +49,7 @@ export function readInstallationState(workspace, { afterStateRead = () => {}, re
   } catch (error) {
     // JSON errors may expose private fragments; return only known codes.
     const reason = error.message === RETIRED_INSTALLATION_OWNER_MESSAGE ? 'installation_owner_removed'
-      : ['source_denied', 'source_changed', 'state_too_large', 'unsupported_state_schema', 'invalid_selection'].includes(error.message) ? error.message : 'invalid_installation_evidence';
+      : ['source_denied', 'source_changed', 'state_too_large', 'unsupported_state_schema', 'invalid_selection', 'invalid_desired'].includes(error.message) ? error.message : 'invalid_installation_evidence';
     return { ...result, status: 'invalid', reason };
   }
 }
@@ -54,5 +58,5 @@ export function readInstallationState(workspace, { afterStateRead = () => {}, re
 export function assertLocalInstallation(workspace, operation = 'installation operation') {
   const result = readInstallationState(workspace, { readState: false });
   if (result.status !== 'invalid') return;
-  throw Error(`${operation}: ${result.reason === 'installation_owner_removed' ? RETIRED_INSTALLATION_OWNER_MESSAGE : `invalid local installation evidence (${result.reason})`}`);
+  throw Error(`${operation}: ${result.reason === 'installation_owner_removed' ? RETIRED_INSTALLATION_OWNER_MESSAGE : result.reason === 'invalid_desired' ? INVALID_DESIRED_MESSAGE : `invalid local installation evidence (${result.reason})`}`);
 }

@@ -48,7 +48,8 @@ test("real agent-core event transport preserves bash failure and repeated-failur
  const { dirname, join } = await import("node:path");
  const cli = realpathSync("node_modules/.bin/pi");
  const api = await import(join(dirname(cli), "index.js"));
- const { agentLoop } = await import(join(dirname(cli), "../node_modules/@earendil-works/pi-agent-core/dist/index.js"));
+ // Pi 1.1 hoists agent-core beside the coding agent instead of nesting it in its package.
+ const { agentLoop } = await import("@earendil-works/pi-agent-core");
  const { createDriftMonitor } = await import("./drift-watchdog.js");
  const { registerObservedBash } = await import("./runtime-test-check.ts");
  let tool: any, hook: any;

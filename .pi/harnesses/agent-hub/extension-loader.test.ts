@@ -361,13 +361,22 @@ test("capture JSON times out with bounded diagnostics for persistent malformed d
 	}
 });
 
+// maxChars guards the default (System 1 off) surface. Recommended System 1 mode is an
+// explicit opt-in that adds ask_system1 (and dispatch_triage on fleet) plus their usage
+// guidance: measured 2026-10-16 at +4,566 chars, +5,402 on fleet (both schemas). Only
+// fleet then exceeds its default budget (22,665 > 20,000), because the default fleet
+// prompt grew with the decision-routing, ORCHESTRATOR_ANSWER, review-reuse and
+// optional-planning guidance approved on 2026-10-15. recommendedMaxChars raises only
+// that opt-in fleet surface, and the System 1 overhead itself stays bounded below.
+const RECOMMENDED_SYSTEM1_ALLOWANCE = 6_000;
 const budgetProfiles = [
 		{ name: "greeting", message: "hello", maxChars: 14_000, expectedTool: "ask_user" },
 		{ name: "direct", message: "Fix the parser and run its tests.", maxChars: 18_000, expectedTool: "read" },
-		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, expectedTool: "dispatch_agent" },
+		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, recommendedMaxChars: 24_000, expectedTool: "dispatch_agent" },
 		{ name: "verification", message: "Implement this feature with acceptance criteria.", maxChars: 20_000, expectedTool: "set_assertions" },
 		{ name: "compaction", message: "Please compact the conversation.", maxChars: 20_000, expectedTool: "request_compaction", extraArgs: ["-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] },
 ] as const;
+const offProfileChars = new Map<string, number>();
 for (const mode of ["off", "recommended"] as const) {
 	for (const profile of budgetProfiles) {
 		test(`effective Hub profiles: ${mode}/${profile.name} stays within budget`, async () => {
@@ -392,7 +401,7 @@ for (const mode of ["off", "recommended"] as const) {
 		const capturePath = join(workspace, "profile-budget.json");
 		writeFileSync(probePath, `
 +import { writeFileSync } from "node:fs";
-+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
++import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 +
 +// This fixture only captures schemas; any accidental network request is a failure.
 +let networkRequests = 0;
@@ -402,12 +411,14 @@ for (const mode of ["off", "recommended"] as const) {
 +function streamBudgetProbe(model, context) {
 +  const stream = createAssistantMessageEventStream();
 +  queueMicrotask(() => {
-+    const schemas = context.tools ?? [];
++    // Pi 1.1 declares the prompt and tools as system messages in the transcript.
++    const schemas = context.tools?.length ? context.tools : getCurrentTools(context.messages ?? []);
 +    writeFileSync(capturePath, JSON.stringify({
 +      networkRequests,
-+      promptChars: String(context.systemPrompt ?? "").length,
++      promptChars: String(context.systemPrompt || getCurrentSystemPrompt(context.messages ?? [])).length,
 +      schemaChars: JSON.stringify(schemas).length,
 +      active: schemas.map(tool => tool.name),
++      largest: schemas.map(tool => [tool.name, JSON.stringify(tool).length]).sort((a, b) => b[1] - a[1]).slice(0, 6),
 +    }));
 +    const output = {
 +      role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
@@ -447,7 +458,7 @@ for (const mode of ["off", "recommended"] as const) {
 			const promptResponse = await rpc.request({ type: "prompt", message: profile.message });
 			assert.equal(promptResponse.success, true, `${profile.name}: ${JSON.stringify(promptResponse)}`);
 			const captureDeadline = Date.now() + 10_000;
-			const measured = await waitForValidJson<{ promptChars: number; schemaChars: number; active: string[]; networkRequests: number }>(
+			const measured = await waitForValidJson<{ promptChars: number; schemaChars: number; active: string[]; largest: [string, number][]; networkRequests: number }>(
 				capturePath,
 				profile.name,
 				captureDeadline,
@@ -457,8 +468,15 @@ for (const mode of ["off", "recommended"] as const) {
 			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
 			assert.equal(measured.active.includes("ask_system1"), mode === "recommended", "explicit System 1 mode must match the active surface");
 			assert.equal(measured.active.includes("dispatch_triage"), mode === "recommended" && profile.name === "fleet");
-			assert.ok(measured.promptChars + measured.schemaChars <= profile.maxChars,
-				`${profile.name} effective chars=${measured.promptChars + measured.schemaChars} > ${profile.maxChars}`);
+			const effective = measured.promptChars + measured.schemaChars;
+			const maxChars = mode === "recommended" && "recommendedMaxChars" in profile ? profile.recommendedMaxChars : profile.maxChars;
+			assert.ok(effective <= maxChars,
+				`${profile.name} effective chars=${effective} > ${maxChars} (prompt ${measured.promptChars}; largest schemas ${JSON.stringify(measured.largest)})`);
+			// Off profiles run first in this file; the opt-in System 1 surface must stay bounded.
+			if (mode === "off") offProfileChars.set(profile.name, effective);
+			const off = offProfileChars.get(profile.name);
+			if (mode === "recommended" && off !== undefined) assert.ok(effective - off <= RECOMMENDED_SYSTEM1_ALLOWANCE,
+				`${profile.name} System 1 overhead=${effective - off} > ${RECOMMENDED_SYSTEM1_ALLOWANCE}`);
 			assert.ok(measured.active.includes(profile.expectedTool), `${profile.name} must expose ${profile.expectedTool}`);
 			if (profile.name !== "fleet") assert.ok(!measured.active.includes("dispatch_agent"));
 		} finally {
@@ -474,17 +492,21 @@ test("tool-result pressure aborts before a tool loop can make another provider r
 	const probePath = join(workspace, "pressure-provider.ts");
 	const eventPath = join(workspace, "events.ndjson");
 	writeFileSync(probePath, String.raw`
-import { appendFileSync } from "node:fs";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { appendFileSync, existsSync } from "node:fs";
+import { createAssistantMessageEventStream, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 let providerCalls = 0;
 const eventPath = process.env.PRESSURE_EVENT_PATH;
 const record = (value) => appendFileSync(eventPath, JSON.stringify(value) + "\n");
 
+// Recovery prefers a user input queued before it decides; hold the summary until the
+// test has queued its input, so the race cannot pick the synthetic continuation.
+const queued = async () => { for (let i = 0; i < 500 && !existsSync(process.env.PRESSURE_GATE_PATH); i++) await new Promise(r => setTimeout(r, 10)); };
 function streamPressure(model, context, options) {
   const stream = createAssistantMessageEventStream();
-  queueMicrotask(() => {
+  const summary = /context summarization assistant/i.test(context.systemPrompt || getCurrentSystemPrompt(context.messages ?? []));
+  (summary ? queued() : Promise.resolve()).then(() => {
     if (options?.signal?.aborted) {
       const aborted = { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
@@ -499,17 +521,19 @@ function streamPressure(model, context, options) {
     providerCalls++;
     const output = {
       role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
-      usage: { input: providerCalls === 1 ? 190000 : providerCalls <= 3 ? 220000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      // 55% seed and 62.5% probe turns stay below the 70% target; only the probe result crosses it.
+      usage: { input: providerCalls === 1 ? 150000 : providerCalls === 2 ? 170000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       stopReason: "pending", timestamp: Date.now(),
     };
     output.usage.totalTokens = output.usage.input + output.usage.output;
-    record({ type: "provider", call: providerCalls, summaryPrompt: /context summarization assistant/i.test(context.systemPrompt || ""), toolCount: context.tools?.length ?? 0, deferred: JSON.stringify(context.messages).includes("deferred-after-pressure") });
+    // Pi 1.1 declares the prompt and tools as system messages in the transcript.
+    const systemPrompt = context.systemPrompt || getCurrentSystemPrompt(context.messages ?? []);
+    const toolCount = context.tools?.length || getCurrentTools(context.messages ?? []).length;
+    record({ type: "provider", call: providerCalls, summaryPrompt: /context summarization assistant/i.test(systemPrompt), toolCount, deferred: JSON.stringify(context.messages).includes("deferred-after-pressure") });
     stream.push({ type: "start", partial: output });
-    if (providerCalls === 2 || providerCalls === 3) {
-      const toolCall = providerCalls === 2
-        ? { type: "toolCall", id: "bind-call", name: "set_task_tier", arguments: { tier: "small", risk: "low", scope: "read-only", new_task: false, reason: "Continue the same synthetic pressure test with explicit classification." } }
-        : { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
+    if (providerCalls === 2) {
+      const toolCall = { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
       output.content.push(toolCall);
       stream.push({ type: "toolcall_start", contentIndex: 0, partial: output });
       stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: output });
@@ -547,8 +571,9 @@ export default function (pi) {
   });
 }
 `);
+	const gatePath = join(workspace, "deferred-queued");
 	const rpc = startRpcProbe(probePath, ["-e", ".pi/extensions/compact-and-continue/index.ts", "--model", "pressure-test/pressure-model"], {
-		env: { ...process.env, PRESSURE_EVENT_PATH: eventPath },
+		env: { ...process.env, PRESSURE_EVENT_PATH: eventPath, PRESSURE_GATE_PATH: gatePath },
 	});
 	try {
 		assert.equal((await rpc.request({ type: "prompt", message: "seed the previous turn" })).success, true);
@@ -569,7 +594,7 @@ export default function (pi) {
 			assert.ok(Date.now() < resultDeadline, `large pressure result missing: ${JSON.stringify(results)}`);
 			await new Promise(resolve => setTimeout(resolve, 20));
 		}
-		await rpc.waitForNotification("Context reached 90%; pausing the tool loop for automatic compaction.", 10_000);
+		await rpc.waitForNotification("Context reached 70%; pausing the tool loop for automatic compaction.", 10_000);
 		const abortReadyDeadline = Date.now() + 10_000;
 		while (!(existsSync(eventPath) && readFileSync(eventPath, "utf8").includes('"type":"provider_aborted"'))) {
 			if (Date.now() >= abortReadyDeadline) break;
@@ -580,6 +605,7 @@ export default function (pi) {
 		}
 		assert.equal((await rpc.request({ type: "prompt", message: "deferred-after-pressure" })).success, true,
 			"input arriving during recovery is handled rather than rejected as streaming");
+		writeFileSync(gatePath, "queued");
 		try {
 			await rpc.waitForNotification("Automatic context compaction completed.", 30_000);
 		} catch (error) {
@@ -592,12 +618,11 @@ export default function (pi) {
 		}
 		const events = readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
 		assert.equal(events.filter(event => event.type === "probe_executed" && event.chars === 140000).length, 1);
-		assert.equal(events.filter(event => event.type === "probe_result" && event.tool === "set_task_tier" && !event.isError).length, 1);
 		const providers = events.filter(event => event.type === "provider");
 		const deferredIndex = providers.findIndex(event => event.deferred);
-		assert.ok(deferredIndex >= 4, `expected seed + bind + tool + compaction before replay: ${JSON.stringify(providers)}`);
-		assert.ok(providers.slice(0, 3).every(event => event.toolCount > 0 && !event.summaryPrompt), "seed, bind and probe are ordinary agent calls");
-		assert.ok(providers.slice(3, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
+		assert.ok(deferredIndex >= 3, `expected seed + tool + compaction before replay: ${JSON.stringify(providers)}`);
+		assert.ok(providers.slice(0, 2).every(event => event.toolCount > 0 && !event.summaryPrompt), "seed and probe are ordinary agent calls");
+		assert.ok(providers.slice(2, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
 			`no ordinary provider request may run between pressure and recovery: ${JSON.stringify(providers)}`);
 		assert.equal(providers[deferredIndex].summaryPrompt, false);
 		assert.ok(providers[deferredIndex].toolCount > 0, "deferred input replays through the ordinary Hub surface");
@@ -642,7 +667,7 @@ export default function (pi) {
 }
 `);
 		const result = spawnSync(piExecutable, [
-			"--mode", "print", "--no-session", "--no-extensions",
+			"--print", "--no-session", "--no-extensions",
 			"-e", extensionPaths[0], "-e", extensionPaths[1], "-e", seedPath,
 			"-e", extensionPaths[2], "-e", capturePath,
 			"--solo", "--model", "roster-gate-test/model", "attempt model input",

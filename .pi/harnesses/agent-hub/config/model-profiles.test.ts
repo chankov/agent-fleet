@@ -13,12 +13,13 @@ test('legacy maps remain compatible; complete profiles resolve future roles and 
     assert.deepEqual(childSelection(p, 'planner', 'rules'), { model: 'omlx/qwen', thinking: 'off' });
     assert.deepEqual(childSelection(p, 'planner', 'future-child'), { model: 'omlx/laguna', thinking: 'off' });
 });
-test('assist accepts only the three optional booleans and preserves explicit on/off values', () => {
+test('assist accepts only the four optional booleans and preserves explicit on/off values', () => {
     const base = { version: 2 as const, defaults: { model: 'omlx/laguna', thinking: 'off' } };
-    const allOff = parseCompleteProfile({ ...base, assist: { 'deterministic-tools': false, 'bounded-output': false, 'write-isolation': false } });
-    assert.deepEqual(allOff.assist, { 'deterministic-tools': false, 'bounded-output': false, 'write-isolation': false });
-    const allOn = parseCompleteProfile({ ...base, assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true } });
-    assert.deepEqual(allOn.assist, { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true });
+    const allOff = parseCompleteProfile({ ...base, assist: { 'deterministic-tools': false, 'bounded-output': false, 'write-isolation': false, 'return-extraction': false } });
+    assert.deepEqual(allOff.assist, { 'deterministic-tools': false, 'bounded-output': false, 'write-isolation': false, 'return-extraction': false });
+    const allOn = parseCompleteProfile({ ...base, assist: { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true, 'return-extraction': true } });
+    assert.deepEqual(allOn.assist, { 'deterministic-tools': true, 'bounded-output': true, 'write-isolation': true, 'return-extraction': true });
+    assert.throws(() => parseCompleteProfile({ ...base, assist: { 'return-extraction': 'yes' } }), /boolean/);
     assert.throws(() => parseCompleteProfile({ ...base, assist: { 'bounded-output': 'yes' } }), /boolean/);
     assert.throws(() => parseCompleteProfile({ ...base, assist: { 'secret-cloud': true } }), /unknown key/);
     assert.throws(() => parseCompleteProfile({ ...base, 'bounded-output': true }), /unknown key/);

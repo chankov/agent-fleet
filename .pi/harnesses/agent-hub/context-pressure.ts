@@ -1,6 +1,6 @@
 import type { createCompactionMonitor } from "./context-compaction-monitor.ts";
 type CompactionMonitorSnapshot = ReturnType<ReturnType<typeof createCompactionMonitor>["snapshot"]>;
-import { COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT } from "../lib/context-compaction-policy.js";
+import { COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT, compactionRearmed, compactionShortOfTarget } from "../lib/context-compaction-policy.js";
 export const CONTEXT_WARNING_PERCENT = COMPACTION_EARLY_PERCENT;
 export const AUTO_COMPACT_PERCENT = COMPACTION_TARGET_PERCENT;
 
@@ -31,8 +31,12 @@ export interface ContextPressureState {
 	pressure: ContextPressure;
 	episode: number;
 	usage: ContextUsageMeasurement;
-	/** Rearmed only after measured usage falls below the warning threshold. */
+	/** Rearmed when measured usage falls below the warning threshold, or after one
+	 * band of growth over the first measurement after a successful compaction. */
 	autoCompactArmed: boolean;
+	/** First measured tokens after the last successful compaction; null until measured. */
+	compactedTokens: number | null;
+	awaitingCompactedUsage: boolean;
 	lastRecoveryOutcome: ContextRecoveryOutcome;
 	lastError: string | null;
 }
@@ -51,7 +55,8 @@ export interface ContextPressureDiagnostic {
 }
 
 export type ContextPressureEvent =
-	| { type: "usage"; usage: ContextUsageMeasurement }
+	/** `measuredTokens` excludes a not-yet-sent tool result included in `usage`. */
+	| { type: "usage"; usage: ContextUsageMeasurement; measuredTokens?: number | null }
 	| { type: "compaction-succeeded" }
 	| { type: "compaction-failed"; error?: string };
 
@@ -70,6 +75,8 @@ export function createContextPressureState(): ContextPressureState {
 		episode: 0,
 		usage: { ...EMPTY_USAGE },
 		autoCompactArmed: true,
+		compactedTokens: null,
+		awaitingCompactedUsage: false,
 		lastRecoveryOutcome: "none",
 		lastError: null,
 	};
@@ -117,20 +124,35 @@ export function shouldExposeCompaction(state: ContextPressureState): boolean {
 	return state.phase !== "normal";
 }
 
+/** Capability-pack context state: the pressure phase first, live usage as fallback. */
+export function pressureCapabilityState(state: ContextPressureState, livePercent?: number | null): "normal" | "approaching-compaction" | "imminent-compaction" {
+	if (state.phase === "warning") return "approaching-compaction";
+	if (state.phase !== "normal" || state.pressure === "imminent") return "imminent-compaction";
+	if (state.pressure === "approaching") return "approaching-compaction";
+	if (typeof livePercent === "number" && livePercent >= AUTO_COMPACT_PERCENT) return "imminent-compaction";
+	if (typeof livePercent === "number" && livePercent >= CONTEXT_WARNING_PERCENT) return "approaching-compaction";
+	return "normal";
+}
+
+/** The last compaction succeeded but left usage between its target and the ceiling. */
+export function compactionShortOfTargetAfterRecovery(state: ContextPressureState): boolean {
+	return state.phase === "recovered" && compactionShortOfTarget(state.compactedTokens, state.usage.contextWindow);
+}
+
 export function transitionContextPressure(
 	state: ContextPressureState,
 	event: ContextPressureEvent,
 ): ContextPressureDecision {
 	if (event.type === "compaction-succeeded") {
 		return {
-			state: { ...state, phase: "recovered", lastRecoveryOutcome: "succeeded", lastError: null },
+			state: { ...state, phase: "recovered", compactedTokens: null, awaitingCompactedUsage: true, lastRecoveryOutcome: "succeeded", lastError: null },
 			action: "none",
 			reason: "compaction-succeeded",
 		};
 	}
 	if (event.type === "compaction-failed") {
 		return {
-			state: { ...state, phase: "failed", autoCompactArmed: false, lastRecoveryOutcome: "failed", lastError: event.error?.trim() || "compaction failed" },
+			state: { ...state, phase: "failed", autoCompactArmed: false, compactedTokens: null, awaitingCompactedUsage: false, lastRecoveryOutcome: "failed", lastError: event.error?.trim() || "compaction failed" },
 			action: "none",
 			reason: "compaction-failed",
 		};
@@ -138,6 +160,9 @@ export function transitionContextPressure(
 
 	const usage = normalizeUsage(event.usage);
 	const pressure = pressureFor(usage.percent);
+	const measured = finiteNonNegative(event.measuredTokens === undefined ? usage.tokens : event.measuredTokens);
+	if (state.awaitingCompactedUsage && measured !== null) state = { ...state, compactedTokens: measured, awaitingCompactedUsage: false };
+	if (!state.autoCompactArmed && state.phase === "recovered" && compactionRearmed(state.compactedTokens, measured, usage.contextWindow)) state = { ...state, autoCompactArmed: true };
 	if (pressure === "unknown") {
 		return {
 			state: { ...state, pressure, usage },

@@ -3,7 +3,7 @@ import test from "node:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { projectCoordinationHistory } from "./history-projection.ts";
+import { createHistoryProjectionMemo, projectCoordinationHistory } from "./history-projection.ts";
 
 const assistant=(id:string)=>({role:"assistant",content:[{type:"toolCall",id,name:"dispatch_agent",arguments:{task:"Keep every declared requirement"}}]});
 const result=(id:string,details:any={})=>({role:"toolResult",toolCallId:id,toolName:"dispatch_agent",isError:false,content:[{type:"text",text:"large historical report ".repeat(1500)}],details:{status:"completed_unverified",exitCode:0,accepted:false,...details}});
@@ -55,7 +55,7 @@ test("older inspection pages become exact references after the recent working se
 
 test("current prompt keeps exact sourced critical conditions outside historical projections",async()=>{
  const {stateCapsuleFragment}=await import("./prompts/fragments.ts");
- const prompt=stateCapsuleFragment({taskTier:"feature",taskTierAssumed:false,turnDispatchCount:0,turnResearchCount:0,taskDispatchCount:0,taskResearchCount:0,taskReviewRounds:0,turnBudget:{maxDispatches:null,maxResearch:null},taskBudget:{wallMs:null},provisionalConfirmations:[],requirements:[{id:"A1",text:"Use the UTC calendar boundary",source:"user-approved plan",reference:"PLAN.md:42",criticalConditions:["Never use the local calendar day"],recordedStatus:"unproven"}]} as any,{active:[],provisional:[],reasons:{}} as any);
+ const prompt=stateCapsuleFragment({taskTier:"feature",taskTierAssumed:false,turnDispatchCount:0,turnResearchCount:0,taskDispatchCount:0,taskResearchCount:0,taskReviewRounds:0,provisionalConfirmations:[],requirements:[{id:"A1",text:"Use the UTC calendar boundary",source:"user-approved plan",reference:"PLAN.md:42",criticalConditions:["Never use the local calendar day"],recordedStatus:"unproven"}]} as any,{active:[],provisional:[],reasons:{}} as any);
  for(const condition of ["Use the UTC calendar boundary","user-approved plan","PLAN.md:42","Never use the local calendar day"])assert.ok(prompt.includes(condition),condition);
  assert.match(prompt,/recorded status is not fresh verification/);
 });
@@ -66,4 +66,23 @@ test("history projection leaves an external artifact symlink untouched",t=>{
  const messages:any[]=[assistant("old"),result("old"),assistant("latest"),result("latest")];
  assert.equal(projectCoordinationHistory(messages as any,dir).projected,0);
  assert.equal(existsSync(join(external,"context-history")),false,"projection cannot create directories through an external symlink");
+});
+
+const small=(id:string)=>{const r:any=result(id);r.content=[{type:"text",text:"historical report ".repeat(400)}];return r;};
+test("a session memo projects in batches and reuses the exact earlier view without rereading",t=>{
+ const dir=directory(t),memo=createHistoryProjectionMemo(16_000);
+ const history:any[]=[assistant("a"),small("a"),assistant("b"),small("b")];
+ let view=projectCoordinationHistory([...history,assistant("latest"),result("latest")] as any,dir,memo);
+ assert.equal(view.projected,0,"one small result waits for a batch");
+ history.push(assistant("c"),small("c"),assistant("d"),small("d"));
+ view=projectCoordinationHistory([...history,assistant("latest2"),result("latest2")] as any,dir,memo);
+ assert.equal(view.added,4,"the accumulated batch projects at once");
+ const first=view.messages[1],reference=(first as any).details.historicalReference;
+ const again=projectCoordinationHistory([...history,assistant("latest3"),result("latest3")] as any,dir,memo);
+ assert.equal(again.added,0);assert.equal(again.projected,4);
+ assert.equal(again.messages[1],first,"an earlier projection is the identical object, so the prompt prefix stays stable");
+ writeFileSync(reference,"tampered");
+ const checked=projectCoordinationHistory([...history,assistant("latest4"),result("latest4")] as any,dir,memo);
+ assert.notEqual(checked.messages[1],first,"a changed original reference is never reused");
+ assert.equal(checked.projected,3,"the tampered result stays verbatim until a new batch rewrites it");
 });

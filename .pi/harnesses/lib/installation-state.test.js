@@ -69,6 +69,16 @@ test('linked human config refuses even if local state is missing', t => {
   symlinkSync(join(root, 'desired.json'), join(root, '.ai/agent-fleet.json'));
   assert.equal(readInstallationState(root).reason, 'source_denied');
 });
+test('a corrupt human configuration is named as such, never as installation evidence', t => {
+  const { root } = fixture(t);
+  for (const text of ['{private-fragment', '[]', 'null']) {
+    writeFileSync(join(root, '.ai/agent-fleet.json'), text);
+    const result = readInstallationState(root);
+    assert.equal(result.status, 'invalid'); assert.equal(result.reason, 'invalid_desired');
+    assert.ok(!JSON.stringify(result).includes('private-fragment'));
+    assert.throws(() => assertLocalInstallation(root), /\.ai\/agent-fleet\.json is not a JSON object/);
+  }
+});
 test('configuration changed during state read is refused', t => {
   const { root } = fixture(t);
   writeFileSync(join(root, '.ai/agent-fleet.json'), '{}');

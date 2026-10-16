@@ -2,7 +2,7 @@
 // duration are observable, never continuation quotas. Individual child deadlines,
 // cancellation and context recycling still bound a physical run.
 
-// Task tiers — the dispatcher's complexity triage AND the budget envelope.
+// Task tiers — the dispatcher's complexity triage, child deadlines and delegation.
 // Unset/junk tier is treated as DEFAULT_TASK_TIER (`small`).
 export const TASK_TIERS = ["trivial", "small", "feature", "project"];
 // The tier ASSUMED when the dispatcher never called set_task_tier. It is
@@ -34,46 +34,26 @@ export const HARD_RECYCLE_CONTEXT_PCT = 100;
 
 export const TIER_BUDGETS = {
 	trivial: {
-		maxDispatches: null,
-		maxResearch: null,
-		wallMs: null,
 		agentTurnMs: 10 * 60_000,
 		recycleRuns: 3,
 		delegation: false,
 	},
 	small: {
-		maxDispatches: null,
-		maxResearch: null,
-		wallMs: null,
 		agentTurnMs: 10 * 60_000,
 		recycleRuns: 3,
 		delegation: false,
 	},
 	feature: {
-		maxDispatches: null,
-		maxResearch: null,
-		wallMs: null,
 		agentTurnMs: 30 * 60_000,
 		recycleRuns: 5,
 		delegation: true,
 	},
 	project: {
-		maxDispatches: null,
-		maxResearch: null,
-		wallMs: null,
 		agentTurnMs: 30 * 60_000,
 		recycleRuns: 5,
 		delegation: true,
 	},
 };
-
-/** Dispatch/research slice of TIER_BUDGETS — kept for callers that only need caps. */
-export const TIER_CAPS = Object.fromEntries(
-	TASK_TIERS.map((tier) => [tier, {
-		maxDispatches: TIER_BUDGETS[tier].maxDispatches,
-		maxResearch: TIER_BUDGETS[tier].maxResearch,
-	}]),
-);
 
 /** Legacy quota overrides are ignored. Only child deadlines and recycling are configurable. */
 export function resolveTurnBudget(tier, overrides = {}) {
@@ -85,66 +65,10 @@ export function resolveTurnBudget(tier, overrides = {}) {
 		return Math.min(base[key], override);
 	};
 	return {
-		maxDispatches: null,
-		maxResearch: null,
-		wallMs: null,
 		agentTurnMs: ceiling("agentTurnMs"),
 		recycleRuns: ceiling("recycleRuns"),
 		delegation: base.delegation,
 	};
-}
-
-/** Orchestrator needs one implementation, one review, and one correction in a turn.
- *  This raises only the turn dispatch cap. A configured max-dispatches-per-turn
- *  ceiling still wins, and the task envelope stays on the unfloored tier budget. */
-export const ORCHESTRATOR_TURN_DISPATCH_FLOOR = 3;
-
-export function orchestratorTurnBudget(turnBudget, workMode, explicitDispatchCeiling) {
-	if (workMode !== "orchestrator" || !turnBudget || turnBudget.maxDispatches == null) return turnBudget;
-	if (typeof explicitDispatchCeiling === "number") return turnBudget;
-	if (turnBudget.maxDispatches >= ORCHESTRATOR_TURN_DISPATCH_FLOOR) return turnBudget;
-	return { ...turnBudget, maxDispatches: ORCHESTRATOR_TURN_DISPATCH_FLOOR };
-}
-
-function refusalTail(tier) {
-	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
-	return "Do NOT retry this call before human confirmation. Summarize progress so far (including " +
-		"unproven assertions and artifact paths), then use the Hub's one-click budget continuation " +
-		"confirmation. Do not ask for a typed continue message or a slash command. Raise the task " +
-		`tier with set_task_tier when the work outgrew "${label}", or tighten/widen future ceilings ` +
-		"with the max-*-per-turn / turn-wall-time-s keys in .ai/agent-fleet-overrides.md.";
-}
-
-/**
- * Gate one dispatcher tool call against the turn budget.
- * kind: "dispatch" | "research"; counters: { dispatches, research } — calls
- * already made this turn. Returns null when allowed, else { reason, message }.
- * @param {string|null} [tier]
- */
-export function checkTurnBudget(kind, counters, budget, elapsedWallMs, tier = DEFAULT_TASK_TIER) {
-	const label = normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER;
-	if (budget.wallMs != null && elapsedWallMs >= budget.wallMs) {
-		return {
-			reason: "wall",
-			message: `⚠ Turn budget exhausted: wall clock at ${Math.round(elapsedWallMs / 60_000)} min ` +
-				`(limit ${Math.round(budget.wallMs / 60_000)} min at tier ${label}). ${refusalTail(label)}`,
-		};
-	}
-	if (kind === "dispatch" && budget.maxDispatches != null && counters.dispatches >= budget.maxDispatches) {
-		return {
-			reason: "dispatches",
-			message: `⚠ Turn budget exhausted: ${counters.dispatches} of ${budget.maxDispatches} ` +
-				`dispatch_agent calls used at tier ${label}. ${refusalTail(label)}`,
-		};
-	}
-	if (kind === "research" && budget.maxResearch != null && counters.research >= budget.maxResearch) {
-		return {
-			reason: "research",
-			message: `⚠ Turn budget exhausted: ${counters.research} of ${budget.maxResearch} ` +
-				`spawn_research calls used at tier ${label}. ${refusalTail(label)}`,
-		};
-	}
-	return null;
 }
 
 /**
@@ -179,18 +103,14 @@ export function contextOverflowDiagnostic(runsSinceFresh, contextPct, { agent = 
 	);
 }
 
-/** One-line status chip: "Tier: small · 1/2 disp · 0/2 res · task 4/6".
+/** One-line usage chip: "Tier: small · 1 disp · 0 res · task 4 disp". Counts, never quotas.
+ * @param {{dispatches: number, research: number}} counters this turn
  * @param {string|null} [tier]
- * @param {{counters: {dispatches: number}, budget: {maxDispatches: number|null}}|null} [task]
+ * @param {{dispatches: number}|null} [task] counts for the whole task
  */
-export function budgetStatusLine(counters, budget, tier = null, task = null) {
-	const cap = (n) => (n == null ? "∞" : String(n));
-	const tierLabel = tier || DEFAULT_TASK_TIER;
-	const taskSuffix = task
-		? ` · task ${task.counters.dispatches}/${cap(task.budget.maxDispatches)}`
-		: "";
-	return `Tier: ${tierLabel} · ${counters.dispatches}/${cap(budget.maxDispatches)} disp · ` +
-		`${counters.research}/${cap(budget.maxResearch)} res${taskSuffix}`;
+export function budgetStatusLine(counters, tier = null, task = null) {
+	const taskSuffix = task ? ` · task ${task.dispatches} disp` : "";
+	return `Tier: ${tier || DEFAULT_TASK_TIER} · ${counters.dispatches} disp · ${counters.research} res${taskSuffix}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,46 +180,13 @@ export function applyTierChange(current, next, reason = "") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Task-scoped budget (the outer bound the turn budget never provided)
+// Task clock — active time is visible accounting, never a continuation quota
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// Turn budgets are a per-message allowance, and a per-message allowance cannot
-// bound a task: the observed 47-hour run never hit one, because every steering
-// message opened a fresh window of 8 dispatches and 60 minutes. The task budget
-// is the same envelope multiplied once and NOT reset by a user message.
-// Exhaustion is a hard stop until the human accepts one audited continuation
-// tranche; opening a genuinely new task remains a separate lifecycle action.
-
-export const TASK_BUDGET_MULTIPLIER = 3;
-
-/** Task envelope = turn envelope × multiplier; `null` (off) axes stay off. */
-export function resolveTaskBudget(turnBudget, multiplier = TASK_BUDGET_MULTIPLIER) {
-	const scale = (value) => (value == null ? null : Math.max(1, Math.round(value * multiplier)));
-	return {
-		maxDispatches: scale(turnBudget.maxDispatches),
-		maxResearch: scale(turnBudget.maxResearch),
-		wallMs: scale(turnBudget.wallMs),
-	};
-}
-
-function taskRefusalTail() {
-	return "This is a HARD STOP for the current task, not a turn refusal — another user message does " +
-		"NOT reopen it. Summarize what is proven (with evidence and artifact paths), what is unproven, " +
-		"and what remains, then use the Hub's one-click task-budget continuation confirmation. A confirmed " +
-		"continuation opens one audited tranche while preserving task state. Use `set_task_tier` with " +
-		"`new_task: true` only when the human genuinely moved to different work.";
-}
 
 /**
  * ACTIVE milliseconds in one turn: wall clock minus the time the human was away.
- *
- * The task clock must never charge for human time. A task's wall clock spans
- * every message on it, so a lunch break, an overnight pause, or a long `ask_user`
- * answer would all count as budget — and at `small` tier's 45-minute task wall a
- * single coffee break would hard-stop a task with two dispatches spent. That is a
- * false positive that teaches people to reset the task window reflexively, which
- * costs more than the guardrail buys. Dispatch/research counts stay the honest
- * hard stops; the clock only bounds time the fleet actually spent working.
+ * A lunch break, an overnight pause or a long `ask_user` answer is not fleet work,
+ * so the reported task duration excludes it.
  */
 export function turnActiveMs(turnStartedAt, now, askUserWaitMs = 0) {
 	if (!turnStartedAt) return 0;
@@ -367,57 +254,6 @@ export function resetTaskClock(clock, now) {
 	};
 }
 
-/**
- * Gate one dispatcher tool call against the TASK budget (checked before the
- * turn budget: it is the more severe stop).
- * `activeTaskMs` is ACTIVE time (see turnActiveMs), never raw wall clock.
- * kind: "dispatch" | "research". Returns null when allowed, else { reason, message }.
- */
-/** @param {string|null} [tier] */
-export function checkTaskBudget(kind, counters, taskBudget, activeTaskMs, tier = null) {
-	const label = tier ? `tier ${tier}` : "current tier";
-	if (taskBudget.wallMs != null && activeTaskMs >= taskBudget.wallMs) {
-		return {
-			reason: "task_wall",
-			message: `⛔ TASK budget exhausted: ${Math.round(activeTaskMs / 60_000)} min of ACTIVE time on this task ` +
-				`(limit ${Math.round(taskBudget.wallMs / 60_000)} min = ${TASK_BUDGET_MULTIPLIER}× the ${label} turn envelope; ` +
-				`time the human was away is not charged). ` +
-				taskRefusalTail(),
-		};
-	}
-	if (kind === "dispatch" && taskBudget.maxDispatches != null && counters.dispatches >= taskBudget.maxDispatches) {
-		return {
-			reason: "task_dispatches",
-			message: `⛔ TASK budget exhausted: ${counters.dispatches} of ${taskBudget.maxDispatches} ` +
-				`dispatch_agent calls used on this task (${TASK_BUDGET_MULTIPLIER}× the ${label} turn envelope). ` +
-				taskRefusalTail(),
-		};
-	}
-	if (kind === "research" && taskBudget.maxResearch != null && counters.research >= taskBudget.maxResearch) {
-		return {
-			reason: "task_research",
-			message: `⛔ TASK budget exhausted: ${counters.research} of ${taskBudget.maxResearch} ` +
-				`spawn_research calls used on this task (${TASK_BUDGET_MULTIPLIER}× the ${label} turn envelope). ` +
-				taskRefusalTail(),
-		};
-	}
-	return null;
-}
-
-/**
- * How many research runs the TASK envelope still allows; null = unlimited.
- * The auto-research pipe (specialist emits NEEDS_RESEARCH, the hub fans out
- * read-only helpers in code) is exempt from the TURN budget on purpose — it is
- * hub mechanics, not a dispatcher decision, and it must not steal the
- * dispatcher's slots. It is NOT exempt from the TASK envelope: at 2 rounds × 4
- * questions per dispatch and 18 dispatches per task, an uncounted pipe is 144
- * research runs inside the bound that is supposed to be the outer one.
- */
-export function remainingTaskResearch(taskBudget, counters) {
-	if (taskBudget.maxResearch == null) return null;
-	return Math.max(0, taskBudget.maxResearch - (counters?.research ?? 0));
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier persona gate (B3) — heavy apparatus is not available at low tiers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -467,21 +303,8 @@ export function checkTierPersonaGate(tier, persona) {
 
 export const BLOCKING_FINDING_CAPS = { trivial: 1, small: 2, feature: 5, project: null };
 
-// Review rounds are observable, never a continuation quota. Keep the existing
-// query API for result/status consumers; independent review evidence is unchanged.
-export const REVIEW_ROUND_CAPS = { trivial: null, small: null, feature: null, project: null };
-
-/** Review rounds allowed on one task at this tier; null = uncapped. */
-export function reviewRoundCap(tier) {
-	const t = normalizeTaskTier(tier);
-	if (!t) return null;
-	return REVIEW_ROUND_CAPS[t] ?? null;
-}
-
-/** Compatibility query: no round count blocks a review. */
-export function checkReviewRoundCap(_tier, _persona, _roundsSoFar) {
- return null;
-}
+// Review rounds are observable, never a continuation quota; independent review
+// evidence is unchanged.
 
 /** Blocking-finding cap for a tier; null = uncapped (project / unset tier). */
 export function blockingFindingCap(tier) {

@@ -3,7 +3,6 @@ import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from "node:fs";
 import { posix, resolve, relative } from "node:path";
 import { worktreeRevision } from "./scope-gate.js";
-import { checkTaskBudget, checkTurnBudget } from "./run-budget.js";
 import { explicitProcessLifecycle, recoveryCategoryFromDetails, recoveryDecision, type RecoveryCategory } from "./recovery-contract.ts";
 import { createRecoverState, type RecoverEvent } from './recover-state.ts';
 import { readBackDeliverables } from './acceptance.ts';
@@ -556,11 +555,8 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
                 // T1/F7: refusals are accounted separately from physical launches.
                 // A no-progress refusal never spent a child execution, so it must not
                 // consume turn/task launch counters. Anti-loop protection stays in the
-                // guard (same fingerprint stays refused); budgets still fail closed.
+                // guard (same fingerprint stays refused).
                 s.getTurnReport().refusals++; s.getSessionTotals().refusals++;
-                const block = checkTaskBudget(kind, b.taskCounters(), b.currentTaskBudget(), b.taskActiveElapsedMs(), s.getTaskTier())
-                    ?? checkTurnBudget(kind, { dispatches: s.getTurnDispatchCount(), research: s.getTurnResearchCount() }, b.currentBudget(), b.turnBudgetActiveElapsedMs(), s.getTaskTier());
-                if (block) return { content: [{ type: "text", text: block.message }], details: { status: "budget_refused", reason: block.reason, started: false, recoveryCategory: failure.category, exitCode: 1 } };
                 b.updateModeStatus();
             }
 			const recovery = recoveryDecision(failure.category, { explicitInvocation: true });

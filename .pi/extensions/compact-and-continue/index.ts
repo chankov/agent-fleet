@@ -1,6 +1,14 @@
 import type { CompactionResult, ExtensionAPI, ExtensionContext } from '@mariozechner/pi-coding-agent';
 import { Type } from 'typebox';
-import { managedCompaction } from '../../harnesses/agent-hub/context-continuity-registry.ts';
+
+// Agent Hub registers its managed compaction controller on the process realm. Reading
+// it here, without importing the Hub, keeps this always-on extension loadable in a
+// workspace that installs Fleet Core without Agent Hub.
+type ManagedCompactionController = { request(request: { instructions: string; nextStep?: string }): void };
+function managedCompaction(session: object): ManagedCompactionController | undefined {
+	const realm = globalThis as typeof globalThis & { [key: symbol]: WeakMap<object, ManagedCompactionController> | undefined };
+	return realm[Symbol.for('agent-fleet.context-continuity.controllers/v1')]?.get(session);
+}
 
 const DEFAULT_COMPACTION_INSTRUCTIONS = 'Preserve task goal, completed work, changed/read files, decisions, blockers, and next steps.';
 

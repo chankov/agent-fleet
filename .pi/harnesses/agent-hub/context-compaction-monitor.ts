@@ -1,6 +1,6 @@
 import { COMPACTION_MIN_PERCENT, COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT, COMPACTION_MAX_PERCENT } from "../lib/context-compaction-policy.js";
 
-export type CompactionMonitorPhase = "started" | "restored" | "continuation_requested" | "continued" | "failed" | "ceiling_blocked";
+export type CompactionMonitorPhase = "started" | "restored" | "continuation_requested" | "continued" | "failed" | "ceiling_blocked" | "ceiling_exceeded";
 interface Usage { tokens?: number | null; contextWindow?: number | null }
 /** Metadata-only local evidence. Unknown post-summary usage stays unknown until
  * the next provider measurement; never report a fabricated reduction. */

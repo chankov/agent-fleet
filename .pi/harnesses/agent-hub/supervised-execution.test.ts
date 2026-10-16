@@ -3,19 +3,14 @@ import test from "node:test";
 import { classifyOrchestrationRoute, selectSpecialists } from "./orchestration-route.ts";
 import { applyProcessClassification, createProcessState, effectiveProcessStage, evaluateProcessObligations, normalizeProcessState, noteProcessStage, processPreEffectGate } from "./process-obligations.ts";
 import { applyTaskTriageAdditions } from "./task-triage-obligations.ts";
-import { TASK_TIERS, resolveTurnBudget, resolveTaskBudget, checkTurnBudget, checkTaskBudget, checkReviewRoundCap, budgetStatusLine } from "./run-budget.js";
+import { TASK_TIERS, resolveTurnBudget, budgetStatusLine } from "./run-budget.js";
 
 test("supervised execution: usage stays visible without count, elapsed-time or review renewal quotas", () => {
  for (const tier of TASK_TIERS) {
   const budget = resolveTurnBudget(tier, { maxDispatches: 1, maxResearch: 1, wallMs: 1 });
-  const taskBudget = resolveTaskBudget(budget);
-  for (const kind of ["dispatch", "research"]) {
-   assert.equal(checkTurnBudget(kind, { dispatches: 999, research: 999 }, budget, 99_000_000, tier), null);
-   assert.equal(checkTaskBudget(kind, { dispatches: 999, research: 999 }, taskBudget, 99_000_000, tier), null);
-  }
-  assert.equal(checkReviewRoundCap(tier, "code-reviewer", 999), null);
+  assert.equal("maxDispatches" in budget || "maxResearch" in budget || "wallMs" in budget, false, "no quota axis survives legacy overrides");
   assert.ok(budget.agentTurnMs > 0, "single-process deadline is preserved");
-  assert.match(budgetStatusLine({ dispatches: 999, research: 999 }, budget, tier), /999\/∞/);
+  assert.match(budgetStatusLine({ dispatches: 999, research: 999 }, tier), /999 disp · 999 res/);
  }
 });
 

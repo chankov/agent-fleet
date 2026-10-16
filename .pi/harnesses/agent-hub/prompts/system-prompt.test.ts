@@ -35,7 +35,6 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 		taskTier: "feature", taskTierAssumed: false, processRisk: "high", processScope: "small", processOpen: ["review"],
 		turnDispatchCount: 1, turnResearchCount: 2,
 		taskDispatchCount: 3, taskResearchCount: 4, taskReviewRounds: 1,
-		turnBudget: { maxDispatches: 8, maxResearch: 4 }, taskBudget: { wallMs: 1_800_000 },
 		provisionalConfirmations: [],
 	};
 	const active = overrides.active ?? ALL_PACKS;
@@ -146,7 +145,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "b4e919ab243a1ae23aca47083f8e24efc1376c92b566498e1499ae95af568941");
+	assert.equal(digest(built.systemPrompt), "e45c8276593d4fa932703a75608fbbac23480aad8b83a6e209684991b920604b");
 	assert.match(built.systemPrompt, /ask_user tool is unavailable/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);

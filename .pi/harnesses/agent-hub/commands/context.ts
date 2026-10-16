@@ -30,7 +30,6 @@ export interface CommandContext {
 	handleHandoff(args: string, ctx: ExtensionContext): Promise<void>;
 	handleCompound(args: string, ctx: ExtensionContext): Promise<void>;
 	handlePoll(args: string, ctx: ExtensionContext): Promise<void>;
-	handleBudgetContinue(ctx: ExtensionContext): Promise<void>;
 	handleRetry(args: string, ctx: ExtensionContext): Promise<void>;
 	handleRecover(args: string, ctx: ExtensionContext): Promise<void>;
 	handleTaskTriageWaive(args: string, ctx: ExtensionContext): Promise<boolean>;

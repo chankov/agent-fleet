@@ -48,13 +48,14 @@ export default function(pi) {
 }
 `);
  const env = { ...process.env, PI_OFFLINE: "1", TEST_KEY_SENTINEL: "must-not-enter-manifest", ...(assignment ? { [PROACTIVE_OBSERVER_ENV]: JSON.stringify(assignment) } : {}) };
- const result = spawnSync(pi, ["--mode", "print", "--no-session", "--no-extensions", "-e", providerPath, "-e", observer, "--model", "observer-fixture/m", "prompt"], { cwd: dir, env, encoding: "utf8", timeout: 20_000 });
+ const result = spawnSync(pi, ["--print", "--no-session", "--no-extensions", "-e", providerPath, "-e", observer, "--model", "observer-fixture/m", "prompt"], { cwd: dir, env, encoding: "utf8", timeout: 20_000 });
  assert.equal(result.status, variant === "aborted" ? 1 : 0, `local Pi failed: ${result.error?.message ?? ""} ${result.stderr} ${result.stdout}`);
  return result;
 }
 
-test("real repository-local Pi 0.84.2 delivers text and tool turn boundaries to awaited subprocess snapshots", t => {
- assert.match(spawnSync(pi, ["--version"], { encoding: "utf8" }).stdout, /0\.84\.2/);
+test("pinned repository-local Pi delivers text and tool turn boundaries to awaited subprocess snapshots", t => {
+ const pinned = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).devDependencies["@earendil-works/pi-coding-agent"];
+ assert.equal(spawnSync(pi, ["--version"], { encoding: "utf8" }).stdout.trim(), pinned);
  for (const variant of ["text", "tool"] as const) {
   const { dir, assignment } = fixture(t);
   run(dir, assignment, variant);

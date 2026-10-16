@@ -178,7 +178,7 @@ harnesses:
 - **Two live Work Modes** — bare `just fleet` starts as an operator with direct coding tools and an
   empty native roster; `/af-work-mode operator|orchestrator` switches prompt and tool surface without
   restarting or losing session state, while `/af-work-mode` without an argument and **Alt+M** open
-  the picker. Orchestrator removes `bash`/`edit`/`write`, keeps read-only `filesystem` inspection, refuses self-read above 64 KiB per file or per turn, and raises a trivial/small turn to at least 3 dispatches unless a lower ceiling is configured. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
+  the picker. Orchestrator removes `bash`/`edit`/`write`, keeps read-only `filesystem` inspection, refuses self-read above 64 KiB per file or per turn. Dispatch and research counts are usage, never a per-turn allowance. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height
@@ -208,9 +208,9 @@ harnesses:
   assertions — see the [`orchestration-verification`](../skills/orchestration-verification/SKILL.md)
   skill, which the `orchestrator` persona drives. Advisory in this phase (surfaced, not a hard
   dispatch refusal).
-- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 80%/90% thresholds, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
+- **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 60%/70% thresholds and 80% ceiling, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
 - **Automatic capability packs** — no activation command is needed. Intent, work mode, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
-- **One-click budget continuation** — turn and task refusals ask one localized Yes/No `ask_user` question. Yes renews the budget in the same tool loop, without a typed `continue` or slash command. Task continuation opens an audited tranche while preserving task tier, assertions, capability packs, blockers, label, and progress; genuinely different work uses `set_task_tier(new_task: true)`. Turn and task active-time clocks both exclude human wait time.
+- **Usage without continuation quotas** — dispatch, research and review counts and active time stay visible per turn and task, but authorized work never stops for a budget renewal. The watchdog supervises repeated work; genuinely different work uses `set_task_tier(new_task: true)`. Active-time clocks exclude human wait time.
 - **Damage-control + ask_user by default** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
   dispatcher's tool calls are checked against the rules file and the `askUserAvailable` probe sees
@@ -238,9 +238,10 @@ harnesses:
 #### Context and roster recovery troubleshooting
 
 A green standing-prompt budget does not guarantee that a long tool loop fits: messages and tool
-results continue accumulating inside the current model window. Agent Hub warns at **80%** live
-usage. At **90%** it aborts the next same-turn provider request, waits for persistence/settlement,
-and starts one automatic Pi compaction. Startup or newly submitted input is retained in memory and
+results continue accumulating inside the current model window. Agent Hub warns at **60%** live
+usage. At **70%** it aborts the next same-turn provider request, waits for persistence/settlement,
+and starts one automatic Pi compaction. The **80%** ceiling stops work only after a failed recovery
+or when even the compacted baseline is at or above it. Startup or newly submitted input is retained in memory and
 replayed exactly once after recovery. Use `/af-context` to distinguish `warning`, `compacting`,
 `recovered`, and `failed` pressure from stable prompt/schema cost.
 

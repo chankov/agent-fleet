@@ -15,7 +15,8 @@ test("all three target entrypoints import and register their local version modul
 		if (name === "agent-hub") {
 			assert.match(source, /registerSessionOrchestration\(pi, \{[\s\S]*?resetSession:[\s\S]*?registerVersion: registerVersionStatus/, name);
 		} else {
-			assert.match(source, /pi\.on\("session_start", async \([^)]*\) => \{\s*registerVersionStatus\(/, name);
+			// Synchronous no-argument resets (D6 child disposal) may precede it.
+			assert.match(source, /pi\.on\("session_start", async \([^)]*\) => \{(?:\s*\w+\(\);)*\s*registerVersionStatus\(/, name);
 		}
 	}
 });

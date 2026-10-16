@@ -11,4 +11,3 @@ export function resultFromToolEvent(enabled:boolean|undefined,input:unknown,tool
  if(received.evidence.some((r:any)=>typeof r.sha256!=="string"||!/^[a-f0-9]{64}$/.test(r.sha256)||!Number.isSafeInteger(r.bytes)||r.bytes<0))return null;
  return received;
 }
-

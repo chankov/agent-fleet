@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inventory, excerpt, readback, snapshotSource, boundOutput } from "./deterministic-fs.ts";
+import { inventory, excerpt, readback, snapshotSource, boundOutput, digestCacheKey } from "./deterministic-fs.ts";
 
 const temp = () => mkdtempSync(join(tmpdir(), "fleet-t5-"));
 
@@ -33,6 +33,37 @@ test("T5 excerpt uses exact byte pages, Unicode-safe previews, handles, and stal
   assert.deepEqual(Buffer.concat([page.content, next.content]), original);
   writeFileSync(path, Buffer.from("replacement"));
   assert.throws(() => readback({ handle: page.nextHandle!, allowedRoot: root, boundedOutput: true }), /stale/i);
+ } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a file digest is reused only for an unchanged, settled identity", () => {
+ const stat = { dev: 1n, ino: 2n, size: 3n, mtimeNs: 1_000_000_000n, ctimeNs: 1_000_000_000n }, now = 10_000;
+ const key = digestCacheKey(stat, now);
+ assert.ok(key);
+ for (const changed of [{ ino: 3n }, { size: 4n }, { mtimeNs: 1_000_000_001n }, { ctimeNs: 1_000_000_001n }])
+  assert.notEqual(digestCacheKey({ ...stat, ...changed }, now), key);
+ assert.equal(digestCacheKey({ ...stat, ctimeNs: 9_000_000_000n }, now), null, "a change within the last two seconds is never cached");
+});
+
+test("paging a settled large file keeps exact line references and still detects a rewrite", async () => {
+ const root = temp();
+ try {
+  const path = join(root, "log.txt");
+  const original = Buffer.from(Array.from({ length: 12_000 }, (_, i) => `line ${i + 1} ${"x".repeat(i % 40)}`).join("\n"));
+  writeFileSync(path, original);
+  await new Promise(resolve => setTimeout(resolve, 2_100));
+  const lineAt = (offset: number) => original.subarray(0, offset).toString("utf8").split("\n").length;
+  let page = excerpt({ path, allowedRoot: root, boundedOutput: true }), pages = 1;
+  assert.equal(page.reference, `${path}:1`);
+  while (page.nextHandle) {
+   page = readback({ handle: page.nextHandle, allowedRoot: root, boundedOutput: true }); pages++;
+   assert.equal(page.reference, `${path}:${lineAt(page.offset)}`);
+  }
+  assert.ok(pages > 3);
+  for (const offset of [70_000, 1, 200_000, 131_072]) assert.equal(excerpt({ path, allowedRoot: root, offset, maxBytes: 16, boundedOutput: true }).reference, `${path}:${lineAt(offset)}`);
+  const first = excerpt({ path, allowedRoot: root, boundedOutput: true });
+  writeFileSync(path, Buffer.alloc(original.length, 0x61));
+  assert.throws(() => readback({ handle: first.nextHandle!, allowedRoot: root, boundedOutput: true }), /stale/i, "a same-size rewrite changes ctime and the digest");
  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

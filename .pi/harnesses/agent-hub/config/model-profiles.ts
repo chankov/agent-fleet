@@ -11,6 +11,7 @@ export interface AssistFlags {
     'deterministic-tools'?: boolean;
     'bounded-output'?: boolean;
     'write-isolation'?: boolean;
+    'return-extraction'?: boolean;
 }
 export interface CompleteModelProfile {
     version: 2;
@@ -78,9 +79,9 @@ export function parseCompleteProfile(raw: unknown): CompleteModelProfile {
     if (raw.assist !== undefined) {
         if (!object(raw.assist))
             throw new Error('assist: expected mapping');
-        keys(raw.assist, ['deterministic-tools', 'bounded-output', 'write-isolation'], 'assist');
+        keys(raw.assist, ['deterministic-tools', 'bounded-output', 'write-isolation', 'return-extraction'], 'assist');
         p.assist = {};
-        for (const key of ['deterministic-tools', 'bounded-output', 'write-isolation'] as const) {
+        for (const key of ['deterministic-tools', 'bounded-output', 'write-isolation', 'return-extraction'] as const) {
             if (raw.assist[key] !== undefined) {
                 if (typeof raw.assist[key] !== 'boolean')
                     throw new Error(`assist.${key}: expected boolean`);

@@ -11,6 +11,7 @@ import { createNoProgressGuard, projectRecoveryRows } from './no-progress.ts';
 import { createHash } from "node:crypto";
 import { taskTriageActionAuditRecord, type TaskTriageActionAuditRecord } from "./task-triage-authorization.ts";
 import { projectExecutionTrace, type ExecutionTraceSnapshot } from "./execution-trace.ts";
+import { TOOL_CATALOG_ENTRY_TYPE } from "./tool-catalog-state.ts";
 
 const RESULT_SCHEMA = "agent-fleet.runtime-result/v1";
 const PROTOCOL_SCHEMA = "agent-fleet.tool-protocol-diagnostic/v1";
@@ -58,6 +59,8 @@ export interface SessionAuditSummary {
 	};
 	events: SessionAuditEvent[];
 	executionTrace: ReturnType<typeof projectExecutionTrace>;
+	/** Under Pi 1.1 each active-tool change re-declares the changed schemas in the transcript. */
+	toolCatalog: ReturnType<typeof projectToolCatalogChanges>;
 	proactive: ReturnType<typeof buildProactiveReport> | ReturnType<typeof readProactiveReport>;
 	taskTriage: TaskTriageSessionView & { metrics: ReturnType<typeof readTaskTriageReport>; actions: ReturnType<typeof projectTaskTriageActions> };
 	unavailable: string[];
@@ -304,8 +307,21 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 	return {
 		schema: "agent-fleet.session-audit/v1", readOnly: true,
 		identity: { rootSessionId, children: [...children].map(([dispatchId, sessionId]) => ({ dispatchId, sessionId })), snapshots: [...snapshots].map(snapshotId => ({ snapshotId })) },
-		events: [...deduped.values()], executionTrace: projectExecutionTrace(input.entries, input.executionTrace), proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), taskTriage, unavailable: [...unavailable].sort(),
+		events: [...deduped.values()], executionTrace: projectExecutionTrace(input.entries, input.executionTrace), toolCatalog: projectToolCatalogChanges(input.entries), proactive: input.proactive ? buildProactiveReport(input.proactive) : readProactiveReport(input.sessionDir), taskTriage, unavailable: [...unavailable].sort(),
 	};
+}
+
+/** Names and counts only: how often the model-visible tool set changed and by how much. */
+export function projectToolCatalogChanges(entries: readonly unknown[]) {
+	let changes = 0, toolsAdded = 0, toolsRemoved = 0;
+	for (const entry of entries) {
+		const value = entry as { type?: unknown; customType?: unknown; data?: { delta?: { added?: unknown; removed?: unknown; evidence?: { changed?: unknown } } } } | null;
+		if (value?.type !== "custom" || value.customType !== TOOL_CATALOG_ENTRY_TYPE || value.data?.delta?.evidence?.changed !== true) continue;
+		changes++;
+		toolsAdded += Array.isArray(value.data.delta.added) ? value.data.delta.added.length : 0;
+		toolsRemoved += Array.isArray(value.data.delta.removed) ? value.data.delta.removed.length : 0;
+	}
+	return { changes, toolsAdded, toolsRemoved };
 }
 
 export function formatSessionAudit(summary: SessionAuditSummary): string { return JSON.stringify(summary, null, 2); }

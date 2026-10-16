@@ -1,11 +1,9 @@
+import {processShared} from './process-shared.ts';
 export interface DamageCallEvent {toolName:string;toolCallId:string;input:unknown;}
 export interface DamageCallContext {cwd:string;revalidateBaseline?():boolean;}
 export interface DamageGuardPort {call(event:DamageCallEvent,ctx:DamageCallContext):Promise<{block:boolean;reason?:string}>;}
-// Pi's isolated extension loaders share a JS runtime, not module-local bindings:
-// the Hub registers in its module instance while Damage-Control assesses in another.
-const storeKey=Symbol.for('agent-fleet.damage-guard-port.v1');
-const runtime=globalThis as typeof globalThis & {[key:symbol]:{port?:DamageGuardPort;spawned?:{assignment:unknown}}|undefined};
-const state=runtime[storeKey]??= {};
+// The Hub registers in its module instance while Damage-Control assesses in another.
+const state=processShared<{port?:DamageGuardPort;spawned?:{assignment:unknown}}>('agent-fleet.damage-guard-port.v1',()=>({}));
 /** Process-owned adapter only. Missing registration preserves standalone baseline, not a second provider. */
 export function registerDamageGuard(next:DamageGuardPort){state.port=next;return ()=>{if(state.port===next)state.port=undefined;};}
 export function assessDamageCall(event:DamageCallEvent,ctx:DamageCallContext){return state.port?state.port.call(event,ctx):Promise.resolve({block:false});}

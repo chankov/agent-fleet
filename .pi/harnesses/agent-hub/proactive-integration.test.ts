@@ -8,9 +8,11 @@ import { createHash } from 'node:crypto';
 const repo=fileURLToPath(new URL('../../..',import.meta.url));
 const hub=join(repo,'.pi/harnesses/agent-hub');
 const pi=join(repo,'node_modules/.bin/pi');
+// The repository-local CLI must be the pinned devDependency these fixtures were verified against.
+const pinnedPi=new RegExp('^'+JSON.parse(readFileSync(join(repo,'package.json'),'utf8')).devDependencies['@earendil-works/pi-coding-agent'].replace(/\./g,'\\.'));
 
 test('P13 real local Pi code/text -> production capture/runtime/assessment/feedback; off and local-only isolation', {timeout:90000}, async t=>{
- assert.match(spawnSync(pi,['--version'],{encoding:'utf8'}).stdout,/^0\.84\.2/);
+ assert.match(spawnSync(pi,['--version'],{encoding:'utf8'}).stdout,pinnedPi);
  for(const variant of ['off','local','advisory','text'] as const){
   const dir=mkdtempSync(join(repo,'.tmp-p13-proactive-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   mkdirSync(join(dir,'rules'));mkdirSync(join(dir,'agent'));
@@ -82,7 +84,7 @@ interface P13aFixtureSpec {
 }
 
 async function runP13aFixture(t: any, spec: P13aFixtureSpec) {
-  assert.match(spawnSync(pi, ['--version'], { encoding: 'utf8' }).stdout, /^0\.84\.2/);
+  assert.match(spawnSync(pi, ['--version'], { encoding: 'utf8' }).stdout, pinnedPi);
   const dir = mkdtempSync(join(repo, '.tmp-p13a-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'rules')); mkdirSync(join(dir, 'agent'));
   writeFileSync(join(dir, 'rules', 'README.md'), '# Required writing rule\nDo not write FORBIDDEN.\n');

@@ -152,9 +152,8 @@ Switching from Operator to Orchestrator with no active agents automatically load
 team in configuration order (`default` in the shipped configuration), skipping empty teams and teams
 with missing personas. Existing agents are kept. If no valid team is available, the switch is refused
 with a warning. The selected team is saved in the session just like a manual team selection.
-Budgets, nested delegation, and Verification Contract rigor follow the **task tier**, not Work Mode.
-Orchestrator turn dispatches are the exception: trivial/small rise to at least 3 per turn unless
-`max-dispatches-per-turn` sets a lower ceiling. Research calls and the task envelope stay on the tier.
+Child deadlines, nested delegation, and Verification Contract rigor follow the **task tier**, not
+Work Mode. Dispatch and research counts are usage, never a per-turn allowance.
 
 All Hub slash commands, including `/af-handoff`, are registered in both work modes. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
@@ -204,7 +203,12 @@ request:
   a time. Input received while startup or same-turn recovery is active is retained in memory,
   including images, then replayed once after compaction succeeds.
 
-At **80%**, further model work is blocked if recovery has not reduced pressure; a single large tool result can overshoot before its result is observed.
+Automatic compaction re-arms when measured usage falls below **60%**, or after the history grows by
+10% of the window over the first measurement after a compaction, so a small window whose compacted
+baseline stays above 60% is not left waiting. At **80%**, further model work is blocked after a
+failed recovery, or when even the compacted baseline is at or above 80%. A compacted baseline
+between 70% and 80% warns once and keeps working until growth re-arms compaction. A single large
+tool result can overshoot before its result is observed.
 
 The status line and `/af-context` show the pressure phase, measured usage, both thresholds, episode,
 and last recovery outcome. Persisted pressure diagnostics contain numeric/enumerated metadata only;
@@ -284,8 +288,11 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   Full originals remain in the session journal and private
   `artifacts/context-history/` files. Failures, questions, images, the latest tool
   batch and recent inspection working pages remain complete. Current sourced
-  requirements/critical conditions stay visible in the task capsule. This reduces
-  repeated history; it makes no provider-token or latency guarantee.
+  requirements/critical conditions stay visible in the task capsule. New projections
+  apply in batches of at least 32 KiB and an earlier projection is reused verbatim
+  while its original file is unchanged, so the projected prefix moves in steps instead
+  of on every turn. This reduces repeated history; it makes no provider-token or
+  latency guarantee.
 - Plain `continue`/`resume`/`продължи` retains the accepted task input. An identical
   `set_task_tier` declaration returns unchanged without another assessment or
   process write. A changed request still requires the existing task binding.
@@ -1479,10 +1486,13 @@ their SHA-256 and size. A proven-assertion declaration must reference one of the
 paths. Hashing a file confirms its identity, **not** the truth of the assertion.
 Further tool work invalidates an earlier submission; submit again after that work.
 
-The parent consumes only a matching, successful executed tool result. Native runs
-with this tool do not invoke a model to reconstruct a missing report. Missing
-submissions stay visibly `submission_missing`; legacy/coms text parsing and its
-extraction fallback remain supported. `details.specialistCompletion` describes
+The parent consumes only a matching, successful executed tool result. By default,
+native runs with this tool do not invoke a model to reconstruct a missing report.
+A model profile that sets `assist.return-extraction: true` opts into the cheap
+read-only extraction pass over the written report when a specialist with tracked
+assertions never submits; the result is labelled extracted and stays weaker than a
+declared submission. Missing submissions stay visibly `submission_missing` either
+way; legacy/coms text parsing and its extraction fallback remain supported. `details.specialistCompletion` describes
 the worker's report, while `details.taskAccepted` remains the runtime acceptance
 verdict. Partial/blocked reports and unresolved decisions cannot accept the task.
 

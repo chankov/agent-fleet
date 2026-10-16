@@ -1,3 +1,4 @@
+import {processShared} from './process-shared.ts';
 /** One active human wait per process. Reset aborts authority but retains the tail until old UI closes. */
 export function createApprovalWait(){
  let tail:Promise<unknown>=Promise.resolve(),generation=0;const controllers=new Set<AbortController>();
@@ -13,6 +14,4 @@ export function createApprovalWait(){
  };
 }
 // Damage-Control, ask_user and the Hub load as separate extension module instances.
-const storeKey=Symbol.for('agent-fleet.approval-wait.v1');
-const runtime=globalThis as typeof globalThis & {[key:symbol]:ReturnType<typeof createApprovalWait>|undefined};
-export const sharedApprovalWait=runtime[storeKey]??=createApprovalWait();
+export const sharedApprovalWait=processShared('agent-fleet.approval-wait.v1',createApprovalWait);

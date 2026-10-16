@@ -10,6 +10,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -191,7 +192,10 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     assert.equal(agenticSmoke.status,0,agenticSmoke.stderr);
     // Materialize the actual already-installed pinned Pi prerequisite, including
     // its local dependency closure; never fetch or substitute a fake Pi package.
-    cpSync(join(root,'node_modules/@earendil-works/pi-coding-agent'),join(defaultWs,'.pi/harnesses/node_modules/@earendil-works/pi-coding-agent'),{recursive:true});
+    // Pi 1.1 hoists that closure beside the package, so link the real installed
+    // package: Node resolves its dependencies from the real path.
+    mkdirSync(join(defaultWs,'.pi/harnesses/node_modules/@earendil-works'),{recursive:true});
+    symlinkSync(join(root,'node_modules/@earendil-works/pi-coding-agent'),join(defaultWs,'.pi/harnesses/node_modules/@earendil-works/pi-coding-agent'),'dir');
     const d9Smoke=spawnSync(process.execPath,['--import',join(root,'bin/test/helpers/system1-no-network.js'),'--experimental-strip-types','--input-type=module','-e',`
       import assert from 'node:assert/strict';
       import {mkdirSync,writeFileSync} from 'node:fs';
@@ -222,6 +226,8 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
        Object.assign(process.env,discoveryAssignmentEnv(owners.assignment(owner,broker.endpoint),process.cwd(),['docs']));
        const hooks={};child({on:(event,fn)=>hooks[event]=fn,registerTool(){throw Error('no extra tools');}});
        const evidence={toolName:'find',toolCallId:'find',input:{path:'docs'},content:[{type:'text',text:'a.ts\\nb.ts'}],details:{}};
+       // Every native child loads Damage-Control first; its capture is D9's original evidence.
+       const {captureDamageResult}=await import(${JSON.stringify(join(defaultWs,'.pi/harnesses/lib/damage-result-evidence.ts'))});captureDamageResult(evidence);
        const result=await hooks.tool_result(evidence,ctx);assert.deepEqual(result.content[0],evidence.content[0]);assert.equal(result.details.fileDiscovery.rows.length,2);assert.equal(result.details.fileDiscovery.status,'complete');assert.equal(calls,2);assert.equal(result.details.fileDiscovery.rows[0].answers.length,5);
        const stat=await runtime.rank({owner:'hub',foreground:true,task:'installed task',query:'installed stat',paths:['docs/a.ts'],discoveryComplete:true,canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=> 'p'});assert.equal(stat.rows[0].answers.length,5);assert.equal(stat.questionVersion,'file-discovery/orientation/v1');hooks.session_shutdown();
       }finally{runtime.dispose();await broker.close();await resetDiscoveryHub(pi);}

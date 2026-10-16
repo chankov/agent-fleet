@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { createExecutionTrace } from "./execution-trace.ts";
 import { buildRuntimeResult } from "./acceptance.ts";
-import { buildBudgetContinuationAudit } from "./hub-state-audit.js";
 import { buildSessionAudit, formatSessionAudit, showSessionAudit, projectTaskTriageActions } from "./session-audit.ts";
 import { registerAudit } from "./commands/audit.ts";
 import { createNoProgressGuard } from './no-progress.ts';
@@ -201,7 +200,8 @@ function runtimeDetails() {
 
 test("T9 audit derives T1/T2/T8 events, separates identities, and collapses snapshot repeats", (t) => {
 	const sessionDir = fixture(t), details = runtimeDetails();
-	const budget = buildBudgetContinuationAudit({ correlation: { taskId: "task-1", tranche: 1, requestId: "question-1", operation: "dispatch" }, continuation: 1, secret: "do-not-copy" });
+	// Continuations are no longer written; sessions recorded before quota removal still carry them.
+	const budget = { schema_version: 1, kind: "task", correlation: { task_id: "task-1", tranche: 1, request_id: "question-1", operation: "dispatch" }, continuation: 1, reason: "task_dispatches" };
 	const entries = [
 		{ type: "custom", customType: "agent-hub-budget-continuation", data: budget },
 		{ type: "custom", customType: "agent-hub-retry-authorized", data: { dispatchId: "child-1", correlation: { taskId: "task-1", requestId: "question-2", operation: "retry" }, rawAnswer: "private" } },
@@ -327,4 +327,12 @@ test("P12 audit includes separate proactive readonly aggregate, not evidence pay
  assert.equal(audit.proactive.consumer,"proactive-review");assert.equal(audit.proactive.readOnly,true);assert.equal(audit.proactive.turns.reviewed,0);assert.equal(audit.proactive.turns.partial,1);
  assert.doesNotMatch(JSON.stringify(audit.proactive),/SECRET_PAYLOAD/);
  const reopened=buildSessionAudit({entries:[],sessionDir});assert.equal(reopened.proactive.availability,"unavailable");assert.equal(reopened.proactive.turns.reviewed,null);
+});
+
+test("audit counts model-visible tool catalog changes without tool payloads", async t => {
+	const { projectToolCatalogChanges } = await import("./session-audit.ts");
+	const change = (added: string[], removed: string[], changed = true) => ({ type: "custom", customType: "agent-hub-tool-catalog-state", data: { snapshot: { tools: ["secret-tool-body"] }, delta: { added, removed, evidence: { changed } } } });
+	assert.deepEqual(projectToolCatalogChanges([change(["dispatch_agent", "set_task_tier"], []), change([], ["request_compaction"]), change([], [], false), { type: "custom", customType: "other" }]),
+		{ changes: 2, toolsAdded: 2, toolsRemoved: 1 });
+	assert.doesNotMatch(JSON.stringify(buildSessionAudit({ entries: [change(["a"], [])], sessionDir: fixture(t) }).toolCatalog), /secret/);
 });

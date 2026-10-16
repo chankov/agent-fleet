@@ -81,18 +81,10 @@ export function countReviewFindings(text) {
  * blocking findings than the tier's cap. Instructional, never corrective: the
  * dispatcher is told to rank and close, and told what NOT to do with the rest.
  * Returns null when the review is within budget or there is nothing to judge.
- * @param {number|null} [roundsSpent]
- * @param {number|null} [roundCap]
  */
-export function findingBudgetNotice(agent, tierCap, counts, roundsSpent = null, roundCap = null) {
+export function findingBudgetNotice(agent, tierCap, counts) {
 	if (tierCap == null || !counts) return null;
 	if (counts.blocking <= tierCap) return null;
-	const roundLine = roundCap == null
-		? ""
-		: `\nReview rounds on this task: ${roundsSpent ?? "?"}/${roundCap}. ` +
-			(roundsSpent != null && roundsSpent >= roundCap
-				? "No further review dispatch will be accepted for this task — this IS the gate."
-				: "Spending the next round on the overflow is exactly the ratchet.");
 	return `\n\n⚠ FINDING BUDGET EXCEEDED — ${agent} returned ${counts.blocking} blocking finding(s) against a cap of ${tierCap}` +
 		(counts.sections.length > 0 ? ` (sections: ${counts.sections.slice(0, 4).join(", ")})` : "") + `.\n` +
 		`The hub does NOT reclassify findings — a cap cannot tell "invents a new manifest" from "this leaks a credential", ` +
@@ -100,5 +92,5 @@ export function findingBudgetNotice(agent, tierCap, counts, roundsSpent = null, 
 		`Act on the ${tierCap} most severe as the gate. Treat the remainder as recommendations for the human: report them, ` +
 		`do NOT schedule them as work, and do NOT let them reopen an assertion that a named piece of evidence already closed. ` +
 		`A finding that asks for a NEW invariant, evidence artifact, script, manifest, or process step is scope growth — ` +
-		`surface it to the human as a choice rather than executing it.${roundLine}`;
+		`surface it to the human as a choice rather than executing it.`;
 }

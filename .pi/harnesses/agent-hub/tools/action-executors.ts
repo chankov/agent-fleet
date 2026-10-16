@@ -126,10 +126,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		}
 		setProcessState(adopted);
 		d.setTaskTier(change.tier); d.setTaskTierAssumed(false); d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
-		const b = d.budget.currentBudget(); const tb = d.budget.currentTaskBudget();
-		const cap = (n: number | null) => n == null ? "unlimited" : String(n);
-		const spent = `${d.getTaskDispatchCount()}/${cap(tb.maxDispatches)} dispatches, ${d.getTaskResearchCount()}/${cap(tb.maxResearch)} research`;
-		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} Budget tier differs intentionally: it limits spend and cannot erase correctness obligations.\nPer turn: ${cap(b.maxDispatches)} dispatches, ${cap(b.maxResearch)} research. Whole task: ${spent} spent. Size the apparatus accordingly — do not spend a cap just because it exists.` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
+		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} The tier sizes the apparatus and child deadlines; it cannot erase correctness obligations.\nThis task so far: ${d.getTaskDispatchCount()} dispatches, ${d.getTaskResearchCount()} research (usage, not quotas).` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {

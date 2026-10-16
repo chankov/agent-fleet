@@ -32,12 +32,13 @@ test("read grants do not register resources; explicit skill registration and thi
  const table=resolvePolicyRoots(cwd,{docsPaths:["../docs"]});
  assert.equal(table.roots.length,2);
  assert.equal(loadSkills({cwd,agentDir,skillPaths:[],includeDefaults:true}).skills.length,0);
- assert.equal(loadPromptTemplates({cwd,agentDir,promptPaths:[],includeDefaults:true}).length,0);
+ // Pi 1.1 returns { templates, diagnostics } rather than a bare array.
+ assert.equal(loadPromptTemplates({cwd,agentDir,promptPaths:[],includeDefaults:true}).templates.length,0);
  const registered=loadSkills({cwd,agentDir,skillPaths:[skill],includeDefaults:false});
  assert.equal(registered.skills.length,1);assert.equal(registered.skills[0]!.filePath,skill);
  const target=resolvePolicyReferences(table,["../docs/.ai/commands/audit.md"],"docs")[0]!;
  writeFileSync(join(cwd,".pi/prompts/project-audit.md"),`---\ndescription: External project audit adapter\n---\nRead ${target} and follow it for this request: $ARGUMENTS\n`);
- const prompts=loadPromptTemplates({cwd,agentDir,promptPaths:[],includeDefaults:true});
+ const prompts=loadPromptTemplates({cwd,agentDir,promptPaths:[],includeDefaults:true}).templates;
  const expanded=expandPromptTemplate("/project-audit docs",prompts);
  assert.ok(expanded.includes(target));assert.ok(expanded.includes("request: docs"));
  assert.equal(existsSync(marker),false,"resource discovery/expansion must not execute skill scripts");

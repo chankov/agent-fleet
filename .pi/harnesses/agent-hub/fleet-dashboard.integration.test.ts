@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+// Pi 1.1 renamed the main-screen compositor; the overlay contract is unchanged.
+import { TuiMainScreen as TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { buildFleetRows, type FleetSource } from "../lib/fleet-read-model.ts";
 import { renderFleetDashboard, renderProactiveHistory } from "../lib/fleet-dashboard-view.ts";
 import { detailBodyLines, openProactiveEvidence } from "../lib/fleet-detail-view.ts";
@@ -175,7 +176,8 @@ test("actual process producer feeds zero-row mounted Fleet without payloads or a
  const opened = dashboard.openFleetDashboard(ctx); t.after(() => { close(); panel.dispose(); });
  assert.deepEqual(adapter.rows(Date.now(), { showFinished: true }), []);
  const screen = panel.render(160).join("\n");
- assert.match(screen, /Task triage.*applied/); assert.match(screen, /Blockers: (?=[^\n]*plan)(?=[^\n]*acceptance)(?=[^\n]*review)/);
+ assert.match(screen, /Task triage.*applied/); // Planning is optional (2026-10-15): a wide change blocks on acceptance and review only.
+ assert.match(screen, /Blockers: (?=[^\n]*acceptance)(?=[^\n]*review)/); assert.doesNotMatch(screen, /Blockers: [^\n]*plan/);
  assert.match(screen, /wide_change: 1 active/); assert.match(screen, /tier small \(spend only\)/);
  assert.match(screen, /Task acceptance: not_recorded/); assert.doesNotMatch(screen, /PRIVATE_REASON/);
  for (const [height, width] of [[20, 160], [12, 40], [8, 79]]) {

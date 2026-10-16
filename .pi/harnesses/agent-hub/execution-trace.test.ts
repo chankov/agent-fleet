@@ -47,7 +47,7 @@ test("audit exposes legacy, corrupt, interrupted and failed persistence coverage
  assert.equal(projectExecutionTrace([]).totals.humanWaitMs,null,"missing legacy trace is not zero measured human wait");
  const f=fixture();f.trace.start({kind:"tool",id:"open",tool:"read"});
  f.entries.push({customType:"agent-hub-execution-trace",data:{schema:"invalid",payload:"SECRET"}});
- const view=projectExecutionTrace(f.entries);assert.equal(view.coverage.invalidRecords,1);assert.equal(view.spans[0].status,"open");
+ const view=projectExecutionTrace(f.entries,f.trace.snapshot());assert.equal(view.coverage.invalidRecords,1);assert.equal(view.spans[0].status,"open","an unfinished tool span is visible live");
  f.fail();f.at(4);f.trace.endTool("open",{status:"completed",durationMs:2});
  const fallback=projectExecutionTrace(f.entries,f.trace.snapshot());
  assert.equal(fallback.coverage.availability,"live_degraded");assert.ok(fallback.coverage.persistenceFailures>0);
@@ -56,7 +56,7 @@ test("audit exposes legacy, corrupt, interrupted and failed persistence coverage
 
 test("journal and live retention losses are reported separately without double counting",()=>{
  const f=fixture();
- for(let i=0;i<2501;i++)f.trace.input(String(i));
+ for(let i=0;i<5002;i++)f.trace.input(String(i));
  const view=projectExecutionTrace(f.entries,f.trace.snapshot());
  assert.equal(view.events.length,5000);assert.equal(view.coverage.droppedRows,2);
  assert.equal(view.coverage.liveDroppedRows,2);
@@ -121,4 +121,25 @@ test("trace survives a cancelled session switch and releases its bus listener on
  await fire('session_shutdown');assert.equal(listeners.size,0);
  const count=f.entries.length;beginRuntimeTrace(bus,{kind:'approval',id:'stale'})({status:'allowed'});assert.equal(f.entries.length,count);
  await fire('session_start');await fire('session_start');assert.equal(listeners.size,1,'session restart subscribes exactly once');
+});
+
+test("the journal keeps one row per finished span and the start of turns and children",()=>{
+ const f=fixture();
+ const turn=f.trace.start({kind:"turn",id:"turn"});f.trace.start({kind:"tool",id:"call",tool:"bash"});
+ f.trace.start({kind:"policy",id:"policy",parentId:"call",source:"damage-control"})({status:"allowed"});
+ assert.deepEqual(f.entries.map(e=>[e.data.kind,e.data.phase]),[["turn","start"],["policy","span"]],"a crash still shows the open turn");
+ f.at(9);f.trace.endTool("call",{status:"completed",durationMs:9});turn({status:"completed"});
+ assert.deepEqual(f.entries.map(e=>[e.data.kind,e.data.phase]),[["turn","start"],["policy","span"],["tool","span"],["turn","span"]]);
+ const view=projectExecutionTrace(f.entries),tool=view.spans.find(s=>s.kind==="tool")!;
+ assert.equal(tool.elapsedMs,9);assert.equal(tool.status,"completed");assert.equal(view.spans.length,3);
+ assert.equal(view.totals.observedWallMs,9,"wall time reaches the last span end, not only the last start");
+});
+
+test("legacy v1 start and end rows from older sessions still project",()=>{
+ const f=fixture();f.trace.start({kind:"tool",id:"call",tool:"read"});f.at(4);f.trace.endTool("call",{status:"completed",durationMs:3});
+ const span=f.entries[0].data,{endAtMs,...start}=span;
+ const legacy=[{customType:"agent-hub-execution-trace",data:{...start,schema:"agent-fleet.execution-trace/v1",phase:"start",status:"pending"}},
+  {customType:"agent-hub-execution-trace",data:{...start,schema:"agent-fleet.execution-trace/v1",sequence:start.sequence+1,atMs:endAtMs,phase:"end",status:"completed",durationMs:3}}];
+ const view=projectExecutionTrace(legacy);
+ assert.equal(view.coverage.invalidRecords,0);assert.equal(view.spans[0].elapsedMs,4);assert.equal(view.spans[0].executionMs,3);
 });

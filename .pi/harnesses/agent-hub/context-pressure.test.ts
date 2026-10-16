@@ -4,7 +4,9 @@ import test from "node:test";
 import {
 	AUTO_COMPACT_PERCENT,
 	CONTEXT_WARNING_PERCENT,
+	compactionShortOfTargetAfterRecovery,
 	contextPressureDiagnostic,
+	pressureCapabilityState,
 	createContextPressureState,
 	shouldExposeCompaction,
 	transitionContextPressure,
@@ -117,6 +119,36 @@ test("automatic compaction is single-flight and rearms only after recovery is me
 	assert.equal(decision.state.episode, 2);
 });
 
+test("a compacted baseline above warning re-arms after one band of growth, never after a failure", () => {
+	let decision = sample(createContextPressureState(), 72);
+	assert.equal(decision.action, "compact-now");
+	decision = transitionContextPressure(decision.state, { type: "compaction-succeeded" });
+	decision = sample(decision.state, 64);
+	assert.equal(decision.state.compactedTokens, 64_000, "the first measurement after compaction is the baseline");
+	decision = sample(decision.state, 73);
+	assert.equal(decision.action, "none", "less than one band of new history stays single-flight");
+	decision = sample(decision.state, 74);
+	assert.equal(decision.action, "compact-now", "a small window is not left waiting for usage below warning");
+
+	decision = transitionContextPressure(decision.state, { type: "compaction-failed", error: "offline" });
+	decision = sample(decision.state, 95);
+	assert.equal(decision.action, "none", "a failed recovery never re-arms by growth");
+});
+
+test("a tool result not yet sent is never part of the post-compaction baseline", () => {
+	let decision = transitionContextPressure(sample(createContextPressureState(), 72).state, { type: "compaction-succeeded" });
+	decision = transitionContextPressure(decision.state, { type: "usage", usage: { tokens: 75_000, contextWindow: 100_000, percent: 75 }, measuredTokens: 64_000 });
+	assert.equal(decision.state.compactedTokens, 64_000);
+});
+
+test("only a compacted baseline between target and ceiling is short of target", () => {
+	const recovered = transitionContextPressure(sample(createContextPressureState(), 72).state, { type: "compaction-succeeded" }).state;
+	for (const [percent, expected] of [[69, false], [70, true], [79.9, true], [80, false], [95, false]] as const) {
+		assert.equal(compactionShortOfTargetAfterRecovery(sample(recovered, percent).state), expected, `${percent}%`);
+	}
+	assert.equal(compactionShortOfTargetAfterRecovery(sample(createContextPressureState(), 75).state), false, "no compaction ran");
+});
+
 test("compaction failure remains actionable without retrying until pressure clears", () => {
 	let decision = sample(createContextPressureState(), 93);
 	decision = transitionContextPressure(decision.state, { type: "compaction-failed", error: "offline" });
@@ -167,4 +199,13 @@ test("approved automatic policy starts at 70%, never below 50%, and exposes a ce
  for(const percent of [0,49,49.99,50,59]) assert.equal(sample(createContextPressureState(),percent).action,"none");
  assert.equal(sample(createContextPressureState(),70).action,"compact-now");
  assert.equal(sample(createContextPressureState(),80).action,"compact-now");
+});
+
+test("live usage between warning and target exposes compaction before the pressure state catches up", () => {
+	const fresh = createContextPressureState();
+	assert.equal(pressureCapabilityState(fresh, CONTEXT_WARNING_PERCENT - 0.01), "normal");
+	assert.equal(pressureCapabilityState(fresh, CONTEXT_WARNING_PERCENT), "approaching-compaction");
+	assert.equal(pressureCapabilityState(fresh, AUTO_COMPACT_PERCENT), "imminent-compaction");
+	assert.equal(pressureCapabilityState(sample(fresh, 65).state, null), "approaching-compaction");
+	assert.equal(pressureCapabilityState(sample(fresh, 75).state, null), "imminent-compaction");
 });

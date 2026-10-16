@@ -220,6 +220,7 @@ test("A2 T10a: omitted and explicit false mean off; explicit true preserves only
 		"deterministic-tools": false,
 		"bounded-output": false,
 		"write-isolation": false,
+		"return-extraction": false,
 	});
 	assert.deepEqual(assist.resolveAssist({
 		"deterministic-tools": false,
@@ -234,7 +235,8 @@ test("A2 T10a: omitted and explicit false mean off; explicit true preserves only
 		"deterministic-tools": true,
 		"bounded-output": true,
 		"write-isolation": true,
-	});
+		"return-extraction": false,
+	}, "an unrequested flag stays off");
 });
 
 test("A3 T5: inventory/excerpt/readback/snapshot need no model; bounds apply only when bounded-output is on", async () => {

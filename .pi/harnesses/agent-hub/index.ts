@@ -58,7 +58,7 @@ import {
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, createTaskClock, isReviewPersona, openTaskClock, remainingTaskResearch, reviewBudgetClause, reviewRoundCap } from "./run-budget.js";
+import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
@@ -127,11 +127,10 @@ import { paneTail, peerManifest, peerPersonaExists, registerFleetTools, spawnDel
 import type { ToolContext } from "./tools/context.ts";
 import { createToolExecutionOrchestration } from "./tools/execution-orchestration.ts";
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
-import { AUTO_COMPACT_PERCENT, contextPressureDiagnostic, createContextPressureState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
+import { contextPressureDiagnostic, createContextPressureState, pressureCapabilityState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
-import { confirmRecoverAction, confirmTaskSupersession, createBudgetRecovery, createReservedTaskIdentityReset } from "./budget-recovery.ts";
+import { confirmRecoverAction, confirmTaskSupersession, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
-import { registerBudgetContinue } from "./commands/budget-continue.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
@@ -171,7 +170,7 @@ import { applySessionOverrides, registerSessionOrchestration, resetHubSession } 
 import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
 import { openHistory } from "./ui/history.ts";
 import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
-import { projectCoordinationHistory } from "./history-projection.ts";
+import { createHistoryProjectionMemo, projectCoordinationHistory } from "./history-projection.ts";
 import { isTaskContinuation } from "./task-continuation.ts";
 import { registerOperatorWatchdog } from "./operator-watchdog.ts";
 import type { DriftJudgeInput } from "./dispatch-coms.ts";
@@ -430,26 +429,15 @@ export default function (pi: ExtensionAPI) {
 	// Per-tool deadline for read/grep/find/ls in research helpers/delegates. The
 	// whole-run bound is separate: the turn budget's agentTurnMs (run-budget.js).
 	let reconSearchTimeoutMs: number | null = 120_000;
-	// ── Per-turn budgets (run-budget.js) ──
-	// Envelopes follow task tier. Override keys are a ceiling (min with the tier).
-	// Counters reset in before_agent_start, or after an explicit one-click
-	// continuation. executionHistory.turnStartedAt() is the active-time base; ask_user
-	// waits are subtracted.
+	// ── Usage accounting and tier (run-budget.js) ──
+	// Dispatch/research counts and active time are visible accounting, never
+	// continuation quotas. Overrides bound only the child deadline and recycling.
+	// Turn counters reset in before_agent_start; task counters span the whole TASK
+	// and are cleared only by an explicit new task (`set_task_tier` with
+	// `new_task: true`), never by an ordinary user message.
 	let budgetOverrides: AgentTeamOverrides["budgetOverrides"] = {};
 	let turnDispatchCount = 0;
 	let turnResearchCount = 0;
-	// Human wait time is not fleet work. Track it separately from history UI
-	// intervals so a continuation can rebase the budget without erasing history.
-	let turnBudgetAskUserWaitMs = 0;
-	let taskContinuationCount = 0;
-	let turnContinuationCount = 0;
-	// ── Task-scoped budget & tier (run-budget.js) ──
-	// A per-message allowance cannot bound a task: every steering message opened a
-	// fresh turn window, so a run could spend 8 dispatches and 60 minutes again and
-	// again without any counter ever binding. These counters span the whole TASK
-	// and are cleared only by an explicit new task (`set_task_tier` with
-	// `new_task: true`) or an approved task-budget continuation — never by an
-	// ordinary user message.
 	let taskDispatchCount = 0;
 	let taskResearchCount = 0;
 	let taskLabel: string | null = null;
@@ -556,17 +544,11 @@ export default function (pi: ExtensionAPI) {
 		seenUnknownToolCalls.clear();
 		latestUnknownToolNotice = "";
 	};
-	let readWorkMode: () => string = () => "operator";
 	const budgetCtx = createBudgetContext({
 		getBudgetOverrides: () => budgetOverrides,
-		getWorkMode: () => readWorkMode(),
 		getTurnDispatchCount: () => turnDispatchCount, setTurnDispatchCount: value => { turnDispatchCount = value; },
 		getTurnResearchCount: () => turnResearchCount, setTurnResearchCount: value => { turnResearchCount = value; },
-		getTurnBudgetAskUserWaitMs: () => turnBudgetAskUserWaitMs, setTurnBudgetAskUserWaitMs: value => { turnBudgetAskUserWaitMs = value; },
-		resetBudgetRecovery: () => budgetRecovery.reset(),
 		resetNoProgress: (persistTaskIdentity) => noProgress.reset(persistTaskIdentity), resetUnknownToolCounter: resetUnknownToolCounterForCurrentTask,
-		getTaskContinuationCount: () => taskContinuationCount, setTaskContinuationCount: value => { taskContinuationCount = value; },
-		getTurnContinuationCount: () => turnContinuationCount, setTurnContinuationCount: value => { turnContinuationCount = value; },
 		getTaskDispatchCount: () => taskDispatchCount, setTaskDispatchCount: value => { taskDispatchCount = value; },
 		getTaskResearchCount: () => taskResearchCount, setTaskResearchCount: value => { taskResearchCount = value; },
 		getTaskLabel: () => taskLabel, setTaskLabel: value => { taskLabel = value; },
@@ -585,34 +567,11 @@ export default function (pi: ExtensionAPI) {
 		executionHistory,
 	});
 	const {
-		currentBudget, currentTaskBudget, taskCounters, taskActiveElapsedMs, turnBudgetActiveElapsedMs,
-		renewTurnBudgetWindow, continueTaskBudgetWindow, closeTurnActiveTime, resetTaskWindow,
-		hubAuditIdentity, hubLocationSuffix, taskResetSnapshot, budgetContinuationSnapshot,
-		appendTaskResetEntry, appendBudgetContinuationEntry, updateModeStatus, ensureTaskTier,
+		currentBudget, closeTurnActiveTime, resetTaskWindow,
+		hubAuditIdentity, hubLocationSuffix, taskResetSnapshot,
+		appendTaskResetEntry, updateModeStatus, ensureTaskTier,
 	} = budgetCtx;
-	const budgetRecovery = createBudgetRecovery({
-		check: operation => {
-			const task = checkTaskBudget(operation, taskCounters(), currentTaskBudget(), taskActiveElapsedMs(), taskTier);
-			if (task) return { ...task, kind: "task" };
-			const turn = checkTurnBudget(operation, { dispatches: turnDispatchCount, research: turnResearchCount }, currentBudget(), turnBudgetActiveElapsedMs(), taskTier);
-			return turn ? { ...turn, kind: "turn" } : null;
-		},
-		language: () => userLanguage,
-		ask: (id, params, ctx, signal) => requestRuntimeAsk(pi.events, id, params, ctx, signal),
-		startWait: id => executionHistory.startAskUser(id),
-		endWait: (id, sameTask) => {
-			const wait = executionHistory.endAskUser(id, Date.now());
-			if (!sameTask) return;
-			if (wait > 0) taskClock = addTaskClockWait(taskClock, wait);
-			turnBudgetAskUserWaitMs += wait;
-		},
-		renew: (refusal, correlation, ctx) => {
-			const at = Date.now(), prior = budgetContinuationSnapshot(refusal.kind, at);
-			if (refusal.kind === "task") continueTaskBudgetWindow(at); else renewTurnBudgetWindow(at);
-			appendBudgetContinuationEntry(refusal.kind, refusal.reason, prior, ctx, correlation);
-		},
-	});
-	taskIdentityReset = createReservedTaskIdentityReset(budgetRecovery, noProgress);
+	taskIdentityReset = createReservedTaskIdentityReset(noProgress);
 
 	// ── Verification Contract: assertion ledger (advisory) ──
 	// Mutable ownership remains here; the extracted runtime receives explicit ports.
@@ -823,7 +782,7 @@ export default function (pi: ExtensionAPI) {
   prepareDamageGuard:input=>prepareDamageGuardNative(pi,input),
   prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
   launchIdentity:()=>noProgress.taskToken(),
-  nativeAdmission:persona=>!processBlock()&&!provisionalCapabilityRefusal('fleet')&&!processPreEffectGate(processState,'child',persona)&&!checkTaskBudget('dispatch',{...taskCounters(),dispatches:Math.max(0,taskDispatchCount-1)},currentTaskBudget(),taskActiveElapsedMs(),taskTier)&&!checkTurnBudget('dispatch',{dispatches:Math.max(0,turnDispatchCount-1),research:turnResearchCount},currentBudget(),turnBudgetActiveElapsedMs(),taskTier),
+  nativeAdmission:persona=>!processBlock()&&!provisionalCapabilityRefusal('fleet')&&!processPreEffectGate(processState,'child',persona),
 		getAgentState: key => agentStates.get(key),
 		getProcessState: () => processState,
 		listAgentStates: () => Array.from(agentStates.values()),
@@ -974,13 +933,7 @@ export default function (pi: ExtensionAPI) {
 		if (persisted && delta.evidence.changed) noProgress.establishToolStateChange(delta.evidence.previousCatalogVersion, delta.evidence.catalogVersion, evidenceRef);
 	}
 	function capabilityContextState(): ContextState {
-		if (contextPressureState.phase === "warning") return "approaching-compaction";
-		if (contextPressureState.phase !== "normal" || contextPressureState.pressure === "imminent") return "imminent-compaction";
-		if (contextPressureState.pressure === "approaching") return "approaching-compaction";
-		const percent = currentCtx?.getContextUsage?.()?.percent;
-		if (typeof percent === "number" && percent >= AUTO_COMPACT_PERCENT) return "imminent-compaction";
-		if (typeof percent === "number" && percent >= 80) return "approaching-compaction";
-		return "normal";
+		return pressureCapabilityState(contextPressureState, currentCtx?.getContextUsage?.()?.percent);
 	}
 	const workModePolicy = createWorkModePolicy({
 		getBaselineTools: () => baselineTools, getRosterSize: () => agentStates.size,
@@ -1010,7 +963,6 @@ export default function (pi: ExtensionAPI) {
 		applyWorkModeTools, modelWorkBlockedByRosterRecovery,
 		statusText: workModeStatusText, applySelection: applyWorkModeSelection, openPicker: openWorkModePicker,
 	} = workModePolicy;
-	readWorkMode = () => getWorkMode();
 
 
 	const toolCtx: ToolContext = createToolExecutionOrchestration({
@@ -1033,8 +985,9 @@ export default function (pi: ExtensionAPI) {
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
-			budget: budgetCtx, budgetRecovery, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
+			budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
 			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
+			returnExtractionAssist: () => resolveAssist(readActiveProfile()?.profile.assist)['return-extraction'],
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
 			resolvedAgentModel: (def, ctx) => resolvedModel(def as AgentDef) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 			getToolCatalogVersion: () => toolCatalogRuntime.catalogForMessage().catalogVersion,
@@ -1065,7 +1018,7 @@ export default function (pi: ExtensionAPI) {
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
 			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
 			adoptReservedTaskId: (id, resetTaskWindow) => { taskIdentityReset.run(id, resetTaskWindow); bindSemanticScope(id, hubTaskText ? createHash("sha256").update(hubTaskText).digest("hex") : ""); },
-			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } } }, signal),
+			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); } }, signal),
 			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
 			getIdentity: () => identity, getComs: () => coms, resolveTarget,
 			appendMachineHandoffSections, markPeerAddressed,
@@ -1082,12 +1035,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	function triageInput(task: string, scope: string[], language: string, domain: string): TriageInput {
-  const taskGate = checkTaskBudget("dispatch", budgetCtx.taskCounters(), budgetCtx.currentTaskBudget(), budgetCtx.taskActiveElapsedMs(), taskTier);
-  const turnGate = checkTurnBudget("dispatch", { dispatches: turnDispatchCount, research: turnResearchCount }, budgetCtx.currentBudget(), budgetCtx.turnBudgetActiveElapsedMs(), taskTier);
   const candidates = [...agentStates.values()].map(s => {
    const name = s.def.name.toLowerCase();
    const research = ["researcher", "deep-researcher", ...researchPersonas.map(p => p.name.toLowerCase())].includes(name);
-   const gate = processBlock() ?? processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkReviewRoundCap(taskTier,name,taskReviewRounds) ?? checkDocsLane(name, scope, undefined) ?? taskGate ?? turnGate;
+   const gate = processBlock() ?? processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkDocsLane(name, scope, undefined);
    return { name, description: s.def.description, ...(research ? { excluded: "research_persona" } : s.status === "running" ? { excluded: "busy" } : gate ? { excluded: gate.reason } : {}) };
   });
   return { taskId: noProgress.taskId(), task, scope, language, domain, candidates, constraints: JSON.stringify({ tier: taskTier, process: { risk: processState.risk, scope: processState.scope }, externalBlocked: externalBlockers.length > 0 && !externalBlockerAcknowledged }), complete: !(externalBlockers.length > 0 && !externalBlockerAcknowledged) };
@@ -1110,15 +1061,9 @@ export default function (pi: ExtensionAPI) {
 			assertFlowProfileModel(model);
 			return { model, profile: readActiveProfile()?.name ?? null, tools: persona.tools.split(",").map(value => value.trim()).filter(Boolean), fallback: persona.fallbackModel ?? null, allowlisted: true };
 		},
-		reserveBudget: async (params, ctx, signal) => {
+		reserveBudget: async (_params, _ctx, signal) => {
 			ensureTaskTier();
-			const blocked = await budgetRecovery.ensure("research", `flow scout: ${params.request}`, ctx, signal);
-			if (blocked) return { charged: false, operation: "research", owner: "hub", refusal: blocked.message };
 			if (signal?.aborted) return { charged: false, operation: "research", owner: "hub", refusal: "Flow cancelled before budget charge." };
-			const taskBlock = checkTaskBudget("research", budgetCtx.taskCounters(), budgetCtx.currentTaskBudget(), budgetCtx.taskActiveElapsedMs(), taskTier);
-			if (taskBlock) return { charged: false, operation: "research", owner: "hub", refusal: taskBlock.message };
-			const turnBlock = checkTurnBudget("research", { dispatches: turnDispatchCount, research: turnResearchCount }, budgetCtx.currentBudget(), budgetCtx.turnBudgetActiveElapsedMs(), taskTier);
-			if (turnBlock) return { charged: false, operation: "research", owner: "hub", refusal: turnBlock.message };
 			turnResearchCount++; taskResearchCount++; turnReport.research++; sessionTotals.research++; budgetCtx.updateModeStatus();
 			return { charged: true, operation: "research", owner: "hub" };
 		},
@@ -1182,7 +1127,6 @@ export default function (pi: ExtensionAPI) {
 		applyWorkModeSelection,
 		getWorkModeStatusText: workModeStatusText,
 		openWorkModePicker,
-		handleBudgetContinue: async ctx => { await budgetRecovery.resume(ctx); },
 		handleTaskTriageRecover: () => {
 			if (!processPersistenceBlocked) return false;
 			try {
@@ -1204,7 +1148,7 @@ export default function (pi: ExtensionAPI) {
 			const next = await confirmTaskTriageWaiver(processState, { taskId: addition.taskId, evaluationId: addition.evaluationId, inputRevision: addition.inputRevision, additionId: id, reason: words.join(" ") }, {
 				taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
 				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal),
-				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
 				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
 			}, ctx);
 			if (next) processState = next;
@@ -1232,7 +1176,7 @@ export default function (pi: ExtensionAPI) {
                     taskId: () => noProgress.taskId(), language: () => userLanguage,
                     ask: (id: string, params: any, askCtx: any, signal: AbortSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, signal),
                     startWait: (id: string) => executionHistory.startAskUser(id),
-                    endWait: (id: string, sameTask: boolean) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+                    endWait: (id: string, sameTask: boolean) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
                     valid: () => { const current = noProgress.inspect(op.operationId); return current?.attempts.at(-1)?.attemptId === attempt.attemptId && (action === "abandon" ? !current.abandoned && noProgress.isIdle(op.executor) : noProgress.canAuthorize(op.operationId, attempt.attemptId)); },
                     consume: (nonce: string) => action === "abandon" ? noProgress.abandon(op.operationId, attempt.attemptId, nonce) : attempt.category === "indeterminate" ? noProgress.authorizeIndeterminate(op.operationId, attempt.attemptId, nonce) : noProgress.authorize(attempt.dispatchId),
                 }),
@@ -1767,8 +1711,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				checkBudget: async () => {
 					ensureTaskTier();
-					const blocked = await budgetRecovery.ensure("dispatch", args ?? "model panel", ctx);
-					return blocked?.message ?? null;
+					return null;
 				},
 				chargeBudget: () => {
 					turnDispatchCount += 1;
@@ -1866,8 +1809,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				checkBudget: async () => {
 					ensureTaskTier();
-					const blocked = await budgetRecovery.ensure("dispatch", args ?? "model panel", ctx);
-					return blocked?.message ?? null;
+					return null;
 				},
 				chargeBudget: () => {
 					turnDispatchCount += 1;
@@ -1963,7 +1905,6 @@ export default function (pi: ExtensionAPI) {
 	registerHandoff(pi, commandCtx);
 	registerCompound(pi, commandCtx);
 	registerPoll(pi, commandCtx);
-	registerBudgetContinue(pi, commandCtx);
 	registerRetry(pi, commandCtx);
 	registerRecover(pi, commandCtx);
 	registerDebate(pi, commandCtx);
@@ -2147,7 +2088,7 @@ export default function (pi: ExtensionAPI) {
 		const grant = await confirmTaskTriageAction(action, {
 			taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
 			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal, { parentId: action.actionId, source: "task-triage" }),
-			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) { taskClock = addTaskClockWait(taskClock, wait); turnBudgetAskUserWaitMs += wait; } },
+			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
 		}, ctx, contract => { pi.appendEntry("agent-hub-task-triage-action-grant", contract); return true; }, undefined, { input: event.input, cwd: ctx.cwd });
 		if (processBlock() || ctx.cwd !== action.cwd || String(event.toolName) !== action.operation || String(event.toolCallId) !== action.actionId
 			|| noProgress.taskId() !== action.taskId || taskTriage?.current?.revision !== action.inputRevision
@@ -2209,8 +2150,6 @@ export default function (pi: ExtensionAPI) {
 			taskDispatchCount,
 			taskResearchCount,
 			taskReviewRounds,
-			turnBudget: currentBudget(),
-			taskBudget: currentTaskBudget(),
 			provisionalConfirmations: getCapabilityResolution().provisional
 				.filter(pack => workModePolicy.getCapabilityConfirmation()[pack as ConfirmableCapabilityPack] !== "declined")
 				.map(pack => ({
@@ -2247,10 +2186,9 @@ export default function (pi: ExtensionAPI) {
 		startMonitorTurn: () => { if (monitorBridge && monitorHubId) { monitorTurnId = `hub-turn-${monitorHubId}-${crypto.randomUUID()}`; monitorBridge.startParent({ id: monitorTurnId, hubInstanceId: monitorHubId, checkoutId: currentCtx?.cwd || process.cwd() }); } },
 		startAskUser: id => executionHistory.startAskUser(id), endAskUser: (id, at) => executionHistory.endAskUser(id, at),
 		acknowledgeExternalBlocker: () => { externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false; },
-		addAskUserWait: waitMs => { if (waitMs > 0) taskClock = addTaskClockWait(taskClock, waitMs); turnBudgetAskUserWaitMs += waitMs; },
+		addAskUserWait: waitMs => { if (waitMs > 0) taskClock = addTaskClockWait(taskClock, waitMs); },
 		applyWorkMode: applyWorkModeTools, closeTurnActiveTime, openTaskClock: at => { taskClock = openTaskClock(taskClock, at); }, startHistoryTurn: at => executionHistory.startTurn(at),
 		resetTurnBudgetState: () => {
-			turnBudgetAskUserWaitMs = 0; // budgetRecovery is task-scoped: prose/new turns cannot clear a declined confirmation.
 			turnDispatchCount = 0; turnResearchCount = 0; turnDispatchFingerprints.clear(); externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false;
 			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) { lastTurnReport = turnReport; sessionTotals.turns++; }
 			turnReport = freshTurnReport();
@@ -2326,9 +2264,11 @@ export default function (pi: ExtensionAPI) {
 		const text = event.message.role === "assistant" ? event.message.content.filter(c => c.type === "text").map(c => c.text).join("") : "";
 		hubCapture.end(event.turnIndex, text);
 	});
+	// Stable historical views keep the provider prompt cache valid between turns.
+	const historyProjection = createHistoryProjectionMemo();
 	pi.on("context", async (event, ctx) => {
-        const projection=projectCoordinationHistory(event.messages,sessionDir);
-        if(projection.projected)try{pi.appendEntry("agent-hub-context-projection",{projected:projection.projected,savedBytes:projection.savedBytes});}catch{/* diagnostics cannot alter the model view */}
+        const projection=projectCoordinationHistory(event.messages,sessionDir,historyProjection);
+        if(projection.added)try{pi.appendEntry("agent-hub-context-projection",{projected:projection.projected,added:projection.added,savedBytes:projection.savedBytes});}catch{/* diagnostics cannot alter the model view */}
 		pressureLifecycle.context(ctx);
 		const context = hubCapture.hubContext();
 		const text = context && proactiveRuntime?.feedback?.take("hub", "direct", context);
@@ -2374,7 +2314,7 @@ export default function (pi: ExtensionAPI) {
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);
-			resetAgenticHub(pi); resetDiscoveryHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); turnBudgetAskUserWaitMs = 0; turnContinuationCount = 0; taskContinuationCount = 0; budgetRecovery.reset(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
+			resetAgenticHub(pi); resetDiscoveryHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
 			resetSessionState: ctx => { delegatedTokens = 0; hubSpawnedPeers.clear(); widgetCtx = ctx; contextWindow = ctx.model?.contextWindow || 0; gridUI.reset(); },

@@ -1,5 +1,5 @@
 import { createCompactionMonitor } from "./context-compaction-monitor.ts";
-import { COMPACTION_MIN_PERCENT, COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT, COMPACTION_MAX_PERCENT } from "../lib/context-compaction-policy.js";
+import { COMPACTION_MIN_PERCENT, COMPACTION_EARLY_PERCENT, COMPACTION_TARGET_PERCENT, COMPACTION_MAX_PERCENT, compactionRearmed, compactionShortOfTarget } from "../lib/context-compaction-policy.js";
 import type {ExtensionAPI,ExtensionContext} from "@earendil-works/pi-coding-agent";
 import {createHash,randomUUID} from "node:crypto";
 import {SettingsManager,buildSessionContext} from "@earendil-works/pi-coding-agent";
@@ -18,10 +18,16 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
  const monitor=createCompactionMonitor(event=>{try{pi.appendEntry("agent-fleet-compaction-monitor",event);}catch{}});
  let ctx:ExtensionContext, pending=false,interrupted=false,restored=false,cancelled=false,running=false,armed=true,task="",turn=0;
  let instructions="Preserve the task, tool results, decisions, scope, permissions and next allowed step. Do not repeat side effects.";
- let lastCompacted:number|null=null;
+ // First measured usage after the last compaction: Pi reports none until the next response.
+ let compacted:number|null=null,awaitingCompacted=false,ceilingNoticed=false;
  let waitingUser=false;
+ const measure=(tokens:number|null|undefined,window:number|null|undefined)=>{
+  if(tokens==null || !window)return;
+  if(awaitingCompacted){compacted=tokens;awaitingCompacted=false;}
+  if(!armed && compactionRearmed(compacted,tokens,window))armed=true;
+ };
  const status:ContextOwnerStatus={phase:"running",episode:0,tokens:null,window:null,cacheRead:null,cacheWrite:null,input:null,output:null};
- const publish=async(phase:ContextOwnerStatus["phase"])=>{status.phase=phase;const usage=ctx?.getContextUsage();status.tokens=usage?.tokens??null;status.window=usage?.contextWindow??ctx?.model?.contextWindow??null;if(!channel)return {status:"unavailable"};return await contextChannelCall(channel,"context_status",status);};
+ const publish=async(phase:ContextOwnerStatus["phase"],usage=ctx?.getContextUsage())=>{status.phase=phase;status.tokens=usage?.tokens??null;status.window=usage?.contextWindow??ctx?.model?.contextWindow??null;if(!channel)return {status:"unavailable"};return await contextChannelCall(channel,"context_status",status);};
  const coordinator=new ContextContinuityCoordinator({
   identity:()=>({session:ctx.sessionManager.getSessionId(),task:assignment.owner,revision:1,owner:assignment.owner,attempt:1}),
   eligibility:()=>({active:interrupted,cancelled,completed:!interrupted,waitingUser,budgetBlocked:false}),
@@ -39,22 +45,31 @@ export default function contextContinuityChild(pi:ExtensionAPI) {
   const usage=ctx.getContextUsage();const window=usage?.contextWindow??ctx.model?.contextWindow;
   if(usage?.tokens==null || !window)return;
   const projected=usage.tokens+estimatePromptTokens(JSON.stringify(event.message.content));
+  measure(usage.tokens,window);
   if(projected/window<COMPACTION_EARLY_PERCENT/100)armed=true;
   if(armed && projected/window>=COMPACTION_TARGET_PERCENT/100){pending=true;interrupted=true;await publish("pending");ctx.abort();}
  });
- pi.on("context",(_event,context)=>{ctx=context;const usage=ctx.getContextUsage();if((usage?.percent??0)>=COMPACTION_MAX_PERCENT && !pending && !running){if(armed)pending=true;else {monitor.record("ceiling_blocked",usage);ctx.abort();return;}}if(pending){interrupted=true;ctx.abort();}});
- pi.on("session_compact",async()=>{restored=true;monitor.record("restored",ctx.getContextUsage());armed=false;pending=false;lastCompacted=ctx.getContextUsage()?.tokens??null;await publish("recovered");});
+ pi.on("context",(_event,context)=>{ctx=context;const usage=ctx.getContextUsage();
+  if((usage?.percent??0)>=COMPACTION_MAX_PERCENT && !pending && !running){
+   const window=usage?.contextWindow??ctx.model?.contextWindow;measure(usage?.tokens,window);
+   if(armed)pending=true;
+   // A compacted baseline between target and ceiling re-arms by growth instead.
+   else if(compactionShortOfTarget(compacted,window)){if(!ceilingNoticed){ceilingNoticed=true;monitor.record("ceiling_exceeded",usage);}}
+   else {monitor.record("ceiling_blocked",usage);ctx.abort();return;}
+  }
+  if(pending){interrupted=true;ctx.abort();}});
+ pi.on("session_compact",async()=>{restored=true;monitor.record("restored",ctx.getContextUsage());armed=false;pending=false;compacted=null;awaitingCompacted=true;ceilingNoticed=false;await publish("recovered");});
  pi.on("turn_end",async(_event,context)=>{
   ctx=context;turn++;const usage=ctx.getContextUsage();monitor.observe(usage);const tokens=usage?.tokens??null,window=usage?.contextWindow??ctx.model?.contextWindow??null;
+  measure(tokens,window);
   if(tokens!==null && window && tokens/window>=COMPACTION_TARGET_PERCENT/100 && armed)pending=true;
-  const result=await publish(pending?"pending":"running");
+  const result=await publish(pending?"pending":"running",usage);
   const directive=result?.directive;
   if(directive?.type==="compact" && directive.owner===assignment.owner && directive.attempt===assignment.attempt && directive.episode===status.episode && status.phase==="pending" && !cancelled)pending=true;
-  if(waitingUser || pending || tokens===null || window===null || tokens/window<COMPACTION_MIN_PERCENT/100 || tokens/window>=COMPACTION_TARGET_PERCENT/100 || cancelled)return;
+  if(!channel || waitingUser || pending || tokens===null || window===null || tokens/window<COMPACTION_MIN_PERCENT/100 || tokens/window>=COMPACTION_TARGET_PERCENT/100 || cancelled)return;
   const settings=SettingsManager.create(ctx.cwd).getCompactionSettings(ctx.model),keep=settings.keepRecentTokens;
   const responseTokens=compactionResponseReserve(settings,ctx.model?.maxTokens);
-  if(lastCompacted!==null && tokens<=lastCompacted+keep)return;
-  if(!channel)return;
+  if(compacted!==null && tokens<=compacted+keep)return;
   const reply=await contextChannelCall(channel,"context_assessment",{identity:ctx.sessionManager.getSessionId(),task:"Continue the owned task; task bodies, artifacts and tool output are not exported by the child adapter.",revision:1,turn,tokens,window,historyTokens:estimatePromptTokens(JSON.stringify(buildSessionContext(ctx.sessionManager.getBranch()).messages)),keepRecentTokens:keep,responseTokens,unsafe:false});
   try{pi.appendEntry("agent-fleet-context-assessment",contextAssessmentMetadata(reply.assessment,{tokens,window,responseTokens,turn}));}catch{}
   if(reply.owner===assignment.owner && reply.attempt===assignment.attempt && reply.assessment?.compact===true && typeof reply.assessment.instructions==="string" && reply.assessment.instructions.length<2048){pending=true;instructions=reply.assessment.instructions;}

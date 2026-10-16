@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 
-import { checkScope, diffAgainst, reviewableChangedPaths, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
+import { checkScope, diffAgainst, reviewableChangedPaths, snapshotRevision, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 
 function git(args, cwd) {
 	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
@@ -243,4 +243,17 @@ test("nested Git observes metadata without reading file contents, including lite
   writeFileSync(join(app, "src/tracked.ts"), "dirty after\n");
   assert.deepEqual(diffAgainst(before, parent).paths, ["app/src/tracked.ts"]);
  } finally { fs.readFileSync = originalRead; syncBuiltinESMExports(); }
+});
+
+test("one observation yields the same revision as a fresh worktree revision", (t) => {
+	const dir = temporaryDirectory(t, "fleet-snapshot-revision-");
+	git(["init", "-q"], dir); writeFileSync(join(dir, "a.txt"), "a\n"); git(["add", "a.txt"], dir);
+	git(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "base"], dir);
+	const before = snapshotWorktree(dir, ["a.txt"]);
+	assert.equal(snapshotRevision(before), worktreeRevision(dir, [], ["a.txt"]));
+	writeFileSync(join(dir, "a.txt"), "changed\n"); writeFileSync(join(dir, "notes.txt"), "local");
+	const diff = diffAgainst(before, dir);
+	assert.deepEqual(diff.paths, ["a.txt", "notes.txt"]);
+	assert.equal(snapshotRevision(diff.snapshot), worktreeRevision(dir, [], ["a.txt"]), "the post-run delta snapshot is the after revision");
+	assert.notEqual(snapshotRevision(diff.snapshot), snapshotRevision(before));
 });

@@ -196,7 +196,7 @@ need final acceptance reconciliation once the remaining integration cases close.
 and last-recovery rows. The status line shows the target and ceiling. Hub records
 `agent-hub-compaction-monitor`; native children record `agent-fleet-compaction-monitor`.
 Events distinguish `started`, `restored`, `continuation_requested`, `continued`,
-`failed`, and `ceiling_blocked`,
+`failed`, `ceiling_blocked` and `ceiling_exceeded`,
 with an episode, before/after percentages and ceiling overshoot. Since Pi reports
 unknown usage immediately after compaction, the reduction stays unknown until the
 first subsequent measured response; that event is marked `first_post_compaction`.
@@ -206,10 +206,16 @@ The monitors are local to execution, not a separate polling model or user approv
 
 A single large tool result can jump over a threshold. The runtime observes that
 result, records the overshoot and interrupts before the next ordinary model request.
-It cannot guarantee that every received result fits below 80%. If usage is still
-at/above 80% after an unsuccessful or insufficient recovery, it blocks further work
-instead of repeatedly compacting or silently exceeding the ceiling. Recovery never
-replays effects, fabricates new user input, or overrides cancellation/permissions.
+It cannot guarantee that every received result fits below 80%. Automatic compaction
+re-arms when measured usage falls below 60%, or after the history grows by 10% of the
+window over the first measurement after a compaction; the next compaction then has at
+least that much new history to summarize. If usage is at/above 80% after a failed
+recovery, or the compacted baseline itself is at/above 80%, it blocks further work
+instead of repeatedly compacting or silently exceeding the ceiling. A compacted baseline
+between 70% and 80% cannot reach the target before that growth, so a small window
+records `ceiling_exceeded` once and keeps working until compaction re-arms. Native
+children apply the same rule without a human prompt. Recovery never replays effects,
+fabricates new user input, or overrides cancellation/permissions.
 
 Current acceptance uses the installed Pi 1.3.0 CLI, actual tools, actual Pi summary
 preparation and persisted compaction entries. Provider responses and usage are

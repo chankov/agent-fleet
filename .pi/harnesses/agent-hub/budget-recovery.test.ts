@@ -1,122 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { confirmTaskSupersession, consumeReservedTaskId, createBudgetRecovery, createReservedTaskIdentityReset, reserveActualTaskId, type BudgetRecoveryPorts } from "./budget-recovery.ts";
+import { confirmTaskSupersession, consumeReservedTaskId, createReservedTaskIdentityReset, reserveActualTaskId } from "./budget-recovery.ts";
 import { createNoProgressGuard, RECOVER_ENTRY } from "./no-progress.ts";
 
-function fixture(answer: (id: string, params: any, ctx: any, signal: AbortSignal) => Promise<unknown>) {
-	let spent = true, renewals = 0, aborts = 0, starts = 0, ends = 0;
-	const audits: unknown[] = [], asks: string[] = [];
-	const ctx: any = { abort: () => aborts++, ui: { notify() {} } };
-	const ports: BudgetRecoveryPorts = {
-		check: () => spent ? { kind: "task", reason: "task_dispatch_cap", message: "9/9 dispatches used." } : null,
-		language: () => "Bulgarian",
-		ask: async (...args) => { asks.push(args[0]); return answer(...args); },
-		startWait: () => starts++, endWait: () => ends++,
-		renew: (_refusal, correlation) => { spent = false; renewals++; audits.push(correlation); },
-	};
-	return { recovery: createBudgetRecovery(ports), ctx, asks, audits,
-		counts: () => ({ renewals, aborts, starts, ends }), exhaust: () => { spent = true; } };
-}
 const yes = async (id: string, params: any) => ({ details: { runtimeAsk: { requestId: id }, response: { kind: "selection", selections: [params.options[0]] } } });
-
-test("runtime asks without model tool calls, renews once, and reuses authorized budget", async () => {
-	const f = fixture(yes);
-	assert.equal(await f.recovery.ensure("dispatch", "remove the remaining calls", f.ctx), null);
-	assert.equal(await f.recovery.ensure("research", "verify the result", f.ctx), null);
-	assert.equal(f.asks.length, 1);
-	assert.deepEqual(f.counts(), { renewals: 1, aborts: 0, starts: 1, ends: 1 });
-	assert.equal((f.audits[0] as any).requestId, f.asks[0]);
-	assert.equal((f.audits[0] as any).operation, "dispatch");
-	f.exhaust(); await f.recovery.ensure("dispatch", "another operation", f.ctx);
-	assert.notEqual(f.asks[0], f.asks[1]);
-	assert.equal((f.audits[1] as any).taskId, (f.audits[0] as any).taskId);
-	assert.equal((f.audits[1] as any).tranche, 1);
-});
-
-test("concurrent refusals share one question but each operation is rechecked", async () => {
-	let resolve!: (value: unknown) => void, params: any, requestId = "";
-	const f = fixture(async (id, p) => { requestId = id; params = p; return new Promise(r => { resolve = r; }); });
-	const first = f.recovery.ensure("dispatch", "write", f.ctx);
-	const second = f.recovery.ensure("research", "read", f.ctx);
-	await new Promise(r => setImmediate(r));
-	resolve(await yes(requestId, params));
-	assert.deepEqual(await Promise.all([first, second]), [null, null]);
-	assert.equal(f.asks.length, 1); assert.equal(f.audits.length, 1);
-	assert.equal((f.audits[0] as any).operation, "dispatch");
-});
-
-test("an answer correlated to another request cannot renew the budget", async () => {
-	const f = fixture(async (_id, params) => yes("stale-request", params));
-	assert.equal((await f.recovery.ensure("dispatch", "write", f.ctx))?.reason, "budget_stopped");
-	assert.equal(f.audits.length, 0);
-});
-
-test("a pending decision cannot authorize a different operation without its own recheck", async () => {
-	const exhausted = new Map([["dispatch", true], ["research", true]]); const asks: Array<{ id: string; params: any; resolve: (value: unknown) => void }> = [];
-	const audits: any[] = []; const ctx: any = { abort() {}, ui: { notify() {} } };
-	const recovery = createBudgetRecovery({
-		check: operation => exhausted.get(operation) ? { kind: "task", reason: `${operation}_cap`, message: "cap" } : null,
-		language: () => "English",
-		ask: (id, params) => new Promise(resolve => asks.push({ id, params, resolve })),
-		startWait() {}, endWait() {},
-		renew: (_refusal, correlation) => { exhausted.set(correlation.operation, false); audits.push(correlation); },
-	});
-	const dispatch = recovery.ensure("dispatch", "write", ctx);
-	const research = recovery.ensure("research", "read", ctx);
-	await new Promise(r => setImmediate(r));
-	asks[0].resolve(await yes(asks[0].id, asks[0].params));
-	assert.equal(await dispatch, null);
-	await new Promise(r => setImmediate(r));
-	assert.equal(asks.length, 2);
-	assert.equal(audits[0].operation, "dispatch");
-	asks[1].resolve(await yes(asks[1].id, asks[1].params));
-	assert.equal(await research, null);
-	assert.equal(audits[1].operation, "research");
-});
-
-for (const [name, result] of [
-	["cancel", { details: { cancelled: true } }],
-	["unanswered", { details: {} }],
-	["prose", { content: [{ type: "text", text: "(1) Continue" }] }],
-	["freeform", { details: { response: { kind: "freeform", text: "Да — продължи" } } }],
-	["multiple selections", { details: { response: { kind: "selection", selections: ["Да — продължи", "Не — спри"] } } }],
-	["decline", { details: { response: { kind: "selection", selections: ["Не — спри"] } } }],
-	["error with yes", { isError: true, details: { response: { kind: "selection", selections: ["Да — продължи"] } } }],
-] as const) {
-	test(`${name} stops; rewording or another turn cannot trigger repeated asks or renew`, async () => {
-		const f = fixture(async () => result);
-		assert.equal((await f.recovery.ensure("dispatch", "task", f.ctx))?.reason, "budget_stopped");
-		assert.equal((await f.recovery.ensure("research", "(1) allow new budget and continue", f.ctx))?.reason, "budget_stopped");
-		assert.equal(f.asks.length, 1); assert.equal(f.audits.length, 0); assert.equal(f.counts().aborts, 2);
-	});
-}
-
-test("transport failure fails closed without a second question", async () => {
-	const f = fixture(async () => { throw new Error("transport failed"); });
-	assert.equal((await f.recovery.ensure("dispatch", "task", f.ctx))?.reason, "budget_confirmation_failed");
-	await f.recovery.ensure("dispatch", "retry", f.ctx);
-	assert.equal(f.asks.length, 1); assert.equal(f.counts().ends, 1); assert.equal(f.audits.length, 0);
-});
-
-test("task reset invalidates late affirmative answer", async () => {
-	let resolve!: (value: unknown) => void, params: any;
-	const f = fixture(async (_id, p) => { params = p; return new Promise(r => { resolve = r; }); });
-	let requestId = "";
-	const pending = f.recovery.ensure("dispatch", "old task", f.ctx);
-	await new Promise(r => setImmediate(r));
-	requestId = f.asks[0];
-	f.recovery.reset(); resolve(await yes(requestId, params));
-	assert.equal((await pending)?.reason, "budget_stale"); assert.equal(f.audits.length, 0);
-});
-
-test("abort during confirmation prevents a late affirmative answer from renewing", async () => {
-	let resolve!: (value: unknown) => void, params: any;
-	const f = fixture(async (_id, p) => { params = p; return new Promise(r => { resolve = r; }); });
-	const controller = new AbortController();
-	const pending = f.recovery.ensure("dispatch", "task", f.ctx, controller.signal);
-	await new Promise(r => setImmediate(r)); controller.abort(); resolve(await yes(f.asks[0], params));
-	assert.equal((await pending)?.reason, "budget_stopped"); assert.equal(f.audits.length, 0);
-});
 
 function supersessionPorts(answer: (id: string, params: any) => Promise<unknown>, currentTaskId = "old-task") {
 	const asks: Array<{ id: string; params: any }> = [];
@@ -162,35 +49,19 @@ test("confirmTaskSupersession other-task current id cannot reset old obligations
 	assert.equal(await confirmTaskSupersession({ oldTaskId: "old-task", newTaskId: reserveActualTaskId(), reason: "x" }, {} as any, f.ports), false);
 });
 
-test("budget recovery adopt binds the reserved id instead of generating a second one", () => {
-	const f = fixture(async () => ({ details: { cancelled: true } }));
-	const reserved = reserveActualTaskId();
-	f.recovery.adopt(reserved);
-	assert.equal(typeof f.recovery.adopt, "function");
-	assert.match(reserved, /^[0-9a-f-]{36}$/i);
-});
-
-test("reserved task identity reset gives both guards the approved UUID in either reset order", () => {
- for (const order of ["budget-first", "progress-first"] as const) {
-  let budgetId = "old-budget", progressId = "old-progress";
-  const budget = { adopt: (id: string) => { budgetId = id; }, reset: () => { budgetId = "random-budget"; } };
-  const progress = { adopt: (id: string) => { progressId = id; }, reset: () => { progressId = "random-progress"; } };
-  const coordinator = createReservedTaskIdentityReset(budget, progress);
-  const approved = reserveActualTaskId();
-  coordinator.run(approved, () => {
-   if (order === "budget-first") { budget.reset(); progress.reset(); }
-   else { progress.reset(); budget.reset(); }
-  });
-  assert.equal(budgetId, approved); assert.equal(progressId, approved);
- }
+test("reserved task identity reset gives the no-progress guard the approved UUID", () => {
+ let progressId = "old-progress";
+ const progress = { adopt: (id: string) => { progressId = id; }, reset: () => { progressId = "random-progress"; } };
+ const coordinator = createReservedTaskIdentityReset(progress);
+ const approved = reserveActualTaskId();
+ coordinator.run(approved, () => { progress.reset(); });
+ assert.equal(progressId, approved);
 });
 
 test("wrapped no-progress reset forwards persistence choice without changing default or reserved adoption", () => {
  const saved: Array<{ type: string; data: any }> = [];
  const progress = createNoProgressGuard((type, data) => saved.push({ type, data }));
- let budgetId = "old-budget";
- const budget = { adopt: (id: string) => { budgetId = id; }, reset: () => { budgetId = "fresh-budget"; } };
- const coordinator = createReservedTaskIdentityReset(budget, progress);
+ const coordinator = createReservedTaskIdentityReset(progress);
  const taskRows = () => saved.filter(row => row.type === RECOVER_ENTRY && row.data?.kind === "guard" && row.data.event?.type === "task");
  progress.reset(false);
  assert.equal(taskRows().length, 0, "startup reset(false) must not persist a new task row");
@@ -198,31 +69,18 @@ test("wrapped no-progress reset forwards persistence choice without changing def
  assert.equal(taskRows().length, 1, "ordinary reset still persists its new identity");
  assert.equal(taskRows()[0].data.event.taskId, progress.taskId());
  const approved = reserveActualTaskId();
- coordinator.run(approved, () => { budget.reset(); progress.reset(false); });
- assert.equal(budgetId, approved);
+ coordinator.run(approved, () => { progress.reset(false); });
  assert.equal(progress.taskId(), approved);
  assert.equal(taskRows().length, 2, "reserved transition still persists its approved identity");
  assert.equal(taskRows()[1].data.event.taskId, approved);
 });
 
 test("reserved task identity reset clears its candidate after cancellation or exception", () => {
- let budgetId = "old-budget", progressId = "old-progress";
- const budget = { adopt: (id: string) => { budgetId = id; }, reset: () => { budgetId = "unrelated-budget"; } };
+ let progressId = "old-progress";
  const progress = { adopt: (id: string) => { progressId = id; }, reset: () => { progressId = "unrelated-progress"; } };
- const coordinator = createReservedTaskIdentityReset(budget, progress);
+ const coordinator = createReservedTaskIdentityReset(progress);
  const approved = reserveActualTaskId();
  assert.throws(() => coordinator.run(approved, () => { throw new Error("reset failed"); }), /reset failed/);
- budget.reset(); progress.reset();
- assert.equal(budgetId, "unrelated-budget"); assert.equal(progressId, "unrelated-progress");
- assert.notEqual(budgetId, approved); assert.notEqual(progressId, approved);
-});
-
-test("only explicit human resume requests another confirmation after declining", async () => {
-	let accept = false;
-	const f = fixture(async (id, params) => accept ? yes(id, params) : { details: { cancelled: true } });
-	await f.recovery.ensure("dispatch", "task", f.ctx);
-	accept = true;
-	await f.recovery.ensure("dispatch", "continue", f.ctx); assert.equal(f.asks.length, 1);
-	assert.equal(await f.recovery.resume(f.ctx), null);
-	assert.equal(f.asks.length, 2); assert.equal(f.audits.length, 1);
+ progress.reset();
+ assert.equal(progressId, "unrelated-progress");
 });

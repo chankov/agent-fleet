@@ -4,7 +4,7 @@ import { createEventBus } from "../../../node_modules/@earendil-works/pi-coding-
 import { installAskUserRemote } from "./index.ts";
 import { requestRuntimeAsk, type RuntimeQuestion } from "./runtime-ask.ts";
 import { QuestionChannel } from "./questions.ts";
-import { confirmOneUseRetry, createBudgetRecovery, type BudgetRecoveryPorts } from "../agent-hub/budget-recovery.ts";
+import { confirmOneUseRetry } from "../agent-hub/budget-recovery.ts";
 
 const params: RuntimeQuestion = { question: "Още един бюджет?", context: "Същата задача.", options: ["Да", "Не"], allowMultiple: false, allowFreeform: false, allowComment: false };
 
@@ -59,36 +59,6 @@ for (const [name, invalid] of [
 		await assert.rejects(requestRuntimeAsk(createEventBus(), "invalid", invalid as any, { hasUI: true, ui: { select: () => assert.fail("invalid schema") } } as any), /Invalid runtime ask question/);
 	});
 }
-
-test("budget recovery production and answer consumption stay request/task/operation correlated", async () => {
-	const events = createEventBus();
-	const owner = { project: "af", peer: "hub", sessionId: "integration", startedAt: "now" };
-	const channel = new QuestionChannel(() => owner);
-	installAskUserRemote({ events, registerTool() {} }, {
-		questionChannel: channel, startRemote: () => null,
-		stockFactory: pi => pi.registerTool({ name: "ask_user", execute: (_id, _params, signal) => new Promise(resolve => signal.addEventListener("abort", () => resolve({ details: { cancelled: true } }))) }),
-	});
-	let exhausted = true, renewals = 0; const audits: any[] = [];
-	const ports: BudgetRecoveryPorts = {
-		check: () => exhausted ? { kind: "task", reason: "task_dispatch_cap", message: "cap" } : null,
-		language: () => "English",
-		ask: (id, question, ctx, signal) => requestRuntimeAsk(events, id, question, ctx, signal),
-		startWait() {}, endWait() {},
-		renew: (_refusal, correlation) => { exhausted = false; renewals++; audits.push(correlation); },
-	};
-	const recovery = createBudgetRecovery(ports);
-	const ctx: any = { hasUI: true, abort() {}, ui: { notify() {}, select: () => assert.fail("wrapper owns question") } };
-	const pending = recovery.ensure("dispatch", "builder: implement T8", ctx);
-	await new Promise(r => setImmediate(r));
-	const question = channel.list(owner).questions[0];
-	assert.equal(channel.submit(owner, question.id, "answer-one", { kind: "selection", selections: [question.options[0].title] }).status, "accepted");
-	assert.equal(await pending, null);
-	assert.equal(channel.submit(owner, question.id, "answer-one", { kind: "selection", selections: [question.options[0].title] }).status, "accepted");
-	assert.equal(channel.submit(owner, question.id, "answer-two", { kind: "selection", selections: [question.options[0].title] }).status, "late");
-	assert.equal(renewals, 1);
-	assert.equal(audits[0].operation, "dispatch");
-	assert.equal(audits[0].requestId, question.toolCallId);
-});
 
 test("operator-cancel retry question grants only its current task/request/operation once", async () => {
 	const events = createEventBus();

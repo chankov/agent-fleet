@@ -14,7 +14,7 @@
 // The human-readable `.ai/agent-fleet-setup.md` is rendered FROM this file and
 // is never parsed back, so the two cannot disagree.
 
-import { readInstallationState, assertLocalInstallation, RETIRED_INSTALLATION_OWNER_MESSAGE } from '../../.pi/harnesses/lib/installation-state.js';
+import { readInstallationState, assertLocalInstallation, INVALID_DESIRED_MESSAGE, RETIRED_INSTALLATION_OWNER_MESSAGE } from '../../.pi/harnesses/lib/installation-state.js';
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -38,6 +38,7 @@ export function readState(workspace) {
   const result = readInstallationState(workspace);
   if (result.status === 'missing') return null;
   if (result.status === 'local') return result.state;
+  if (result.reason === 'invalid_desired') throw new Error(INVALID_DESIRED_MESSAGE);
   throw new Error(`${STATE_REL_PATH} is unreadable: ${result.reason}${result.reason === 'source_denied' ? ' (symlink or nonregular path refused)' : ''}${result.reason === 'installation_owner_removed' ? `; ${RETIRED_INSTALLATION_OWNER_MESSAGE}` : ''}`);
 }
 

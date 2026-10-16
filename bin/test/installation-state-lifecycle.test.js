@@ -32,6 +32,13 @@ function fingerprint(root) {
  visit(root); return result;
 }
 
+test('a corrupt .ai/agent-fleet.json is reported as broken human configuration, not unreadable state', t => {
+ const { root } = fixture(t, false);
+ writeFileSync(join(root, '.ai/agent-fleet-state.json'), '{"schemaVersion":2,"items":{}}');
+ writeFileSync(join(root, '.ai/agent-fleet.json'), '{"preset": "default",');
+ assert.throws(() => readState(root), error => /\.ai\/agent-fleet\.json is not a JSON object/.test(error.message) && !/agent-fleet-state\.json is unreadable/.test(error.message));
+});
+
 test('retired owner state reads/writes refuse rather than adopt a child or local copy', t => {
  const { root, child } = fixture(t);
  writeFileSync(join(root, '.ai/agent-fleet-state.json'), '{"schemaVersion":2,"packageVersion":"parent-copy"}');

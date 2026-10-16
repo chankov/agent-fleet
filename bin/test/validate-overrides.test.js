@@ -163,14 +163,22 @@ recon-search-timeout-s: 0
   assert.match(issues[5], /recon-search-timeout-s .* not an integer from 1 to 3600 or "off"/);
 });
 
-test("turn-budget keys accept valid values", () => {
+test("child deadline and recycling keys accept valid values", () => {
   assert.deepEqual(findingsFor(`## agent-hub
-max-dispatches-per-turn: 8
-max-research-per-turn: off
-turn-wall-time-s: 3600
 agent-turn-timeout-s: off
 session-recycle-runs: 5
 `), []);
+});
+
+test("retired continuation quota keys are flagged for removal", () => {
+  const issues = findingsFor(`## agent-hub
+max-dispatches-per-turn: 8
+max-research-per-turn: off
+turn-wall-time-s: 3600
+`).map((f) => f.issue);
+  assert.equal(issues.length, 3);
+  for (const [index, key] of ["max-dispatches-per-turn", "max-research-per-turn", "turn-wall-time-s"].entries())
+    assert.match(issues[index], new RegExp(`${key} in ## agent-hub: ignored — continuation quotas were removed`));
 });
 
 test("legacy persona-gate key is deprecated", () => {
@@ -184,12 +192,12 @@ persona-gate: on
 test("valid legacy mode key is deprecated and invalid budget values still flag", () => {
   const issues = findingsFor(`## agent-hub
 mode: fast
-max-dispatches-per-turn: zero
+agent-turn-timeout-s: zero
 session-recycle-runs: -1
 `).map((f) => f.issue);
   assert.equal(issues.length, 3);
   assert.match(issues[0], /mode in ## agent-hub: ignored — execution modes were removed/);
-  assert.match(issues[1], /max-dispatches-per-turn .* not an integer from 1 to 1000 or "off"/);
+  assert.match(issues[1], /agent-turn-timeout-s .* not an integer from 1 to 86400 or "off"/);
   assert.match(issues[2], /session-recycle-runs .* not an integer from 1 to 1000 or "off"/);
 });
 

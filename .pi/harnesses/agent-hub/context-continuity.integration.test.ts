@@ -50,3 +50,16 @@ test("80% ceiling blocks work after insufficient recovery without starting a com
  assert.ok(s.entries.some((e:any)=>e.type==="agent-hub-compaction-monitor" && e.data.phase==="ceiling_blocked"));
  assert.equal(s.root.automaticPending,false);
 });
+
+test("a compacted baseline between target and ceiling keeps working until growth re-arms compaction",async()=>{
+ const s=setup();let aborts=0,tokens=950;s.ctx.abort=()=>{aborts++;};s.ctx.getContextUsage=()=>({tokens,contextWindow:1000,percent:tokens/10});
+ s.lifecycle.messageEnd({message:{role:"toolResult",content:"output"}},s.ctx);
+ const run=s.lifecycle.agentSettled(s.ctx);s.complete();await run;
+ tokens=750;s.lifecycle.observe(s.ctx,"turn_end");
+ tokens=820;const before=aborts;s.lifecycle.context(s.ctx);s.lifecycle.context(s.ctx);
+ assert.equal(aborts,before,"less than one band of growth does not stall work");
+ assert.equal(s.entries.filter((e:any)=>e.data.phase==="ceiling_exceeded").length,1);
+ assert.ok(!s.entries.some((e:any)=>e.data.phase==="ceiling_blocked"));
+ tokens=860;s.lifecycle.context(s.ctx);
+ assert.equal(s.root.automaticPending,true,"one band of growth re-arms compaction");
+});

@@ -70,7 +70,6 @@ const commandModules = [
 	["handoff", "registerHandoff"],
 	["compound", "registerCompound"],
 	["poll", "registerPoll"],
-	["budget-continue", "registerBudgetContinue"],
 	["retry", "registerRetry"],
 	["recover", "registerRecover"],
 	["debate", "registerDebate"],
@@ -110,8 +109,8 @@ test("operator gets actionable fleet tools only when transition or S1 stage need
  assert.match(pressureLifecycleSource, /ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
 });
 
-test("wiring contract: all 29 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 29);
+test("wiring contract: all 28 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 28);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -224,7 +223,7 @@ test("wiring contract: research lifecycle is owned by the typed runtime with roo
 test("wiring contract: every fleet action assumes a tier before its persona gate", () => {
 	assert.match(budgetSource, /ensureTaskTier\(\) \{[\s\S]*?setTaskTier\(DEFAULT_TASK_TIER\);[\s\S]*?setTaskTierAssumed\(true\);[\s\S]*?getTurnReport\(\)\.tier = DEFAULT_TASK_TIER;[\s\S]*?updateModeStatus\(\)/);
 	assert.match(executionOrchestrationSource, /export interface DispatchExecutionContext/);
-	assert.match(indexSource, /createToolExecutionOrchestration\(\{[\s\S]*?budget: budgetCtx, budgetRecovery, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime/);
+	assert.match(indexSource, /createToolExecutionOrchestration\(\{[\s\S]*?budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime/);
 	assert.doesNotMatch(indexSource, /async function executeDispatchAgent|async function executeSpawnResearch/);
 	assert.match(dispatchExecutionSource, /function prepareDispatch[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, agent\)/);
 	assert.match(dispatchExecutionSource, /createResearchExecutor[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, params\.persona \|\| ""\)/);

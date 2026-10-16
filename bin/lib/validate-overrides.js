@@ -52,9 +52,9 @@ const KNOWN_SECTIONS = {
       "docs": checkPaths("docs entry point"),
       "recon-search-timeout-s": oneOfIntegerOrOff(1, 3600),
       "mode": (value) => `ignored — execution modes were removed; budgets follow task tier. Remove this key (was "${value}")`,
-      "max-dispatches-per-turn": oneOfIntegerOrOff(1, 1000),
-      "max-research-per-turn": oneOfIntegerOrOff(1, 1000),
-      "turn-wall-time-s": oneOfIntegerOrOff(1, 86400),
+      "max-dispatches-per-turn": retiredQuota,
+      "max-research-per-turn": retiredQuota,
+      "turn-wall-time-s": retiredQuota,
       "agent-turn-timeout-s": oneOfIntegerOrOff(1, 86400),
       "session-recycle-runs": oneOfIntegerOrOff(1, 1000),
       "watchdog": oneOf(["on", "off", "auto"]),
@@ -81,6 +81,10 @@ const KNOWN_SECTIONS = {
     keys: { "required": checkEnvVars() },
   },
 };
+
+function retiredQuota(value) {
+  return `ignored — continuation quotas were removed; usage stays visible and the watchdog supervises progress. Remove this key (was "${value}")`;
+}
 
 // `## agent-team` is the legacy alias the pi harness still accepts.
 const SECTION_ALIASES = { "agent-team": "agent-hub" };

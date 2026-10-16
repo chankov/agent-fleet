@@ -1,9 +1,7 @@
+import {processShared} from './process-shared.ts';
 export type SemanticDecision='allow'|'deny';
 interface SemanticState { decisions: Map<string,SemanticDecision>; scope: {taskId:string;revision:string}|null; }
-// Pi's isolated extension loaders share a JS runtime, not module-local bindings.
-const storeKey=Symbol.for('agent-fleet.semantic-approval.v1');
-const runtime=globalThis as typeof globalThis & {[key:symbol]:SemanticState|undefined};
-const state=runtime[storeKey]??= {decisions:new Map(),scope:null};
+const state=processShared<SemanticState>('agent-fleet.semantic-approval.v1',()=>({decisions:new Map(),scope:null}));
 const decisions=state.decisions;
 export const semanticScope=()=>state.scope;
 const key=(taskId:string,revision:string,path:string)=>JSON.stringify([taskId,revision,path]);

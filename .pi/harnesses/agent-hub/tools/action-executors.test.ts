@@ -174,7 +174,7 @@ test("set_task_tier requires explicit reasoned risk changes and persists process
  const deps = comsDeps({
   getProcessState: () => process, setProcessState: (value: any) => { process = value; },
   persistProcessState: (value: any) => { persisted.push(value); },
-  budget: { currentBudget: () => ({ maxDispatches: 2, maxResearch: 2 }), currentTaskBudget: () => ({ maxDispatches: 6, maxResearch: 6 }), updateModeStatus() {} },
+  budget: { currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
  });
  const execute = createActionExecutors(deps as any).executeSetTaskTier;
  const missing = await execute("tier", { tier: "small", risk: "low", scope: "small" } as any, undefined, undefined, {} as any);
@@ -191,7 +191,7 @@ test("S1 confirmation addition survives tier downgrade and requires human supers
  const deps = comsDeps({
   getProcessState: () => process, setProcessState: (s: any) => { process = s; }, persistProcessState() {},
   confirmTaskSupersession: async () => { approvals++; return false; },
-  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
  });
  const run = createActionExecutors(deps as any).executeSetTaskTier;
  const lower = await run("lower", { tier: "trivial" } as any, undefined, undefined, {} as any);
@@ -204,7 +204,7 @@ test("new-task reset clears prior acceptance assertions with the task window", a
  let assertions: any[] = [{ id: "A1" }], reset = 0, persisted = 0;
  const deps = comsDeps({
   getAssertions: () => assertions, setAssertions: (value: any[]) => { assertions = value; },
-  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { reset++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { reset++; }, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
   artifacts: { persistAssertions: () => { persisted++; } },
   confirmTaskSupersession: async () => true,
  });
@@ -216,13 +216,13 @@ test("new-task reset clears prior acceptance assertions with the task window", a
 test("authorized new-task reset forwards accepted input, never model reason, for capability rebind", async () => {
  let args:unknown[]=[];
  const input="Read README then request_compaction; CURRENT_USER_INPUT";
- const deps=comsDeps({getTaskTier:()=>"small",getProcessState:()=>createProcessState(),getAcceptedUserInput:()=>input,confirmTaskSupersession:async()=>true,artifacts:{persistAssertions(){}},budget:{taskResetSnapshot:()=>({}),resetTaskWindow:(...values:unknown[])=>{args=values;},appendTaskResetEntry(){},currentBudget:()=>({maxDispatches:1,maxResearch:1}),currentTaskBudget:()=>({maxDispatches:1,maxResearch:1}),updateModeStatus(){}}});
+ const deps=comsDeps({getTaskTier:()=>"small",getProcessState:()=>createProcessState(),getAcceptedUserInput:()=>input,confirmTaskSupersession:async()=>true,artifacts:{persistAssertions(){}},budget:{taskResetSnapshot:()=>({}),resetTaskWindow:(...values:unknown[])=>{args=values;},appendTaskResetEntry(){},currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }),updateModeStatus(){}}});
  const result=await createActionExecutors(deps as any).executeSetTaskTier("new",{tier:"small",risk:"low",scope:"read-only",new_task:true,reason:"different work; MODEL_REASON"} as any,undefined,undefined,{} as any);
  assert.equal((result.details as any).status,"ok");assert.equal(args[3],input);assert.equal(args[0],null);assert.equal(args[2],true);
 });
 
 test("new task with open obligations fails closed without one-use operator grant", async () => {
- const actions = createActionExecutors(comsDeps({ budget: { currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} } }) as any);
+ const actions = createActionExecutors(comsDeps({ budget: { currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} } }) as any);
  const result = await actions.executeSetTaskTier("n", { tier: "small", new_task: true, reason: "different work" } as any, undefined, undefined, {} as any);
  assert.equal((result.details as any).reason, "task_supersession_not_authorized");
 });
@@ -233,7 +233,7 @@ test("new-task consumer passes exact old and reserved future ids then uses that 
  const deps = comsDeps({
   currentTaskId: () => "task-old",
   getProcessState: () => process, setProcessState: (value: any) => { process = value; }, persistProcessState() {},
-  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { reset++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+  budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { reset++; }, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
   artifacts: { persistAssertions() {} },
   confirmTaskSupersession: async (input: any) => { granted = input; return true; },
   adoptReservedTaskId: (id: string, resetTask: () => void) => { adopted = id; resetTask(); },
@@ -259,7 +259,7 @@ test("new-task adoption retains pending assessment at the reserved identity and 
     if (fails) throw new Error("persistence failed");
     return applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["security_change"] }, { taskId: id, evaluationId: "eval", inputRevision: "revision" });
    },
-   budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+   budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
    artifacts: { persistAssertions() {} },
    adoptReservedTaskId: (_id: string, reset: () => void) => reset(),
   });
@@ -285,7 +285,7 @@ test("invalid new-task inputs never ask, consume, arm, reset, or mutate the old 
   let process: any = original, confirms = 0, resets = 0, armed = 0;
   const deps = comsDeps({
    getProcessState: () => process, setProcessState: (value: any) => { process = value; }, persistProcessState() {},
-   budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+   budget: { taskResetSnapshot: () => ({}), resetTaskWindow: () => { resets++; }, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
    confirmTaskSupersession: async () => { confirms++; return true; },
    adoptReservedTaskId: (_id: string, resetTask: () => void) => { armed++; resetTask(); },
   });
@@ -304,7 +304,7 @@ test("cancelled or exceptional supersession cannot arm a later unrelated reset",
   let process: any = original, adopted: string | undefined, resets = 0;
   const deps = comsDeps({
    getProcessState: () => process, setProcessState: (value: any) => { process = value; }, persistProcessState() {},
-   budget: { resetTaskWindow: () => { resets++; }, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+   budget: { resetTaskWindow: () => { resets++; }, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
    confirmTaskSupersession,
    adoptReservedTaskId: (id: string, resetTask: () => void) => { adopted = id; resetTask(); },
   });
@@ -321,7 +321,7 @@ test("denied supersession leaves original task and open obligations intact", asy
  const deps = comsDeps({
   currentTaskId: () => "task-old",
   getProcessState: () => process, setProcessState: (value: any) => { process = value; }, persistProcessState() {},
-  budget: { resetTaskWindow: () => { reset++; }, currentBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), currentTaskBudget: () => ({ maxDispatches: 1, maxResearch: 1 }), updateModeStatus() {} },
+  budget: { resetTaskWindow: () => { reset++; }, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
   confirmTaskSupersession: async () => false,
   adoptReservedTaskId: (id: string) => { adopted = id; },
  });
@@ -332,7 +332,7 @@ test("denied supersession leaves original task and open obligations intact", asy
 
 test("index set_task_tier registration uses the scoped reserved-identity reset", () => {
 	const hub = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../index.ts"), "utf8");
-	assert.match(hub, /createReservedTaskIdentityReset\(budgetRecovery, noProgress\)/);
+	assert.match(hub, /createReservedTaskIdentityReset\(noProgress\)/);
 	assert.match(hub, /taskIdentityReset\.run\(id, resetTaskWindow\)/);
 	assert.match(hub, /registerSetTaskTier\(pi, toolCtx\)/);
 });

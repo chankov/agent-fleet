@@ -170,7 +170,7 @@ human-selected feature list including `system1`; `--features` replaces, not adds
 Review the preview before apply; no D9 config or consent is written by setup.
 
 ```sh
-FLEET_CHECKOUT=/home/nchankov/repos/agent-fleet
+FLEET_CHECKOUT=/absolute/path/to/agent-fleet
 TARGET=/absolute/path/to/approved-workspace
 KEEP_FEATURES=system1 # include every other existing feature you intend to retain
 node "$FLEET_CHECKOUT/bin/cli.js" setup --workspace "$TARGET" --features "$KEEP_FEATURES" --save-desired --dry-run

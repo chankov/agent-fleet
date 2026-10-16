@@ -105,13 +105,3 @@ test("findingBudgetNotice reports the overflow without reclassifying it", () => 
 	assert.match(notice, /you rank them, not a regex/);
 	assert.match(notice, /do NOT schedule them as work/);
 });
-
-test("findingBudgetNotice names the remaining review rounds when it knows them", () => {
-	const counts = { blocking: 4, sections: [] };
-	const mid = findingBudgetNotice("code-reviewer", 2, counts, 1, 2);
-	assert.match(mid, /Review rounds on this task: 1\/2/);
-	assert.match(mid, /exactly the ratchet/);
-	const last = findingBudgetNotice("code-reviewer", 2, counts, 2, 2);
-	assert.match(last, /No further review dispatch will be accepted/);
-	assert.ok(!findingBudgetNotice("code-reviewer", 2, counts).includes("Review rounds"));
-});

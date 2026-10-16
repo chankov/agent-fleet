@@ -8,12 +8,11 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { blockingFindingCap, checkReviewRoundCap, checkTaskBudget, checkTierPersonaGate, checkTurnBudget, isReviewPersona, remainingTaskResearch, reviewBudgetClause, reviewRoundCap } from "../run-budget.js";
+import { blockingFindingCap, checkTierPersonaGate, isReviewPersona, reviewBudgetClause } from "../run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "../review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
-import type { BudgetRecovery } from "../budget-recovery.ts";
-import { checkScope, diffAgainst, reviewableChangedPaths, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
+import { checkScope, diffAgainst, reviewableChangedPaths, snapshotRevision, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
 import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
 import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
 import { shouldExtractReturn } from "../return-extract.js";
@@ -64,12 +63,13 @@ export interface DispatchExecutorDeps {
 	noProgress: NoProgressGuard;
 	state: DispatchExecutionState;
 	budget: BudgetContext;
-	budgetRecovery: BudgetRecovery;
 	artifacts: AssertionsArtifactsContext;
 	research: ResearchRuntime<any>;
 	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
 	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">): Promise<DispatchResult>;
 	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
+	/** Opt-in profile assistance: recover a missing submit_result from the written report. */
+	returnExtractionAssist?(): boolean;
 	extractNeedsResearch(output: string): string[];
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
@@ -79,10 +79,10 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
-interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; autoResearchTaskCapped: boolean; }
+interface PreparedDispatch { beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
 interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
-interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
+interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -183,12 +183,8 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
 	const processGate = s.processBlock?.() ?? (s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
-	const preflight = preflightGate(d, agent) ?? processGate ?? checkReviewRoundCap(s.getTaskTier(), agent, s.getTaskReviewRounds()) ?? (s.getProcessState && processAllowsPersona(s.getProcessState(), agent) ? null : checkDocsLane(agent, scope || [], review_reason));
+	const preflight = preflightGate(d, agent) ?? processGate ?? (s.getProcessState && processAllowsPersona(s.getProcessState(), agent) ? null : checkDocsLane(agent, scope || [], review_reason));
 	if (preflight) return refusal(d, agent, task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx as any)}`, preflight.reason);
-	const taskRefusal = checkTaskBudget("dispatch", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
-	if (taskRefusal) return refusal(d, agent, task, "task_budget_refused", taskRefusal.message, taskRefusal.reason);
-	const turnRefusal = checkTurnBudget("dispatch", { dispatches: s.getTurnDispatchCount(), research: s.getTurnResearchCount() }, d.budget.currentBudget(), d.budget.turnBudgetActiveElapsedMs(), s.getTaskTier());
-	if (turnRefusal) return refusal(d, agent, task, "budget_refused", turnRefusal.message, turnRefusal.reason);
 	let contract: DeliverableContract;
 	try { contract = preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: s.getSessionDir() }); }
 	catch (error) { return refusal(d, agent, task, "scope_preflight_failed", String(error)); }
@@ -196,7 +192,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (s.getTurnDispatchFingerprints().has(fingerprint)) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
 	let inputArtifacts: InputArtifactPreview[];
 	try { inputArtifacts = d.artifacts.loadInputArtifacts(artifacts, ctx); }
-	catch (err: any) { return { content: [{ type: "text", text: `⚠ Dispatch NOT sent and NOT counted against the turn budget — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and dispatch again.` }], details: { agent, task, status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none" } }; }
+	catch (err: any) { return { content: [{ type: "text", text: `⚠ Dispatch NOT sent and NOT counted — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and dispatch again.` }], details: { agent, task, status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none" } }; }
 	s.setTurnDispatchCount(s.getTurnDispatchCount() + 1); s.setTaskDispatchCount(s.getTaskDispatchCount() + 1);
 	if (isReviewPersona(agent)) s.setTaskReviewRounds(s.getTaskReviewRounds() + 1);
 	s.getSessionTotals().dispatches++; d.budget.updateModeStatus();
@@ -211,7 +207,9 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: agentState?.def.tools ?? "",
 	};
-	return { reviewInput: s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, s.getProcessState(), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: worktreeRevision(ctx.cwd || process.cwd(), [], scopeGlobs), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
+	const beforeSnapshot = snapshotWorktree(ctx.cwd || process.cwd(), scopeGlobs);
+	return { beforeSnapshot, reviewInput: s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, s.getProcessState(), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -221,7 +219,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
-		tracking.snapshot = snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
+		tracking.snapshot = prepared.beforeSnapshot ?? snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
 	}
 	return tracking;
 }
@@ -229,10 +227,9 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<RunData> {
 	const findingClause = reviewBudgetClause(d.state.getTaskTier(), p.agent); const dispatchedTask = findingClause ? `${p.task}\n\n${findingClause}` : p.task;
 	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract);
-	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = []; let autoResearchTaskCapped = false;
+	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = [];
 	while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
-		const left = remainingTaskResearch(d.budget.currentTaskBudget(), d.budget.taskCounters()); if (left === 0) { autoResearchTaskCapped = true; break; }
-		const questions = d.extractNeedsResearch(result.output).slice(0, left == null ? MAX_AUTO_RESEARCH_QUESTIONS : Math.min(MAX_AUTO_RESEARCH_QUESTIONS, left)); if (!questions.length) break;
+		const questions = d.extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS); if (!questions.length) break;
 		d.state.setTaskResearchCount(d.state.getTaskResearchCount() + questions.length); d.budget.updateModeStatus();
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} paused for research (${questions.length} question(s)) — spawning read-only helpers...` }], details: { agent: p.agent, task: p.task, status: "researching" } });
 		const findingsDir = safePathWithin(p.sessionDir, "findings"); mkdirSync(findingsDir, { recursive: true }); const key = safeAgentKey(d.state.getAgentStates().get(p.agent.toLowerCase())?.def.name ?? p.agent);
@@ -246,7 +243,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		if (p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
 		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract); billed += result.billed ?? 0; out += result.out ?? 0;
 	}
-	return { result, billed, out, researchRounds, autoResearchTaskCapped };
+	return { result, billed, out, researchRounds };
 }
 
 function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
@@ -316,7 +313,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		: `# Dispatch failure\n\n\`\`\`json\n${JSON.stringify(failureMetadata, null, 2)}\n\`\`\`\n\n## Output\n\n${result.output}`;
 	const runPath = disposition.artifactKind ? d.artifacts.writeRunArtifact(key, state?.runCount ?? 0, artifactOutput, disposition.artifactKind as any, result.dispatchId, p.sessionDir) : null;
 	const returnPath = disposition.delivered ? runPath : null; const failurePath = disposition.delivered ? null : runPath; let returnExtracted = false;
-	if (returnPath && !result.specialistResultTool && shouldExtractReturn(parsedReturn, ids)) {
+	if (returnPath && (!result.specialistResultTool || d.returnExtractionAssist?.() === true) && shouldExtractReturn(parsedReturn, ids)) {
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} returned no structured block — extracting it from the report...` }], details: { agent: p.agent, task: p.task, status: "extracting_return" } });
 		const recovered = await d.runReturnExtraction(returnPath, ids, ctx);
 		if (recovered) { parsedReturn = recovered; contractNotices = crossCheck(recovered, ids); returnExtracted = true; }
@@ -324,11 +321,15 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 
 	// The one shared post-run delta feeds both scope reporting and compiler selection.
 	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
-	const compilerInspectedRevision = worktreeRevision(cwd, [], p.scopeGlobs);
+	// The post-run observation also yields the revision; only an awaited compiler run
+	// needs a fresh revision for acceptance afterwards.
+	const compilerInspectedRevision = observation && !observation.skipped && observation.snapshot ? snapshotRevision(observation.snapshot) : worktreeRevision(cwd, [], p.scopeGlobs);
+	let compilerRan = false;
 	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
 	if (eligibleForCompiler && observation?.skipped) {
 		compilerDiagnostics = incompleteObservation(`worktree observation unavailable: ${observation.reason ?? "unknown reason"}`, observation.concurrentWritableOverlap);
 	} else if (eligibleForCompiler && observation && (observation.gaps?.length || observation.paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path)))) {
+		compilerRan = true;
 		try {
 			compilerDiagnostics = await diagnoseObservation(d, observation, cwd, key, result.dispatchId ?? randomUUID());
 		} catch (error) {
@@ -375,7 +376,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		}
 	}
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	const afterRevision = worktreeRevision(cwd, [], p.scopeGlobs);
+	const afterRevision = compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
 	const changes = !tracking.writable || !observation
 		? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
 		: observation.skipped
@@ -511,7 +512,6 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	notices.push("Orchestration handoff is in details.orchestration. Start from its manifest; reread a file only when it is missing, stale, or conflicting. A wide review closes only with a full regression marker. Model routing was not changed.");
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
-	if (run.autoResearchTaskCapped) notices.push(`⚠ ${p.agent} paused for research, but the TASK research envelope is spent (${s.getTaskResearchCount()}/${d.budget.currentTaskBudget().maxResearch}) — no helper was spawned and the specialist was not resumed. Its questions are unanswered. Narrow the task so it can proceed on what it has, or call set_task_tier with new_task: true if this is genuinely different work.`);
 	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
 	if (failurePath) notices.push(`⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching.`);
@@ -524,7 +524,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const corrected = p.inputArtifacts.filter(a => a.resolvedFromKind); if (corrected.length) notices.push(`ℹ Artifact path corrected: ${corrected.map(a => `"${a.input}" → ${a.displayPath}`).join("; ")}. Use the corrected path from now on.`);
 	if (state && d.contextPressure(state.contextPct)) notices.push(`⚠ ${d.displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`);
 	const scopeViolations = scopeResult(p, observation); const scopeNotice = scopeNoticeText(scopeViolations); if (scopeNotice) notices.push(scopeNotice.trim());
-	const finding = isReviewPersona(p.agent) ? findingBudgetNotice(p.agent, blockingFindingCap(s.getTaskTier()), countReviewFindings(result.output), s.getTaskReviewRounds(), reviewRoundCap(s.getTaskTier())) || "" : ""; if (finding) notices.push(finding.trim());
+	const finding = isReviewPersona(p.agent) ? findingBudgetNotice(p.agent, blockingFindingCap(s.getTaskTier()), countReviewFindings(result.output)) || "" : ""; if (finding) notices.push(finding.trim());
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
@@ -567,12 +567,10 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 		d.budget.ensureTaskTier();
 		const processGate = d.state.processBlock?.() ?? (d.state.getProcessState ? processPreEffectGate(d.state.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
-		const preflight = preflightGate(d, agent) ?? processGate ?? checkReviewRoundCap(d.state.getTaskTier(), agent, d.state.getTaskReviewRounds()) ?? (d.state.getProcessState && processAllowsPersona(d.state.getProcessState(), agent) ? null : checkDocsLane(agent, params.scope || [], params.review_reason));
+		const preflight = preflightGate(d, agent) ?? processGate ?? (d.state.getProcessState && processAllowsPersona(d.state.getProcessState(), agent) ? null : checkDocsLane(agent, params.scope || [], params.review_reason));
 		if (preflight) return refusal(d, agent, params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`);
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
-		const budgetBlock = await d.budgetRecovery.ensure("dispatch", `${agent}: ${params.task}`, ctx, signal);
-		if (budgetBlock) return refusal(d, agent, params.task, budgetBlock.reason, budgetBlock.message);
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
         if (isReviewPersona(agent) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && d.state.getProcessState) {
             const state=d.state.getProcessState();
@@ -615,20 +613,14 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
 	return withNoProgress(d, "research", async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability; const s = d.state; d.budget.ensureTaskTier();
 		const preflight = preflightGate(d, params.persona || ""); if (preflight) return refusal(d, "", params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`, preflight.reason);
-		const budgetBlock = await d.budgetRecovery.ensure("research", params.task, ctx, signal);
-		if (budgetBlock) return refusal(d, "", params.task, budgetBlock.reason, budgetBlock.message);
 		if (signal?.aborted) return refusal(d, "", params.task, "cancelled", "Operation cancelled before research.");
-		const taskRefusal = checkTaskBudget("research", d.budget.taskCounters(), d.budget.currentTaskBudget(), d.budget.taskActiveElapsedMs(), s.getTaskTier());
-		if (taskRefusal) return refusal(d, "", params.task, "task_budget_refused", taskRefusal.message, taskRefusal.reason);
-		const turnRefusal = checkTurnBudget("research", { dispatches: s.getTurnDispatchCount(), research: s.getTurnResearchCount() }, d.budget.currentBudget(), d.budget.turnBudgetActiveElapsedMs(), s.getTaskTier());
-		if (turnRefusal) return refusal(d, "", params.task, "budget_refused", turnRefusal.message, turnRefusal.reason);
 		let def: any; let persona = false;
-		if (params.persona) { def = s.getResearchPersonas().find(x => x.name.toLowerCase() === params.persona!.toLowerCase()); if (!def) return { content: [{ type: "text", text: `No research persona "${params.persona}". Available: ${s.getResearchPersonas().map(x => x.name).join(", ") || "(none defined)"}. Omit \`persona\` for an ad-hoc helper. (Not counted against the turn budget.)` }], details: { status: "not_started", reason: "unknown_agent", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; persona = true; } else def = d.research.anonymousDef();
+		if (params.persona) { def = s.getResearchPersonas().find(x => x.name.toLowerCase() === params.persona!.toLowerCase()); if (!def) return { content: [{ type: "text", text: `No research persona "${params.persona}". Available: ${s.getResearchPersonas().map(x => x.name).join(", ") || "(none defined)"}. Omit \`persona\` for an ad-hoc helper. (Nothing started or counted.)` }], details: { status: "not_started", reason: "unknown_agent", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; persona = true; } else def = d.research.anonymousDef();
 		const model = d.research.resolveModel(def, persona ? undefined : params.model, ctx); let artifacts: InputArtifactPreview[];
-		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted against the turn budget — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; }
+		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; }
 		s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; s.getSessionTotals().research++; d.budget.updateModeStatus();
 		const taskToken=d.noProgress.taskToken(),sessionDir=s.getSessionDir();
-  const admit=()=>taskToken===d.noProgress.taskToken()&&sessionDir===s.getSessionDir()&&!signal?.aborted&&!d.provisionalCapabilityRefusal('fleet')&&!preflightGate(d,params.persona||'')&&!checkTaskBudget('research',{...d.budget.taskCounters(),research:Math.max(0,s.getTaskResearchCount()-1)},d.budget.currentTaskBudget(),d.budget.taskActiveElapsedMs(),s.getTaskTier())&&!checkTurnBudget('research',{dispatches:s.getTurnDispatchCount(),research:Math.max(0,s.getTurnResearchCount()-1)},d.budget.currentBudget(),d.budget.turnBudgetActiveElapsedMs(),s.getTaskTier());
+  const admit=()=>taskToken===d.noProgress.taskToken()&&sessionDir===s.getSessionDir()&&!signal?.aborted&&!d.provisionalCapabilityRefusal('fleet')&&!preflightGate(d,params.persona||'');
   const state = d.research.createState(def, persona, model); onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
 		try { const result = await d.research.spawn(state, structuredResearchPrompt(params), ctx, artifacts, signal, {readScope:normalizeResearchContract(params).readScope,admit}); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, lifecycle: (result as any).lifecycle ?? null, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
 		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, model, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }

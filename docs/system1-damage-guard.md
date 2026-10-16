@@ -168,4 +168,5 @@ observations elsewhere remain historical, not superseded universal claims.
 acceptance command, not a documentation check or an executed F11 test. No A1–A8
 assertion is proven by these documents or by module presence. Packaging, final
 regression, independent review, Checkpoint D and final acceptance remain open.
-See the [original implementation record](plans/jev/d6/PLAN-system1-damage-guard.md).
+The original implementation record is a maintainer working-tree plan
+(`docs/plans/`, not published).

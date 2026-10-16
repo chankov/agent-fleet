@@ -32,7 +32,9 @@ test('A/B/C flow through real tool registration and shared validation; advice ne
  const service=createSystem1Service({provider:{name:'fake',model:'fake',capabilities:['choice','ordinal','predicate','probability_true'],evaluate:async request=>{sent.push(request);return providerResult(request) as any;}}});
  registerAgenticHub(pi);const configure=()=>configureAgenticHub(pi,{snapshot,service,ctx,sessionDir:root,taskId:()=>task});configure();
  const process=applyProcessClassification(createProcessState(),{risk:'high',scope:'wide',reason:'Sensitive wide change'}).state;
- const before=structuredClone(process),verdict=evaluateProcessObligations(process,{writable:true,budgetTier:'small'}),gate=processPreEffectGate(process,'write');assert.ok(gate);assert.equal(verdict.accepted,false);
+ // Planning is optional (2026-10-15), so a high-risk wide task no longer pre-gates writes;
+ // the open review/acceptance obligations still refuse proof, and advice changes neither.
+ const before=structuredClone(process),verdict=evaluateProcessObligations(process,{writable:true,budgetTier:'small'}),gate=processPreEffectGate(process,'write');assert.equal(gate,null);assert.equal(verdict.accepted,false);assert.equal(processPreEffectGate(process,'prove')?.reason,'process_obligations_open');
  const capture=(id:string,text:string,details:any={},isError=false)=>hooks.tool_result[0]({toolName:'bash',toolCallId:id,content:[{type:'text',text}],details,isError},ctx).details.agenticEvidence;
  const failed=capture('test','FAIL app.test.ts: expected 41, got 42',{complete:true,exitCode:1},true);
  const diff=capture('diff','diff --git a/src/app.ts b/src/app.ts\n-export const answer = 41;\n+export const answer = 42;');

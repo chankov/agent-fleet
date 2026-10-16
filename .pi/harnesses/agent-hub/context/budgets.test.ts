@@ -10,9 +10,8 @@ import { createWorkModePolicy } from "../policy/work-mode.ts";
 
 function fixture(onReset?: (persistTaskIdentity?: boolean) => void, policy?: ReturnType<typeof createWorkModePolicy>) {
 	const values: any = {
-		turnDispatch: 3, turnResearch: 2, turnWait: 50, pending: { kind: "task", reason: "cap" },
-		taskContinuation: 4, turnContinuation: 1, taskDispatch: 7, taskResearch: 5,
-		label: "task", clock: createTaskClock(), reviews: 2, tier: "large", assumed: false, workMode: "operator",
+		turnDispatch: 3, turnResearch: 2, taskDispatch: 7, taskResearch: 5,
+		label: "task", clock: createTaskClock(), reviews: 2, tier: "large", assumed: false,
 		report: freshTurnReport(0),
 	};
 	const events: string[] = [];
@@ -22,12 +21,8 @@ function fixture(onReset?: (persistTaskIdentity?: boolean) => void, policy?: Ret
 		getBudgetOverrides: () => ({}),
 		getTurnDispatchCount: () => values.turnDispatch, setTurnDispatchCount: value => { values.turnDispatch = value; events.push("turn-dispatch"); },
 		getTurnResearchCount: () => values.turnResearch, setTurnResearchCount: value => { values.turnResearch = value; events.push("turn-research"); },
-		getTurnBudgetAskUserWaitMs: () => values.turnWait, setTurnBudgetAskUserWaitMs: value => { values.turnWait = value; events.push("turn-wait"); },
 		resetNoProgress(persistTaskIdentity) { events.push("progress-reset"); onReset?.(persistTaskIdentity); },
 		resetUnknownToolCounter() { events.push("unknown-tool-reset"); },
-		resetBudgetRecovery: () => { values.pending = null; events.push("recovery-reset"); },
-		getTaskContinuationCount: () => values.taskContinuation, setTaskContinuationCount: value => { values.taskContinuation = value; events.push("task-continuation"); },
-		getTurnContinuationCount: () => values.turnContinuation, setTurnContinuationCount: value => { values.turnContinuation = value; events.push("turn-continuation"); },
 		getTaskDispatchCount: () => values.taskDispatch, setTaskDispatchCount: value => { values.taskDispatch = value; events.push("task-dispatch"); },
 		getTaskResearchCount: () => values.taskResearch, setTaskResearchCount: value => { values.taskResearch = value; events.push("task-research"); },
 		getTaskLabel: () => values.label, setTaskLabel: value => { values.label = value; events.push("label"); },
@@ -43,25 +38,9 @@ function fixture(onReset?: (persistTaskIdentity?: boolean) => void, policy?: Ret
 		getTurnReport: () => values.report,
 		setStatus: () => events.push("status"),
 		getAuditContext: () => ({ cwd: "/repo" }), appendEntry: () => {}, executionHistory,
-		getWorkMode: () => values.workMode,
 	});
 	return { context, values, events };
 }
-
-test("task continuation renews counters while preserving task identity and blockers", () => {
-	const { context, values, events } = fixture();
-	context.continueTaskBudgetWindow(200);
-	assert.equal(values.taskDispatch, 0);
-	assert.equal(values.taskResearch, 0);
-	assert.equal(values.reviews, 0);
-	assert.equal(values.taskContinuation, 5);
-	assert.equal(values.tier, "large");
-	assert.equal(values.label, "task");
-	assert.equal(values.pending.kind, "task");
-	assert.ok(!events.includes("capabilities"));
-	assert.ok(!events.includes("blockers"));
-	assert.ok(!events.includes("progress-reset"));
-});
 
 test("session setup resets budgets without appending a task identity over a compacted process binding", () => {
 	const entries: any[] = [];
@@ -93,7 +72,9 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 	context.resetTaskWindow("next", 300);
 	assert.equal(values.label, "next");
 	assert.equal(values.tier, null);
-	assert.equal(values.pending, null);
+	assert.equal(values.taskDispatch, 0);
+	assert.equal(values.taskResearch, 0);
+	assert.equal(values.reviews, 0);
 	assert.equal(events.filter(event => event === "progress-reset").length, 1);
 	assert.equal(events.filter(event => event === "unknown-tool-reset").length, 1);
 	assert.ok(events.indexOf("unknown-tool-reset") > events.indexOf("progress-reset"));
@@ -117,13 +98,10 @@ test("authorized new-task reset rebinds only current input, clears prior confirm
  assert.ok(!policy.getCapabilityResolution().active.includes("compaction"));
 });
 
-test("orchestrator turn floor is visible without inflating the task envelope", () => {
+test("the budget context carries child deadlines and visible usage, never a quota", () => {
 	const { context, values } = fixture();
 	values.tier = "small";
-	values.workMode = "orchestrator";
-	assert.equal(context.currentBudget().maxDispatches, null);
-	assert.equal(context.currentBudget().maxResearch, null);
-	assert.equal(context.currentTaskBudget().maxDispatches, null);
-	values.workMode = "operator";
-	assert.equal(context.currentBudget().maxDispatches, null);
+	assert.deepEqual(Object.keys(context.currentBudget()).sort(), ["agentTurnMs", "delegation", "recycleRuns"]);
+	assert.deepEqual(context.taskCounters(), { dispatches: 7, research: 5 });
+	assert.equal("currentTaskBudget" in context || "continueTaskBudgetWindow" in context, false);
 });

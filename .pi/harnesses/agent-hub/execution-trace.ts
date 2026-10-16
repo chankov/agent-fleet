@@ -3,7 +3,12 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { EXECUTION_TRACE_CHANNEL, policyTraceReason, type TraceEnvelope, type TraceEnd, type TraceKind, type TraceSource, type TraceStart, type TraceStatus } from "../lib/execution-trace.ts";
 
 export const EXECUTION_TRACE_ENTRY = "agent-hub-execution-trace";
-const SCHEMA = "agent-fleet.execution-trace/v1";
+// v2 journals one row per finished span (start time, end time and outcome together);
+// only long-lived turn/child spans also journal their start, so a crash still shows
+// what was in flight. v1 rows (separate start/end) from older sessions remain readable.
+const SCHEMA = "agent-fleet.execution-trace/v2";
+const LEGACY_SCHEMA = "agent-fleet.execution-trace/v1";
+const JOURNALED_STARTS = new Set<TraceKind>(["turn", "child"]);
 const MAX_ROWS = 5000;
 const kinds = new Set<TraceKind>(["input", "turn", "model", "tool", "policy", "approval", "queue", "child"]);
 const sources = new Set<TraceSource>(["runtime", "native", "process", "task-triage", "damage-control", "damage-guard", "access-escalation"]);
@@ -16,15 +21,17 @@ const millis = (value: unknown): value is number => typeof value === "number" &&
 const digest = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
 export interface ExecutionTraceRow {
- schema: typeof SCHEMA; instanceId: string; sequence: number; atMs: number;
+ schema: typeof SCHEMA | typeof LEGACY_SCHEMA; instanceId: string; sequence: number; atMs: number;
+ /** Present on a v2 finished-span row; atMs is then the span's start. */
+ endAtMs?: number;
  spanId: string; parentSpanId: string | null; ownerIdHash: string; taskIdHash: string; inputRevisionHash: string;
- kind: TraceKind; source: TraceSource; phase: "start" | "end"; status: TraceStatus;
+ kind: TraceKind; source: TraceSource; phase: "start" | "end" | "span"; status: TraceStatus;
  tool?: string; ruleId?: string; fingerprint?: string; childIdHash?: string; durationMs?: number;
  decision?: TraceEnd["decision"];
  reason?: string;
  actor: string; analysis?: TraceEnd["analysis"];
 }
-export interface ExecutionTraceSnapshot { rows: ExecutionTraceRow[]; persistenceFailures: number; droppedRows: number; }
+export interface ExecutionTraceSnapshot { rows: ExecutionTraceRow[]; persistenceFailures: number; droppedRows: number; open?: ExecutionTraceRow[]; }
 
 export function createExecutionTrace(ports: { identity(): { taskId: string; inputRevision: string }; persist(row: ExecutionTraceRow): void; now?(): number }) {
  let instanceId = randomUUID(), sequence = 0, persistenceFailures = 0, droppedRows = 0;
@@ -58,13 +65,13 @@ export function createExecutionTrace(ports: { identity(): { taskId: string; inpu
   const finish = (end: TraceEnd) => {
    if (instanceId !== epoch || active.get(binding)?.row !== row || !end || !statuses.has(end.status)) return;
    active.delete(binding);
-   record({ ...row, sequence: ++sequence, atMs: Math.max(row.atMs, now()), phase: "end", status: end.status,
+   record({ ...row, sequence: ++sequence, endAtMs: Math.max(row.atMs, now()), phase: "span", status: end.status,
     ...(millis(end.durationMs) ? { durationMs: end.durationMs } : {}), ...(end.childId ? { childIdHash: hash(end.childId) } : {}),
     ...(end.rule ? { ruleId: hash(end.rule) } : {}), ...(end.reason && reasons.has(end.reason) ? { reason: end.reason } : {}),
     ...(end.analysis && ["static_operands","conservative_text"].includes(end.analysis) ? {analysis:end.analysis} : {}),
     ...(end.decision && ["selected_first", "selected_second", "freeform", "multiple", "none"].includes(end.decision) ? { decision: end.decision } : {}) });
   };
-  active.set(binding, { row, finish }); record(row); return finish;
+  active.set(binding, { row, finish }); if (JOURNALED_STARTS.has(row.kind)) record(row); return finish;
  };
  const close = () => { for (const item of [...active.values()]) item.finish({ status: "interrupted" }); };
  return {
@@ -73,7 +80,7 @@ export function createExecutionTrace(ports: { identity(): { taskId: string; inpu
   input(id: string) { start({ kind: "input", id })({ status: "completed" }); },
   close,
   reset() { close(); instanceId = randomUUID(); sequence = 0; rows.length = 0; persistenceFailures = 0; droppedRows = 0; },
-  snapshot: (): ExecutionTraceSnapshot => ({ rows: [...rows], persistenceFailures, droppedRows }),
+  snapshot: (): ExecutionTraceSnapshot => ({ rows: [...rows], persistenceFailures, droppedRows, open: [...active.values()].map(item => item.row) }),
   forOwner(owner: string) {
    const epoch=instanceId,identity=ports.identity();
    return {
@@ -106,10 +113,12 @@ export function createNativeExecutionTrace(trace:ExecutionTrace,owner:string,act
 function normalizeRow(raw: unknown): ExecutionTraceRow | null {
  if (!raw || typeof raw !== "object") return null;
  const row = raw as ExecutionTraceRow;
- if (row.schema !== SCHEMA || !/^[a-f0-9-]{36}$/.test(row.instanceId) || !Number.isSafeInteger(row.sequence) || row.sequence < 1 || !millis(row.atMs)
+ const phases = row.schema === SCHEMA ? ["start", "span"] : row.schema === LEGACY_SCHEMA ? ["start", "end"] : [];
+ if (!/^[a-f0-9-]{36}$/.test(row.instanceId) || !Number.isSafeInteger(row.sequence) || row.sequence < 1 || !millis(row.atMs)
   || !digest(row.spanId) || row.parentSpanId !== null && !digest(row.parentSpanId) || ![row.ownerIdHash, row.taskIdHash, row.inputRevisionHash].every(digest)
-  || !kinds.has(row.kind) || !sources.has(row.source) || !["start", "end"].includes(row.phase) || !statuses.has(row.status)) return null;
- return { schema: SCHEMA, instanceId: row.instanceId, sequence: row.sequence, atMs: row.atMs, spanId: row.spanId, parentSpanId: row.parentSpanId,
+  || !kinds.has(row.kind) || !sources.has(row.source) || !phases.includes(row.phase) || !statuses.has(row.status)
+  || row.phase === "span" && !(millis(row.endAtMs) && row.endAtMs >= row.atMs)) return null;
+ return { schema: row.schema, instanceId: row.instanceId, sequence: row.sequence, atMs: row.atMs, ...(row.phase === "span" ? { endAtMs: row.endAtMs } : {}), spanId: row.spanId, parentSpanId: row.parentSpanId,
   ownerIdHash: row.ownerIdHash, taskIdHash: row.taskIdHash, inputRevisionHash: row.inputRevisionHash, kind: row.kind, source: row.source, phase: row.phase, status: row.status,
   actor: actors.has(row.actor)?row.actor:"specialist",...(row.analysis&&["static_operands","conservative_text"].includes(row.analysis)?{analysis:row.analysis}:{}),
   ...(row.tool && (tools.has(row.tool) || row.tool === "other") ? { tool: row.tool } : {}),
@@ -143,10 +152,16 @@ export function projectExecutionTrace(entries: readonly unknown[], live?: Execut
   else retained.set(key, row);
  }
  if (live?.persistenceFailures) for (const raw of live.rows) { const row = normalizeRow(raw); if (row) retained.set(`${row.instanceId}:${row.sequence}`, row); }
+ // Unfinished spans are journaled only for turn/child; the live view still shows the rest.
+ for (const raw of live?.open ?? []) { const row = normalizeRow(raw); if (row) retained.set(`${row.instanceId}:${row.sequence}`, row); }
  const all = [...retained.values()].sort((a, b) => a.atMs - b.atMs || a.sequence - b.sequence);
  if (all.length > MAX_ROWS) droppedRows += all.length - MAX_ROWS;
  const events = all.slice(-MAX_ROWS), grouped = new Map<string, { start?: ExecutionTraceRow; end?: ExecutionTraceRow }>();
- for (const row of events) { const item = grouped.get(row.spanId) ?? {}; item[row.phase] = row; grouped.set(row.spanId, item); }
+ for (const row of events) {
+  const item = grouped.get(row.spanId) ?? {};
+  if (row.phase === "span") { item.start ??= row; item.end = { ...row, atMs: row.endAtMs! }; } else item[row.phase] = row;
+  grouped.set(row.spanId, item);
+ }
  const spans = [...grouped].map(([spanId, { start, end }]) => {
   const row = start ?? end!;
   return { spanId, instanceId: row.instanceId, parentSpanId: row.parentSpanId, ownerIdHash: row.ownerIdHash, taskIdHash: row.taskIdHash, inputRevisionHash: row.inputRevisionHash,
@@ -191,7 +206,7 @@ export function projectExecutionTrace(entries: readonly unknown[], live?: Execut
    invalidRecords, duplicateRecords, droppedRows, liveDroppedRows: live?.droppedRows ?? 0, openSpans: spans.filter(s => s.status === "open").length,
    incompleteSpans: spans.filter(s => s.startedAt === null || s.endedAt === null || ["interrupted","pending"].includes(s.status)).length,
    unlinkedSpans: spans.filter(s=>s.parentSpanId&&!byId.has(s.parentSpanId)||s.kind==="policy"&&s.source==="damage-guard"&&!s.parentSpanId).length },
-  totals: { scope:"retained_trace_window", observedWallMs: events.length ? Math.max(0, events.at(-1)!.atMs - events[0].atMs) : null,
+  totals: { scope:"retained_trace_window", observedWallMs: events.length ? Math.max(0, Math.max(...events.map(row => row.endAtMs ?? row.atMs)) - events[0].atMs) : null,
    toolActivityMs: events.length?length(spans.filter(s => s.kind === "tool").flatMap(interval)):null, humanWaitMs: events.length?length(waits):null,
    queueWaitMs: events.length?length(spans.filter(s=>s.kind==="queue").flatMap(interval)):null, modelRoundMs: events.length?length(spans.filter(s=>s.kind==="model").flatMap(interval)):null,
    executionMs: events.length?length(executions):null, executionWithoutHumanMs: events.length?Math.max(0, length(executions) - length(intersections(executions, waits))):null,

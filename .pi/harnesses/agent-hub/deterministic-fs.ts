@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, statSync, writeFileSync, type BigIntStats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { decodeDeterministicHandle } from "../lib/deterministic-handle-path.ts";
 export { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
@@ -23,10 +23,23 @@ function checkedExisting(path: string, allowedRoot = dirname(resolve(path))): st
  if (!within(rootReal, cursorReal)) throw new Error(`Symlink escape outside allowed root: ${path}`);
  return lexical;
 }
-function hashAndSize(path: string): { size: number; hash: string } {
+// Paging through a large file must not rehash it, or rescan it for a line number, on
+// every page. A digest is reused only for the same device, inode, size and nanosecond
+// mtime/ctime, and never for a file changed within the last two seconds: a coarse
+// filesystem clock could not yet distinguish a same-size rewrite there.
+const DIGEST_ENTRIES = 64, LINE_MARKS = 256, SETTLED_MS = 2_000;
+const digests = new Map<string, { hash: string; lines: Map<number, number> }>();
+export function digestCacheKey(stat: Pick<BigIntStats, "dev" | "ino" | "size" | "mtimeNs" | "ctimeNs">, now = Date.now()): string | null {
+ const changedMs = Number((stat.mtimeNs > stat.ctimeNs ? stat.mtimeNs : stat.ctimeNs) / 1_000_000n);
+ return now - changedMs > SETTLED_MS ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
+}
+function hashAndSize(path: string): { size: number; hash: string; key: string | null } {
  const fd = openSync(path, "r");
  try {
-  const size = fstatSync(fd).size, hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
+  const stat = fstatSync(fd, { bigint: true }), size = Number(stat.size), key = digestCacheKey(stat);
+  const cached = key ? digests.get(key) : undefined;
+  if (cached) { digests.delete(key!); digests.set(key!, cached); return { size, hash: cached.hash, key }; }
+  const hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
   let offset = 0;
   while (offset < size) {
    const n = readSync(fd, chunk, 0, Math.min(chunk.length, size - offset), offset);
@@ -34,8 +47,15 @@ function hashAndSize(path: string): { size: number; hash: string } {
    hash.update(chunk.subarray(0, n));
    offset += n;
   }
-  return { size, hash: hash.digest("hex") };
+  const digest = hash.digest("hex");
+  if (key) { digests.set(key, { hash: digest, lines: new Map() }); if (digests.size > DIGEST_ENTRIES) digests.delete(digests.keys().next().value!); }
+  return { size, hash: digest, key };
  } finally { closeSync(fd); }
+}
+function markLine(key: string | null, offset: number, line: number) {
+ const marks = key ? digests.get(key)?.lines : undefined;
+ if (!marks || marks.has(offset)) return;
+ marks.set(offset, line); if (marks.size > LINE_MARKS) marks.delete(marks.keys().next().value!);
 }
 function readWindow(path: string, offset: number, length: number): Buffer {
  const fd = openSync(path, "r");
@@ -50,21 +70,25 @@ function readWindow(path: string, offset: number, length: number): Buffer {
   return buf.subarray(0, filled);
  } finally { closeSync(fd); }
 }
-function lineAtFile(path: string, offset: number): number {
+function lineAtFile(path: string, offset: number, key: string | null = null): number {
  if (offset <= 0) return 1;
+ let seen = 0, lines = 1;
+ for (const [at, line] of (key ? digests.get(key)?.lines : undefined) ?? []) if (at <= offset && at > seen) { seen = at; lines = line; }
+ if (seen === offset) return lines;
  const fd = openSync(path, "r");
  try {
   const chunk = Buffer.alloc(64 * 1024);
-  let seen = 0, lines = 1;
   while (seen < offset) {
    const n = readSync(fd, chunk, 0, Math.min(chunk.length, offset - seen), seen);
    if (n <= 0) break;
    for (let i = 0; i < n; i++) if (chunk[i] === 10) lines++;
    seen += n;
   }
+  markLine(key, offset, lines);
   return lines;
  } finally { closeSync(fd); }
 }
+const newlines = (bytes: Buffer) => { let count = 0; for (let index = bytes.indexOf(10); index >= 0; index = bytes.indexOf(10, index + 1)) count++; return count; };
 function fileState(path: string, allowedRoot?: string) {
  const checked = checkedExisting(path, allowedRoot);
  if (!existsSync(checked) || !statSync(checked).isFile()) throw new Error(`Not a regular file: ${path}`);
@@ -122,7 +146,9 @@ export function excerpt(input: { path: string; allowedRoot?: string; handle?: st
  const maxBytes = input.boundedOutput === false ? requested : Math.min(requested, CONTENT_REPLY_BYTES);
  const content = readWindow(state.path, offset, Math.min(maxBytes, state.size - offset));
  const nextOffset = offset + content.length, nextHandle = nextOffset < state.size ? encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset: nextOffset }) : null;
- return { path: state.path, reference: `${state.path}:${lineAtFile(state.path, offset)}`, hash: state.hash, offset, content: Buffer.from(content), contentBytes: content.length, totalBytes: state.size, preview: utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS)), onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
+ const line = lineAtFile(state.path, offset, state.key);
+ if (nextHandle) markLine(state.key, nextOffset, line + newlines(content));
+ return { path: state.path, reference: `${state.path}:${line}`, hash: state.hash, offset, content: Buffer.from(content), contentBytes: content.length, totalBytes: state.size, preview: utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS)), onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
 }
 
 export function readback(input: { handle: string; expectedHash?: string; allowedRoot?: string; maxBytes?: number; boundedOutput?: boolean }) {

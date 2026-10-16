@@ -89,10 +89,14 @@ T12 diagnostics have been withdrawn by user decision; there is no command, runne
 Standing prompt ceilings constrain the repeatable replacement prompt and active schemas; they do not
 bound conversation messages or results accumulated inside a long tool loop. The Hub therefore has a
 second, runtime pressure guard. It samples provider usage, projects a finalized tool result at
-`message_end`, warns and exposes transient compaction support at **80%**, then at **90%** aborts the
+`message_end`, warns and exposes transient compaction support at **60%**, then at **70%** aborts the
 pre-model continuation and waits for `agent_settled` before requesting one Pi compaction. This
 ordering ensures the result is persisted before summarization and prevents an ordinary provider call
-from escaping between pressure detection and recovery.
+from escaping between pressure detection and recovery. Automatic compaction re-arms when measured
+usage falls below 60%, or after the history grows by 10% of the window over the first measurement
+after a compaction. At the **80%** ceiling, work stops after a failed recovery or when even the
+compacted baseline is at or above the ceiling. A baseline between 70% and 80% only warns, because a
+small window then keeps working until growth re-arms compaction.
 
 Recovery is single-flight. High-context startup or concurrent input is retained in memory and
 replayed exactly once after success; failure retains it for `/compact` or a larger-context model.
@@ -355,6 +359,10 @@ retrieval handle. With `bounded-output` off, legacy transport is preserved regar
 `deterministic-tools` setting. Inventory records an escaping or unavailable symlink as a denied
 entry without traversing it or disclosing its target outside the authorized inventory.
 T5 does not consume `assist.write-isolation`; the separate T6c native launch boundary does.
+`assist.return-extraction` is opt-in help for models that forget `submit_result`: a native
+specialist with tracked assertions that never submits gets the cheap read-only extraction pass
+over its written report. The recovered block is labelled extracted, `resultProtocol` stays
+`submission_missing`, and acceptance still depends on runtime evidence.
 
 Invocation preflight for `dispatch_agent` and `spawn_research` validates the original
 shape before normalization. Invalid input reports bounded safe field locations and
@@ -764,11 +772,15 @@ are in [Project Files](agent-fleet-setup.md#task-triage-active-experimental-off-
 ### Execution tracing and baseline policy classification
 
 The Hub records `agent-hub-execution-trace` custom entries in the existing Pi
-session JSONL journal. The default repository journal directory is
-`~/.pi/agent/sessions/--home-nchankov-repos-agent-fleet--/`; a configured Pi session
-directory may differ. These entries complement the Fleet session directory under
+session JSONL journal. By default Pi keeps it under `~/.pi/agent/sessions/`, in a
+directory named after the workspace's absolute path (for `/home/user/project`:
+`--home-user-project--`); a configured Pi session directory may differ. These entries complement the Fleet session directory under
 `.pi/agent-sessions/sessions/<fleet-session-id>/` and existing coms/Herdr logs.
 `/af-audit` exposes their sanitized chronological `executionTrace` projection.
+Schema v2 writes one row per finished span (start, end and outcome together);
+turn and child spans also journal their start so an interrupted session still shows
+what was in flight, and other unfinished spans appear in the live audit only. Older
+v1 journals with separate start and end rows remain readable.
 
 Root Pi hooks record input, turns, model rounds and tool requests/results. Existing
 native callbacks link children to their dispatch and report child tool activity.

@@ -1,9 +1,8 @@
+import {processShared} from './process-shared.ts';
 /** Emission-local original evidence. Pi 1.1.0 passes the same event to each result hook,
  * but loads each extension with its own module instance, so the capture is process-shared. */
 interface EvidenceState {originals:WeakMap<object,unknown>;unavailable:WeakSet<object>;}
-const storeKey=Symbol.for('agent-fleet.damage-result-evidence.v1');
-const runtime=globalThis as typeof globalThis & {[key:symbol]:EvidenceState|undefined};
-const {originals,unavailable}=runtime[storeKey]??= {originals:new WeakMap(),unavailable:new WeakSet()};
+const {originals,unavailable}=processShared<EvidenceState>('agent-fleet.damage-result-evidence.v1',()=>({originals:new WeakMap(),unavailable:new WeakSet()}));
 function freeze(value:any,seen=new Set<object>()){
  if(!value||typeof value!=='object'||seen.has(value))return;
  if(!Array.isArray(value)&&![Object.prototype,null].includes(Object.getPrototypeOf(value)))throw Error('unsupported_evidence');

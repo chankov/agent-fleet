@@ -628,6 +628,7 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 	fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@chankov/agent-fleet" }));
 
 	// Copy the harness sources the default export needs, including approval helpers.
+	// No Agent Hub file is staged: ask_user installs with the shared lib alone.
 	for (const name of ["index.ts", "race-core.js", "questions.ts", "runtime-ask.ts"]) {
 		fs.copyFileSync(new URL(`./${name}`, import.meta.url), path.join(harnessDir, name));
 	}
@@ -637,7 +638,7 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 		["../lib/identical-dialog.ts", "lib/identical-dialog.ts"],
 		["../lib/execution-trace.ts", "lib/execution-trace.ts"],
 		["../lib/approval-wait.ts", "lib/approval-wait.ts"],
-		["../agent-hub/approval-wait.ts", "agent-hub/approval-wait.ts"],
+		["../lib/process-shared.ts", "lib/process-shared.ts"],
 	] as const) {
 		const target = path.join(harnessRoot, destination);
 		fs.mkdirSync(path.dirname(target), { recursive: true });

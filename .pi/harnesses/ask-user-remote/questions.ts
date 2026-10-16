@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Socket } from 'node:net';
+import { processShared } from '../lib/process-shared.ts';
 
 export interface QuestionOwner { project:string; peer:string; sessionId:string; startedAt:string; }
 export interface QuestionParams {
@@ -129,12 +130,9 @@ function validateAnswer(q:Question,input:unknown):Answer|undefined {
 	return {kind:'selection',selections:a.selections as string[],...(typeof a.comment==='string'&&a.comment.trim()?{comment:a.comment.trim()}:{})};
 }
 
-// Pi loads each extension through an independent jiti instance with moduleCache:false.
-// Module-local singletons split the wrapper from its coms owner. Share the versioned
-// channel on the process realm; session_shutdown/reset still expires every address.
-const channelKey=Symbol.for('agent-fleet.addressed-questions.v1');
+// Module-local singletons would split the wrapper from its coms owner, so the channel
+// is process-shared; session_shutdown/reset still expires every address.
 interface SharedChannel {peers:Set<() => QuestionOwner|null>;channel:QuestionChannel;}
-const processState=globalThis as typeof globalThis & {[channelKey]?:SharedChannel};
 function createSharedChannel():SharedChannel {
  const peers=new Set<() => QuestionOwner|null>();
  return {peers,channel:new QuestionChannel(()=>{
@@ -142,7 +140,7 @@ function createSharedChannel():SharedChannel {
   return owners.length===1?owners[0]:null;
  })};
 }
-const shared=processState[channelKey]??=createSharedChannel();
+const shared=processShared('agent-fleet.addressed-questions.v1',createSharedChannel);
 export const questionChannel=shared.channel;
 export function registerQuestionPeer(getOwner:() => QuestionOwner|null) { shared.peers.add(getOwner); return () => { shared.peers.delete(getOwner); }; }
 

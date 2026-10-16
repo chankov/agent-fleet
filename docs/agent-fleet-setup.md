@@ -107,10 +107,12 @@ that the deprecated grammar will remain indefinitely.
 
 The Hub distinguishes the **pre-turn surface** (stable replacement prompt, volatile state capsule,
 and active tool schemas) from **intra-turn pressure** (conversation and tool results accumulated in
-the live model window). `/af-context` shows both. At 80% live usage the Hub warns and transiently makes
-compaction support available; at 90% it blocks the next provider continuation and requests a
+the live model window). `/af-context` shows both. At 60% live usage the Hub warns and transiently makes
+compaction support available; at 70% it blocks the next provider continuation and requests a
 single automatic compaction after the current result is persisted. A prompt submitted during
-startup/recovery is retained in memory and replayed once after success.
+startup/recovery is retained in memory and replayed once after success. At the 80% ceiling, work stops
+only after a failed recovery or when even the compacted baseline is at or above 80%; see
+[context continuity](system1-context-continuity.md#automatic-compaction-monitoring).
 
 If automatic recovery fails, the prompt remains retained. Pi's built-in command is the bare-runtime
 fallback:
@@ -328,8 +330,8 @@ consumers from making requests. Restart Hub to adopt configuration changes.
 - For a missing plan producer, ask the human to use `/af-agents-add planner` or
   `/af-agents-team`. For review, use `/af-agents-add code-reviewer` (or the
   permitted plan-reviewer/security-auditor) or select a suitable roster. There is
-  no automatic roster change. Exhausted dispatch/review caps need existing
-  explicit budget continuation; refusal leaves requirements open.
+  no automatic roster change. Dispatch and review counts are usage, not caps;
+  an unfinished requirement stays open until its evidence exists.
 - `/af-task-triage-waive <addition-id> <reason>` asks for a correlated human
   decision over one bound addition. It stays **waived**, never satisfied, and
   cannot remove baseline or other-source requirements. Stale, denied, forged or
@@ -712,9 +714,9 @@ targets an end-of-session compound pass writes lessons to.
 | `research-keep` | — | **Removed.** Ignored with a session-start warning; live research helpers disappear from the Fleet Dashboard (`Alt+A`) on every terminal outcome. Session, transcript, and findings files plus `/af-agents-history` records remain. Delete the key. |
 | `recon-search-timeout-s` | `120` | Parent-side deadline, in seconds, for each `read`, `grep`, `find`, or `ls` call made by a native research helper or nested delegate child. Accepts an integer `1`–`3600` or `off`; invalid input warns and falls back to `120`. This is **not** an agent/turn deadline: non-tool work can run indefinitely. On timeout the hub returns `tool_timeout` with call metadata, sends SIGTERM to its owned process group, escalates to SIGKILL after a finite grace period, and settles even if the child never closes or a descendant holds a pipe. If that bounded cleanup cannot confirm child/process-group death, the metadata reports `terminationConfirmed: false`; this prevents a parent hang but may indicate an uninterruptible OS-level process needing operator attention. |
 | `mode` | — | **Removed.** Ignored with a warning; budgets follow task tier. Delete the key. |
-| `max-dispatches-per-turn` | tier default (1/2/8/12) | Ceiling on `dispatch_agent` calls per user turn (`min` with the task-tier envelope). Positive integer or `off` (stays at the tier). |
-| `max-research-per-turn` | tier default (1/2/4/6) | Ceiling on dispatcher-initiated `spawn_research` calls per user turn. The automatic `NEEDS_RESEARCH:` pipe is exempt from the turn budget but still counts against the task research envelope. Positive integer or `off` (stays at the tier). |
-| `turn-wall-time-s` | tier default (900/900/3600/5400) | Active-time ceiling, in seconds, per user turn; time blocked in `ask_user` is excluded. Once exceeded, further dispatch/research calls refuse until the one-click continuation is accepted or a new user turn begins. Positive integer or `off` (stays at the tier). |
+| `max-dispatches-per-turn` | — | **Removed.** Ignored with a warning: continuation quotas were removed, dispatch counts stay visible and the watchdog supervises progress. Delete the key. |
+| `max-research-per-turn` | — | **Removed.** Ignored with a warning, like `max-dispatches-per-turn`. Delete the key. |
+| `turn-wall-time-s` | — | **Removed.** Ignored with a warning; active time stays visible, and `agent-turn-timeout-s` still bounds each child run. Delete the key. |
 | `agent-turn-timeout-s` | tier default (600/600/1800/1800) | Whole-run deadline, in seconds, for each spawned specialist, research helper, and nested delegate child (unlike `recon-search-timeout-s`, this bounds the entire run). On expiry the run terminates as `turn_timeout` (exit 124) with partial output preserved. Positive integer or `off` (stays at the tier). |
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
 | `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |

@@ -18,7 +18,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 			deliverables: Type.Optional(Type.Array(Type.String({ description: "Output path for post-run readback; existence is not semantic acceptance." }))),
 			scope_mode: Type.Optional(Type.Union([Type.Literal("existing"), Type.Literal("create")], { description: "Default existing: refuse missing scope roots; create explicitly permits new roots." })),
 			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),
-			review_reason: Type.Optional(Type.String({ description: "Why a fresh independent review is needed (new focus or docs-only justification); bypasses reuse of unchanged coverage." })),
+			review_reason: Type.Optional(Type.String({ description: "New focus or docs-only reason; skips review reuse." })),
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),

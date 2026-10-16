@@ -91,8 +91,9 @@ test('F5 false or throwing supplied validation fails closed for non-effect tools
 test('F5 model and environment changes do not change admitted contract or tool caps and safety order',async t=>{
  const f=await fixture(t),c=contract();let w:any;
  w=worker(f,{prepareDamageGuard:(i:any)=>{c.model='fake/authority-forgery';return f.prepare(i);},guardrailEnv:()=>({...f.env,MODE:'fallback',AF_D6_UNKNOWN:'forged'}),spawnPiAgentWithModelFallback:(opts:any,model:any,cb:any)=>spawnPiAgentWithModelFallback(opts,model,{...cb,onModelFallback:(e:any)=>{cb.onModelFallback?.(e);c.model='fake/another';}})});w.state.def.tools='read,bash';
- const result=await dispatch(w,f,c);assert.equal(result.exitCode,0);assert.equal(f.rows().length,2);assert.deepEqual(f.inputs[0].contract.permissions,['bash','read']);assert.deepEqual(f.inputs[0].tools,['read','bash']);
- for(const row of f.rows()){assert.equal(row.tools,'read,bash');assert.equal(row.cwd,f.root);assert.equal(row.extensions[0],'safety');assert.equal(row.extensions.filter((p:string)=>p==='safety').length,1);assert.equal(row.safe,true);}
+ const result=await dispatch(w,f,c);assert.equal(result.exitCode,0);assert.equal(f.rows().length,2);assert.deepEqual(f.inputs[0].contract.permissions,['bash','read']);// Every native specialist also receives the structured submit_result report tool.
+ assert.deepEqual(f.inputs[0].tools,['read','bash','submit_result']);
+ for(const row of f.rows()){assert.equal(row.tools,'read,bash,submit_result');assert.equal(row.cwd,f.root);assert.equal(row.extensions[0],'safety');assert.equal(row.extensions.filter((p:string)=>p==='safety').length,1);assert.equal(row.safe,true);}
  assert.ok(f.leases.every(l=>l.identity.signal.aborted));assert.equal(f.calls(),0);
 });
 test('F5 independent deferred discovery, D6 preparation and queue fence mutations made while waiting',async t=>{

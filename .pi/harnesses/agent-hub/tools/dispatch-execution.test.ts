@@ -61,10 +61,8 @@ function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?:
 		budget: {
 			ensureTaskTier() {},
 			taskCounters: () => ({ dispatches: task, research: 0, reviewRounds: 0 }),
-			currentTaskBudget: () => ({ maxDispatches: 8, maxResearch: 8, maxReviewRounds: 4 }),
 			taskActiveElapsedMs: () => 0,
-			currentBudget: () => ({ maxDispatches: 2, maxResearch: 2 }),
-			turnBudgetActiveElapsedMs: () => 0,
+			currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }),
 			updateModeStatus() {},
 		},
 		artifacts: {
@@ -72,7 +70,6 @@ function prepareDeps(overrides: { agents?: string[]; research?: string[]; turn?:
 			loadInputArtifacts: () => [],
 		},
 		research: {},
-		budgetRecovery: { ensure: async () => null },
 		provisionalCapabilityRefusal: () => null,
 		dispatchAgent: async () => ({ output: "", exitCode: 0, elapsed: 0 }),
 		runReturnExtraction: async () => null,
@@ -167,99 +164,23 @@ test("structured research prompt is additive and task-only calls remain byte-com
 	assert.match(prompt, /Expected result: path:line/);
 });
 
-test("busy dispatch refuses immediately before budget accounting and does not abort parent", async () => {
-	const d = prepareDeps(); let budgetChecks = 0, runs = 0, aborts = 0; let release!: () => void;
+test("busy dispatch refuses immediately before usage accounting and does not abort parent", async () => {
+	const d = prepareDeps(); let runs = 0, aborts = 0; let release!: () => void;
 	const gate = new Promise<void>(resolve => { release = resolve; });
-	d.budgetRecovery.ensure = async () => { budgetChecks++; return null; };
 	d.dispatchAgent = async () => { runs++; await gate; return { output: "done", exitCode: 0, elapsed: 1 }; };
 	const execute = createDispatchExecutor(d as any); const params = { agent: "builder", task: "same operation", scope: [] };
 	const first = execute("one", params, undefined, undefined, { abort: () => { aborts++; } } as any);
 	await new Promise(resolve => setImmediate(resolve));
 	const busy = await execute("two", { ...params, task: "paraphrased" }, undefined, undefined, { abort: () => { aborts++; } } as any);
 	assert.equal((busy.details as any).status, "busy"); assert.equal((busy.details as any).started, false);
-	assert.equal((busy.details as any).recoveryCategory, "busy"); assert.equal(budgetChecks, 1); assert.equal(runs, 1); assert.equal(aborts, 0);
+	assert.equal((busy.details as any).recoveryCategory, "busy"); assert.equal(d._turn(), 1, "only the running dispatch is counted"); assert.equal(runs, 1); assert.equal(aborts, 0);
 	release(); await first;
 });
 
 for (const operation of ["dispatch", "research"] as const) {
-	test(`${operation} requests runtime budget confirmation before refusing instead of relying on model prose`, async () => {
-		const d = prepareDeps({ turn: 2 });
-		let asks = 0, runs = 0;
-		d.budgetRecovery.ensure = async () => { asks++; d.state.setTurnDispatchCount(0); return null; };
-		d.dispatchAgent = async () => { runs++; return { output: "Completed execution.", exitCode: 0, elapsed: 1 }; };
-		(d.research as any).anonymousDef = () => ({ name: "researcher" });
-		(d.research as any).resolveModel = () => "test/model";
-		(d.research as any).createState = () => ({ id: 1 });
-		(d.research as any).spawn = d.dispatchAgent;
-		(d.artifacts as any).writeRunArtifact = () => "/tmp/result.md";
-		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		// T2: research invocations use the research contract shape (no agent field);
-		// dispatch-style params are an invalid invocation and must refuse before launch.
-		const params = operation === "dispatch" ? { agent: "builder", task: "bounded work" } : { task: "bounded work" };
-		const result = await execute("call", params as any, undefined, undefined, { cwd: "/tmp" } as any);
-		assert.equal(asks, 1, "runtime must own confirmation even when the model never invokes ask_user");
-		assert.equal(runs, 1);
-		assert.equal((result.details as any).exitCode, 0);
-	});
-
-	test(`${operation} cannot dispatch after runtime budget cancellation even with unused turn slots`, async () => {
-		const d = prepareDeps(); let runs = 0;
-		d.budgetRecovery.ensure = async () => ({ reason: "budget_stopped", message: "Human declined; stop." }) as any;
-		d.dispatchAgent = async () => { runs++; return { output: "", exitCode: 0, elapsed: 0 }; };
-		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		const params = operation === "dispatch" ? { agent: "builder", task: "(1) continue" } : { task: "(1) continue" };
-		const result = await execute("call", params as any, undefined, undefined, {} as any);
-		assert.equal((result.details as any).status, "budget_stopped");
-		assert.equal(runs, 0);
-		assert.equal(d._task(), 0);
-	});
-}
-
-// Exercise the actual executor -> runtime recovery -> installed question wrapper ->
-// addressed answer -> audit -> operation path without a provider or model tool call.
-test("exhausted task -> correlated remote yes -> one audit and the original dispatch", async () => {
-	const { createBudgetRecovery } = await import("../budget-recovery.ts");
-	const { checkTaskBudget } = await import("../run-budget.js");
-	const { buildBudgetContinuationAudit } = await import("../hub-state-audit.js");
-	const { requestRuntimeAsk } = await import("../../ask-user-remote/runtime-ask.ts");
-	const { installAskUserRemote } = await import("../../ask-user-remote/index.ts");
-	const { QuestionChannel } = await import("../../ask-user-remote/questions.ts");
-	const { createEventBus } = await import("../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/event-bus.js");
-	const events = createEventBus(); const owner = { project: "af", peer: "hub", sessionId: "budget-e2e", startedAt: "now" };
-	const channel = new QuestionChannel(() => owner);
-	installAskUserRemote({ events, registerTool() {} }, {
-		questionChannel: channel, startRemote: () => null,
-		stockFactory: pi => pi.registerTool({ name: "ask_user", execute: (_id, _p, signal) => new Promise(resolve => signal.addEventListener("abort", () => resolve({ details: { cancelled: true } }))) }),
-	});
-	const d = prepareDeps(); d.state.setTaskDispatchCount(8);
-	const audit: any[] = [], tasks: string[] = [];
-	d.budgetRecovery = createBudgetRecovery({
-		check: operation => { const refused = checkTaskBudget(operation, d.budget.taskCounters(), d.budget.currentTaskBudget(), 0, "small"); return refused ? { ...refused, kind: "task" } : null; },
-		language: () => "Bulgarian", ask: (id, params, ctx, signal) => requestRuntimeAsk(events, id, params, ctx, signal),
-		startWait() {}, endWait() {}, renew: (refusal, correlation) => {
-			const prior = d.budget.taskCounters(); d.state.setTaskDispatchCount(0); d.state.setTurnDispatchCount(0);
-			audit.push(buildBudgetContinuationAudit({ kind: refusal.kind, reason: refusal.reason, prior, correlation }));
-		},
-	});
-	d.dispatchAgent = async (_agent?: string, task?: string) => { tasks.push(task!); return { output: "Execution completed", exitCode: 0, elapsed: 1 }; };
-	const execute = createDispatchExecutor(d as any);
-	const pending = execute("dispatch-1", { agent: "builder", task: "original bounded work" }, undefined, undefined, { cwd: "/tmp", abort: () => assert.fail("unexpected abort"), ui: { notify() {} } } as any);
-	await new Promise(r => setImmediate(r));
-	assert.equal(tasks.length, 0); assert.equal(d._task(), 8);
-	const q = channel.list(owner).questions[0]; assert.ok(q);
-	assert.equal(channel.submit(owner, q.id, "yes-1", { kind: "selection", selections: [q.options[0].title] }).status, "accepted");
-	assert.equal((await pending).details?.exitCode, 0);
-	assert.deepEqual(tasks, ["original bounded work"]); assert.equal(d._task(), 1);
-	assert.equal(audit.length, 1); assert.equal(audit[0].prior.dispatches, 8);
-	assert.equal(audit[0].correlation.request_id, q.toolCallId);
-	assert.notEqual(channel.submit(owner, q.id, "yes-2", { kind: "selection", selections: [q.options[0].title] }).status, "accepted");
-	assert.equal(audit.length, 1);
-});
-
-for (const operation of ["dispatch", "research"] as const) {
-	test(`${operation} rechecks cancellation after awaiting budget authorization`, async () => {
+	test(`${operation} honors cancellation before launch and charges nothing`, async () => {
 		const d = prepareDeps(); const controller = new AbortController(); let runs = 0;
-		d.budgetRecovery.ensure = async () => { controller.abort(); return null; };
+		controller.abort();
 		d.dispatchAgent = async () => { runs++; return { output: "", exitCode: 0, elapsed: 0 }; };
 		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
 		const params = operation === "dispatch" ? { agent: "builder", task: "work" } : { task: "work" };
@@ -294,8 +215,7 @@ test("native diagnostic details survive the tool boundary and full failure artif
 for (const kind of ["dispatch", "research"] as const) test(`${kind}: indeterminate failed work is blocked across turns, rewording, and unsupported authorization`, async () => {
  const { createNoProgressGuard } = await import("../no-progress.ts");
  const d = prepareDeps(); (d as any).noProgress = createNoProgressGuard();
- let executions = 0, budgetChecks = 0;
- d.budgetRecovery.ensure = async () => { budgetChecks++; return null; };
+ let executions = 0;
  (d.artifacts as any).writeRunArtifact = () => "/tmp/retained-failure.md";
  const failed = async () => { executions++; return { output: "SYNTHETIC failure", exitCode: 1, elapsed: 0, dispatchId: `${kind}-failed`, evidencePath: "/tmp/retained-failure.json" }; };
  d.dispatchAgent = failed;
@@ -307,7 +227,7 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: indetermina
  const refused = await run("second", { ...params, task: "Completely different wording of the same bounded work" }, undefined, undefined, {} as any);
  assert.equal((refused.details as any).status, "no_progress_refused");
  assert.equal((refused.details as any).recoveryCategory, "indeterminate");
- assert.equal(executions, 1); assert.equal(budgetChecks, 1);
+ assert.equal(executions, 1);
  assert.equal((d as any).noProgress.authorize(`${kind}-failed`), false, "unknown cause cannot be authorized as a retry");
  const stillRefused = await run("third", params, undefined, undefined, {} as any);
  assert.equal((stillRefused.details as any).status, "no_progress_refused"); assert.equal(executions, 1);
@@ -370,9 +290,8 @@ test("executed write with failed deliverable readback stays verification_failed,
  assert.equal((result.details as any).protocolDiagnostic, null);
 });
 
-test("missing scope roots refuse before budget confirmation or dispatch", async () => {
+test("missing scope roots refuse before accounting or dispatch", async () => {
  const d = prepareDeps(); let invoked = false;
- d.budgetRecovery.ensure = async () => { invoked = true; return null; };
  d.dispatchAgent = async () => { invoked = true; return { output: "zero matches", exitCode: 0, elapsed: 0 }; };
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "Clean files", scope: ["nonexistent-scope-regression/**/*.cs"] }, undefined, undefined, {} as any);
  assert.equal((result.details as any).status, "scope_preflight_failed"); assert.equal(invoked, false); assert.equal(d._task(), 0);
@@ -561,6 +480,19 @@ test("T11 real dispatch consumer refuses unknown/high-risk acceptance independen
  assert.ok(process.acceptance.evidenceRef, "the valid T2 acceptance stage persists while independent review stays open");
 });
 
+test("a missing submit_result is recovered by extraction only when the profile opts in", async () => {
+ for (const optIn of [false, true]) {
+  const d = prepareDeps(); let extracted = 0;
+  d.dispatchAgent = async () => ({ output: "prose-only report", exitCode: 0, elapsed: 1, specialistResultTool: true, dispatchId: `missing-${optIn}` });
+  d.runReturnExtraction = async () => { extracted++; return { changed_files: [], assertions_proven: [], assertions_unproven: [{ id: "A1", note: "report leaves it open" }], assertions_failed: [], tests_run: [], open_risks: [], requires_user_decision: [] }; };
+  (d as any).returnExtractionAssist = () => optIn;
+  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 bounded work" }, undefined, undefined, {} as any);
+  assert.equal(extracted, optIn ? 1 : 0);
+  assert.equal((result.details as any).returnExtracted, optIn);
+  assert.equal((result.details as any).resultProtocol, "submission_missing", "an extracted report is never relabelled as a submission");
+ }
+});
+
 test("compiler correction runs after return extraction", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t); let extracted = 0;
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "broken\n"); return { output: "prose-only result", exitCode: 0, elapsed: 1, dispatchId: "compiler-extracted" }; };
@@ -667,6 +599,15 @@ test("unexpected diagnostics failure becomes incomplete without losing delivered
 test("dispatch execution contains exactly one shared diffAgainst call", () => {
  const source = readFileSync(new URL("./dispatch-execution.ts", import.meta.url), "utf8");
  assert.equal((source.match(/diffAgainst\(/g) ?? []).length, 1);
+});
+
+test("a writable dispatch observes the worktree once before and once after the run", () => {
+ const source = readFileSync(new URL("./dispatch-execution.ts", import.meta.url), "utf8");
+ const prepare = source.slice(source.indexOf("export function prepareDispatch"), source.indexOf("function startTracking"));
+ assert.equal((prepare.match(/snapshotWorktree\(|worktreeRevision\(/g) ?? []).length, 1, "revision baseline and delta base share one snapshot");
+ assert.match(source, /tracking\.snapshot = prepared\.beforeSnapshot \?\?/);
+ assert.match(source, /compilerInspectedRevision = observation && !observation\.skipped && observation\.snapshot \? snapshotRevision\(observation\.snapshot\)/);
+ assert.match(source, /afterRevision = compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "only an awaited compiler run re-observes");
 });
 
 test("real native executor finishDispatch times workflows compiler and demotes on changed-file errors", async t => {
@@ -809,15 +750,15 @@ test("compiler evidence cannot be relabelled with a revision changed during veri
  assert.equal((result.details as any).accepted, false); assert.equal((result.details as any).verificationResult.status, "stale");
 });
 
-test("already-running agent rejected before prepare consumes budget or poisons the next task", async () => {
- const d = prepareDeps(); let budgetChecks = 0, runs = 0; d.budgetRecovery.ensure = async () => { budgetChecks++; return null; };
+test("already-running agent rejected before prepare consumes usage or poisons the next task", async () => {
+ const d = prepareDeps(); let runs = 0;
  d.dispatchAgent = async () => { runs++; return { output: "done", exitCode: 0, elapsed: 0 }; };
  d.state.getAgentStates().get("builder").status = "running";
  const result = await createDispatchExecutor(d as any)("busy", { agent: "builder", task: "work" }, undefined, undefined, {} as any);
- assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0); assert.equal(budgetChecks, 0); assert.equal(runs, 0);
+ assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0); assert.equal(runs, 0);
  d.state.getAgentStates().get("builder").status = "idle";
  const next = await createDispatchExecutor(d as any)("next", { agent: "builder", task: "new task after idle" }, undefined, undefined, {} as any);
- assert.equal((next.details as any).exitCode, 0); assert.equal(budgetChecks, 1); assert.equal(runs, 1);
+ assert.equal((next.details as any).exitCode, 0); assert.equal(d.state.getTurnDispatchCount(), 1); assert.equal(runs, 1);
 });
 
 async function highRiskChangedFixture(t: any) {
@@ -844,8 +785,6 @@ test("T4 wide small: optional plan artifact and covered review preserve accounti
  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
  d._agents.set("planner", { def: { name: "planner", tools: "read" }, runCount: 0, lastBackend: "native" });
  d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
- d.budget.currentTaskBudget = () => ({ maxDispatches: 2, maxResearch: 2, maxReviewRounds: 1 });
- d.budget.currentBudget = () => ({ maxDispatches: 2, maxResearch: 2 });
  let output = "Plan: inspect and update src/api.ts, then test and independently review the changed scope.";
  d.dispatchAgent = async () => ({ output, exitCode: 0, elapsed: 1, dispatchId: output.startsWith("Plan") ? "plan-run" : "review-run" });
  const execute = createDispatchExecutor(d as any);
@@ -861,29 +800,8 @@ test("T4 wide small: optional plan artifact and covered review preserve accounti
  assert.equal((review.details as any).processVerdict.accepted, true);
  assert.equal(d._task(), 2); assert.equal(d._turn(), 2);
  assert.equal(d.state.getTaskTier(), "small");
- assert.equal(d.budget.currentTaskBudget().maxDispatches, 2);
  assert.equal(evaluateProcessObligations(process, { writable: true, budgetTier: "small", currentRevision: revision }).obligations.plan.status, "satisfied");
  // Runtime acceptance of an artifact is still not independent semantic review of the plan or approval.
-});
-
-test("T4 human refusal at spent small dispatch cap leaves S1 review and proof open", async t => {
- const { cwd, d } = await gitDiagnosticsFixture(t);
- let process = applyTaskTriageAdditions(
-  applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state,
-  { status: "applied", reasons: ["security_change"] }, { taskId: "task", evaluationId: "evaluation", inputRevision: "input" });
- d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; };
- d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
- d.state.setTaskDispatchCount(2);
- d.budget.currentTaskBudget = () => ({ maxDispatches: 2, maxResearch: 2, maxReviewRounds: 1 });
- let asks = 0, launches = 0;
- d.budgetRecovery.ensure = async () => { asks++; return { reason: "budget_stopped", message: "Human declined budget continuation." }; };
- d.dispatchAgent = async () => { launches++; return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1 }; };
- const refusal = await createDispatchExecutor(d as any)("review", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
- assert.equal((refusal.details as any).reason, "budget_stopped");
- assert.equal(asks, 1); assert.equal(launches, 0); assert.equal(d._task(), 2);
- assert.equal(process.review.evidenceRef, null);
- assert.equal(processPreEffectGate(process, "prove")?.reason, "process_obligations_open");
- assert.equal(evaluateProcessObligations(process, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, false);
 });
 
 test("T4 an empty optional planner result cannot fabricate plan evidence", async t => {
@@ -1362,7 +1280,7 @@ function successorFixture(root: string, serviceOverride?: any) {
  const result = () => ({ status: "ok", evaluation: { answers: TASK_TRIAGE_QUESTIONS.map(q => ({ questionId: q.id, type: "predicate", probabilityTrue: q.id === "wide_change" ? .99 : .01, uncertainty: { provenance: "provider" } })), metadata: { provider: "typesafe", requestedModel: "jev-1.13.0", returnedModel: "jev-1.13.0", questionSetVersion: TASK_TRIAGE_QUESTION_VERSION, latencyMs: 1, attempts: 1 } } });
  const runtime = createTaskTriageRuntime({ root, service: { evaluate: async (request: any) => { physical++; return serviceOverride ? serviceOverride(request, result) : result(); } } as any, persist: s => counters.push(structuredClone(s)) });
  const persist = (s: any) => { if (++writes === failWrite) throw Error("disk full"); entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(s, evaluateProcessObligations(s, { writable: true, budgetTier: tier })) }); };
- const budget = { taskResetSnapshot: () => ({}), resetTaskWindow() {}, appendTaskResetEntry() {}, currentBudget: () => ({}), currentTaskBudget: () => ({}), updateModeStatus() {} };
+ const budget = { taskResetSnapshot: () => ({}), resetTaskWindow() {}, appendTaskResetEntry() {}, currentBudget: () => ({}), updateModeStatus() {} };
  const tools = createActionExecutors({ budget, artifacts: { persistAssertions() {} }, hubState: {}, provisionalCapabilityRefusal: () => null,
   getTaskTier: () => tier, setTaskTier: (v: string) => { tier = v; }, getTaskTierAssumed: () => false, setTaskTierAssumed() {}, getProcessState: () => state,
   adoptTaskTriage: async (id: string, newTask: boolean, expandedScope?: string) => { const s = await adoptTaskTriageState({ runtime, taskId: id, newTask, expandedScope, pendingTransition, state, persist, onPostCommitFailure() {} }); pendingTransition = false; return s; },

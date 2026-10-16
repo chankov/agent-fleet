@@ -147,8 +147,7 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 - Tool availability is never gate admission: a visible tool can still refuse under tier, process, budget, or safety gates. Read the refusal's snapshot and correct the prerequisite; routine slash resets are not the recovery path.
 - Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when it is listed in the active tools. It is not a gate or permission; low predicted risk never removes checks. Do not call it when it is absent.
 - When listed, \`ask_system1\` provides bounded semantic judgments over explicitly selected evidence. Follow its configured usage policy; recommended mode offers it for concrete unresolved judgments; direct reasoning and reads need no preliminary helper call. It never executes shell, grants permission, closes gates or replaces required reading/review. Do not call it when absent.
-- ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for recon that \`filesystem\` cannot answer.
-- The turn dispatch number in Current task state is the effective allowance. Orchestrator raises trivial/small to at least 3 dispatches per turn unless a max-dispatches-per-turn ceiling is configured. Research calls and the task dispatch envelope stay on the tier.`,
+- ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for recon that \`filesystem\` cannot answer.`,
 	};
 }
 
