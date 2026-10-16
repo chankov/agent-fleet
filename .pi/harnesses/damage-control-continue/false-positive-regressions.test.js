@@ -121,6 +121,14 @@ test('ordinary test output redirection keeps repository paths distinct from syst
  assert.equal((await g.call('node --import ./bin/test/helpers/system1-no-network.js --test test.ts > /tmp/result.log 2>&1')).block,false);
 });
 
+for (const command of ['npm run build', 'cargo build --release', 'go build ./...', 'make DESTDIR=build install', 'python3 -m venv .venv']) {
+ test(`an unknown program's subcommand is not a read-only output directory: ${command}`, async t => {
+  const g = await guard(t);
+  const result = await g.call(command);
+  assert.equal(result.block, false, result.reason);
+ });
+}
+
 for (const command of [
  'rm -- README.md',
  'mv README.md docs/renamed.md',
@@ -141,6 +149,9 @@ for (const command of [
  "cat <<'EOF' > scratch.sh\nrm -- README.md\nEOF\nsh scratch.sh",
  'rm docs/*.md',
  'sed -i s/a/b/ package-lock.json another.txt',
+ 'rm build',
+ 'cp a.js build/a.js',
+ 'node tools/build.js --out=dist/app.js',
 ]) test(`real protected operation stays blocked: ${command.split('\n')[0]}`, async t => {
  const g = await guard(t);
  assert.equal((await g.call(command)).block, true);

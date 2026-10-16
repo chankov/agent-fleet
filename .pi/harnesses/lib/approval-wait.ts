@@ -12,4 +12,7 @@ export function createApprovalWait(){
   reset(){generation++;for(const controller of controllers)controller.abort();},
  };
 }
-export const sharedApprovalWait=createApprovalWait();
+// Damage-Control, ask_user and the Hub load as separate extension module instances.
+const storeKey=Symbol.for('agent-fleet.approval-wait.v1');
+const runtime=globalThis as typeof globalThis & {[key:symbol]:ReturnType<typeof createApprovalWait>|undefined};
+export const sharedApprovalWait=runtime[storeKey]??=createApprovalWait();

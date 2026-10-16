@@ -49,7 +49,10 @@ test('T8 production child extension session cancellation during awaited broker d
  try{registerChild({on:(e:string,fn:Function)=>hooks[e]=fn,registerTool(){throw Error('no extra tools');}} as any);}finally{for(const key of Object.keys(attempt.env))if(prior[key]===undefined)delete process.env[key];else process.env[key]=prior[key];}
  const runtime=discoveryHubRuntime(f.pi)!;const original=runtime.rank.bind(runtime);let started!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>started=r),gate=new Promise<void>(r=>release=r);
  runtime.rank=async job=>{started();await gate;return original(job);};
- const result=hooks.tool_result({toolName:'find',input:{path:'docs'},toolCallId:'cancel',content:[{type:'text',text:'file-0.ts\nfile-1.ts'}],details:{}},f.ctx);
+ // Damage-Control captures the original result before the discovery hook in every native child.
+ const event={toolName:'find',input:{path:'docs'},toolCallId:'cancel',content:[{type:'text',text:'file-0.ts\nfile-1.ts'}],details:{}};
+ (await import('../../lib/damage-result-evidence.ts')).captureDamageResult(event);
+ const result=hooks.tool_result(event,f.ctx);
  await ready;hooks.session_before_switch();release();const cancelled=await result;assert.equal(cancelled.details.fileDiscovery.status,'cancelled');assert.equal(cancelled.details.fileDiscovery.rows,undefined);assert.equal(cancelled.content[0].text,'file-0.ts\nfile-1.ts');
 });
 test('D8 research singleton and multi-file native manifests deliver typed orientation before model with baseline launch policy intact',async t=>{

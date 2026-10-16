@@ -54,7 +54,12 @@ Native specialists, research helpers and nested delegates have independent D6
 registration through physical spawn, bounded by their actual effective tools.
 Assignments are fresh per physical attempt (including fallback), revocable and
 independent of D9 consent. Inherited D6 assignments are stripped at spawn;
-children receive scoped transport capabilities, not provider credentials.
+children receive scoped transport capabilities, not provider credentials. The
+child's Damage-Control takes its assignment from the spawn environment when it
+loads and removes it there, so Bash subprocesses do not inherit the capability;
+nested delegate registration uses the retained copy, and a malformed assignment
+fails closed. Guard registration, result capture and the human wait are
+process-shared, because Pi loads every extension with its own module instance.
 Research remains read-only: registration permits supported result screening,
 not new write authority. Capability loss is not optional inference failure.
 

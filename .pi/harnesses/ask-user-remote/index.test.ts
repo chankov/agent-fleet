@@ -25,6 +25,7 @@ import {
 	wrapAskUserTool,
 } from "./index.ts";
 import { socketTempRoot } from "../../agent-fleet/scripts/lib/monitor-env.ts";
+import { bindSemanticScope, noteSemanticDecision, resetSemanticApprovals, semanticDecision } from "../lib/semantic-approval.ts";
 import { QuestionChannel } from "./questions.ts";
 
 test("question capability follows wrapper session lifecycle", () => {
@@ -128,6 +129,25 @@ test("with no remote peer, wrapper calls stock execute with original args and re
 	assert.equal(wrapped.renderCall, tool.renderCall);
 	assert.equal(wrapped.renderResult, tool.renderResult);
 	assert.equal(wrapped.parameters, COMPACT_ASK_USER_PARAMETERS);
+});
+
+test("free-form answers never become delete approvals or answer a later question for the human", async () => {
+	resetSemanticApprovals();
+	bindSemanticScope("task", "revision");
+	let asked = 0;
+	const answering = (selection: string) => wrapAskUserTool(stockTool({
+		execute: async () => { asked++; return { details: { cancelled: false, response: { kind: "selection", selections: [selection] } } }; },
+	}), { startRemote: () => null });
+	try {
+		await answering("Yes — keep it").execute("keep", { question: "Should I keep `config/prod.json` rather than delete it?", options: ["Yes — keep it", "No"] });
+		assert.equal(semanticDecision("task", "revision", "config/prod.json"), undefined);
+		noteSemanticDecision("task", "revision", "config/prod.json", "allow");
+		const result = await answering("No").execute("delete", { question: "Delete `config/prod.json`?", options: ["Yes, delete", "No"] });
+		assert.equal(asked, 2);
+		assert.deepEqual(result.details.response.selections, ["No"]);
+	} finally {
+		resetSemanticApprovals();
+	}
 });
 
 test("typed ask-result observer sees compact marker and local cancellation without changing fallback behavior", async () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bindSemanticScope,coveredDeletePath,deleteConfirmation,exactDeletePath,inspectionBash,noteSemanticDecision,resetSemanticApprovals,semanticAskUserAnswer,semanticDecision} from './semantic-approval.ts';
+import {bindSemanticScope,coveredDeletePath,exactDeletePath,inspectionBash,noteBashDecision,noteSemanticDecision,resetSemanticApprovals,semanticDecision} from './semantic-approval.ts';
 
 test('inspection is silent, while only an exact approved delete is reused',()=>{
  resetSemanticApprovals();
@@ -17,23 +17,20 @@ test('inspection is silent, while only an exact approved delete is reused',()=>{
  assert.equal(semanticDecision("task","other","docs/d6-activation-smoke-empty.txt"),undefined);
 });
 
-test('an affirmative delete question records one path and a repeat is not asked',()=>{
- resetSemanticApprovals();bindSemanticScope("task","rev");
- const question="Потвърждаваш ли изтриването на точно `docs/d6-activation-smoke-empty.txt`?";
- assert.deepEqual(deleteConfirmation(question,undefined,"Да, изтрий файла"),{path:"docs/d6-activation-smoke-empty.txt",decision:"allow"});
- noteSemanticDecision("task","rev","docs/d6-activation-smoke-empty.txt","allow");
- assert.equal(semanticAskUserAnswer({question,options:["Да, изтрий файла","Не, запази файла"]}),"Да, изтрий файла");
- noteSemanticDecision("task","rev","docs/d6-activation-smoke-empty.txt","deny");
- assert.equal(semanticAskUserAnswer({question,options:["Да, изтрий файла","Не, запази файла"]}),"Не, запази файла");
+test('a newline or another control character never hides a second command',()=>{
+ for(const command of ['ls\nrm -rf important','ls\rrm -rf important','pwd\u0085rm -rf important','ls\u0000;rm x'])assert.equal(inspectionBash(command),false,JSON.stringify(command));
+ assert.equal(inspectionBash('ls -l docs/a\n'),true);
+ assert.equal(coveredDeletePath('rm -- docs/a\nrm -rf docs'),null);
+ assert.equal(coveredDeletePath('test -e docs/a\nrm -rf docs && rm -- docs/a'),null);
+ assert.equal(exactDeletePath('rm -- docs/a\u0000'),null);
 });
 
-test('English prose is not a path and late questions cannot authorize a newer scope',async()=>{
- const {semanticScope,noteAskUserDecision}=await import('./semantic-approval.ts');
- resetSemanticApprovals();bindSemanticScope('task','one');const original=semanticScope();
- noteAskUserDecision({question:'Delete "docs/empty.txt"?'},'Yes',original);
- assert.equal(semanticAskUserAnswer({question:'Delete "docs/empty.txt"?',options:['Yes','No']}),'Yes');
- bindSemanticScope('task','two');
- noteAskUserDecision({question:'Delete "docs/empty.txt"?'},'Yes',original);
- assert.equal(semanticDecision('task','two','docs/empty.txt'),undefined);
- resetSemanticApprovals();assert.equal(semanticAskUserAnswer({question:'Delete "docs/empty.txt"?',options:['Yes','No']}),null);
+test('only an exact command dialog records a delete decision, and only for the bound revision',()=>{
+ resetSemanticApprovals();bindSemanticScope('task','one');
+ noteBashDecision('task','one','rm -- docs/empty.txt && test ! -e docs/empty.txt','allow');
+ assert.equal(semanticDecision('task','one','docs/empty.txt'),'allow');
+ noteBashDecision('task','one','rm -rf docs','allow');noteBashDecision('task','one','ls\nrm -- docs/other.txt','allow');
+ assert.equal(semanticDecision('task','one','docs'),undefined);assert.equal(semanticDecision('task','one','docs/other.txt'),undefined);
+ bindSemanticScope('task','two');assert.equal(semanticDecision('task','one','docs/empty.txt'),undefined);
+ resetSemanticApprovals();
 });

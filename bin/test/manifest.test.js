@@ -6,9 +6,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import {
   buildManifest,
@@ -363,6 +363,49 @@ test("selection pulls in requires and companions", () => {
   const hub = resolveSelection(manifest, "pi", { items: ["pi-harness:agent-hub"] });
   assert.ok(hub.selected.includes("pi-harness:damage-control-continue"), "agent-hub must pull its safety child");
   assert.ok(hub.selected.includes("companion:justfile-region"));
+});
+
+// The drift guard only proves the catalogue matches the tree; it cannot see a
+// runtime import that a companion forgot to install. Walk the relative runtime
+// imports (type-only imports erase) from every workflow entry point.
+test("the workflow runtime installs every module its entry points load", () => {
+  const { selected } = resolveSelection(manifest, "pi", { items: ["companion:workflow-runtime"] });
+  assert.equal(selected.includes("pi-harness:agent-hub"), false, "workflow-only installs must not need the Hub");
+  const files = (path) => statSync(path).isDirectory()
+    ? readdirSync(path).flatMap((name) => (name === "node_modules" ? [] : files(join(path, name))))
+    : [path];
+  const installed = new Set();
+  for (const item of manifest.items.filter((entry) => selected.includes(entry.id))) {
+    for (const source of item.agents.pi?.source ?? []) for (const file of files(join(root, source))) installed.add(file);
+  }
+  const runtimeFile = (path) => /\.(?:ts|js|mjs)$/.test(path) && !/\.test\.|\/fixtures?\//.test(path);
+  const entries = [
+    join(root, ".pi/agent-fleet/scripts/flow.ts"),
+    ...files(join(root, ".pi/agent-fleet/scripts/workflows")).filter(runtimeFile),
+    // agent-phase.ts imports these through string variables, and every spawned
+    // child loads the safety extension with `pi -e`; static analysis misses both.
+    ...[
+      ".pi/harnesses/agent-hub/spawn.ts",
+      ".pi/harnesses/agent-hub/context-window.js",
+      ".pi/harnesses/lib/context-budget-child-prompt.ts",
+      ".pi/harnesses/damage-control-continue/index.ts",
+    ].map((path) => join(root, path)),
+  ];
+  const imports = /(?:^|\n)\s*(?:import|export)\s+(type\s+)?(?:[^;'"]*?from\s+)?["'](\.[^"']+)["']|import\(\s*["'](\.[^"']+)["']\s*\)|new URL\(\s*["'](\.[^"']+\.(?:ts|js|mjs))["']\s*,\s*import\.meta\.url\)/g;
+  const seen = new Set();
+  const missing = [];
+  for (const queue = [...entries]; queue.length; ) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    if (!installed.has(file)) missing.push(relative(root, file));
+    for (const match of readFileSync(file, "utf8").matchAll(imports)) {
+      if (match[1]) continue;
+      const target = resolve(dirname(file), match[2] ?? match[3] ?? match[4]);
+      if (existsSync(target)) queue.push(target);
+    }
+  }
+  assert.deepEqual(missing, [], "add these runtime imports to companion:workflow-runtime in manifest-meta.json");
 });
 
 test("the recommended profile is non-empty for every agent", () => {

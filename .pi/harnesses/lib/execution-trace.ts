@@ -24,14 +24,14 @@ export function emitRuntimeTrace(bus: TraceBus | undefined, signal: TraceStart &
 
 /** Record answer shape, never answer text or inferred permission semantics. */
 export function traceAskResult(result: unknown, options: readonly unknown[]): TraceEnd {
- const value = result as { isError?: boolean; details?: { cancelled?: boolean; semanticApprovalReused?: boolean; response?: { kind?: string; selections?: unknown[] } } } | null;
+ const value = result as { isError?: boolean; details?: { cancelled?: boolean; response?: { kind?: string; selections?: unknown[] } } } | null;
  if (value?.isError) return { status: "failed" };
  if (value?.details?.cancelled) return { status: "cancelled", decision: "none" };
  const response = value?.details?.response;
  const selections = response?.selections ?? [];
  const label = (option: unknown) => typeof option === "string" ? option : (option as {title?:unknown})?.title;
  const index = selections.length === 1 ? options.findIndex(option => label(option) === selections[0]) : -1;
- return { status: value?.details?.semanticApprovalReused ? "reused" : "completed",
+ return { status: "completed",
   decision: response?.kind === "freeform" ? "freeform" : selections.length > 1 ? "multiple" : index === 0 ? "selected_first" : index === 1 ? "selected_second" : "none" };
 }
 

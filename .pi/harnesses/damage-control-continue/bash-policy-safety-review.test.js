@@ -57,6 +57,12 @@ for (const command of [
  'cp -t/etc/ source.txt',
  'install -t/etc/ source.txt',
  'mv -t/etc/ source.txt',
+ // Bash tilde-expands assignment-like arguments after `=` and `:`.
+ 'dd if=~/.ssh/id_rsa of=/tmp/key',
+ 'dd if=~/.netrc of=/tmp/key',
+ "awk -v f=~/.aws/credentials 'BEGIN{while((getline l < f)>0)print l}'",
+ 'printenv KEYS=a:~/.ssh/id_rsa',
+ 'dd if=.env of=/tmp/env',
 ]) test(`static classification must preserve the prior protection: ${command}`, async t => {
  assert.equal(await blocked(t, command), true, command);
 });

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { damageControlPathMatches, type PathRuleCategory } from "./damage-control-shared.ts";
 
 interface Token { text: string; operator?: boolean; }
-interface ShellCommand { words: string[]; reads: string[]; writes: string[]; deletes: string[]; patternText: string; }
+interface ShellCommand { words: string[]; reads: string[]; writes: string[]; deletes: string[]; patternText: string; opaque: boolean; }
 export interface BashPolicyAnalysis { commands: ShellCommand[]; patternText: string; }
 
 /** Recognize static shell words and operators only. Expansion, compound grammar
@@ -76,7 +76,14 @@ const writers = new Set(["rm", "mv", "cp", "touch", "mkdir", "rmdir", "install",
 const dataCommands = new Set(["printf", "echo"]);
 // Preserve option text and operands after `--`. Long options may carry a path
 // after `=`; ambiguous attached short options use conservative handling below.
-const operands = (words: string[]) => words.flatMap(word => word === "--" ? [] : word.startsWith("-") && word.includes("=") ? [word, word.slice(word.indexOf("=") + 1)] : [word]);
+// Bash tilde-expands assignment-like arguments after `=` and `:` (`dd if=~/.ssh/id_rsa`,
+// `K=a:~/x`), so each value segment is an operand too.
+const operands = (words: string[]) => words.flatMap(word => {
+ if (word === "--") return [];
+ if (word.startsWith("-") && word.includes("=")) return [word, word.slice(word.indexOf("=") + 1)];
+ const assignment = /^[A-Za-z_]\w*=([^]*)$/.exec(word);
+ return assignment ? [word, ...assignment[1].split(":").filter(Boolean)] : [word];
+});
 
 export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
  const literal = withoutLiteralHeredocs(command); if (literal === null) return null;
@@ -99,7 +106,8 @@ export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
   const referenced = dataCommands.has(name) ? [] : [words[0], ...paths];
   const patternText = readers.has(name) || dataCommands.has(name) ? words[0] : words.join(" ");
   const opaqueDeletion=!readers.has(name)&&!writers.has(name)&&!dataCommands.has(name)&&/\b(?:rm|mv|rmdir)\b/.test(words.join(" "));
-  commands.push({ words, reads: [...reads, ...referenced], writes: [...writes, ...modified], deletes: ["rm", "mv", "rmdir"].includes(name)||opaqueDeletion ? paths : [], patternText });
+  const opaque=!readers.has(name)&&!writers.has(name)&&!dataCommands.has(name)&&!opaqueDeletion;
+  commands.push({ words, reads: [...reads, ...referenced], writes: [...writes, ...modified], deletes: ["rm", "mv", "rmdir"].includes(name)||opaqueDeletion ? paths : [], patternText, opaque });
   words = []; reads = []; writes = []; requiresDataSink=false;return true;
  };
  for (let i = 0; i < parsed.length; i++) {
@@ -136,8 +144,12 @@ function matches(target: string, pattern: string, cwd: string): boolean {
 }
 
 export function bashReferencesProtectedPath(analysis: BashPolicyAnalysis, category: PathRuleCategory, pattern: string, cwd: string): boolean {
+ // A slash-free word of an unknown program (`npm run build`, `cargo build`) names a
+ // subcommand far more often than a relative output directory; known writers stay exact.
+ const relativeDirectory = pattern.endsWith("/") && !isAbsolute(pattern) && !pattern.startsWith("~");
+ const subcommand = (command: ShellCommand, candidate: string) => category === "read_only" && relativeDirectory && command.opaque && !candidate.includes("/");
  return analysis.commands.some(command => {
   const candidates = category === "zero_access" ? [...command.reads, ...command.writes] : category === "read_only" ? command.writes : command.deletes;
-  return candidates.some(candidate => matches(candidate, pattern, cwd));
+  return candidates.some(candidate => !subcommand(command, candidate) && matches(candidate, pattern, cwd));
  });
 }

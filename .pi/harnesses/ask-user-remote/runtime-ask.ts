@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import {sharedApprovalWait} from '../agent-hub/approval-wait.ts';
+import {sharedApprovalWait} from '../lib/approval-wait.ts';
 import { beginRuntimeTrace, traceAskResult, type TraceStart } from '../lib/execution-trace.ts';
 
 export interface RuntimeQuestion {

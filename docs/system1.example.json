@@ -77,7 +77,7 @@
         "maxCacheEntries": 2048
       }
     },
- >   "damageGuard": {
+    "damageGuard": {
       "mode": "off",
       "remoteScopes": { "commands": false, "edits": false, "results": false },
       "include": ["git:tracked"],

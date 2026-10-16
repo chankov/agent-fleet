@@ -24,6 +24,8 @@ function chain(t:any,mode='normal',count=3,semantic=false) {
  const hooks={},registered={};const api={on:(e,f)=>(hooks[e]??=[]).push(f),registerTool:d=>registered[d.name]=d};
  for(const path of args.filter((v,i)=>args[i-1]==='-e'))if(path.endsWith('/delegate.ts')||path.endsWith('/file-discovery/child-extension.ts'))(await import(url.pathToFileURL(path).href)).default(api);
  let result={toolName:'find',input:{path:'docs',pattern:'*.ts'},toolCallId:'find-chain',content:[{type:'text',text:${JSON.stringify(f.paths.map(p=>p.slice(5)).join('\n'))}}],details:{}};
+ // Every native child loads Damage-Control first; it captures the original result before later result hooks.
+ (await import(${JSON.stringify(new URL('../../lib/damage-result-evidence.ts',import.meta.url).href)})).captureDamageResult(result);
  for(const hook of hooks.tool_result??[]){const override=await hook(result,{cwd:process.cwd()});if(override)result={...result,...override};}
  let pageRows=0,readPages=0,next=result.details.fileDiscovery?.first;
  const {createReadTool}=await import(${JSON.stringify(pathToFileURL(resolve('node_modules/@earendil-works/pi-coding-agent/dist/index.js')).href)});

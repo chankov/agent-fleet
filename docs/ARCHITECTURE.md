@@ -54,7 +54,10 @@ exact-action authorization without a pre-effect planning gate.
 
 Approval memory is shared across Pi's isolated extension loaders within the
 runtime. Semantic decisions remain bound to the accepted task/input revision and
-exact path; task/session changes fence late answers. Remembered confirmation is
+exact path; task/session changes fence late answers. Only an exact-action dialog
+that showed the human the command records a delete decision; free-form `ask_user`
+answers are never recorded and never answered automatically, because prose cannot
+prove which path or polarity the human chose. Remembered confirmation is
 not a reusable effect grant: actual irreversible effects still consume their
 runtime authorization. Identical concurrent dialogs coalesce, and cancellation
 does not become consent.

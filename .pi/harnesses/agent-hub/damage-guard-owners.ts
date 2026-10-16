@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {realpathSync} from 'node:fs';
 import {validDamageAssignment, type DamageAssignment} from './damage-guard-broker.ts';
+import {DAMAGE_ASSIGNMENT_ENV} from '../lib/damage-guard-port.ts';
 
 /** Trusted parent factory. Each open owns partial-registration cleanup on failure. */
 export interface DamageSpawnRegistration {
@@ -15,8 +16,8 @@ export interface DamagePhysicalLease {
  /** Idempotent; revokes the owner and every descendant capability. */
  revoke(): void;
 }
-export const DAMAGE_ASSIGNMENT_ENV = 'AF_D6_ASSIGNMENT';
-/** Transport only; not a child bootstrap reader or inference/admission authority. */
+export {DAMAGE_ASSIGNMENT_ENV};
+/** Transport only; the child reader is takeSpawnedDamageAssignment, not inference/admission authority. */
 export function damageAssignmentEnv(assignment: DamageAssignment): Record<string,string> {
  if (!validDamageAssignment(assignment)) throw Error('damage_physical_assignment_invalid');
  return {[DAMAGE_ASSIGNMENT_ENV]: JSON.stringify(assignment)};

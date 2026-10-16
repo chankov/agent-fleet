@@ -60,7 +60,7 @@ import { registerVersionStatus } from "./version.ts";
 import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
 import { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
 import {sharedApprovalWait} from '../lib/approval-wait.ts';
-import {assessDamageCall} from '../lib/damage-guard-port.ts';
+import {assessDamageCall,takeSpawnedDamageAssignment} from '../lib/damage-guard-port.ts';
 import type {createDamageChild} from './system1-child.ts';
  import {captureDamageResult} from '../lib/damage-result-evidence.ts';
 
@@ -105,6 +105,7 @@ function continueFeedback(toolName: string, violationReason: string, invocation:
 }
 
 export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} = {}) {
+	const assignment=dependencies.assignment!==undefined?dependencies.assignment:takeSpawnedDamageAssignment();
 	let baselineEpoch=0;
 	let child: ReturnType<typeof createDamageChild> | undefined;
 	pi.on('tool_result', event => {
@@ -296,10 +297,10 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		}
 
 		ctx.ui.setStatus("damage-control", statusText());
-		if(dependencies.assignment!==undefined){
+		if(assignment!==undefined){
 			const epoch=baselineEpoch;
 			const {createDamageChild}=await import('./system1-child.ts');
-			if(epoch===baselineEpoch)child=createDamageChild(dependencies.assignment);
+			if(epoch===baselineEpoch)child=createDamageChild(assignment);
 		}
 	});
 

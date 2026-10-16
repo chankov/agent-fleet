@@ -2,7 +2,8 @@ import {randomUUID} from 'node:crypto';
 import {connect} from 'node:net';
 import {realpathSync} from 'node:fs';
 import {DAMAGE_FRAME_BYTES,damageControlFrame,decodeDamageFrame,exactKeys,validDamageAssignment,verifyDamageFrame,type DamageAssignment} from './damage-guard-broker.ts';
-import {DAMAGE_ASSIGNMENT_ENV,type DamagePhysicalLease,type DamageSpawnRegistration} from './damage-guard-owners.ts';
+import {type DamagePhysicalLease,type DamageSpawnRegistration} from './damage-guard-owners.ts';
+import {spawnedDamageAssignment} from '../lib/damage-guard-port.ts';
 import {spawnDiscoveryDescendant} from './file-discovery/descendant.ts';
 import type {SpawnPiAgentOptions,SpawnPiAgentCallbacks,ModelFallbackOptions,SpawnPiAgentResult} from './spawn.ts';
 
@@ -63,8 +64,9 @@ export function createDamageDescendantRegistration(parent:DamageAssignment,input
 export async function spawnDamageDescendant(opts:SpawnPiAgentOptions,fallbackModel:string|undefined,cbs:SpawnPiAgentCallbacks,fallbackOptions:ModelFallbackOptions,input:{childId:string;task:string;query:string;admit():boolean}):Promise<SpawnPiAgentResult>{
  let registration:ReturnType<typeof createDamageDescendantRegistration>|undefined;
  try{
-  const raw=process.env[DAMAGE_ASSIGNMENT_ENV];
-  if(raw!==undefined)registration=createDamageDescendantRegistration(JSON.parse(raw),{tools:opts.tools.split(',').map(t=>t.trim()),cwd:opts.cwd??process.cwd(),signal:opts.signal,admit:input.admit});
+  const parent=spawnedDamageAssignment();
+  // The registration validates the exact assignment shape before any use.
+  if(parent!==undefined)registration=createDamageDescendantRegistration(parent as DamageAssignment,{tools:opts.tools.split(',').map(t=>t.trim()),cwd:opts.cwd??process.cwd(),signal:opts.signal,admit:input.admit});
   const admitted=()=>{try{return !opts.signal?.aborted&&input.admit()===true&&(!registration||registration.validate());}catch{return false;}};
   if(!admitted())throw Error('damage_descendant_admission_denied');
   return await spawnDiscoveryDescendant({...opts,damageRegistration:registration,attemptLifecycle:{beforePhysicalSpawn(info){if(!admitted())throw Error('damage_descendant_admission_denied');return opts.attemptLifecycle?.beforePhysicalSpawn(info);},afterPhysicalSpawn(info){opts.attemptLifecycle?.afterPhysicalSpawn(info);}}},fallbackModel,cbs,fallbackOptions,{...input,admit:admitted});

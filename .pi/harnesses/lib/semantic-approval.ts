@@ -36,9 +36,11 @@ function tokens(command:string):string[] {
  while((match=re.exec(command)))out.push(match[1]??match[2]??match[3]);
  return out;
 }
+// An inner newline separates Bash commands just like `;`, so no control character may hide a second command.
+const controlText=/[\x00-\x1f\x7f-\x9f]/;
 export function inspectionBash(command:string):boolean {
  const segments=command.split(/&&|\|\||;/).map(segment=>segment.trim()).filter(Boolean);
- if(!segments.length||/[|`$<>]/.test(command.replace(/\s+2>\s*\/dev\/null\b/g, ''))||command.includes('$('))return false;
+ if(!segments.length||controlText.test(command.trim())||/[|`$<>]/.test(command.replace(/\s+2>\s*\/dev\/null\b/g, ''))||command.includes('$('))return false;
  return segments.every(segment=>{
   const argv=tokens(segment.replace(/\s+2>\s*\/dev\/null\b/g, ''));
   return ['pwd','ls','test','stat','wc','file'].includes(argv[0]??'')&&argv.every(token=>!/[|&`;<>]/.test(token));
@@ -46,7 +48,7 @@ export function inspectionBash(command:string):boolean {
 }
 export function exactDeletePath(command:string):string|null {
  const trimmed=command.trim();
- if(!trimmed||/[;&|`$<>\n]/.test(trimmed)||trimmed.includes('$('))return null;
+ if(!trimmed||controlText.test(trimmed)||/[;&|`$<>]/.test(trimmed)||trimmed.includes('$('))return null;
  const argv=tokens(trimmed);
  if(argv[0]!=='rm')return null;
  const paths:string[]=[];
@@ -59,7 +61,7 @@ export function exactDeletePath(command:string):string|null {
 }
 /** One exact delete plus inspection checks is still the same delete, not a new command. */
 export function coveredDeletePath(command:string):string|null {
- if(!command.trim()||/[|`$<>\n]/.test(command)||command.includes('$('))return null;
+ if(!command.trim()||controlText.test(command.trim())||/[|`$<>]/.test(command)||command.includes('$('))return null;
  const segments=command.split(/&&|\|\||;/).map(segment=>segment.trim()).filter(Boolean);
  const deletes=new Set<string>();
  for(const segment of segments){
@@ -70,45 +72,10 @@ export function coveredDeletePath(command:string):string|null {
  }
  return deletes.size===1?[...deletes][0]:null;
 }
-const word=(value:string,words:string[])=>new RegExp(`^(?:${words.join('|')})(?=$|[^\\p{L}\\p{N}_])`,'iu').test(value.trim());
-const affirmative=(value:string)=>word(value,['да','yes','allow'])&&!word(value,['не','no','deny']);
-const negative=(value:string)=>word(value,['не','no','deny']);
-const deletion=(value:string)=>/изтри|delete|remove|\brm\b/i.test(value);
-function pathsIn(value:string):string[] {
- const found=new Set<string>();
- for(const match of value.matchAll(/`([^`]+)`|"([^"]+)"|'([^']+)'|(\S+)/g)){
-  const quoted=match[1]??match[2]??match[3];
-  const token=quoted??match[4]??'';
-  const normalized=normalizeDecisionPath(token);
-  if(normalized&&(quoted!==undefined||/[/.]/.test(token)))found.add(normalized);
- }
- return [...found];
-}
-export function deleteConfirmation(question:string,context:string|undefined,selection:string):{path:string;decision:SemanticDecision}|null {
- const decision=affirmative(selection)?'allow':negative(selection)?'deny':null;
- if(!decision)return null;
- const text=`${question}\n${context??''}\n${selection}`;
- if(!deletion(text))return null;
- const paths=pathsIn(`${question}\n${context??''}`);
- return paths.length===1?{path:paths[0],decision}:null;
-}
-export function semanticAskUserAnswer(params:{question?:unknown;context?:unknown;options?:unknown}):string|null {
- const scope=state.scope;
- if(!scope||typeof params.question!=='string')return null;
- const options=Array.isArray(params.options)?params.options.filter((option):option is string=>typeof option==='string'):[];
- const paths=pathsIn(`${params.question}\n${typeof params.context==='string'?params.context:''}`);
- if(paths.length!==1||!deletion(`${params.question}\n${typeof params.context==='string'?params.context:''}`))return null;
- const decision=semanticDecision(scope.taskId,scope.revision,paths[0]);
- if(!decision)return null;
- return options.find(option=>decision==='allow'?affirmative(option):negative(option))??null;
-}
-export function noteAskUserDecision(params:{question?:unknown;context?:unknown},selection:string,expectedScope=state.scope):void {
- const scope=state.scope;
- if(expectedScope!==scope)return;
- if(!scope||typeof params.question!=='string')return;
- const decision=deleteConfirmation(params.question,typeof params.context==='string'?params.context:undefined,selection);
- if(decision)noteSemanticDecision(scope.taskId,scope.revision,decision.path,decision.decision);
-}
+/**
+ * Only an exact-action dialog that showed the human the command records a decision.
+ * Free-form ask_user prose cannot: its polarity and target are not machine-checkable.
+ */
 export function noteBashDecision(taskId:string,revision:string,command:string,decision:SemanticDecision):void {
  const path=coveredDeletePath(command);
  if(path)noteSemanticDecision(taskId,revision,path,decision);

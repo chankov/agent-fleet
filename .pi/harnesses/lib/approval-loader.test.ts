@@ -14,7 +14,7 @@ async function fixture(t: any) {
  export default function(pi) {
   pi.registerCommand('reset',{handler:()=>{semantic.resetSemanticApprovals();dialog.resetIdenticalDialogs();}});
   pi.registerCommand('note',{handler:()=>{semantic.bindSemanticScope('task','revision');semantic.noteSemanticDecision('task','revision','docs/empty.txt','allow');}});
-  pi.registerCommand('answer',{handler:()=>semantic.semanticAskUserAnswer({question:'Delete "docs/empty.txt"?',options:['Yes','No']})});
+  pi.registerCommand('answer',{handler:()=>semantic.semanticDecision('task','revision','docs/empty.txt')});
   pi.registerCommand('dialog',{handler:(_args,ctx)=>dialog.decideIdenticalDialog('same-task-dialog',ctx.ask)});
  }`;
  const paths=[join(dir,"hub.ts"),join(dir,"ask-user.ts")]; for(const path of paths)writeFileSync(path,source);
@@ -24,7 +24,7 @@ async function fixture(t: any) {
 }
 
 test("real Pi loader shares exact semantic approval between independently loaded extensions",async t=>{
- const call=await fixture(t); await call(0,"note"); assert.equal(await call(1,"answer"),"Yes");
+ const call=await fixture(t); await call(0,"note"); assert.equal(await call(1,"answer"),"allow");
 });
 
 test("real Pi loader coalesces concurrent identical questions across extensions",async t=>{

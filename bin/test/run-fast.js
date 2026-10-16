@@ -53,6 +53,7 @@ const fastTestFiles = [
   ".pi/harnesses/agent-hub/run-budget.test.js",
   ".pi/harnesses/agent-hub/supervised-execution.test.ts",
   ".pi/harnesses/lib/approval-loader.test.ts",
+  ".pi/harnesses/lib/damage-guard-loader.test.ts",
   ".pi/harnesses/lib/semantic-approval.test.ts",
   ".pi/harnesses/lib/identical-dialog.test.ts",
   ".pi/harnesses/agent-hub/review-reuse.test.ts",

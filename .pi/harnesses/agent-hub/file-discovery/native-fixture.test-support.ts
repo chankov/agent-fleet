@@ -23,6 +23,8 @@ export function nativeFixture(t:any,count=3,pageBytes=32768,limits={},extras:any
  const service={async evaluate(r:any){calls++;return {status:'ok',evaluation:{answers:r.questions.map((q:any)=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:{value:Object.keys(q.options)[0]})})),metadata:{}}} as any;}};
  registerDiscoveryHub(pi);configureDiscoveryHub(pi,{snapshot,service,ctx,sessionDir:session,taskId:()=>taskId,...(extras.store?{communicationStore:extras.store}:{})});entries.push({type:'message',message:{role:'user',content:'parent rounding'}});
  const guard=pathToFileURL(resolve('bin/test/helpers/system1-no-network.js')).href;
+ // Every native child loads Damage-Control first; it captures the original result before later result hooks.
+ const evidence=new URL('../../lib/damage-result-evidence.ts',import.meta.url).href;
  writeFileSync(join(root,'pi'),`#!/usr/bin/env node
 (async()=>{
  await import(${JSON.stringify(guard)});process.env.PI_OFFLINE='1';
@@ -33,6 +35,7 @@ export function nativeFixture(t:any,count=3,pageBytes=32768,limits={},extras:any
  const hooks={},api={on:(e,f)=>(hooks[e]??=[]).push(f),registerTool(){throw Error('D9 must not add tools');}};
  for(const path of extensions)if(path.endsWith('/file-discovery/child-extension.ts'))(await import(url.pathToFileURL(path).href)).default(api);
  const event={toolName:'find',input:{path:'docs',pattern:'*.ts'},toolCallId:'discovery',content:[{type:'text',text:${JSON.stringify(paths.map(p=>p.slice(5)).join('\n'))}}],details:{}};
+ (await import(${JSON.stringify(evidence)})).captureDamageResult(event);
  let result=event;for(const hook of hooks.tool_result??[]){const override=await hook(result,{cwd:process.cwd()});if(override)result={...result,...override};}
  let pageRows=0,next=result.details.fileDiscovery?.first,readPages=0;
  const {createReadTool}=await import(${JSON.stringify(pathToFileURL(resolve('node_modules/@earendil-works/pi-coding-agent/dist/index.js')).href)});
@@ -85,7 +88,10 @@ if(process.env.COUNT_TERMINAL==='1'||fault)Socket.prototype.end=function(chunk,.
 };
 const mod=await import(pathToFileURL(process.env.EXTENSION).href);const hooks={};const events=[];
 mod.default({on:(e,f)=>(hooks[e]??=[]).push((...a)=>{events.push(e);return f(...a);}),registerTool(){throw Error('D9 must not add tools');}});
-const event=JSON.parse(process.env.EVENT);const pending=hooks.tool_result[0](event,{cwd:process.env.ROOT});
+const event=JSON.parse(process.env.EVENT);
+// Native children load Damage-Control first; it captures the original result before later result hooks.
+(await import(${JSON.stringify(new URL('../../lib/damage-result-evidence.ts',import.meta.url).href)})).captureDamageResult(event);
+const pending=hooks.tool_result[0](event,{cwd:process.env.ROOT});
 if(process.env.MODE==='switch'||process.env.MODE==='shutdown'){const name=process.env.MODE==='switch'?'session_before_switch':'session_shutdown';let buf='';process.stdin.on('data',c=>{buf+=c;if(buf.includes('abort'))for(const fn of hooks[name]??[])fn();});}
 const result=await pending;terminalElapsedMs=terminalAt?Date.now()-terminalAt:0;const advice=result?.details?.fileDiscovery;
 process.stdout.write(JSON.stringify({status:advice?.status,reason:advice?.reason??null,events,original:result?.content?.[0],extra:result?.content?.[1]?.text??null,injected,terminalElapsedMs,clientTimerShortened,fault})+'\\n');
