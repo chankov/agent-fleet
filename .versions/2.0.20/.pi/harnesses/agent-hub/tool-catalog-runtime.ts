@@ -1,0 +1,79 @@
+import type { WorkMode } from './work-mode.ts';
+import {
+	TOOL_CATALOG_ENTRY_TYPE,
+	catalogSnapshot,
+	emitToolCatalogDelta,
+	restoreToolCatalogAfterCompaction,
+	type ToolCatalogDelta,
+	type ToolCatalogSnapshot,
+} from './tool-catalog-state.ts';
+import { UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, type UnknownToolCounterSnapshot } from './unknown-tool-counter.ts';
+
+export interface ToolCatalogReconcileInput {
+	fromMode: WorkMode;
+	toMode: WorkMode;
+	previous: readonly string[];
+	next: readonly string[];
+}
+
+export interface ToolCatalogCompactionInput {
+	mode: WorkMode;
+	getEffectiveTools(): readonly string[];
+	persist(type: string, data: unknown): void;
+	counterSnapshot(): UnknownToolCounterSnapshot;
+	retainCounter(): void;
+	establishToolStateChange(previousCatalogVersion: string, nextCatalogVersion: string, evidenceRef: string): number;
+	settle(restored?: boolean): void;
+	onError?(error: unknown): void;
+}
+
+/** Runtime-owned catalog state. The active turn is latched before model input. */
+export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
+	let currentCatalog = restoreToolCatalogAfterCompaction(initial);
+	let persistedSnapshot: string | null = null;
+ let activeTurnCatalog: ToolCatalogSnapshot | null = null;
+
+	function reconcile(input: ToolCatalogReconcileInput): { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta } {
+		const delta = emitToolCatalogDelta({ ...input, previousCatalogVersion: currentCatalog.catalogVersion });
+		currentCatalog = catalogSnapshot(input.toMode, delta.available);
+		return { snapshot: currentCatalog, delta };
+	}
+
+ function persist(result: { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta }, write: (type:string,data:unknown)=>void, reason:string): boolean {
+  const key=JSON.stringify(result.snapshot);
+  if(key===persistedSnapshot)return false;
+  write(TOOL_CATALOG_ENTRY_TYPE,{...result,reason});
+  persistedSnapshot=key;
+  return true;
+ }
+ return {
+  persist,
+  current: () => currentCatalog,
+		restore(snapshot: ToolCatalogSnapshot) { persistedSnapshot=null; currentCatalog = restoreToolCatalogAfterCompaction(snapshot); return currentCatalog; },
+		reconcile,
+		beginTurn() { activeTurnCatalog = currentCatalog; return activeTurnCatalog; },
+		endTurn() { activeTurnCatalog = null; },
+		catalogForMessage() { return activeTurnCatalog ?? currentCatalog; },
+		compact(input: ToolCatalogCompactionInput): { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta } | null {
+   let restoredSuccessfully=false;
+			try {
+				const restored = restoreToolCatalogAfterCompaction(currentCatalog);
+				const result = reconcile({ fromMode: restored.mode, toMode: input.mode, previous: restored.tools, next: input.getEffectiveTools() });
+				const evidenceRef = `session-entry:${TOOL_CATALOG_ENTRY_TYPE}:${result.delta.catalogVersion}`;
+				persist(result, input.persist, 'compaction_restore');
+				input.persist(UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, { snapshot: input.counterSnapshot(), reason: 'compaction_restore' });
+				if (result.delta.evidence.changed) input.establishToolStateChange(result.delta.evidence.previousCatalogVersion, result.delta.evidence.catalogVersion, evidenceRef);
+    restoredSuccessfully=true;
+				return result;
+			} catch (error) {
+				input.onError?.(error);
+				return null;
+			} finally {
+				input.retainCounter();
+				input.settle(restoredSuccessfully);
+			}
+		},
+	};
+}
+
+export type ToolCatalogRuntime = ReturnType<typeof createToolCatalogRuntime>;
