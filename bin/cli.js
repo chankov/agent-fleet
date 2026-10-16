@@ -531,7 +531,7 @@ async function cmdDoctor() {
   let applied = null;
   let scanRepair = null;
   if (willFix) {
-    if (repairs.length > 0) applied = applyPlan({ plan, manifest: loadManifest(pkgRoot) });
+    if (repairs.length > 0) applied = applyPlan({ plan, manifest: loadManifest(pkgRoot), lockHeld: true });
     if (fixable.length > 0) scanRepair = await runDoctor({ workspace, sourceRoot: pkgRoot, apply: true, env: process.env });
   }
 
@@ -609,7 +609,8 @@ async function cmdDoctor() {
     for (const r of applied.results) {
       console.log(`  ${r.status.padEnd(8)}  ${r.id}${r.detail ? ` — ${r.detail}` : ""}`);
     }
-    console.log(`  state: ${applied.statePath}`);
+    if (applied.failure) console.log(`  ${applied.failure.status}: ${applied.failure.detail}`);
+    if (applied.statePath) console.log(`  state: ${applied.statePath}`);
   }
   if (scanRepair) {
     console.log(
