@@ -1,5 +1,37 @@
 # Agent Fleet changelog
 
+## 2.0.20
+
+### Patch Changes
+
+- b044fe4: Remember identical approval dialogs within a task so the human is not asked the same exact question twice, and let a recorded exact-action delete approval cover the same delete. Only exact-action dialogs that showed the command record a decision; free-form `ask_user` answers are never stored or answered automatically, and commands containing control characters (an inner newline separates Bash commands) never count as inspection or as a covered delete.
+- b044fe4: Lower the automatic context policy to a 50% minimum, 60% warning, 70% compaction target and 80% ceiling. Automatic compaction re-arms when usage falls below 60% or after the history grows by 10% of the window over the first post-compaction measurement, so small context windows are not left waiting. The ceiling stops work after a failed recovery or when even the compacted baseline is at or above 80%; a baseline between 70% and 80% warns once and keeps working. The Hub triages specialist questions before escalating unresolved material decisions to the human, and the footer shows the provider and full model id.
+- b044fe4: Record a privacy-safe execution trace in the Pi session journal and expose it, together with tool-catalog change counts, in `/af-audit`. It correlates tool execution, policy decisions and human waits with hashed identities and no payloads, and writes one row per finished span (turn and child spans also record their start).
+
+  Damage-Control's Bash analysis classifies static operands to cut false positives while staying conservative for ambiguous syntax. Assignment-like arguments such as `dd if=~/.ssh/id_rsa` are treated as operands, and a subcommand word of an unknown program (`npm run build`, `cargo build`) is no longer mistaken for a protected `build/` or `target/` directory.
+
+- b044fe4: Add opt-in semantic orientation (`semanticReads`) to System 1 file discovery with typed answers, bounded foreground deadlines and managed artifacts excluded from results. Native children now receive discovery advice again because Damage-Control's original-result capture is shared across extension loaders. `compact-and-continue` no longer imports Agent Hub, so Fleet Core loads in a workspace without the Hub, and the workflow-only install ships every module its entry points load.
+- 69cf1b3: Align the workspace and harness dependency graph with Pi 1.1.0, the runtime required for the verified settled compaction/continuation contract. Update the installed smoke and file-discovery compatibility pins, preserve audited dependency floors, and normalize socket/timer types for the upgraded SDK. This records the workspace upgrade; it does not upgrade or activate users' globally installed runtimes.
+- 995528e: Remove the unreleased shared installation-owner mode in favor of a standalone Fleet installation at the common parent of independent Git repositories. Keep non-Git parent evidence capture, scoped rules/docs and bounded no-symlink local installation-state reads.
+
+  Old `installationOwner` configurations now fail explicitly instead of being silently normalized as local or redirected. No runtime, ledger or human configuration is migrated or deleted automatically. Remove shared-owner preview/doctor metadata and replace owner-specific tests with local-state safety and parent lifecycle regressions.
+
+- b044fe4: Native specialists report through a validated `submit_result` tool with evidence file hashes; `details.taskAccepted` stays the runtime verdict. A model profile can opt into `assist.return-extraction` to recover a missing submission from the written report with the cheap read-only extraction pass. Fresh reviews receive the previous report and a bounded diff of the reviewed files.
+
+  The deterministic `filesystem` tool can page through large files with `offset`/`max_bytes` under the per-turn output limit; a file is hashed once per unchanged identity and line references are tracked incrementally, so paging a multi-GB log no longer blocks the Hub. Declared nested Git repositories are observed during dispatch, and incomplete observation is reported rather than accepted.
+
+- b044fe4: Replace continuation quotas with supervision. Dispatch, research and review-round counts and active time stay visible, but no tier stops authorized work for a budget renewal; the watchdog supervises repeated calls and failures, and child deadlines, recycling and cancellation remain. Planner and plan review are optional at every size and risk; independent review and acceptance obligations are unchanged.
+
+  `max-dispatches-per-turn`, `max-research-per-turn` and `turn-wall-time-s` are ignored with a warning and flagged by `doctor`; delete them from `.ai/agent-fleet-overrides.md`. The `/af-budget-continue` command is removed because no budget can refuse work any more. Completed independent reviews of unchanged scope are reused, and older successful tool results are projected to exact references in batches so the model view stays prompt-cache stable.
+
+- 0c4f937: Add runtime-owned context recovery and same-task continuation for the verified Pi 1.1.0 lifecycle, optional System1 early-compaction advice, metadata-only assessment diagnostics, and a shared native child pressure adapter with bounded authenticated context IPC. Keep explicit compaction compatible, report too-small sessions as honest skips, preserve capability intent across authorized task resets, and distinguish unknown peer context from measured zero.
+
+  Ship the independent contextCompaction consumer configuration and an inert all-consumer System1 example with usage and troubleshooting documentation. Existing installation/consent defaults are not activated or changed. Installable harness/config files change and must be reconciled through the normal version-aware update flow. Coms semantic task binding, root service forwarding through every nested/workflow level, and the complete legacy/fleet acceptance matrix remain documented limitations; this release does not claim the whole D7 plan is closed.
+
+- b044fe4: Add the optional System 1 damage guard (D6): an off-by-default semantic layer over Damage-Control that can hold severe, sufficiently evidenced `bash`/`write`/`edit` calls for one exact human approval and append advisory warnings to supported results. It has its own `consumers.damageGuard` configuration with separate `remoteScopes`, durable denial state, `/af-damage-override` for one new dialog, and fresh scoped assignments for native specialists, research helpers and nested delegates.
+
+  The guard port, result capture and the single human approval wait are shared across Pi's isolated extension loaders, so the Hub's guard is consulted by the separately loaded Damage-Control. A native child takes its assignment from the spawn environment and removes it there, so Bash subprocesses cannot inherit the capability; a malformed assignment fails closed. Baseline policy stays authoritative and D6 remains experimental and unaccepted.
+
 ## 2.0.19
 
 ### Patch Changes
