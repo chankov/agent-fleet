@@ -1,5 +1,11 @@
 # Agent Fleet changelog
 
+## 2.0.21
+
+### Patch Changes
+
+- 2189938: Serialize peer coms turns, distinguish queued work from active work, and pin replies to the intended peer session.
+
 ## 2.0.20
 
 ### Patch Changes
