@@ -20,8 +20,30 @@ const FALLBACK_PALETTE = [
 ];
 
 export type RegistryEntry = ComsRegistryEntry;
-export type PeerStatus = "idle" | "working" | "booting";
+export type ComsTurnState = "idle" | "working";
+export type PeerStatus = "idle" | "queued" | "working" | "booting";
 export type EnvelopeType = "prompt" | "response" | "ping";
+
+export function derivePeerStatus(
+	turnState: ComsTurnState,
+	waitingDepth: number,
+	hasCurrentInbound: boolean,
+): PeerStatus {
+	if (turnState === "working") return "working";
+	return hasCurrentInbound || waitingDepth > 0 ? "queued" : "idle";
+}
+
+export function nextInboundForDispatch<T extends { fulfilled: boolean }>(
+	entries: Iterable<T>,
+	turnState: ComsTurnState,
+	hasCurrentInbound: boolean,
+): T | null {
+	if (turnState !== "idle" || hasCurrentInbound) return null;
+	for (const entry of entries) {
+		if (!entry.fulfilled) return entry;
+	}
+	return null;
+}
 
 export interface Envelope {
 	type: EnvelopeType;
@@ -76,7 +98,9 @@ export interface PendingReply {
 	timer: NodeJS.Timeout | null;
 	promise: Promise<{ response?: any; error?: string | null }>;
 	result?: { response?: any; error?: string | null };
-	target_name?: string;
+	target_name: string;
+	target_session: string;
+	target_endpoint: string;
 	created_at: string;
 }
 
@@ -85,6 +109,9 @@ export interface InboundContext {
 	hops: number;
 	sender_endpoint: string;
 	sender_session: string;
+	sender_name: string;
+	sender_cwd: string;
+	prompt: string;
 	response_schema?: object | null;
 	fulfilled: boolean;
 }

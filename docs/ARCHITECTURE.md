@@ -904,8 +904,10 @@ packages/hermes-bridge/       # future Hermes integration package
   out writes to `artifacts/failures/`, never `returns/` — an error stub filed
   as a return reads as a specialist verdict and gets acted on as one.
 - **A pool status field beats reading the screen.** `coms_list` publishes each
-  peer's `pane_id` and `status` (`idle`/`working`/`booting`), and
-  `herdr_spawn_peer` waits for the peer to register and returns `peer_ready`
+  peer's `pane_id`, waiting-only `queue_depth`, and `status`
+  (`idle`/`queued`/`working`/`booting`). `working` means an active turn;
+  `queued` means accepted work is waiting to start. `herdr_spawn_peer` waits
+  for the peer to register and returns `peer_ready`
   rather than a bare pane id. A spawned peer boots idle and does nothing until
   addressed, so peers spawned and never sent to are named at turn end and in
   `/af-hub-report` (`spawned-peers.js`); closing stays the human's call.

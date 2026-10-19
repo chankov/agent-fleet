@@ -164,7 +164,7 @@ import { createCompletionPresentation } from "./input/completions.ts";
 import { createResearchControls } from "./research/controls.ts";
 import { currentPiRuntimeVersion } from "./context-continuity-compat.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "./lifecycle/context-pressure.ts";
-import { createTurnLifecycleHandlers, registerTurnPresence } from "./lifecycle/turn-handlers.ts";
+import { createTurnLifecycleHandlers, registerTurnPresence, registerTurnSettlement } from "./lifecycle/turn-handlers.ts";
 import { createMonitorSession } from "./lifecycle/monitor-session.ts";
 import { applySessionOverrides, registerSessionOrchestration, resetHubSession } from "./lifecycle/session-orchestration.ts";
 import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
@@ -2038,7 +2038,6 @@ export default function (pi: ExtensionAPI) {
 	// Root owns subscription order; lifecycle modules own handler bodies.
 	registerTurnPresence(pi, {
 		beforeAgentPresence: () => turnHandlers.beforeAgentPresence(),
-		agentEndPresence: () => turnHandlers.agentEndPresence(),
 	});
 
 	// /af-handoff <peer> — hand the session off to a coms peer. Per decision G1 we do NOT
@@ -2195,7 +2194,9 @@ export default function (pi: ExtensionAPI) {
 		},
 		updateModeStatus, buildPrompt: buildHubSystemPrompt, endHistoryTurn: at => executionHistory.endTurn(at),
 		unaddressedPeerWarning: () => unaddressedPeerSweep(Array.from(hubSpawnedPeers.values()))?.message ?? null,
-		respondToPeer: ctx => coms.respond(ctx),
+		settlePeerTurn: ctx => coms.settleTurn(ctx, { dispatchQueued: false }),
+		settlePressure: ctx => pressureLifecycle.agentSettled(ctx),
+		dispatchQueuedPeerTurn: () => coms.dispatchQueued(),
 	});
 	pi.on("before_agent_start", async () => {
 		if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
@@ -2275,7 +2276,6 @@ export default function (pi: ExtensionAPI) {
 		if (text) { proactiveHubDeliveries++; return { messages: [...projection.messages, { role: "custom" as const, customType: "agent-fleet.proactive-advisory", content: text, display: false, timestamp: Date.now() }] }; }
         if(projection.projected)return {messages:projection.messages};
 	});
-	pi.on("agent_settled", async (_event, ctx) => pressureLifecycle.agentSettled(ctx));
 	pi.on("session_compact", async (_event, ctx) => {
         noProgress.compact(ctx.sessionManager.getEntries());
 		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
@@ -2605,10 +2605,12 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// Ordered end-turn peer response remains after session-start registration.
 	pi.on("agent_end", async (_event, ctx) => {
 		toolCatalogRuntime.endTurn();
 		await turnHandlers.agentEnd(ctx);
+	});
+	registerTurnSettlement(pi, {
+		agentSettled: ctx => turnHandlers.agentSettled(ctx),
 	});
 
 }

@@ -1034,8 +1034,9 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
   minimal diffs on the project's `rules:`/`docs:` targets per `skills/compound-learning/SKILL.md`.
   Requires the `documenter` persona in the active team; run it before `/af-handoff` or session end.
 - `coms_list` — discover the peers in your pool: names, models, live context usage, purpose,
-  `pane_id`, and `status` (`idle` | `working` | `booting`). Check status before sending: `working`
-  means your send waits behind the peer's current turn, `booting` means it is not addressable yet.
+  `pane_id`, waiting-only `queue_depth`, and `status` (`idle` | `queued` | `working` | `booting`).
+  Check status before sending: `working` means the peer has an active turn, `queued` means accepted
+  work is waiting to start, and `booting` means it is not addressable yet.
   This is the field whose absence drove 127 `herdr_read_pane` calls in one session. Scoped
   to your project and excluding private peers; the LLM cannot widen it (see
   [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).

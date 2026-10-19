@@ -20,10 +20,12 @@ import {
 	PING_INTERVAL_MS,
 	TIMEOUT_MS,
 	bindEndpoint,
+	derivePeerStatus,
 	fallbackColor,
 	isValidHex,
 	listProjects,
 	makeEndpoint,
+	nextInboundForDispatch,
 	nowIso,
 	projectAgentsDir,
 	pruneDeadEntries,
@@ -37,6 +39,7 @@ import {
 	writeRegistryAtomic,
 	type AgentCard,
 	type ComsIdentity,
+	type ComsTurnState,
 	type InboundContext,
 	type PendingReply,
 	type PeerStatus,
@@ -129,7 +132,8 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	let keepaliveTimer: NodeJS.Timeout | null = null;
 	let herdrPresence: HerdrPresence | null = null;
 	let herdrWatch: HerdrAgentWatch | null = null;
-	let turnState: "idle" | "working" = "idle";
+	let turnState: ComsTurnState = "idle";
+	let dispatchPaused = false;
 	let shuttingDown = false;
 
 	const changed = () => deps.onPeersChanged?.();
@@ -184,6 +188,18 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		if (didChange) changed();
 	}
 
+	function waitingInboundCount(): number {
+		let count = 0;
+		for (const queued of inboundQueue.values()) {
+			if (!queued.fulfilled && queued !== currentInbound) count += 1;
+		}
+		return count;
+	}
+
+	function peerStatus(): PeerStatus {
+		return derivePeerStatus(turnState, waitingInboundCount(), currentInbound !== null);
+	}
+
 	function handlePrompt(socket: net.Socket, envelope: PromptEnvelope): void {
 		const refusal = deps.acceptInbound?.();
 		if (refusal) { nack(socket, envelope.msg_id, refusal); return; }
@@ -196,31 +212,62 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			hops: envelope.hops,
 			sender_endpoint: envelope.sender_endpoint,
 			sender_session: envelope.sender_session,
+			sender_name: envelope.sender_name,
+			sender_cwd: envelope.sender_cwd,
+			prompt: envelope.prompt,
 			response_schema: envelope.response_schema ?? null,
 			fulfilled: false,
 		};
 		inboundQueue.set(envelope.msg_id, inbound);
+		ack(socket, envelope.msg_id);
+		audit({ event: "inbound_prompt", msg_id: envelope.msg_id, sender: envelope.sender_session, hops: envelope.hops });
+		dispatchNextInbound();
+	}
+
+	function dispatchNextInbound(): void {
+		if (dispatchPaused) return;
+		const inbound = nextInboundForDispatch(inboundQueue.values(), turnState, currentInbound !== null);
+		if (!inbound) return;
 		currentInbound = inbound;
 		try {
 			pi.sendMessage({
 				customType: "coms-inbound",
-				content: `[from ${envelope.sender_name} @ ${envelope.sender_cwd}]\n\n${envelope.prompt}`,
+				content: `[from ${inbound.sender_name} @ ${inbound.sender_cwd}]\n\n${inbound.prompt}`,
 				display: true,
-				details: { msg_id: envelope.msg_id, sender_session: envelope.sender_session, response_schema: envelope.response_schema ?? null },
+				details: { msg_id: inbound.msg_id, sender_session: inbound.sender_session, response_schema: inbound.response_schema ?? null },
 			}, { deliverAs: "followUp", triggerTurn: true });
-		} catch {
-			inboundQueue.delete(envelope.msg_id);
+		} catch (error: any) {
+			const reason = error?.message ?? String(error);
+			inbound.fulfilled = true;
+			inboundQueue.delete(inbound.msg_id);
 			currentInbound = null;
-			nack(socket, envelope.msg_id, "internal error");
-			return;
+			audit({ event: "inbound_delivery_failed", msg_id: inbound.msg_id, reason });
+			if (identity) {
+				void sendEnvelope(inbound.sender_endpoint, {
+					type: "response", msg_id: inbound.msg_id, sender_session: identity.session_id,
+					sender_endpoint: identity.endpoint, hops: 0, timestamp: nowIso(), response: null,
+					error: "peer agent could not start the queued turn",
+				} as ResponseEnvelope).catch((sendError: any) => {
+					audit({ event: "inbound_delivery_error_response_failed", msg_id: inbound.msg_id, reason: sendError?.message ?? String(sendError) });
+				});
+			}
+			dispatchNextInbound();
 		}
-		ack(socket, envelope.msg_id);
-		audit({ event: "inbound_prompt", msg_id: envelope.msg_id, sender: envelope.sender_session, hops: envelope.hops });
 	}
 
 	function handleResponse(socket: net.Socket, envelope: ResponseEnvelope): void {
 		const pending = pendingReplies.get(envelope.msg_id);
 		if (pending) {
+			if (envelope.sender_session !== pending.target_session || envelope.sender_endpoint !== pending.target_endpoint) {
+				audit({
+					event: "mismatched_response",
+					msg_id: envelope.msg_id,
+					expected_session: pending.target_session,
+					actual_session: envelope.sender_session,
+				});
+				nack(socket, envelope.msg_id, "response sender mismatch");
+				return;
+			}
 			if (pending.timer) { try { clearTimeout(pending.timer); } catch { /* ignore */ } pending.timer = null; }
 			pending.result = { response: envelope.response, error: envelope.error ?? null };
 			try { pending.resolve(pending.result); } catch { /* ignore */ }
@@ -239,9 +286,9 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			color: identity?.color ?? "#36F9F6",
 			context_used_pct: ctx?.getContextUsage()?.percent ?? null,
    context_measurement: ctx?.getContextUsage()?.percent == null ? "unknown" : "measured",
-			queue_depth: inboundQueue.size,
+			queue_depth: waitingInboundCount(),
 			pane_id: herdrPaneId() ?? null,
-			status: turnState === "working" || inboundQueue.size > 0 ? "working" : "idle",
+			status: peerStatus(),
 		};
 		try { socket.write(`${JSON.stringify({ type: "pong", msg_id: envelope.msg_id, agent_card: card })}\n`); } catch { /* ignore */ }
 		try { socket.end(); } catch { /* ignore */ }
@@ -288,7 +335,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		try {
 			writeRegistryAtomic(buildLiveRegistryEntry(identity, {
 				now: nowIso(), pid: process.pid, model: ctx?.model?.id,
-				contextUsedPct: ctx?.getContextUsage()?.percent, queueDepth: inboundQueue.size,
+				contextUsedPct: ctx?.getContextUsage()?.percent, queueDepth: waitingInboundCount(),
 			}), identity.project);
 		} catch { /* best effort */ }
 	}
@@ -411,7 +458,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			if (herdrPresence) {
 				void herdrPresence.report(turnState, {
 					name: identity.name, project: identity.project,
-					contextUsedPct: Math.round(deps.getContext()?.getContextUsage()?.percent ?? 0), queueDepth: inboundQueue.size,
+					contextUsedPct: Math.round(deps.getContext()?.getContextUsage()?.percent ?? 0), queueDepth: waitingInboundCount(),
 				});
 			}
 			if (herdrWatch) herdrSyncPeerCards(herdrWatch.current());
@@ -448,7 +495,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 				name: item.entry.name, session_id: item.entry.session_id, purpose: item.entry.purpose,
 				model: item.entry.model, cwd: item.entry.cwd, project: item.project, alive: pong !== null,
 				context_used_pct: pong?.context_used_pct ?? null, pane_id: pong?.pane_id ?? null,
-				status: pong?.status ?? null, queue_depth: pong?.queue_depth ?? null, color: item.entry.color,
+				status: pong?.status ?? "booting", queue_depth: pong?.queue_depth ?? null, color: item.entry.color,
 			};
 		});
 		return { agents, project: scopeProject, scoped: true, widenRequested: widened };
@@ -464,16 +511,30 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		const hops = currentInbound ? currentInbound.hops + 1 : 0;
 		if (hops >= MAX_HOPS) throw new Error(`coms: hop limit reached (${hops} >= ${MAX_HOPS})`);
 		const msgId = ulid();
-		await sendEnvelope(target.endpoint, {
-			type: "prompt", msg_id: msgId, sender_session: identity.session_id, sender_endpoint: identity.endpoint,
-			sender_name: identity.name, sender_cwd: identity.cwd, hops, timestamp: nowIso(), prompt: params.prompt,
-			conversation_id: params.conversation_id ?? null, response_schema: params.response_schema ?? null,
-			reply_timeout_ms: params.reply_timeout_ms ?? null,
-		} as PromptEnvelope);
 		let resolve!: PendingReply["resolve"];
 		let reject!: PendingReply["reject"];
 		const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => { resolve = res; reject = rej; });
-		pendingReplies.set(msgId, { resolve, reject, timer: null, promise, target_name: target.name, created_at: nowIso() });
+		pendingReplies.set(msgId, {
+			resolve,
+			reject,
+			timer: null,
+			promise,
+			target_name: target.name,
+			target_session: target.session_id,
+			target_endpoint: target.endpoint,
+			created_at: nowIso(),
+		});
+		try {
+			await sendEnvelope(target.endpoint, {
+				type: "prompt", msg_id: msgId, sender_session: identity.session_id, sender_endpoint: identity.endpoint,
+				sender_name: identity.name, sender_cwd: identity.cwd, hops, timestamp: nowIso(), prompt: params.prompt,
+				conversation_id: params.conversation_id ?? null, response_schema: params.response_schema ?? null,
+				reply_timeout_ms: params.reply_timeout_ms ?? null,
+			} as PromptEnvelope);
+		} catch (error) {
+			pendingReplies.delete(msgId);
+			throw error;
+		}
 		audit({ event: "outbound_prompt", msg_id: msgId, target: target.name, hops, ...auditExtra });
 		return { msg_id: msgId, target: target.name, target_session: target.session_id, hops, promise };
 	}
@@ -498,22 +559,45 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		return { status: "complete", response: "response" in result ? result.response : undefined };
 	}
 
-	async function respond(ctx: ExtensionContext): Promise<void> {
-		const inbound = [...inboundQueue.values()].reverse().find(item => !item.fulfilled);
-		if (!inbound || !identity) return;
-		let text = "";
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-			const message = entry.message as any;
-			text = typeof message.content === "string"
-				? message.content
-				: Array.isArray(message.content) ? message.content.filter((block: any) => block?.type === "text").map((block: any) => block.text).join("\n") : text;
+	function responseForInbound(ctx: ExtensionContext, inbound: InboundContext): { response: any; error: string | null } {
+		const branch = ctx.sessionManager.getBranch();
+		let markerIndex = -1;
+		for (let index = branch.length - 1; index >= 0; index -= 1) {
+			const entry = branch[index] as any;
+			if (entry?.type === "custom_message" && entry?.customType === "coms-inbound" && entry?.details?.msg_id === inbound.msg_id) {
+				markerIndex = index;
+				break;
+			}
 		}
-		let response: any = text;
-		let error: string | null = null;
+		if (markerIndex < 0) return { response: null, error: "peer agent ended without a successful final answer" };
+
+		let message: any = null;
+		for (let index = branch.length - 1; index > markerIndex; index -= 1) {
+			const candidate = branch[index] as any;
+			if (candidate?.type === "message" && candidate?.message?.role === "assistant") {
+				message = candidate.message;
+				break;
+			}
+		}
+		if (!message || message.stopReason !== "stop") {
+			return { response: null, error: "peer agent ended without a successful final answer" };
+		}
+		const text = typeof message.content === "string"
+			? message.content
+			: Array.isArray(message.content)
+				? message.content.filter((block: any) => block?.type === "text").map((block: any) => block.text).join("\n")
+				: "";
+		if (!text.trim()) return { response: null, error: "peer agent produced an empty final answer" };
 		if (inbound.response_schema && typeof inbound.response_schema === "object") {
-			try { response = JSON.parse(text); } catch { response = null; error = "response not valid JSON"; }
+			try { return { response: JSON.parse(text), error: null }; }
+			catch { return { response: null, error: "response not valid JSON" }; }
 		}
+		return { response: text, error: null };
+	}
+
+	async function respond(ctx: ExtensionContext, inbound = currentInbound): Promise<void> {
+		if (!inbound || !identity || inbound.fulfilled) return;
+		const { response, error } = responseForInbound(ctx, inbound);
 		try {
 			await sendEnvelope(inbound.sender_endpoint, {
 				type: "response", msg_id: inbound.msg_id, sender_session: identity.session_id,
@@ -525,16 +609,34 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		}
 		inbound.fulfilled = true;
 		inboundQueue.delete(inbound.msg_id);
-		if (currentInbound?.msg_id === inbound.msg_id) currentInbound = null;
+		if (currentInbound === inbound) currentInbound = null;
 	}
 
-	async function setTurnState(state: "idle" | "working"): Promise<void> {
+	function setTurnState(state: ComsTurnState): void {
 		turnState = state;
-		if (!herdrPresence || !identity) return;
-		void herdrPresence.report(state, {
-			name: identity.name, project: identity.project,
-			contextUsedPct: Math.round(deps.getContext()?.getContextUsage()?.percent ?? 0), queueDepth: inboundQueue.size,
-		});
+		if (herdrPresence && identity) {
+			void herdrPresence.report(state, {
+				name: identity.name, project: identity.project,
+				contextUsedPct: Math.round(deps.getContext()?.getContextUsage()?.percent ?? 0), queueDepth: waitingInboundCount(),
+			});
+		}
+	}
+
+	async function settleTurn(
+		ctx: ExtensionContext,
+		options: { dispatchQueued?: boolean } = {},
+	): Promise<void> {
+		const shouldDispatchQueued = options.dispatchQueued !== false;
+		dispatchPaused = !shouldDispatchQueued;
+		turnState = "idle";
+		const settledInbound = currentInbound;
+		if (settledInbound) await respond(ctx, settledInbound);
+		if (shouldDispatchQueued) dispatchNextInbound();
+	}
+
+	function dispatchQueued(): void {
+		dispatchPaused = false;
+		dispatchNextInbound();
 	}
 
 	async function updateScope(args: string, ctx?: ExtensionContext): Promise<void> {
@@ -567,7 +669,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	}
 
 	return {
-		connect, send, list, get, await: awaitReply, refresh, respond, shutdown,
+		connect, send, list, get, await: awaitReply, refresh, respond, settleTurn, dispatchQueued, shutdown,
 		setTurnState, updateScope, writeLiveRegistry, ping, peersInScope, resolveTarget,
 		peerCards, pendingReplies, inboundQueue, scope,
 		get identity() { return identity; },

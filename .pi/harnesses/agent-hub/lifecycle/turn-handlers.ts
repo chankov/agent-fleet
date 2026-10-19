@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 export interface TurnLifecyclePorts {
-	setTurnState(state: "working" | "idle"): Promise<void>;
+	setTurnState(state: "working" | "idle"): void;
 	startMonitorTurn(): void;
 	finishMonitorTurn(): void;
 	startAskUser(id: string): void;
@@ -17,16 +17,18 @@ export interface TurnLifecyclePorts {
 	buildPrompt(): { systemPrompt: string };
 	endHistoryTurn(now: number): void;
 	unaddressedPeerWarning(): string | null;
-	respondToPeer(ctx: ExtensionContext): Promise<void>;
+	settlePeerTurn(ctx: ExtensionContext): Promise<void>;
+	settlePressure(ctx: ExtensionContext): Promise<void>;
+	dispatchQueuedPeerTurn(): void;
 }
 
 export interface TurnLifecycleHandlers {
-	beforeAgentPresence(): Promise<void>;
-	agentEndPresence(): Promise<void>;
+	beforeAgentPresence(): void;
 	toolStart(event: any): void;
 	toolEnd(event: any): void;
 	beforeAgentStart(): { systemPrompt: string };
 	agentEnd(ctx: ExtensionContext): Promise<void>;
+	agentSettled(ctx: ExtensionContext): Promise<void>;
 }
 
 export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLifecycleHandlers {
@@ -40,8 +42,7 @@ export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLife
 		ports.updateModeStatus();
 	};
 	return {
-		async beforeAgentPresence() { await ports.setTurnState("working"); ports.finishMonitorTurn(); ports.startMonitorTurn(); },
-		async agentEndPresence() { await ports.setTurnState("idle"); ports.finishMonitorTurn(); },
+		beforeAgentPresence() { ports.setTurnState("working"); ports.finishMonitorTurn(); ports.startMonitorTurn(); },
 		toolStart(event) {
 			if (event.toolName !== "ask_user") return;
 			ports.startAskUser(event.toolCallId);
@@ -59,16 +60,31 @@ export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLife
 			ports.endHistoryTurn(endedAt);
 			const warning = ports.unaddressedPeerWarning();
 			if (warning) ctx.ui.notify(warning, "warning");
-			await ports.respondToPeer(ctx);
+		},
+		async agentSettled(ctx) {
+			ports.finishMonitorTurn();
+			await ports.settlePeerTurn(ctx);
+			try {
+				await ports.settlePressure(ctx);
+			} finally {
+				ports.dispatchQueuedPeerTurn();
+			}
 		},
 	};
 }
 
 /** Custom coms messages skip before_agent_start, but every run emits agent_start. */
 export function registerTurnPresence(
- events: {on(event: "agent_start" | "agent_end", handler: () => Promise<void>): unknown},
- handlers: Pick<TurnLifecycleHandlers, "beforeAgentPresence" | "agentEndPresence">,
+ events: {on(event: any, handler: (...args: any[]) => unknown): unknown},
+ handlers: Pick<TurnLifecycleHandlers, "beforeAgentPresence">,
 ): void {
  events.on("agent_start", () => handlers.beforeAgentPresence());
- events.on("agent_end", () => handlers.agentEndPresence());
+}
+
+/** Register after recovery handlers so queued peer work starts only after settlement work completes. */
+export function registerTurnSettlement(
+ events: {on(event: any, handler: (...args: any[]) => unknown): unknown},
+ handlers: Pick<TurnLifecycleHandlers, "agentSettled">,
+): void {
+ events.on("agent_settled", (_event, ctx: ExtensionContext) => handlers.agentSettled(ctx));
 }
