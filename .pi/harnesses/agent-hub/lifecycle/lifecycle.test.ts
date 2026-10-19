@@ -6,13 +6,15 @@ import { createContextPressureLifecycle, createContextPressureRootState } from "
 test("turn lifecycle preserves work, clock, prompt, presence, and closeout order", async () => {
 	const order: string[] = [];
 	const handlers = createTurnLifecycleHandlers({
-		setTurnState: async state => { order.push(state); }, startMonitorTurn: () => order.push("monitor-start"), finishMonitorTurn: () => order.push("monitor-finish"),
-		startAskUser: () => {}, endAskUser: () => 0, acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, respondToPeer: async () => { order.push("respond"); },
+		setTurnState: state => { order.push(state); }, startMonitorTurn: () => order.push("monitor-start"), finishMonitorTurn: () => order.push("monitor-finish"),
+		startAskUser: () => {}, endAskUser: () => 0, acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, settlePeerTurn: async () => { order.push("peer-settle"); }, settlePressure: async () => { order.push("pressure-settle"); }, dispatchQueuedPeerTurn: () => { order.push("peer-dispatch"); },
 	});
-	await handlers.beforeAgentPresence(); handlers.beforeAgentStart();
+	handlers.beforeAgentPresence(); handlers.beforeAgentStart();
 	assert.deepEqual(order, ["working", "monitor-finish", "monitor-start", "work", "close-clock", "open-clock", "history-start", "budget-reset", "status", "prompt"]);
-	order.length = 0; await handlers.agentEndPresence(); await handlers.agentEnd({ ui: { notify() {} } } as any);
-	assert.deepEqual(order, ["idle", "monitor-finish", "close-clock", "history-end", "respond"]);
+	order.length = 0; await handlers.agentEnd({ ui: { notify() {} } } as any);
+	assert.deepEqual(order, ["close-clock", "history-end"]);
+	await handlers.agentSettled({ ui: { notify() {} } } as any);
+	assert.deepEqual(order, ["close-clock", "history-end", "monitor-finish", "peer-settle", "pressure-settle", "peer-dispatch"]);
 });
 
 test("context pressure aborts before compaction, compacts after settle, and replays deferred input", async () => {

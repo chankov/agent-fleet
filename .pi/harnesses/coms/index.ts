@@ -128,9 +128,10 @@ export default function (pi: ExtensionAPI) {
 		label: "Coms List",
 		description:
 			"List the peer agents in your current coms pool — the ones shown in the pool widget. Returns " +
-			"names, models, live context-window usage, the herdr pane_id, and status (idle | working | " +
-			"booting). CHECK STATUS BEFORE SENDING: `working` means the peer is mid-turn and your send " +
-			"will wait for it; `booting` means it registered but is not addressable yet. Use this instead " +
+			"names, models, live context-window usage, the herdr pane_id, waiting queue depth, and status " +
+			"(idle | queued | working | booting). CHECK STATUS BEFORE SENDING: `working` means the peer " +
+			"is mid-turn; `queued` means accepted work is waiting to start; `booting` means it registered " +
+			"but is not addressable yet. Use this instead " +
 			"of reading the peer's pane to guess whether it is busy. Discovery is scoped to what the human " +
 			"displays via /af-coms; you CANNOT widen it to other projects or reveal --explicit peers yourself.",
 		parameters: Type.Object({
@@ -149,8 +150,10 @@ export default function (pi: ExtensionAPI) {
 				? "No peer agents in your pool."
 				: result.agents.map(agent => {
 					const context = agent.context_used_pct != null ? ` ${agent.context_used_pct}%` : " ?%";
-					const state = ` [${agent.alive ? (agent.status ?? "unknown") : "unreachable"}${agent.pane_id ? ` pane ${agent.pane_id}` : ""}]`;
-					return `${agent.alive ? "●" : "✗"} ${agent.name} (${agent.model})${context}${state}${agent.purpose ? ` — ${agent.purpose}` : ""}`;
+					const status = agent.status ?? (agent.alive ? "unknown" : "unreachable");
+					const state = ` [${status}${agent.pane_id ? ` pane ${agent.pane_id}` : ""}]`;
+					const marker = status === "booting" ? "◌" : agent.alive ? "●" : "✗";
+					return `${marker} ${agent.name} (${agent.model})${context}${state}${agent.purpose ? ` — ${agent.purpose}` : ""}`;
 				}).join("\n");
 			return { content: [{ type: "text" as const, text: `${result.agents.length} peer(s) in pool (project ${result.project}):\n${lines}${notice}` }], details: result };
 		},
@@ -163,10 +166,10 @@ export default function (pi: ExtensionAPI) {
 			const header = theme.fg("accent", `📡 ${agents.length} peer(s)`);
 			if (!options.expanded || agents.length === 0) return new Text(header, 0, 0);
 			const rows = agents.map(agent => {
-				const dot = agent.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
+				const state = agent.status ?? (agent.alive ? "unknown" : "unreachable");
+				const dot = state === "booting" ? theme.fg("warning", "◌") : agent.alive ? theme.fg("success", "●") : theme.fg("error", "✗");
 				const percent = agent.context_used_pct != null ? `${agent.context_used_pct}%` : "?%";
-				const state = agent.alive ? (agent.status ?? "unknown") : "unreachable";
-				const stateColor = state === "idle" ? "success" : state === "working" ? "warning" : "dim";
+				const stateColor = state === "idle" ? "success" : state === "working" || state === "queued" || state === "booting" ? "warning" : "dim";
 				return `${dot} ${theme.fg("accent", agent.name)} ${theme.fg("dim", agent.model)} ${theme.fg("warning", percent)} ` +
 					`${theme.fg(stateColor as any, state)}${agent.pane_id ? theme.fg("dim", ` ${agent.pane_id}`) : ""}`;
 			}).join("\n");
@@ -274,8 +277,8 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`📡 coms ready · ${identity.name}@${identity.project} · ${peer.scope.displayProject ?? identity.project} pool`, "info");
 		} catch { /* UI is optional */ }
 	});
-	pi.on("before_agent_start", async () => { await peer.setTurnState("working"); });
-	pi.on("agent_end", async (_event, ctx) => { await peer.setTurnState("idle"); await peer.respond(ctx); });
+	pi.on("agent_start", () => { peer.setTurnState("working"); });
+	pi.on("agent_settled", async (_event, ctx) => { await peer.settleTurn(ctx); });
 	pi.on("session_shutdown", async () => { unregisterQuestions(); await peer.shutdown(); if (currentCtx?.hasUI) currentCtx.ui.setWidget("coms-pool", undefined); });
 	process.on("SIGINT", () => { void peer.shutdown(); });
 	process.on("SIGTERM", () => { void peer.shutdown(); });
