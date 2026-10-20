@@ -76,3 +76,12 @@ test("the injected protocol tells specialists to stop rather than substitute", (
 	assert.match(protocol, /do NOT build a substitute/);
 	assert.match(protocol, /report what you DID\n {2}prove/);
 });
+
+test('internal registration failures do not latch unrelated delegation, including restored blockers',()=>{
+ for(const what of ['damage_physical_registration_unavailable','damage_transport_unavailable','optional assessment transport or registration failed']){
+  assert.deepEqual(extractExternalBlockers(`EXTERNAL_BLOCKED: ${what}`),[]);
+  assert.equal(checkExternalBlockerGate({blockers:[{what}],acknowledged:false,askUserAvailable:true}),null);
+ }
+ assert.ok(checkExternalBlockerGate({blockers:[{what:'human denied secret access'}],acknowledged:false,askUserAvailable:true}));
+ assert.ok(checkExternalBlockerGate({blockers:[{what:'damage_transport_unavailable'},{what:'missing production deployment credentials'}],askUserAvailable:true}));
+});

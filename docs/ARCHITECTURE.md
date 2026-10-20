@@ -213,9 +213,12 @@ source/local-tarball commands.
 D6's parent Hub owns the shared service, task/accepted-input revision, durable
 hold/denial state and shared approval coordinator. Baseline-allowed bash/write/edit
 receive scoped pre-call assessment; only valid severe AND sufficient can hold an
-exact action. Native specialists, research helpers and nested delegates have
-independent physical-spawn registration, fresh/revocable assignments (including
-fallback), stripped inherited assignments and no child provider credentials.
+exact action. When D6 is enabled or this task has a persisted hold/denial,
+native specialists, research helpers and nested delegates have independent
+physical-spawn registration, fresh/revocable assignments (including fallback),
+stripped inherited assignments and no child provider credentials. Disabled D6
+without a persisted fence skips its broker and registration entirely; ordinary
+baseline-protected work does not depend on optional assessment IPC.
 This is independent of D9 consent and cannot expand effective tools, admission,
 OS isolation, budgets or baseline authority. Research stays read-only with
 supported result screening; standalone Damage-Control without trusted assignment

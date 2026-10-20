@@ -1379,6 +1379,16 @@ renderers and tool_result error flag; the parent retains command, actual exit an
 before/after revisions, binding source/text/reference/critical conditions to task ID.
 Compilation only checks the minimal change requirement, never semantic assertions.
 
+The native dispatcher passes the explicitly declared dispatch scopes to the test
+observer. In a non-Git workspace containing nested Git repositories, the observer
+uses the same declared-repository revision as dispatch acceptance; shell `cd` does
+not select the evidence scope and no repository discovery scan is performed.
+Single-repository workspaces retain whole-repository revision semantics. Missing,
+invalid or incomplete repository identity cannot pass, even when both recorded and
+current revisions are `unavailable`. Updating the installed harness and restarting
+Pi are required before a running workspace session can use this behavior; old
+`unavailable` evidence must be regenerated, not rewritten.
+
 manual/runtime-ui requirements are explicitly unsupported by this producer. A test
 or code-grep without a command/check remains missing/unverified; a model's proven
 stamp is not runtime proof. Fresh bound runtime checks supersede old claimed ledger

@@ -56,7 +56,7 @@ function config(mode){const raw={version:2,mode:mode==='root-off'?'off':'auto',p
 function port(){const handlers=new Map(),entries=[];return {handlers,entries,pi:{registerTool(){},on(n,h){handlers.set(n,[...(handlers.get(n)||[]),h]);},appendEntry(customType,data){entries.push({customType,data});}}};}
 function pipeline(handlers,root,ctx){const r=new ExtensionRunner([{path:'extracted',handlers}],{},root,{},{});r.createContext=()=>ctx;return r;}
 function original(toolName='read'){return {toolName,toolCallId:'result',input:toolName==='read'?{path:'docs/source'}:{path:'docs',pattern:'*'},content:[{type:'text',text:toolName==='read'?'public fixture':'a.ts\nb.ts'}],structuredContent:{retained:'original'},details:{retained:true},status:'ok',exit_code:0,isError:false,usage:{inputTokens:2}};}
-function preserved(view,event){assert.deepEqual(view.content[0],event.content[0]);assert.equal(view.status,event.status);assert.equal(view.exit_code,event.exit_code);assert.equal(view.isError,event.isError);assert.deepEqual(view.usage,event.usage);assert.deepEqual(view.details.truncation,event.details.truncation);if(typeof event.structuredContent==='string')assert.ok(view.structuredContent.startsWith(event.structuredContent));else assert.deepEqual(view.structuredContent.originalStructuredContent,event.structuredContent);}
+function preserved(view,event){assert.deepEqual(view.content[0],event.content[0]);assert.equal(view.status,event.status);assert.equal(view.exit_code,event.exit_code);assert.equal(view.isError,event.isError);assert.deepEqual(view.usage,event.usage);assert.deepEqual(view.details.truncation,event.details.truncation);if(typeof event.structuredContent==='string')assert.ok(view.structuredContent.startsWith(event.structuredContent));else if(view.structuredContent.originalStructuredContent)assert.deepEqual(view.structuredContent.originalStructuredContent,event.structuredContent);else for(const [key,value] of Object.entries(event.structuredContent))assert.deepEqual(view.structuredContent[key],value);}
 for(const mode of ['missing','off','invalid','root-off','key-unavailable','active','failure']){
  const root=workspace(mode);let calls=0;const rows=[];
  const service=mode==='key-unavailable'?undefined:{evaluate:async()=>{calls++;return mode==='failure'?{status:'unavailable',reason:'network'}:severe;}};
@@ -64,7 +64,9 @@ for(const mode of ['missing','off','invalid','root-off','key-unavailable','activ
  let client,child;
  try{
   session.accept('synthetic input');await session.start();
-  const lease=session.prepare({ownerId:'reader',cwd:root,tools:['read','bash'],admit:()=>true}).open({cwd:root,tools:['read','bash']});
+  const registration=session.prepare({ownerId:'reader',cwd:root,tools:['read','bash'],admit:()=>true});
+  if(!registration){assert.ok(['missing','off','invalid','root-off'].includes(mode));assert.equal(calls,0);console.log('PASS extracted disabled optional child '+mode+' needs no broker');continue;}
+  const lease=registration.open({cwd:root,tools:['read','bash']});
   client=createDamageClient(lease.assignment);
   const command=await client.assess('bash',{command:'echo public fixture'});
   assert.equal(command.outcome,mode==='active'?'granted':'unavailable');
@@ -92,8 +94,9 @@ for(const side of ['parent','child'])for(const mode of ['active','off','failure'
    await configureDiscoveryHub(p.pi,{ctx,snapshot,taskId:()=> 'task',sessionDir:root,service:discoveryService});
   }else{
    const rows=[];session=createDamageHubSession({root,selected:true,snapshot:config(mode),taskId:()=> 'task',childAuthority:{taskToken:()=> 'token',admit:()=>true},append:(customType,data)=>rows.push({customType,data}),entries:()=>rows,canRead:()=>true,service:damageService,ask:async()=>{throw Error('no ask');}});session.accept('find synthetic');await session.start();
-   const lease=session.prepare({ownerId:'child',cwd:root,tools:['read'],admit:()=>true}).open({cwd:root,tools:['read']});child=createDamageChild(lease.assignment);
-   p.pi.on('tool_result',e=>{captureDamageResult(e);return child.result(e);});
+   const registration=session.prepare({ownerId:'child',cwd:root,tools:['read'],admit:()=>true});
+   assert.equal(registration===null,mode==='off');if(registration)child=createDamageChild(registration.open({cwd:root,tools:['read']}).assignment);
+   p.pi.on('tool_result',e=>{captureDamageResult(e);return child?.result(e);});
    const discoveryConfig=parseFileDiscoveryConfig({mode:mode==='off'?'off':'active',remoteContextApproved:true,include:['docs']});
    discoveryRuntime=createDiscoveryRuntime({root,sessionId:'fixture',config:discoveryConfig,service:discoveryService,context:()=> 'task',persist(){}});
    discoveryOwners=createDiscoveryOwners('fixture',()=> 'task');discoveryBroker=await createDiscoveryBroker({root,runtime:discoveryRuntime,owners:discoveryOwners});
@@ -108,6 +111,7 @@ for(const side of ['parent','child'])for(const mode of ['active','off','failure'
    if(tool==='read')event.structuredContent='public fixture';
    const expected=structuredClone(event),view={...event,...await pipeline(p.handlers,root,ctx).emitToolResult(event)};
    assert.deepEqual(event,expected);preserved(view,expected);
+   if(side==='child'&&mode==='off'){assert.doesNotMatch(JSON.stringify(view),/Damage-Control result coverage:/);continue;}
    const metadata=tool==='find'?view.structuredContent.damageGuard.metadata:JSON.parse(view.content[1].text.split('Damage-Control result coverage: ')[1]);
    assert.equal(metadata.warning,tool==='read'&&mode==='active');assert.equal(metadata.sourceTrusted,false);
    assert.equal(metadata.coverage,tool==='read'&&mode==='active'?'complete':'none');

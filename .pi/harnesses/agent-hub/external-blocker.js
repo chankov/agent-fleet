@@ -13,6 +13,11 @@
 // The hub records it and refuses the NEXT dispatch/research until the human has
 // been addressed — the escalation is the deliverable at that point.
 
+// Runtime plumbing failures are owned by Fleet, not by an external account or
+// service. Do not turn them into a global human-question latch. This does not
+// authorize retrying the failed action or bypassing an actual policy denial.
+const internalRuntimeFailure = what => /damage_physical_registration_unavailable|damage_transport_unavailable|optional assessment transport or registration failed/i.test(what);
+
 /** Pull `EXTERNAL_BLOCKED: …` markers out of a specialist's output. */
 export function extractExternalBlockers(output) {
 	const blockers = [];
@@ -21,7 +26,7 @@ export function extractExternalBlockers(output) {
 		const match = line.match(/^EXTERNAL_BLOCKED\s*:\s*(.+)$/i);
 		if (match) {
 			const what = match[1].trim();
-			if (what && !blockers.includes(what)) blockers.push(what);
+			if (what && !internalRuntimeFailure(what) && !blockers.includes(what)) blockers.push(what);
 		}
 	}
 	return blockers;
@@ -42,7 +47,7 @@ export function extractExternalBlockers(output) {
  * to finish and report, and an unbreakable gate there is a deadlock, not a stop.
  */
 export function checkExternalBlockerGate(state) {
-	const blockers = state?.blockers || [];
+	const blockers = (state?.blockers || []).filter(b => !internalRuntimeFailure(b.what));
 	if (blockers.length === 0) return null;
 	if (state?.acknowledged) return null;
 	if (!state?.askUserAvailable && state?.refusedOnce) return null;
@@ -74,6 +79,8 @@ export function checkExternalBlockerGate(state) {
 /** The protocol paragraph injected into every specialist's system prompt. */
 export function externalBlockedProtocol() {
 	return [
+		"- Internal Fleet registration/transport failures are runtime errors, not EXTERNAL_BLOCKED.",
+		"  Report the exact error; do not turn it into a human permission request or bypass a denial.",
 		"- External blocker: if you cannot proceed because something OUTSIDE this repo and outside your",
 		"  tools is missing — an account, a permission, a deployment credential, a telemetry/monitoring",
 		"  destination, a third-party service, a human-only console action — do NOT build a substitute for",

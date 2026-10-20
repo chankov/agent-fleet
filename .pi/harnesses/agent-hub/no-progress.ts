@@ -481,7 +481,9 @@ function canonical(value: unknown): string {
 	return JSON.stringify(value);
 }
 
-/** Wording and scope_mode are intentionally absent: neither can manufacture changed execution conditions.
+/** Wording is intentionally absent: prose cannot manufacture changed execution conditions.
+ * Scope mode is a real preflight prerequisite (existing vs authorized create),
+ * but a changed fingerprint never overrides cancellation/unknown-effect fences.
  *  Tier and tool-catalog revision ARE included: a tier correction (small→feature) or catalog
  *  change is a material prerequisite change that must unblock a not_started retry (T1). */
 export function withNoProgress<P extends DispatchAgentParams | SpawnResearchParams>(
@@ -513,7 +515,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 		const fingerprint = () => canonical({
 			worktree: worktreeRevision(cwd, scope),
 			artifacts: artifactRevision(),
-			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity },
+			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity, scopeMode: (params as DispatchAgentParams).scope_mode ?? "existing" },
 			conditions,
 			// Authoritative prerequisite snapshot: tier/catalog changes unblock not_started.
 			// Task identity is deliberately excluded so reset cannot bypass cancel/unknown-write fences.

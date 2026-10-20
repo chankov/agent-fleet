@@ -1,4 +1,5 @@
 import { relative } from "node:path";
+import { RUNTIME_TEST_SCOPE_ENV } from "./runtime-test-check.ts";
 import { TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
 import { mkdirSync, watch } from "node:fs";
 import { ingestObserverManifests } from "./proactive-runtime.ts";
@@ -180,7 +181,8 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		prompt: runPrompt,
 		cwd: run.admittedCwd,
 		extensions,
-		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId },
+		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId,
+   [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.scopeGlobs) },
 		attemptLifecycle: {
    ...drift.attemptLifecycle,
    beforePhysicalSpawn: info=>{

@@ -50,8 +50,14 @@ permission from D6. Hard denies, path exemptions, OS isolation, tool/depth/tree
 caps, admission and budgets remain authoritative; baseline is revalidated after
 an asynchronous wait before effects.
 
-Native specialists, research helpers and nested delegates have independent D6
+When D6 is enabled or this task retains a persisted hold/denial, native
+specialists, research helpers and nested delegates have independent D6
 registration through physical spawn, bounded by their actual effective tools.
+When D6 is off/missing and there is no persisted fence, the Hub skips the optional
+broker and returns no registration: ordinary work needs only the baseline guard.
+Actual denied/held actions and revoked assignments do not become permitted by
+turning off inference. With an active assignment, lost authority/transport still
+fails closed, with a specific diagnostic rather than a generic human-denial message.
 Assignments are fresh per physical attempt (including fallback), revocable and
 independent of D9 consent. Inherited D6 assignments are stripped at spawn;
 children receive scoped transport capabilities, not provider credentials. The
@@ -61,7 +67,22 @@ nested delegate registration uses the retained copy, and a malformed assignment
 fails closed. Guard registration, result capture and the human wait are
 process-shared, because Pi loads every extension with its own module instance.
 Research remains read-only: registration permits supported result screening,
-not new write authority. Capability loss is not optional inference failure.
+not new write authority. Capability loss for an active assignment is not optional inference failure.
+
+Known internal registration/transport failures are not external dependencies and
+do not globally latch unrelated delegation as `EXTERNAL_BLOCKED`. Actual external
+credentials/services still escalate normally. Correcting a no-launch preflight
+scope mode or acknowledging its external blocker permits an explicit new attempt
+without a manual recovery grant; cancellation and unknown-effect fences remain.
+No automatic retry or replay of an action is introduced.
+
+Baseline bash checks ignore literal quoted `cat`/`tee` heredoc data when all
+commands are ordinary data/inspection utilities (including simple `sed -n Np`
+reads). The header/destination and subsequent commands remain checked. Unknown
+programs, wrappers, assignments, executable paths, expanding/interpreter/piped
+heredocs and executable sed expressions retain conservative handling, because a
+later command might execute the generated file. This is operand classification,
+not a shell sandbox. Disabled child D6 adds no optional result annotations.
 
 Standalone Damage-Control without a trusted assignment retains its baseline;
 it does not discover a hidden provider. Coms peers are **not** covered by native

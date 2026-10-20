@@ -35,7 +35,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { beginRuntimeTrace, policyTraceReason, TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
-import { analyzeBashCommand, bashReferencesProtectedPath } from "../lib/bash-policy-analysis.ts";
+import { analyzeBashCommand, bashReferencesProtectedPath, bashPolicyText } from "../lib/bash-policy-analysis.ts";
 import { parse as yamlParse } from "yaml";
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -397,7 +397,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 		if (!violationReason) {
 			if (isToolCallEventType("bash", event)) {
-				const command = event.input.command;
+				const command = bashPolicyText(event.input.command);
 				const analysis = analyzeBashCommand(command);
 				policyAnalysis = analysis ? 'static_operands' : 'conservative_text';
 

@@ -1,5 +1,19 @@
 import { worktreeRevision } from "./scope-gate.js";
 
+/** Set by the native dispatcher, never inferred from a command's shell cwd. */
+export const RUNTIME_TEST_SCOPE_ENV = "AGENT_FLEET_RUNTIME_TEST_SCOPES";
+
+export function runtimeTestRevision(cwd: string, rawScopes: string | undefined): () => string {
+ let scopes: string[];
+ try {
+  const parsed = rawScopes === undefined ? [] : JSON.parse(rawScopes);
+  if (!Array.isArray(parsed) || parsed.some(scope => typeof scope !== "string" || !scope.trim())) throw new Error("Invalid runtime scope");
+  scopes = [...parsed];
+ } catch { return () => "unavailable"; }
+ // Empty filtering scopes preserve whole-repository single-repo semantics.
+ return () => worktreeRevision(cwd, [], scopes);
+}
+
 export interface RuntimeTestRecord {
  producer: "agent-fleet.runtime-test/v1";
  command: string;
@@ -29,9 +43,9 @@ export function instrumentBash(createTool: any, operations: any, cwd: string, re
 }
 
 /** Use Pi's tool_result hook: agent-core ignores isError on resolved execute values. */
-export function registerObservedBash(pi: any, api: any, cwd: string, options: any) {
+export function registerObservedBash(pi: any, api: any, cwd: string, options: any, revision = runtimeTestRevision(cwd, process.env[RUNTIME_TEST_SCOPE_ENV])) {
  const tool = api.createBashToolDefinition(cwd, options);
- pi.registerTool({ ...tool, execute: instrumentBash(api.createBashToolDefinition, api.createLocalBashOperations({ shellPath: options.shellPath }), cwd, undefined, options) });
+ pi.registerTool({ ...tool, execute: instrumentBash(api.createBashToolDefinition, api.createLocalBashOperations({ shellPath: options.shellPath }), cwd, revision, options) });
  pi.on("tool_result", (event: any) => {
   if (event.toolName === "bash" && event.details?.runtimeTest?.producer === "agent-fleet.runtime-test/v1" && event.details.runtimeTest.exitCode !== 0)
    return { isError: true };

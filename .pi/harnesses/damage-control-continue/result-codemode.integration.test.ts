@@ -81,8 +81,9 @@ async function fixture(t: any, structured: boolean, options:Options = {}) {
   const damage=createDamageHubSession({root,selected:true,snapshot,taskId:()=> 'task',childAuthority:{taskToken:()=> 'token',admit:()=>true},append(){},entries:()=>[],canRead:()=>true,service:d6Service,ask:async()=>{throw Error('result screening must not ask');}});
   damage.accept('read public fixture'); await damage.start();
   t.after(()=>damage.dispose());
-  const lease=damage.prepare({ownerId:'reader',cwd:root,tools:['read','find'],admit:()=>true})!.open({cwd:root,tools:['read']});
-  assignment=lease.assignment;
+  const registration=damage.prepare({ownerId:'reader',cwd:root,tools:['read','find'],admit:()=>true});
+  assert.equal(registration===null,mode==='off','disabled D6 does not require optional transport');
+  assignment=registration?.open({cwd:root,tools:['read']}).assignment;
   if(d8){
    const runtime=createDiscoveryRuntime({root,sessionId:'f10',config:snapshot.consumers.fileDiscovery.config,service:d8Service,context:()=> 'task',persist(){}});
    const owners=createDiscoveryOwners('f10',()=> 'task');
@@ -225,13 +226,14 @@ for(const child of [false,true])for(const mode of ['severe','unknown','insuffici
   const script=scriptValue(f), supported=tool==='read'&&(shape==='absent'||shape==='string');
   assert.equal(f.d6Calls,supported&&mode!=='off'?1:0,script);
   assert.equal(f.d8Calls,tool==='find'&&d8?2:0,script);
-  assert.match(script,/Damage-Control result coverage:/);
-  assert.match(script,/sourceTrusted/);
+  if(child&&mode==='off')assert.doesNotMatch(script,/Damage-Control result coverage:/,'disabled child D6 has no optional adapter or result annotations');
+  else {assert.match(script,/Damage-Control result coverage:/);assert.match(script,/sourceTrusted/);}
   if(supported&&mode==='severe')assert.match(script,/Untrusted Damage-Control advisory/);
   else assert.doesNotMatch(script,/Untrusted Damage-Control advisory/);
   // Assigned children project supported evidence before transport; unsupported
   // results stay local even with an off consumer. Neither ordering implies trust.
-  if(child&&!supported)assert.match(script,/unsupported_source/);
+  if(child&&mode==='off')assert.doesNotMatch(script,/consumer_off|unsupported_source/);
+  else if(child&&!supported)assert.match(script,/unsupported_source/);
   else if(mode==='off')assert.match(script,/consumer_off/);
   else if(!supported)assert.match(script,/unsupported_source/);
   else if(mode==='outage')assert.match(script,/service_unavailable/);

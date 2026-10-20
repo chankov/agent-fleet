@@ -133,3 +133,26 @@ test('F8 accepted input aborts outstanding parent wait and awaited shutdown sett
  const session=childSession({ask:async(_id:string,_q:unknown,signal:AbortSignal)=>{entered();return new Promise(resolve=>signal.addEventListener('abort',()=>{aborted=true;resolve({details:{cancelled:true}});},{once:true}));}});session.accept('input');
  const pending=session.call(event,ctx);await waiting;session.accept('new input');assert.equal((await pending).block,true);assert.equal(aborted,true);await session.dispose();
 });
+
+test('disabled optional child guard needs no broker or identity; revoked sessions still reject preparation',async()=>{
+ for(const snapshot of [normalizeSystem1Config({...root,mode:'off'}),normalizeSystem1Config({...root,consumers:{}})]){
+  const session=childSession({snapshot});
+  const input={ownerId:'specialist',cwd:process.cwd(),tools:['bash','read'],admit:()=>true};
+  assert.equal(session.prepare(input),null);
+  await session.start();assert.equal(session.prepare(input),null);
+  session.accept('authorized work');assert.equal(session.prepare(input),null);
+  await session.dispose();assert.throws(()=>session.prepare(input),/damage_session_revoked/);
+ }
+});
+
+test('disabled guard with persisted denial still requires registered child enforcement',async()=>{
+ const records:any[]=[];
+ const initial=childSession({append:(customType:string,data:unknown)=>records.push({customType,data}),entries:()=>records});
+ initial.accept('input');assert.equal((await initial.call(event,ctx)).block,true);await initial.dispose();
+ const resumed=childSession({snapshot:normalizeSystem1Config({...root,mode:'off'}),entries:()=>records});
+ const input={ownerId:'specialist',cwd:process.cwd(),tools:['bash'],admit:()=>true};
+ assert.throws(()=>resumed.prepare(input),/damage_transport_unavailable/);
+ await resumed.start();const registration=resumed.prepare(input);assert.ok(registration);
+ const lease=await registration.open({tools:['bash'],cwd:process.cwd()});assert.equal(lease.validate(),true);
+ lease.revoke();assert.equal(lease.validate(),false);await resumed.dispose();
+});

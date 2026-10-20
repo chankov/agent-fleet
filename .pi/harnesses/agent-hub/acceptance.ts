@@ -132,7 +132,8 @@ export function buildRuntimeResult(input: RuntimeResultInput) {
  const checks = input.checks.map(check => {
   let status: VerificationStatus = "unsupported";
   if (check.producer === "runtime" && !!check.taskId && check.command.length > 0 && Number.isInteger(check.exitCode) && check.evidenceRef) {
-   status = check.taskId === input.task.id && check.inspectedRevision === input.task.afterRevision ? (check.exitCode === 0 ? "passed" : "failed") : "stale";
+   const usableRevision = (revision: string) => !!revision && !["unavailable", "changed-during-check"].includes(revision);
+   status = usableRevision(check.inspectedRevision) && usableRevision(input.task.afterRevision) && check.taskId === input.task.id && check.inspectedRevision === input.task.afterRevision ? (check.exitCode === 0 ? "passed" : "failed") : "stale";
   }
   return { ...check, command: [...check.command], requirementIds: [...(check.requirementIds ?? [])], status };
  });

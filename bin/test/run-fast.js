@@ -69,6 +69,7 @@ const fastTestFiles = [
   ".pi/harnesses/damage-control-continue/false-positive-regressions.test.js",
   ".pi/harnesses/damage-control-continue/bash-policy-safety-review.test.js",
   ".pi/harnesses/damage-control-continue/bash-policy-lexical-review.test.js",
+  ".pi/harnesses/damage-control-continue/bash-policy-analysis.test.ts",
   ".pi/harnesses/agent-hub/task-continuation.test.ts",
   ".pi/harnesses/agent-hub/operator-watchdog.test.ts",
   ".pi/harnesses/agent-hub/assertion-ledger.test.js",

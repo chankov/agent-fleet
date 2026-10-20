@@ -536,6 +536,7 @@ function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAg
 	return {
 		model: (state ? d.resolvedAgentModel?.(state.def, ctx) : undefined) ?? state?.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null),
 		backend: params.backend ?? "auto",
+        externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged(),
 	};
 }
 
@@ -543,9 +544,9 @@ function researchExecutionConditions(d: DispatchExecutorDeps, params: SpawnResea
 	const persona = params.persona ? d.state.getResearchPersonas().find(item => item.name.toLowerCase() === params.persona!.toLowerCase()) : undefined;
 	try {
 		const def = persona ?? d.research.anonymousDef();
-		return { model: d.research.resolveModel(def, persona ? undefined : params.model, ctx), tools: "read,grep,find,ls" };
+		return { model: d.research.resolveModel(def, persona ? undefined : params.model, ctx), tools: "read,grep,find,ls", externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged() };
 	} catch {
-		return { model: params.model ?? null, tools: "read,grep,find,ls" };
+		return { model: params.model ?? null, tools: "read,grep,find,ls", externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged() };
 	}
 }
 

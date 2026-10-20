@@ -541,3 +541,25 @@ test("parent clarification is scoped, cancellable, task-bound and cannot clear e
   assert.equal(fenced.begin("edit", "changed", "builder", scope).allowed, false);
  }
 });
+
+test('corrected scope mode retries a no-launch preflight without manual recovery; unchanged input stays blocked',async t=>{
+ const cwd=mkdtempSync(join(tmpdir(),'scope-recovery-'));t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ let calls=0;
+ const run=withNoProgress({noProgress:createNoProgressGuard(),artifacts:{loadInputArtifacts:()=>[]}} as any,'dispatch',async(_id,params:any)=>{
+  calls++;return params.scope_mode==='create'?{content:[]}:{content:[],details:{status:'scope_preflight_failed',recoveryCategory:'not_started',started:false,notStarted:true,effects:'none',exitCode:1}};
+ });
+ const base:any={agent:'builder',task:'task',scope:['new-file.ts']};
+ await run('1',base,undefined,undefined,{cwd} as any);
+ assert.equal((await run('2',base,undefined,undefined,{cwd} as any)).details?.status,'no_progress_refused');assert.equal(calls,1);
+ await run('3',{...base,scope_mode:'create'},undefined,undefined,{cwd} as any);assert.equal(calls,2);
+});
+
+test('acknowledged external blocker changes preflight conditions without resetting the task',async()=>{
+ let acknowledged=false,calls=0;
+ const run=withNoProgress({noProgress:createNoProgressGuard(),artifacts:{loadInputArtifacts:()=>[]}} as any,'dispatch',async()=>{
+  calls++;return acknowledged?{content:[]}:{content:[],details:{status:'external_blocked',recoveryCategory:'not_started',started:false,effects:'none',exitCode:1}};
+ },()=>({externalBlockerAcknowledged:acknowledged}));
+ const params:any={agent:'builder',task:'task'};
+ await run('1',params,undefined,undefined,{} as any);acknowledged=true;
+ await run('2',params,undefined,undefined,{} as any);assert.equal(calls,2);
+});

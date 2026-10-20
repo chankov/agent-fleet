@@ -26,7 +26,9 @@ test('F8 session broker uses durable held handshake and consumed human grant, re
 test('F8 broker disabled configurations make zero inference while fresh descendants revoke transitively',{timeout:3000},async()=>{
  for(const config of [null,{...document,mode:'off'},{...document,consumers:{}},{...document,consumers:{damageGuard:{mode:'invalid'}}},document]){
  let calls=0;const session=fixture({snapshot:normalizeSystem1Config(config),service:config===document?undefined:{evaluate:async()=>{calls++;return severe();}}});session.accept('input');await session.start();
- try{const registration=session.prepare({ownerId:'specialist',cwd:process.cwd(),tools:['bash'],admit:()=>true})!,lease=await registration.open({tools:['bash'],cwd:process.cwd()});
+ try{const registration=session.prepare({ownerId:'specialist',cwd:process.cwd(),tools:['bash'],admit:()=>true});
+ if(config!==document){assert.equal(registration,null);assert.equal(calls,0);continue;}
+ assert.ok(registration);const lease=await registration.open({tools:['bash'],cwd:process.cwd()});
  assert.equal((await request(lease.assignment,damageAssessmentFrame(lease.assignment,'one','bash',{command:'echo hello'}))).outcome,'unavailable');
  const child=(await request(lease.assignment,damageControlFrame(lease.assignment,'nested','register_descendant',{tools:['bash']}))).assignment;
  lease.revoke();assert.equal((await request(child,damageAssessmentFrame(child,'child','bash',{command:'echo hello'}))).outcome,'revoked');assert.equal(calls,0);
@@ -80,7 +82,7 @@ let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',async
  await emit('session_start',{type:'session_start'});
  await emit('input',{text:'Synthetic authoritative user input',source:'interactive'});
  const registration=prepareDamageGuardNative(pi,{ownerId:'root-specialist',cwd:ctx.cwd,tools:['bash'],admit:()=>true});
- const lease=await registration.open({tools:['bash'],cwd:ctx.cwd});assert.equal(lease.validate(),true);
+ assert.equal(registration,null,'disabled optional D6 must not register physical launches');
  assert.ok(entries.some(row=>row.customType==='damage-guard-input'));
  const classified=await tools.get('set_task_tier').execute('tier',{tier:'feature',risk:'low',scope:'small',reason:'Synthetic fixture needs the existing nested-launch budget'},undefined,undefined,ctx);assert.notEqual(classified.isError,true,JSON.stringify(classified));
  ctx.ui.select=async(_prompt,options)=>options.find(option=>option.startsWith('fake/primary'));await commands.get('af-agent-model').handler('fixture-worker',ctx);
@@ -90,15 +92,15 @@ let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',async
  const reports=readFileSync(${JSON.stringify(join(root,'report'))},'utf8').trim().split('\\n').map(JSON.parse);
  const workers=reports.filter(row=>row.model==='fake/worker'),primaries=reports.filter(row=>row.model==='fake/primary');assert.ok(primaries.length>=1,'actual root model fallback must launch primary');assert.equal(workers.length,2,'corrupt fallback session must retry freshly');assert.equal(reports.length,primaries.length+4,JSON.stringify(reports));assert.equal(new Set(reports.filter(row=>row.assignment).map(row=>row.assignment.capability)).size,reports.filter(row=>row.assignment).length);
  const specialist=reports.find(row=>row.model==='fake/worker'),nested=reports.find(row=>row.model==='fake/nested'),reader=reports.find(row=>row.model==='fake/research');
- assert.ok(specialist.assignment);assert.ok(nested.assignment);assert.notEqual(specialist.assignment.capability,nested.assignment.capability);
- assert.ok(reader.assignment);assert.equal(reader.tools,'read,grep,find,ls');assert.equal(nested.config,false);assert.ok(reports.every(row=>row.safe&&row.cwd===ctx.cwd));
+ assert.equal(specialist.assignment,null);assert.equal(nested.assignment,null);
+ assert.equal(reader.assignment,null);assert.equal(reader.tools,'read,grep,find,ls');assert.equal(nested.config,false);assert.ok(reports.every(row=>row.safe&&row.cwd===ctx.cwd));
  const {damageAssessmentFrame}=await import(${JSON.stringify(new URL('./damage-guard-broker.ts',import.meta.url).href)});const {connect}=await import('node:net');
  const outcome=assignment=>new Promise((resolve,reject)=>{const socket=connect(assignment.path);let body='';socket.on('error',reject);socket.on('connect',()=>socket.write(JSON.stringify(damageAssessmentFrame(assignment,'after-launch','bash',{command:'echo probe'}))+'\\n'));socket.on('data',bytes=>body+=bytes);socket.on('close',()=>resolve(body?JSON.parse(body.trim()).outcome:null));});
  for(const row of reports.filter(row=>row.assignment))assert.equal(await outcome(row.assignment),'revoked','every physical owner and descendant is revoked when its launch settles');
  const {damageActionHashes}=await import(${JSON.stringify(new URL('../lib/damage-action-hash.ts',import.meta.url).href)});
  const accepted=entries.filter(row=>row.customType==='damage-guard-input').at(-1).data,input={command:'echo denied original input'};
  entries.push({customType:'damage-guard-denial',data:{schema:'damage-denial/v1',taskId:accepted.taskId,inputRevision:accepted.revision,operation:'bash',target:damageActionHashes('bash',input).target,cwd:ctx.cwd,decision:'deny'}});
- await emit('session_start',{type:'session_start'});assert.equal(lease.identity.signal.aborted,true);assert.equal(registration.validate(),false);
+ await emit('session_start',{type:'session_start'});assert.equal(registration,null);
  const {assessDamageCall}=await import(${JSON.stringify(new URL('../lib/damage-guard-port.ts',import.meta.url).href)});
  const event={toolName:'bash',toolCallId:'resumed-deny',input},baseline={cwd:ctx.cwd,revalidateBaseline:()=>true};
  assert.equal((await assessDamageCall(event,baseline)).block,true);assert.equal(asks,0);
@@ -129,8 +131,8 @@ test('F8 registered configuration/reset overlap never publishes stale session or
  try{
   const first=configureDamageGuardHub(pi,options);acceptDamageGuardInput(pi,'input');const closed=resetDamageGuardHub(pi);assert.equal(resetDamageGuardHub(pi),closed);
   const second=configureDamageGuardHub(pi,options);assert.throws(()=>prepareDamageGuardNative(pi,{ownerId:'old',cwd:root,tools:['bash'],admit:()=>true}));
-  await Promise.all([first,closed,second]);const registration=prepareDamageGuardNative(pi,{ownerId:'fresh',cwd:root,tools:['bash'],admit:()=>true})!;const lease=await registration.open({tools:['bash'],cwd:root});assert.equal(lease.validate(),true);
-  await handlers.get('session_shutdown')();assert.equal(lease.identity.signal.aborted,true);assert.throws(()=>prepareDamageGuardNative(pi,{ownerId:'late',cwd:root,tools:['bash'],admit:()=>true}));
+  await Promise.all([first,closed,second]);const registration=prepareDamageGuardNative(pi,{ownerId:'fresh',cwd:root,tools:['bash'],admit:()=>true});assert.equal(registration,null);
+  await handlers.get('session_shutdown')();assert.throws(()=>prepareDamageGuardNative(pi,{ownerId:'late',cwd:root,tools:['bash'],admit:()=>true}));
  }finally{await resetDamageGuardHub(pi);childKeys.forEach((key,index)=>{if(saved[index]===undefined)delete process.env[key];else process.env[key]=saved[index];});rmSync(root,{recursive:true,force:true});}
 });
 test('F8 transport disconnect aborts human wait and never transfers a late grant',{timeout:3000},async()=>{
@@ -146,11 +148,13 @@ test('F8 transport disconnect aborts human wait and never transfers a late grant
 test('F8 failed mandatory broker startup fences parent admission rather than unregistering to standalone permission',{timeout:3000},async()=>{
  const {mkdtempSync,mkdirSync,writeFileSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
  const {configureDamageGuardHub,resetDamageGuardHub,prepareDamageGuardNative}=await import('./damage-guard-hub.ts');const {assessDamageCall}=await import('../lib/damage-guard-port.ts');
- const root=mkdtempSync(join(tmpdir(),'d6-unsupported-'));mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai','agent-fleet.json'),JSON.stringify({features:{system1:false}}));
+ const root=mkdtempSync(join(tmpdir(),'d6-unsupported-'));mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai','agent-fleet.json'),JSON.stringify({features:{system1:true}}));
  const keys=['AGENT_HUB_AGENT_ID','AGENT_FLEET_AGENTIC_CHILD'],saved=keys.map(key=>process.env[key]);keys.forEach(key=>delete process.env[key]);const descriptor=Object.getOwnPropertyDescriptor(process,'platform')!;
  const pi:any={events:{on(){return ()=>{}},emit(){}},on(){},registerCommand(){},appendEntry(){}};const ctx:any={cwd:root,hasUI:false,sessionManager:{getEntries:()=>[]},ui:{notify(){}}};
  try{Object.defineProperty(process,'platform',{...descriptor,value:'win32'});
- await assert.rejects(configureDamageGuardHub(pi,{snapshot:normalizeSystem1Config(null),ctx,taskId:()=> 'task',childAuthority:{taskToken:()=> 'token',admit:()=>true}}),/damage_local_ipc_unsupported/);
+ await configureDamageGuardHub(pi,{snapshot:normalizeSystem1Config(null),ctx,taskId:()=> 'task',childAuthority:{taskToken:()=> 'token',admit:()=>true}});
+ assert.equal(prepareDamageGuardNative(pi,{ownerId:'off-child',cwd:root,tools:['bash'],admit:()=>true}),null,'off mode works without supported IPC');await resetDamageGuardHub(pi);
+ await assert.rejects(configureDamageGuardHub(pi,{snapshot:normalizeSystem1Config(document),ctx,taskId:()=> 'task',childAuthority:{taskToken:()=> 'token',admit:()=>true}}),/damage_local_ipc_unsupported/);
  assert.equal((await assessDamageCall({toolName:'bash',toolCallId:'after-failure',input:{command:'echo hello'}},{cwd:root,revalidateBaseline:()=>true})).block,true);
  assert.throws(()=>prepareDamageGuardNative(pi,{ownerId:'child',cwd:root,tools:['bash'],admit:()=>true}));
  }finally{Object.defineProperty(process,'platform',descriptor);await resetDamageGuardHub(pi);keys.forEach((key,index)=>{if(saved[index]===undefined)delete process.env[key];else process.env[key]=saved[index];});rmSync(root,{recursive:true,force:true});}

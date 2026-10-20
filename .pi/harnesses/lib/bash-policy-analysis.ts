@@ -71,6 +71,36 @@ function withoutLiteralHeredocs(text: string): string | null {
  return retained.join("\n");
 }
 
+/** Keep literal data out of fallback path/pattern checks even when another
+ * command (e.g. sed) requires conservative analysis. Headers and destinations
+ * remain visible; expanding/interpreter heredocs are never stripped. */
+export function bashPolicyText(command: string): string {
+ const stripped = withoutLiteralHeredocs(command);
+ if (stripped === null || stripped === command) return command;
+ // Only ordinary data/inspection commands may follow literal data. Unknown
+ // programs, wrappers, assignments and repository executables might execute the
+ // generated file; retain the body instead of trying to unwrap shell grammar.
+ const parts = tokens(stripped);
+ if (!parts) return command;
+ const dataOnly = new Set(['cat', 'tee', 'ls', 'pwd', 'stat', 'head', 'tail', 'wc', 'grep', 'rg', 'test', 'readlink', 'realpath', 'du', 'printf', 'echo', 'sed']);
+ let start = true;
+ for (let i=0;i<parts.length;i++) {
+  const part=parts[i];
+  if (part.operator && [';', '&&', '||', '|'].includes(part.text)) { start = true; continue; }
+  if (!part.operator && start) {
+   if (!dataOnly.has(part.text)) return command;
+   // sed can execute shell commands: only a plain numeric print is data-only.
+   if (part.text==='sed') {
+    if (!(parts[i+1]?.text==='-n' && /^\d+(?:,\d+)?p$/.test(parts[i+2]?.text??''))) return command;
+    for(let j=i+3;j<parts.length&&!(parts[j].operator&&[';', '&&', '||', '|'].includes(parts[j].text));j++)if(!parts[j].operator&&parts[j].text.startsWith('-'))return command;
+   }
+   start = false;
+  }
+  if (!part.operator && /^--pre(?:=|$)/.test(part.text)) return command;
+ }
+ return stripped;
+}
+
 const readers = new Set(["cat", "ls", "pwd", "stat", "head", "tail", "wc", "file", "grep", "rg", "find", "test", "readlink", "realpath", "du"]);
 const writers = new Set(["rm", "mv", "cp", "touch", "mkdir", "rmdir", "install", "chmod", "chown", "truncate", "tee"]);
 const dataCommands = new Set(["printf", "echo"]);
@@ -86,7 +116,7 @@ const operands = (words: string[]) => words.flatMap(word => {
 });
 
 export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
- const literal = withoutLiteralHeredocs(command); if (literal === null) return null;
+ const literal = bashPolicyText(command);
  const parsed = tokens(literal); if (!parsed) return null;
  const commands: ShellCommand[] = []; let words: string[] = [], reads: string[] = [], writes: string[] = [], requiresDataSink = false;
  const finish = (): boolean => {

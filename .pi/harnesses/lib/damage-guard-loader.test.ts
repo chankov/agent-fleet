@@ -66,5 +66,5 @@ test("a native child takes its spawned assignment before tools run, and malforme
  const f = await fixture(t);
  assert.equal(process.env.AF_D6_ASSIGNMENT, undefined, "Bash subprocesses must not inherit the capability");
  const result = await f.bash("assigned");
- assert.equal(result?.block, true); assert.match(result.reason, /assigned assessment did not authorize/);
+ assert.equal(result?.block, true); assert.match(result.reason, /optional assessment transport or registration failed/);
 });

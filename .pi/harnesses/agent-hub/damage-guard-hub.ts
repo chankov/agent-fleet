@@ -140,7 +140,10 @@ export function createDamageHubSession(options:HubSessionOptions){
   if(result.status!=='allowed'){remember(action,event.input);return 'blocked';}
   return approval.consumeProof(result.grant,action,context.signal).allowed&&current()?'granted':'blocked';
  }
- function start(){return startPromise??=(async()=>{
+ // Disabled optional assessment must not require a broker for ordinary work.
+ // Persisted holds/denials still require enforcement, including after restart.
+ const needsChildGuard=()=>enabled||recoveryTasks.has(options.taskId())||rows(DAMAGE_DENY_ENTRY).some((row:any)=>row?.taskId===options.taskId());
+ function start(){if(!needsChildGuard())return Promise.resolve();return startPromise??=(async()=>{
   if(revoked)throw Error('damage_session_revoked');
   const opened=await createDamageBroker({authority,result:(owner,event,context)=>track((async()=>{
    const current=()=>!revoked&&!context.signal.aborted&&!!authority.validate(owner,event.toolName,owner.cwd);
@@ -160,7 +163,9 @@ export function createDamageHubSession(options:HubSessionOptions){
   return closePromise=(async()=>{await startPromise?.catch(()=>{});await Promise.allSettled([...work]);await broker?.close();})();
  }
  function prepare(input:{ownerId:string;cwd:string;tools:readonly string[];admit():boolean;signal?:AbortSignal}):DamageSpawnRegistration|null{
-  if(!broker||revoked||!options.childAuthority)throw Error('damage_transport_unavailable');
+  if(revoked)throw Error('damage_session_revoked');
+  if(!needsChildGuard())return null;
+  if(!broker||!options.childAuthority)throw Error('damage_transport_unavailable');
   identity.bindTask(options.taskId());
   const captured={task:options.taskId(),revision:identity.revision(options.taskId()),token:options.childAuthority.taskToken()},cwd=realpathSync(input.cwd),tools=Object.freeze(input.tools.filter(t=>['bash','write','edit','read','filesystem'].includes(t)));
   const validate=()=>{try{return !revoked&&!input.signal?.aborted&&input.admit()===true&&captured.task===options.taskId()&&captured.revision===identity.revision(options.taskId())&&captured.token===options.childAuthority?.taskToken();}catch{return false;}};

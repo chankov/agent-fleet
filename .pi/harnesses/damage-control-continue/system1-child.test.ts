@@ -158,3 +158,13 @@ test('F9 registered result hook captures without assignment and assigned adapter
  const first=child.result(raw),second=child.result(raw);assert.equal(first,second);
  const view=await first;assert.match(view.content.at(-1).text,/transport_unavailable/);assert.equal(view.structuredContent.startsWith('original'),true);
 });
+
+test('child reports transport failure, baseline changes and duplicate calls distinctly',{timeout:2000},async()=>{
+ const assignment={path:join(tmpdir(),`missing-damage-${process.pid}.sock`),capability:'a'.repeat(64)};
+ const child=createDamageChild(assignment),ctx={cwd:process.cwd(),revalidateBaseline:()=>true},call=event('diagnostic');
+ try{
+  const first=await assessDamageCall(call,ctx);assert.equal(first.block,true);assert.match(first.reason??'',/transport or registration failed/);assert.doesNotMatch(first.reason??'',/re-authorize/);
+  const duplicate=await assessDamageCall(call,ctx);assert.match(duplicate.reason??'',/duplicate tool call/);
+  const changed=await assessDamageCall({...call,toolCallId:'changed-baseline'},{...ctx,revalidateBaseline:()=>false});assert.match(changed.reason??'',/baseline authority changed/);
+ }finally{child.dispose();}
+});
