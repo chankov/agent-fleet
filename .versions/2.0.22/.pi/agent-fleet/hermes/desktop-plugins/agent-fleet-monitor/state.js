@@ -1,0 +1,10 @@
+export function present(value) { if (value.error) return { kind: 'error', message: value.error }; if (value.loading) return { kind: 'loading' }; if (!value.tasks?.length) return { kind: 'empty' }; return { kind: 'tasks', tasks: value.tasks }; }
+
+// The controller owns the cursor map: output is requested only for bytes newer
+// than the cursor advertised by the same snapshot task generation.
+export function createActiveViewController({ pollMetadata, fetchOutput, onOutput = () => {} }) {
+ const cursors=new Map(); let timer=null, visible=false, inFlight=null, epoch=0;
+ const poll=()=>{if(!visible||inFlight)return inFlight;const requestEpoch=epoch;const request=(async()=>{const result=await pollMetadata();if(!visible||requestEpoch!==epoch)return;const rows=Array.isArray(result)?result:(result.tasks??[]);for(const row of rows){const key=`${row.hubInstanceId}:${row.id}:${row.generation}`,cursor=cursors.get(key)??0;if((row.outputSequence??0)>cursor){const output=await fetchOutput(row.hubInstanceId,row.id,row.generation,cursor);if(!visible||requestEpoch!==epoch)return;cursors.set(key,output.sequence??cursor);onOutput(row,output);}}})().finally(()=>{if(inFlight===request)inFlight=null;});inFlight=request;return request;};
+ return { poll, setVisible(next){if(!next){visible=false;epoch++;if(timer){clearInterval(timer);timer=null}return;}visible=true;if(!timer)timer=setInterval(()=>void poll(),1000);}, dispose(){visible=false;epoch++;if(timer)clearInterval(timer);timer=null} };
+}
+export function aggregateTaskHierarchy(tasks){const parents=tasks.filter(t=>t.kind==='parent').map(parent=>({id:parent.id,state:parent.state,children:[]}));const byId=new Map(tasks.filter(t=>t.kind==='parent').map((parent,i)=>[`${parent.hubInstanceId}:${parent.id}:${parent.generation}`,parents[i]]));for(const child of tasks.filter(t=>t.kind!=='parent')){const item={id:child.id,generation:child.generation,state:child.state};const parent=byId.get(`${child.hubInstanceId}:${child.parentId}:${child.parentGeneration}`);if(parent)parent.children.push(item);else parents.push({...item,children:[]});}return parents;}
