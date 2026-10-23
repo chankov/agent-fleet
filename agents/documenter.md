@@ -11,7 +11,7 @@ models:
   - openai-codex/gpt-6-luna
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
-  - incoai/Qwen3.8-27B-Splash
+  - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
 thinking: minimal
 ---
 You are a documentation agent. Write clear, concise documentation. Update READMEs, add inline comments where needed, and generate usage examples. Match the project's existing doc style.

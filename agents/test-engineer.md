@@ -10,7 +10,7 @@ models:
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
-  - incoai/Qwen3.8-27B-Splash
+  - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
 thinking: low
 delegate_depth: 1
 subagents:

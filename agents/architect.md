@@ -7,7 +7,7 @@ models:
   - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
-  - incoai/Qwen3.8-27B-Splash
+  - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
 thinking: high
 ---
 

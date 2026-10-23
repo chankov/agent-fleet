@@ -1009,7 +1009,7 @@ profile declares the whole execution model set independently of
 local-full:
   version: 2
   defaults:
-    model: &qwen36 incoai/Qwen3.8-27B-Splash
+    model: &qwen36 omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
     thinking: off
   allowed-models:
     - *qwen36
@@ -1075,7 +1075,7 @@ from that session inherit its persona models, thinking, panel and fallback polic
 Separately started fleet sessions/standing peers retain their own configuration.
 The bundled `local-full` profile explicitly covers all shipped child roles and needs
 no project model overrides. Every role, service and panel entry uses the single
-`incoai/Qwen3.8-27B-Splash` model. The `local-workers` profile uses that same local
+`omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` model. The `local-workers` profile uses that same local
 model for agents, subagents, services and panel voices, while leaving `orchestrator`
 to inherit its current selection; its peer allowlist refuses non-local coms models.
 The model must be registered in Pi and served by the incoai provider. Selecting a profile

@@ -7,7 +7,7 @@ models:
   - openai-codex/gpt-6.1-sol
   - openai-codex/gpt-6-luna
   - ollama/glm-5.2:cloud
-  - incoai/Qwen3.8-27B-Splash
+  - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
 color: cyan
 skills:
   - browser-testing-with-devtools

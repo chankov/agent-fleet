@@ -10,7 +10,7 @@ models:
   - openai-codex/gpt-6.1-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/minimax-m3:cloud
-  - incoai/Qwen3.8-27B-Splash
+  - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
 thinking: low
 ---
 
