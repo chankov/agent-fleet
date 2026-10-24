@@ -1,6 +1,7 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { cpSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import {cpSync, mkdirSync, renameSync, rmSync, symlinkSync} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";

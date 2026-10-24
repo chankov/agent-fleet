@@ -1,5 +1,7 @@
-import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {execFileSync,spawnSync} from 'node:child_process';
+import {canonicalMkdtempSync as mkdtempSync} from '../../../../bin/test/helpers/test-temp.js';
+import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {execFileSync,spawnSync} from 'node:child_process';
 import {resolveSessionRoots,targetProject,sessionGitEnv,withSessionRoots,sessionRootsFromEnv} from '../../../harnesses/lib/workspace-context.ts';import {buildSnapshot,parseSnapshot,assertSnapshotTarget} from './team-snapshot.ts';import {parseFlowCommand,parseFlowMaintenanceCommand} from './flow-command.ts';import {Run} from '../workflows/lib/run.ts';
+import {FlowTrace} from '../workflows/lib/trace.ts';
 const source=resolve(new URL('../../../../',import.meta.url).pathname);
 test('external-target flow CLI, quality, branch/list metadata, snapshots and late acceptance stay bound to the selected checkout',async()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-target-flow-')),af=join(root,'af config'),repo=join(root,'repo'),target=join(root,'repo worktree');const git=(cwd:string,...args:string[])=>execFileSync('git',['-C',cwd,...args],{env:sessionGitEnv(),stdio:'pipe'}).toString().trim();
@@ -21,5 +23,18 @@ test('external-target flow CLI, quality, branch/list metadata, snapshots and lat
   const legacy=parseSnapshot(JSON.stringify({version:1,team:'review',hub:false,peers:[{name:'review',persona:'review',model:'fixture-model',resume:null}],workspace_label:'peers-review'}));assertSnapshotTarget(legacy);assert.equal(legacy.project,'default');
   const other=resolveSessionRoots(af,{worktree:repo});const before=sessionRootsFromEnv();await Promise.all([withSessionRoots(selected,async()=>{await new Promise(resolve=>setTimeout(resolve,5));assert.equal(sessionRootsFromEnv()!.targetId,selected.targetId);}),withSessionRoots(other,async()=>{await new Promise(resolve=>setTimeout(resolve,1));assert.equal(sessionRootsFromEnv()!.targetId,other.targetId);})]);assert.deepEqual(sessionRootsFromEnv(),before);
   await withSessionRoots(selected,async()=>{const run=new Run({cwd:target,runId:'late'});await withSessionRoots(other,async()=>{const result=run.finish({accepted:true});assert.equal(result.accepted,false);assert.equal(result.reason,'flow_target_changed');});});
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('targeted trace accepts a physical workspace alias but refuses an alias escaping storage',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'fleet-trace-alias-')),af=join(root,'af'),repo=join(root,'repo'),alias=join(root,'af-alias'),outside=join(root,'outside'),escape=join(root,'outside-alias');
+ const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});
+ try{
+  mkdirSync(af);mkdirSync(repo);mkdirSync(outside);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','fixture');symlinkSync(af,alias,'dir');symlinkSync(outside,escape,'dir');
+  await withSessionRoots(resolveSessionRoots(af,{worktree:repo}),async()=>{
+   const trace=new FlowTrace({cwd:repo,runId:'aliased',directory:join(alias,'.pi/flow-sessions/aliased')});assert.equal(trace.directory,join(af,'.pi/flow-sessions/aliased'));assert.equal(trace.events()[0].type,'run_start');
+   assert.throws(()=>new FlowTrace({cwd:repo,directory:join(escape,'.pi/forbidden')}),/flow_trace_outside_workspace/);assert.equal(existsSync(join(outside,'.pi')),false);
+   symlinkSync(outside,join(af,'.pi/escaped'),'dir');assert.throws(()=>new FlowTrace({cwd:repo,directory:join(af,'.pi/escaped/forbidden')}),/flow_trace_outside_workspace/);assert.equal(existsSync(join(outside,'forbidden')),false);
+  });
  }finally{rmSync(root,{recursive:true,force:true});}
 });

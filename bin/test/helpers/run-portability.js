@@ -33,7 +33,14 @@ try {
     ".pi/harnesses/agent-hub/proactive-runtime.test.ts",
   ], { cwd: root, env: { ...process.env, TMPDIR: alias, TMP: alias, TEMP: alias }, stdio: "inherit" });
   if (aliasResult.error) throw aliasResult.error;
-  process.exitCode = result.status || aliasResult.status || 0;
+  // Run all release fast-lane fixtures through an aliased temp root too. This
+  // reproduces macOS /var -> /private/var comparisons on Linux instead of
+  // protecting only the older proactive tests.
+  const fastAlias = spawnSync(process.execPath, [join(root,'bin/test/run-fast.js')], {
+    cwd: root, env: {...process.env,TMPDIR:alias,TMP:alias,TEMP:alias}, stdio:'inherit',
+  });
+  if(fastAlias.error)throw fastAlias.error;
+  process.exitCode = (result.status ?? 1) || (aliasResult.status ?? 1) || (fastAlias.status ?? 1);
   } finally {
     unlinkSync(alias);
   }

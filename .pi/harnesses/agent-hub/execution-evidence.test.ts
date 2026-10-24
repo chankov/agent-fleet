@@ -1,4 +1,5 @@
-import assert from 'node:assert/strict';import {test} from 'node:test';import {existsSync,mkdtempSync,mkdirSync,readFileSync,rmSync,renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
+import assert from 'node:assert/strict';import {test} from 'node:test';import {existsSync, mkdirSync, readFileSync, rmSync, renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../lib/workspace-context.ts';import {createEvidenceSession,beginExecutionEvidence,finishExecutionEvidence,closeEvidenceSession,pruneEvidenceSessions} from './execution-evidence.ts';
 test('evidence is workspace-owned, target-partitioned and cannot accept stale or cross-target completion',()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-evidence-target-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),old=process.env.AF_SESSION_ROOTS;const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});

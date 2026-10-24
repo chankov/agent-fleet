@@ -1,22 +1,28 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';import {test} from 'node:test';
 import {isolateFleetTestProcess} from '../../../../bin/test/helpers/test-environment.js';
-import {chmodSync,cpSync,realpathSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {execFileSync,spawn} from 'node:child_process';
+import {chmodSync, cpSync, realpathSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {execFileSync,spawn} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../../../harnesses/lib/workspace-context.ts';
 import {buildSessionLaunch,targetEnvironment,targetProject,targetReadiness} from './session-launch.ts';import {resourceClosureGaps} from './resource-closure.js';
 import {loadExtensions} from '../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js';
 import {spawnPiAgent,nativeChildEnv} from '../../../harnesses/agent-hub/spawn.ts';
 import {ExtensionRunner,createReadTool,createBashTool,createEditTool,createWriteTool} from '@earendil-works/pi-coding-agent';
+import {resolvePiTestRuntime} from '../../../../bin/test/helpers/pi-runtime.js';
 const source=resolve(new URL('../../../../',import.meta.url).pathname);
+const sdk=resolvePiTestRuntime({root:source});
 test('disposable non-Git af owns resources while installed Pi tools operate only in its external worktree',{timeout:90000},async()=>{
  const restoreTestEnv=isolateFleetTestProcess();
- const root=mkdtempSync(join(tmpdir(),'fleet-launch-roots-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.AF_SESSION_ROOTS;
+ const root=mkdtempSync(join(tmpdir(),'fleet-launch-roots-')),rpcComs=mkdtempSync(join(process.platform==='darwin'?'/tmp':tmpdir(),'afrpc-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.AF_SESSION_ROOTS;
  const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});
  const put=(base:string,path:string,text:string)=>{const full=join(base,path);mkdirSync(join(full,'..'),{recursive:true});writeFileSync(full,text);};
  try{
   mkdirSync(af);mkdirSync(repo);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','initial');git('worktree','add','--detach',target);
   for(const path of ['.pi/harnesses','.pi/extensions','.pi/agent-fleet/scripts']){
    cpSync(join(source,path),join(af,path),{recursive:true,filter:path=>!path.split('/').includes('node_modules')});
-   symlinkSync(join(source,path,'node_modules'),join(af,path,'node_modules'));
+   // CI installs repository dependencies only. This off-mode SDK fixture must
+   // not borrow an operator's separately installed optional runtime packages.
+   symlinkSync(join(source,'node_modules'),join(af,path,'node_modules'));
+   put(af,join(path,'package.json'),JSON.stringify({name:'fixture-runtime',private:true,type:'module',dependencies:{yaml:'*','@sinclair/typebox':'*','@earendil-works/pi-coding-agent':sdk.version,'pi-ask-user':'*'}}));
   }
   cpSync(join(source,'justfile'),join(af,'justfile'));cpSync(join(source,'.pi/agents'),join(af,'.pi/agents'),{recursive:true});
   put(af,'.pi/damage-control-rules.yaml',JSON.stringify({bashToolPatterns:[{pattern:'FORBIDDEN',reason:'workspace policy'}],zeroAccessPaths:['private/**'],readOnlyPaths:['protected.txt'],noDeletePaths:['keep.txt']}));
@@ -36,7 +42,7 @@ test('disposable non-Git af owns resources while installed Pi tools operate only
   assert.equal(buildSessionLaunch([...raw,'--','prompt ending in .ts'],environment,af).args.at(-1),'prompt ending in .ts');
   const agentDir=join(af,'.pi/test-agent-runtime');mkdirSync(agentDir,{recursive:true});writeFileSync(join(agentDir,'settings.json'),'{}');
   const offlineRpc=async(selected:any)=>{const commandsReply:any=await new Promise((done,fail)=>{
-   const proc=spawn('pi',[...selected.args,'--offline','--no-session','--mode','rpc','--model','openai/gpt-4o'],{cwd:selected.cwd,env:{...selected.env,PI_OFFLINE:'1',PI_CODING_AGENT_DIR:agentDir,PI_COMS_DIR:join(af,'.pi/test-coms'),NODE_OPTIONS:`--import=${JSON.stringify(join(source,'bin/test/helpers/system1-no-network.js'))}`},stdio:['pipe','pipe','pipe']});
+   const proc=spawn(process.execPath,[sdk.cli,...selected.args,'--offline','--no-session','--mode','rpc','--model','openai/gpt-4o'],{cwd:selected.cwd,env:{...selected.env,PI_OFFLINE:'1',PI_CODING_AGENT_DIR:agentDir,PI_COMS_DIR:rpcComs,NODE_OPTIONS:`--import=${JSON.stringify(join(source,'bin/test/helpers/system1-no-network.js'))}`},stdio:['pipe','pipe','pipe']});
    let buffer='',stderr='',reply:any;const timer=setTimeout(()=>{proc.kill('SIGKILL');fail(Error('Real Pi RPC target startup timed out: '+stderr));},20000);
    proc.stderr.on('data',data=>{stderr+=String(data);});proc.stdout.on('data',data=>{buffer+=String(data);let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);try{const parsed=JSON.parse(line);if(parsed.id==='target-startup'){reply=parsed;proc.kill('SIGTERM');}}catch{}}});
    proc.once('error',error=>{clearTimeout(timer);fail(error);});proc.once('close',()=>{clearTimeout(timer);if(reply)done(reply);else fail(Error('Real Pi RPC target startup failed: '+stderr));});
@@ -50,9 +56,9 @@ test('disposable non-Git af owns resources while installed Pi tools operate only
   assert.throws(()=>runPreview('team-up.ts',['--conductor','hermes','--dry-run']),/Targeted Hermes conductor is unsupported/);
   assert.throws(()=>runPreview('peer-launch.ts',['side','--persona','builder','--all-extensions','--dry-run']),/refuse --all-extensions/);
   const linkedAf=join(root,'linked-af');put(linkedAf,'justfile',readFileSync(join(af,'justfile'),'utf8'));put(linkedAf,'.pi/damage-control-rules.yaml',readFileSync(join(af,'.pi/damage-control-rules.yaml'),'utf8'));
-  for(const dir of ['agent-fleet','harnesses','extensions'])symlinkSync(join(source,'.pi',dir),join(linkedAf,'.pi',dir),'dir');
-  const linkedRoots=resolveSessionRoots(linkedAf,{worktree:target});assert.equal(linkedRoots.workspaceRoot,linkedAf);assert.equal(linkedRoots.resourceRoot,realpathSync(source));
-  const linkedLaunch=buildSessionLaunch(['--no-extensions','-e','.pi/harnesses/damage-control-continue/index.ts','-e','.pi/harnesses/agent-hub/index.ts','--project','linked'],targetEnvironment(linkedRoots),linkedAf);assert.equal(linkedLaunch.cwd,target);assert.ok(linkedLaunch.args.includes(join(realpathSync(source),'.pi/harnesses/damage-control-continue/index.ts')));await offlineRpc(linkedLaunch);
+  for(const dir of ['agent-fleet','harnesses','extensions'])symlinkSync(join(af,'.pi',dir),join(linkedAf,'.pi',dir),'dir');
+  const linkedRoots=resolveSessionRoots(linkedAf,{worktree:target});assert.equal(linkedRoots.workspaceRoot,linkedAf);assert.equal(linkedRoots.resourceRoot,realpathSync(af));
+  const linkedLaunch=buildSessionLaunch(['--no-extensions','-e','.pi/harnesses/damage-control-continue/index.ts','-e','.pi/harnesses/agent-hub/index.ts','--project','linked'],targetEnvironment(linkedRoots),linkedAf);assert.equal(linkedLaunch.cwd,target);assert.ok(linkedLaunch.args.includes(join(realpathSync(af),'.pi/harnesses/damage-control-continue/index.ts')));await offlineRpc(linkedLaunch);
   process.env.AF_SESSION_ROOTS=environment.AF_SESSION_ROOTS;
   const extensions=launch.args.flatMap((arg,index)=>arg==='-e'?[launch.args[index+1]]:[]);
   const loaded=await loadExtensions(extensions,target);assert.deepEqual(loaded.errors,[]);
@@ -82,5 +88,5 @@ test('disposable non-Git af owns resources while installed Pi tools operate only
   assert.throws(()=>nativeChildEnv(environment,{AF_SESSION_ROOTS:undefined}),/context_override/);
   renameSync(join(af,'.pi/harnesses/lib/session-target.ts'),join(af,'.pi/harnesses/lib/session-target.held'));
   assert.equal(targetReadiness(roots).ready,false);assert.ok(resourceClosureGaps(af,['.pi/harnesses/damage-control-continue/index.ts']).some(gap=>gap.includes('session-target.ts')));
- }finally{if(saved===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=saved;restoreTestEnv();rmSync(root,{recursive:true,force:true});}
+ }finally{if(saved===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=saved;restoreTestEnv();rmSync(root,{recursive:true,force:true});rmSync(rpcComs,{recursive:true,force:true});}
 });

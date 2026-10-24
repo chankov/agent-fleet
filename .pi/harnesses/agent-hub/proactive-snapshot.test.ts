@@ -1,8 +1,9 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync, utimesSync } from "node:fs";
+import {mkdirSync, readFileSync, symlinkSync, writeFileSync, unlinkSync, rmSync, readdirSync, utimesSync} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";

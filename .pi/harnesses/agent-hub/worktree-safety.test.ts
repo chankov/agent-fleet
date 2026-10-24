@@ -1,7 +1,8 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';
 import {isolateFleetTestProcess} from '../../../bin/test/helpers/test-environment.js';
 import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync,renameSync} from 'node:fs';
+import {mkdirSync, writeFileSync, rmSync, renameSync} from 'node:fs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../lib/workspace-context.ts';
 import {resolveSafetyHarness} from './safety-routing.ts';

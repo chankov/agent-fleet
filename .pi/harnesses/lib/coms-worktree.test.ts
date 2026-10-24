@@ -1,4 +1,5 @@
-import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
+import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdirSync, rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from './workspace-context.ts';
 test('equal peer names and base projects communicate only within their own selected worktree',async()=>{
  const root=mkdtempSync(join(process.platform==='darwin'?'/tmp':tmpdir(),'afwt-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree');

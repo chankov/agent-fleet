@@ -1,6 +1,6 @@
 import {sessionRootsFromEnv,validateSessionRoots,type SessionRoots} from '../../../../harnesses/lib/workspace-context.ts';
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 const runNamespacePath: string = "../../../../../.pi/harnesses/agent-hub/run-namespace.js";
 const { makeRunId } = await import(runNamespacePath) as { makeRunId(): string };
 
@@ -20,7 +20,16 @@ export class FlowTrace {
 		this.cwd = resolve(options.cwd ?? process.cwd());
 		this.roots=sessionRootsFromEnv();
   if(this.roots?.mode==='targeted'&&realpathSync(this.cwd)!==this.roots.executionRoot)throw Error('flow_trace_target_mismatch');
-  this.directory = options.directory ? resolve(options.directory) : this.roots?.mode==='targeted'?resolve(this.roots.workspaceRoot,'.pi/flow-sessions/targets',this.roots.targetId,this.runId):resolve(this.cwd, ".pi", "flow-sessions", this.runId);
+  const requestedDirectory=options.directory ? resolve(options.directory) : this.roots?.mode==='targeted'?resolve(this.roots.workspaceRoot,'.pi/flow-sessions/targets',this.roots.targetId,this.runId):resolve(this.cwd, ".pi", "flow-sessions", this.runId);
+  // Normalize existing ancestors before containment checks (macOS /var aliases
+  // and caller-provided session directories can name the same physical root).
+  let canonicalDirectory=requestedDirectory;
+  if(this.roots?.mode==='targeted'){
+   let ancestor=requestedDirectory;
+   while(!existsSync(ancestor)){const parent=dirname(ancestor);if(parent===ancestor)throw Error('flow_trace_storage_denied');ancestor=parent;}
+   canonicalDirectory=resolve(realpathSync(ancestor),relative(ancestor,requestedDirectory));
+  }
+  this.directory=canonicalDirectory;
   if(this.roots?.mode==='targeted'){
    if(!this.directory.startsWith(resolve(this.roots.workspaceRoot,'.pi')+'/'))throw Error('flow_trace_outside_workspace');
    let parent=this.directory;while(!existsSync(parent))parent=dirname(parent);const canonical=realpathSync(parent);if(canonical!==this.roots.workspaceRoot&&!canonical.startsWith(this.roots.workspaceRoot+'/'))throw Error('flow_trace_storage_denied');

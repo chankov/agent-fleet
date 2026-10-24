@@ -1,5 +1,6 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';import {test} from 'node:test';import {createHash} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {mkdirSync, writeFileSync, readFileSync, rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../lib/workspace-context.ts';import {resolvePolicyRoots} from '../lib/policy-roots.ts';import {loadProactiveConfig} from './proactive-config.ts';import {discoverRules} from './proactive-rules.ts';import {beginTurnCore,finishTurnCore,readSnapshotUnit} from './proactive-snapshot.ts';import {assessLocal} from './proactive-local.ts';
 test('unchanged workspace binding validates only changed worktree files, not main or poisoned target rules',()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-local-rules-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),old=process.env.AF_SESSION_ROOTS;const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});

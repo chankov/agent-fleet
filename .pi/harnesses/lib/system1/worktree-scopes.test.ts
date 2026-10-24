@@ -1,5 +1,6 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {mkdirSync, writeFileSync, readFileSync, rmSync, renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../workspace-context.ts';
 import {loadSystem1Snapshot,readSystem1Document} from './config-loader.js';
 import {approveWorktreeScope,worktreeScopePreview,worktreeScopeApproved,projectWorktreeDocument} from './worktree-scopes.ts';

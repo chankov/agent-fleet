@@ -1,6 +1,7 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {join} from 'node:path';import {tmpdir} from 'node:os';import {pathToFileURL} from 'node:url';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,withSessionRoots,sessionGitEnv,targetProject} from './workspace-context.ts';
 import {defaultSettingsPaths,resolveStockAskUserModule} from '../ask-user-remote/index.ts';

@@ -1,4 +1,5 @@
-import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {canonicalMkdtempSync as mkdtempSync} from '../../../../../bin/test/helpers/test-temp.js';
+import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdirSync, writeFileSync, rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv,withSessionRoots,sessionRootsFromEnv} from '../../../../harnesses/lib/workspace-context.ts';import {qualityCommand,executeQuality} from './quality.ts';import {resolveProjectPolicy} from './project-policy.ts';import {listPersonas} from './personas.ts';import {loadEnv} from './env.ts';
 test('workflow config/personas/env remain in af, policy is canonical, and quality executes in the external checkout',async()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-flow-config-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),docs=join(root,'docs');const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});

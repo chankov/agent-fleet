@@ -1,5 +1,6 @@
+import {canonicalMkdtempSync as mkdtempSync} from '../../../bin/test/helpers/test-temp.js';
 import assert from 'node:assert/strict';import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {mkdirSync, rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from './workspace-context.ts';import {createSessionTargetGuard} from './session-target.ts';
 test('session history binds only to its explicit physical target and never proves source consent',async()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-session-target-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),old=process.env.AF_SESSION_ROOTS;

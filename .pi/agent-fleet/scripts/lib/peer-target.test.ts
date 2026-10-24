@@ -1,4 +1,5 @@
-import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {canonicalMkdtempSync as mkdtempSync} from '../../../../bin/test/helpers/test-temp.js';
+import assert from 'node:assert/strict';import {test} from 'node:test';import {mkdirSync, rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
 import {resolveSessionRoots,sessionGitEnv} from '../../../harnesses/lib/workspace-context.ts';import {peerTarget,targetPaneEnv,bindTargetLayout} from './peer-target.ts';
 test('all pane runners inherit the selected target, af recipes, and a target-specific namespace',()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-peer-target-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),old=process.env.AF_SESSION_ROOTS;

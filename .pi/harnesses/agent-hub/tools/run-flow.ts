@@ -85,7 +85,7 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					const beforeRevision = revision(sourceCwd, []);
 					runId = `hub-scout-${randomUUID()}`;
 					const artifactDir = join(sessionDir, "artifacts", "flow-runs", runId); mkdirSync(artifactDir, { recursive: true, mode: 0o700 });
-					snapshotRoot = mkdtempSync(join(tmpdir(), "agent-fleet-scout-snapshot-"));
+					snapshotRoot = realpathSync(mkdtempSync(join(tmpdir(), "agent-fleet-scout-snapshot-")));
 					const workspace = join(snapshotRoot, "workspace"), manifestPath = join(artifactDir, "snapshot-manifest.json");
 					let manifest: IsolatedSnapshotManifest;
 					try { manifest = (deps.createSnapshot ?? createIsolatedWorkingTreeSnapshot)(sourceCwd, workspace, manifestPath); }

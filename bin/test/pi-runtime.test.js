@@ -1,5 +1,6 @@
+import {canonicalMkdtempSync as mkdtempSync} from './helpers/test-temp.js';
 import assert from 'node:assert/strict';import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync} from 'node:fs';
+import {mkdirSync, writeFileSync, rmSync, symlinkSync} from 'node:fs';
 import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {isolatedFleetTestEnv} from './helpers/test-environment.js';
 import {inspectPiRuntime,resolvePiTestRuntime} from './helpers/pi-runtime.js';
@@ -20,6 +21,9 @@ test('managed fallback reads package metadata rather than mistaking a release la
 test('test subprocesses cannot borrow parent roles, roots or access exemptions',()=>{
  const base={PATH:'/fixture',HOME:'/fixture/home',NODE_OPTIONS:'--fixture-guard',AGENT_HUB_EXEMPTIONS_FILE:'/parent/grants',AGENT_HUB_AGENT_ID:'reviewer',AGENT_HUB_CONTEXT_CHANNEL:'parent-token',AF_SESSION_ROOTS:'parent-roots',AF_TARGET_BASE_PROJECT:'parent',AF_TARGET_EFFECTIVE_PROJECT:'parent-target'};
  assert.deepEqual(isolatedFleetTestEnv(base),{PATH:base.PATH,HOME:base.HOME,NODE_OPTIONS:base.NODE_OPTIONS});assert.equal(base.AGENT_HUB_EXEMPTIONS_FILE,'/parent/grants');
+});
+test('physical fixture root is canonical even when TMPDIR is a symlink',t=>{
+ const root=fixture(t),physical=join(root,'physical'),alias=join(root,'alias');mkdirSync(physical);symlinkSync(physical,alias,'dir');const created=mkdtempSync(join(alias,'child-'));assert.ok(created.startsWith(physical+'/child-'));assert.equal(created.startsWith(alias+'/'),false);
 });
 test('missing bundled CLI, foreign package and unavailable SDK are explicit test failures',t=>{
  const dir=fixture(t);put(join(dir,'package.json'),JSON.stringify({name:'foreign',version:'1.1.0'}));assert.throws(()=>inspectPiRuntime(dir),/Invalid Pi/);put(join(dir,'package.json'),JSON.stringify({name:'@earendil-works/pi-coding-agent',version:'1.1.0'}));assert.throws(()=>inspectPiRuntime(dir),/bundled CLI missing/);assert.throws(()=>resolvePiTestRuntime({env:{PI_MANAGED_INSTALL_ROOT:join(dir,'empty')}}),/SDK unavailable/);
