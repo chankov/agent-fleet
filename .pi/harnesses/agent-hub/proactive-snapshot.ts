@@ -1,3 +1,4 @@
+import {sessionRootsFromEnv,validateSessionRoots,sessionGitEnv,type SessionRoots} from '../lib/workspace-context.ts';
 import { captureExternal, type ExternalBaseline } from "./proactive-external.ts";
 import type { PolicyRootTable } from "../lib/policy-roots.ts";
 import { safeSourceRead } from "../lib/safe-source-read.js";
@@ -33,7 +34,7 @@ function remaining(start: number, now: () => number): number {
 function git(root: string, args: string[], start: number, now: () => number, maxBuffer = 1024 * 1024): Buffer {
  remaining(start, now);
  // The enclosing process-group deadline owns cancellation; this is only a backup.
- const bytes = execFileSync("git", ["-C", root, ...args], { timeout: PROACTIVE_LIMITS.captureMs + 200, maxBuffer, stdio: ["ignore", "pipe", "pipe"] });
+ const bytes = execFileSync("git", ["-C", root, ...args], { env:process.env.AF_SESSION_ROOTS?sessionGitEnv():process.env, timeout: PROACTIVE_LIMITS.captureMs + 200, maxBuffer, stdio: ["ignore", "pipe", "pipe"] });
  remaining(start, now);
  return bytes;
 }
@@ -64,6 +65,7 @@ function excerpt(bytes: Buffer, secrets: readonly string[]): SourceExcerpt {
  return Object.freeze({ hash: hash(text), offset: 0, endOffset: bytes.length, startLine: 1, endLine: Math.max(1, source.split("\n").length - (source.endsWith("\n") ? 1 : 0)), text, truncated: false });
 }
 export interface TurnBaseline {
+ readonly sessionRoots?:SessionRoots;
  readonly root: string;
  readonly head: string;
  readonly dirty: ReadonlyMap<string, Buffer | null>;
@@ -83,6 +85,8 @@ const code = (e: unknown): string => {
 /** Worker-only synchronous core. Never call on the agent's event loop. */
 export function beginTurnCore(input: { root: string; config: ProactiveConfig; turnId: string; context: TaskContext; knownTargets?: readonly string[]; now?: () => number; policyRoots?: PolicyRootTable }): TurnBaseline | null {
  if (!isCaptureEnabled(input.config)) return null;
+ let sessionRoots:SessionRoots|undefined;
+ try{sessionRoots=sessionRootsFromEnv();if(sessionRoots&&realpathSync(input.root)!==sessionRoots.executionRoot)return null;}catch{return null;}
  const now = input.now ?? Date.now, startedAt = now();
  let head = "";
  let initialPaths = new Set<string>();
@@ -114,9 +118,11 @@ export function beginTurnCore(input: { root: string; config: ProactiveConfig; tu
   const index = gaps.indexOf("git_unavailable");
   if (index >= 0) gaps.splice(index, 1);
  }
- return { independentWorkspace, root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
+ return { ...(sessionRoots?{sessionRoots}:{}), independentWorkspace, root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
 }
 export function finishTurnCore(baseline: TurnBaseline | null, input: { assistantText?: string; knownTargets?: readonly string[]; secrets?: readonly string[]; overlap?: boolean; now?: () => number; afterFirstRead?: () => void } = {}): TurnSnapshot | null {
+ const targetCurrent=()=>{try{if(baseline?.sessionRoots)validateSessionRoots(baseline.sessionRoots);return baseline?.sessionRoots?.targetId===sessionRootsFromEnv()?.targetId;}catch{return false;}};
+ if(!targetCurrent())return null;
  if (!baseline) return null;
  const now = input.now ?? Date.now, started = now();
  const gaps = [...baseline.gaps];
@@ -196,17 +202,19 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
   else { units.push(Object.freeze({ id: hash(`${baseline.turnId}:assistant`), path: "assistant", kind: "text", after: redacted, attribution: "observed_only" })); retained += size; }
  }
  const statusValue = gaps.some(g => g.includes("unstable_snapshot")) ? "unstable_snapshot" : gaps.length ? "partial" : "complete";
- const snapshotId = hash(JSON.stringify([baseline.turnId, baseline.head, baseline.context, units.map(u => [u.id, u.before?.hash, u.after?.hash]), gaps]));
+ if(!targetCurrent())return null;
+ const snapshotId = hash(JSON.stringify([...(baseline.sessionRoots?[baseline.sessionRoots.targetId]:[]),baseline.turnId, baseline.head, baseline.context, units.map(u => [u.id, u.before?.hash, u.after?.hash]), gaps]));
  const context = structuredClone(baseline.context);
  Object.freeze(context.task);
  if (context.plan) Object.freeze(context.plan);
  for (const rule of context.rules) Object.freeze(rule);
  Object.freeze(context.rules); Object.freeze(context.exceptions); Object.freeze(context);
- return Object.freeze({ snapshotId, turnId: baseline.turnId, head: baseline.head, context, planStatus: baseline.context.plan ? "bound" : "task_only", status: statusValue, gaps: Object.freeze(gaps), units: Object.freeze(units), observedPaths: observedPaths.size, coverage: Object.freeze({ retainedUnits: units.length, omittedPaths: omitted, retainedBytes: retained }) });
+ return Object.freeze({ ...(baseline.sessionRoots?{targetId:baseline.sessionRoots.targetId,workspaceRoot:baseline.sessionRoots.workspaceRoot,executionRoot:baseline.sessionRoots.executionRoot}:{}), snapshotId, turnId: baseline.turnId, head: baseline.head, context, planStatus: baseline.context.plan ? "bound" : "task_only", status: statusValue, gaps: Object.freeze(gaps), units: Object.freeze(units), observedPaths: observedPaths.size, coverage: Object.freeze({ retainedUnits: units.length, omittedPaths: omitted, retainedBytes: retained }) });
 }
 /** Immutable in-memory readback: never opens the source path. */
 export function readSnapshotUnit(snapshot: TurnSnapshot, snapshotId: string, unitId: string, contentHash: string): string | null {
  if (snapshot.snapshotId !== snapshotId) return null;
+ if(snapshot.targetId){try{if(sessionRootsFromEnv()?.targetId!==snapshot.targetId)return null;}catch{return null;}}
  const unit = snapshot.units.find(u => u.id === unitId);
  const excerpt = [unit?.before, unit?.after].find(e => e?.hash === contentHash);
  return excerpt?.text ?? null;

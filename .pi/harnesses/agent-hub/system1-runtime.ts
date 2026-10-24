@@ -1,3 +1,5 @@
+import {sessionRootsFromEnv} from '../lib/workspace-context.ts';
+import { worktreeConsumerService } from '../lib/system1/worktree-service.ts';
 import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../lib/system1/config-loader.js";
 import type { JsonText, System1Availability, System1Result, System1Service } from "../lib/system1/contracts.ts";
 import { createSystem1Runtime, DEFAULT_SYSTEM1_TIMEOUT_MS } from "../lib/system1/service.ts";
@@ -16,7 +18,7 @@ import {
 	type WatchdogStateV1,
 } from "./drift-system1.ts";
 
-let contextConsumer: {service:System1Service;config:any;epoch:object} | undefined;
+let contextConsumer: {service:System1Service;config:any;epoch:object;targetId?:string} | undefined;
 export function getContextCompactionService() { return contextConsumer; }
 export const WATCHDOG_SYSTEM1_MODES = ["off", "shadow", "active"] as const;
 export type WatchdogSystem1Mode = (typeof WATCHDOG_SYSTEM1_MODES)[number];
@@ -105,6 +107,7 @@ export interface ReadWatchdogSystem1SnapshotInput {
 export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotInput): CreateWatchdogSystem1SessionOptions {
 	const snapshot = input.snapshot ?? loadSystem1Snapshot(input.cwd);
 	return {
+  documentForWorktree: snapshot.document,
 		configuredMode: snapshot.consumers.watchdog.config?.mode ?? "off",
   contextCompactionConfig: snapshot.consumers.contextCompaction?.status === "ready" ? snapshot.consumers.contextCompaction.config : undefined,
 		watchdogArmed: normalizeWatchdogSetting(input.watchdogSetting) !== "off",
@@ -117,6 +120,7 @@ export function readWatchdogSystem1Snapshot(input: ReadWatchdogSystem1SnapshotIn
 }
 
 export interface CreateWatchdogSystem1SessionOptions {
+ documentForWorktree?: unknown;
  contextCompactionConfig?: unknown;
 	configuredMode: WatchdogSystem1Mode;
 	watchdogArmed: boolean;
@@ -142,8 +146,10 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			transport: options.transport,
 		});
 	const service = options.wrapService ? options.wrapService(runtime.service) : runtime.service;
+ const watchdogService=worktreeConsumerService(service,options.documentForWorktree,'watchdog')!;
+ const contextService=worktreeConsumerService(service,options.documentForWorktree,'contextCompaction')!;
  const contextEpoch={};
- contextConsumer=options.selected && runtime.readiness.status==="ready" && options.contextCompactionConfig ? {service,config:options.contextCompactionConfig,epoch:contextEpoch} : undefined;
+ contextConsumer=options.selected && runtime.readiness.status==="ready" && options.contextCompactionConfig ? {service:contextService,config:options.contextCompactionConfig,epoch:contextEpoch,...(sessionRootsFromEnv()?.mode==='targeted'?{targetId:sessionRootsFromEnv()!.targetId}:{})} : undefined;
 	const configuredMode = options.configuredMode;
 	// Only a profile matching this session's immutable provider/model and policy can open active.
 	// An unrelated shipped profile must not turn configured active into effective active.
@@ -181,7 +187,7 @@ export function createWatchdogSystem1Session(options: CreateWatchdogSystem1Sessi
 			controller.signal.addEventListener("abort", abortCall, { once: true });
 			input.signal?.addEventListener("abort", abortCall, { once: true });
 			try {
-				return await service.evaluate({
+				return await watchdogService.evaluate({
 					state: outbound.state,
 					questions: WATCHDOG_QUESTIONS,
 					questionSetVersion: WATCHDOG_QUESTIONS_VERSION,

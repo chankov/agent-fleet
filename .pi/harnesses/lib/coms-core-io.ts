@@ -117,6 +117,8 @@ export interface InboundContext {
 }
 
 export interface ComsIdentity {
+ baseProject?:string;
+ targetId?:string;
 	session_id: string;
 	name: string;
 	purpose: string;

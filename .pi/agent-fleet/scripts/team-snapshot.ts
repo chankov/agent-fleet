@@ -1,3 +1,5 @@
+import {workspaceRoot,executionRoot,sessionRootsFromEnv} from "../../harnesses/lib/workspace-context.ts";
+import {peerTarget,bindTargetLayout} from "./lib/peer-target.ts";
 // .pi/agent-fleet/scripts/team-snapshot.ts
 //
 // Fleet resume (B5): snapshot / tear down / rebuild a running peer team.
@@ -26,6 +28,7 @@ import { planSpawnDelays } from "./lib/spawn-stagger.ts";
 import { DEFAULT_PROJECT, hubCommand, parseProjectFlag, teamSnapshotPath, teamWorkspaceLabel, validateTeamName, worktreeTag } from "./lib/team-project.ts";
 import {
 	assertSnapshotProject,
+ assertSnapshotTarget,
 	buildSnapshot,
 	parseSnapshot,
 	resumeRefForPeer,
@@ -34,11 +37,13 @@ import {
 } from "./lib/team-snapshot.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "..");
+const REPO_ROOT = workspaceRoot(path.resolve(SCRIPT_DIR, "..", "..", ".."));
+const ROOTS=sessionRootsFromEnv();
+let runtimeTarget:ReturnType<typeof peerTarget>;
 // Must match team-up's tag so down/resume target the workspace it created.
-const WORKTREE_TAG = worktreeTag(REPO_ROOT);
+const WORKTREE_TAG = worktreeTag(executionRoot(REPO_ROOT));
 const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
-const SNAPSHOT_DIR = path.join(os.homedir(), ".pi", "team-snapshots");
+const SNAPSHOT_DIR = ROOTS?.mode==="targeted"?path.join(ROOTS.workspaceRoot,".pi/agent-sessions/team-snapshots",ROOTS.targetId):path.join(os.homedir(), ".pi", "team-snapshots");
 
 function die(msg: string): never {
 	console.error(msg);
@@ -107,6 +112,7 @@ async function captureSnapshot(client: Client, team: string, project = DEFAULT_P
 		panes,
 		agents: inWorkspace as Parameters<typeof buildSnapshot>[0]["agents"],
 		tag: WORKTREE_TAG,
+  ...(runtimeTarget?{sessionRoots:runtimeTarget.roots,baseProject:runtimeTarget.baseProject}:{}),
 	});
 	const file = snapshotPath(team, project);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -140,6 +146,7 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 	}
 	const snap = parseSnapshot(fs.readFileSync(file, "utf-8"));
 	try {
+		assertSnapshotTarget(snap,ROOTS);
 		assertSnapshotProject(snap, project);
 		if (snap.team !== team) throw new Error(`Snapshot team mismatch: snapshot is ${JSON.stringify(snap.team)}, requested ${JSON.stringify(team)}.`);
 	} catch (err) {
@@ -181,7 +188,7 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 	if (staggerNeeded) {
 		console.log("Stale pi OAuth token detected — staggering pane starts so one pane can refresh it first.");
 	}
-	const layout = buildTeamLayout({
+	const layout = bindTargetLayout(buildTeamLayout({
 		team: snap.team,
 		peers: snap.peers,
 		repoRoot: REPO_ROOT,
@@ -189,11 +196,11 @@ async function cmdResume(team: string, project = DEFAULT_PROJECT): Promise<void>
 		delayForPeer,
 		project,
 		...(snap.hub ? { hub: { command: hubCommand(project), label: "hub", ratio: 0.4 } } : {}),
-	});
+	}),runtimeTarget);
 
 	const created = await client.herdr.workspaceCreate({
 		label: workspaceLabel,
-		cwd: REPO_ROOT,
+		cwd: ROOTS?.executionRoot??REPO_ROOT,
 		focus: false,
 	});
 	const wsId = created.workspace.workspace_id;
@@ -224,6 +231,7 @@ async function main(): Promise<void> {
 	try {
 		validateTeamName(team);
 		project = parseProjectFlag(argv.slice(2));
+  runtimeTarget=peerTarget(project);if(runtimeTarget)project=runtimeTarget.project;
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}

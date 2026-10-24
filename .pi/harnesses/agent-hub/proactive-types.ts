@@ -44,6 +44,9 @@ export interface TurnUnit {
  readonly sourceRootId?: string;
 }
 export interface TurnSnapshot {
+ readonly targetId?:string;
+ readonly workspaceRoot?:string;
+ readonly executionRoot?:string;
  readonly snapshotId: string;
  readonly turnId: string;
  readonly head: string;

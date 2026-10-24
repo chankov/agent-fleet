@@ -1,3 +1,4 @@
+import {workspaceRoot} from '../lib/workspace-context.ts';
 import { readInstallationState } from "../lib/installation-state.js";
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { TASK_TRIAGE_LIMITS, TASK_TRIAGE_MODEL, TASK_TRIAGE_POLICY_VERSION, TASK_TRIAGE_PROVIDER, TASK_TRIAGE_QUESTION_VERSION } from "./task-triage-contract.ts";
@@ -8,7 +9,7 @@ import { parseTaskTriageConfig as parseShared } from "../lib/system1/config-tria
 export function parseTaskTriageConfig(value: unknown): TaskTriageConfigStatus { return parseShared(value) as TaskTriageConfigStatus; }
 /** Config parsing and loading are offline; no provider is constructed. */
 export function loadTaskTriageConfig(root: string, snapshot = loadSystem1Snapshot(root)): TaskTriageConfigStatus {
- const installation = readInstallationState(root);
+ const installation = readInstallationState(workspaceRoot(root));
  if (installation.status === 'invalid') return { status: 'invalid' };
  const section = snapshot.consumers.taskTriage;
  if (snapshot.status === "invalid" || snapshot.status === "migration_required" || section.status === "invalid") return { status: "invalid" };

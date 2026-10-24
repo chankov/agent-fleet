@@ -1,3 +1,5 @@
+import {sessionRootsFromEnv,resolveSessionRoots,withSessionRoots,executionRoot,sessionGitEnv,validateSessionRoots} from "../../../harnesses/lib/workspace-context.ts";
+import {realpathSync} from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
@@ -37,7 +39,8 @@ export class FlowMaintenanceError extends Error {
 }
 
 function run(command: string, args: string[], cwd: string): CommandResult {
-	const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+	const roots=sessionRootsFromEnv();if(roots)validateSessionRoots(roots);
+ const result = spawnSync(command, args, { cwd,env:roots?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8" });
 	return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "", ...(result.error ? { error: result.error } : {}) };
 }
 
@@ -45,7 +48,7 @@ function runTask(command: string, args: string[], cwd: string): Promise<CommandR
 	return new Promise(resolveTask => {
 		const visible = !(command === "wt" && args[0] === "--version");
 		let stdout = "", stderr = "", spawnError: Error | undefined;
-		const child = spawn(command, args, { cwd, stdio: ["inherit", "pipe", "pipe"] });
+		const child = spawn(command, args, { cwd,env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, stdio: ["inherit", "pipe", "pipe"] });
 		child.stdout.on("data", chunk => { const text = chunk.toString(); stdout += text; if (visible) process.stdout.write(text); });
 		child.stderr.on("data", chunk => { const text = chunk.toString(); stderr += text; if (visible) process.stderr.write(text); });
 		child.on("error", error => { spawnError = error; });
@@ -76,7 +79,8 @@ function worktrees(cwd: string): Map<string, string> {
 }
 
 function inferRunId(branch: string, cwd: string): string | undefined {
-	const sessions = resolve(cwd, ".pi", "flow-sessions");
+	const roots=sessionRootsFromEnv();
+ const sessions=roots?.mode==="targeted"?resolve(roots.workspaceRoot,".pi/flow-sessions/targets",roots.targetId):resolve(cwd,".pi/flow-sessions");
 	if (!existsSync(sessions)) return undefined;
 	return readdirSync(sessions, { withFileTypes: true })
 		.filter(entry => entry.isDirectory() && branch.endsWith(`-${entry.name}`))
@@ -87,7 +91,7 @@ function inferRunId(branch: string, cwd: string): string | undefined {
 function traceResult(cwd: string, runId?: string): "accepted" | "rejected" | undefined {
 	if (!runId) return undefined;
 	try {
-		const lines = readFileSync(resolve(cwd, ".pi", "flow-sessions", runId, "trace.jsonl"), "utf8").trim().split("\n").filter(Boolean);
+		const lines = readFileSync(resolve(sessionRootsFromEnv()?.mode==="targeted"?resolve(sessionRootsFromEnv()!.workspaceRoot,".pi/flow-sessions/targets",sessionRootsFromEnv()!.targetId):resolve(cwd,".pi/flow-sessions"),runId,"trace.jsonl"), "utf8").trim().split("\n").filter(Boolean);
 		for (let index = lines.length - 1; index >= 0; index--) {
 			const event = JSON.parse(lines[index]) as { type?: string; status?: string };
 			if (event.type === "run_end" && (event.status === "accepted" || event.status === "rejected")) return event.status;
@@ -179,9 +183,13 @@ async function selectedWorktree(info: FlowBranchInfo, cwd: string, taskRunner: C
 }
 
 export async function runFlowMaintenance(command: FlowMaintenanceCommand, options: FlowMaintenanceOptions = {}): Promise<number> {
-	const cwd = resolve(options.cwd ?? process.cwd());
+	if(command.selection){const selected=resolveSessionRoots(sessionRootsFromEnv()?.workspaceRoot??options.cwd??process.cwd(),command.selection);const next={...command};delete next.selection;return withSessionRoots(selected,()=>runFlowMaintenance(next,{...options,cwd:selected.executionRoot}));}
+ const binding=sessionRootsFromEnv();
+ const cwd = resolve(options.cwd ?? executionRoot(process.cwd()));
+ if(binding?.mode==="targeted"&&realpathSync(cwd)!==binding.executionRoot)throw new FlowMaintenanceError("flow_maintenance_target_mismatch");
 	const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
-	const taskRunner = options.taskRunner ?? runTask;
+	const selectedTaskRunner=options.taskRunner??runTask;
+ const taskRunner:CommandRunner=(command,args,dir)=>{if(binding){validateSessionRoots(binding);if(sessionRootsFromEnv()?.targetId!==binding.targetId)throw new FlowMaintenanceError("flow_maintenance_target_changed");if(binding.mode==='targeted'&&realpathSync(dir)!==binding.executionRoot)resolveSessionRoots(binding.workspaceRoot,{repository:binding.repositoryRoot,worktree:dir});}return selectedTaskRunner(command,args,dir);};
 	const ask = options.taskPrompt ?? defaultPrompt;
 	const out = options.writeOut ?? (text => process.stdout.write(text));
 	const error = options.writeError ?? (text => process.stderr.write(text));

@@ -32,7 +32,7 @@ export function discoverRules(repo: string, roots: readonly string[], policyRoot
  for (const root of roots) {
   // Match against the lexical checkout used to create the grant, not its realpath
   // (macOS /var aliases and symlinked checkout parents differ from repoReal).
-  const checkoutLexical = policyRoots?.roots.find(r => r.role === "workspace")?.lexicalPath ?? repo;
+  const checkoutLexical = policyRoots?.configBase ?? policyRoots?.roots.find(r => r.role === "workspace")?.lexicalPath ?? repo;
   const grant = policyRoots?.roots.find(r => r.role === "rules" && r.lexicalPath === resolve(checkoutLexical, root));
   const external = !!grant && !inside(repoReal, grant.canonicalPath);
   if (!root || isAbsolute(root) || (!grant && root.split(/[\\/]/).some(s => !s || s === ".." || s === "." || denied.test(s)))) { gaps.push(policyRoots ? `ungranted_root:${root}` : "invalid_root"); continue; }

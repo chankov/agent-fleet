@@ -5,6 +5,18 @@
     ".pi/agent-fleet/hermes/skills"
   ],
   "files": [
+    ".pi/agent-fleet/scripts/pi-session.ts",
+    ".pi/agent-fleet/scripts/exec-at-target.ts",
+    ".pi/agent-fleet/scripts/lib/session-launch.ts",
+    ".pi/agent-fleet/scripts/lib/peer-target.ts",
+    ".pi/agent-fleet/scripts/lib/resource-closure.js",
+    ".pi/harnesses/lib/workspace-context.ts",
+    ".pi/harnesses/lib/workspace-context.js",
+    ".pi/harnesses/lib/peer-target.ts",
+    ".pi/harnesses/lib/resource-closure.js",
+    ".pi/harnesses/lib/target-capabilities.js",
+    ".pi/harnesses/lib/damage-policy.ts",
+    ".pi/harnesses/lib/safe-source-read.js",
     ".pi/agent-fleet/scripts/claude-code-preflight.ts",
     ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
     ".pi/agent-fleet/scripts/coms-cli.ts",

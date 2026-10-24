@@ -10,6 +10,10 @@ import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protoco
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
 import { DISCOVERY_CHILD_ENV_KEYS, openDiscoveryAttempt, type DiscoverySpawnRegistration } from './file-discovery/owners.ts';
 import { realpathSync } from 'node:fs';
+import { join,resolve } from 'node:path';
+import { sessionRootsFromEnv,sessionGitEnv,validateSessionRoots } from '../lib/workspace-context.ts';
+import { readDamagePolicy } from '../lib/damage-policy.ts';
+import { resourceClosureGaps } from '../lib/resource-closure.js';
 import { damageAssignmentEnv, type DamagePhysicalLease, type DamageSpawnRegistration } from './damage-guard-owners.ts';
 import { SYSTEM1_API_KEY_ENV } from "../lib/system1/config.js";
 import { confineNativeChild, type WriteIsolationRequest, type WriteIsolationResult } from "./write-isolation.ts";
@@ -189,6 +193,8 @@ export function nativeChildEnv(
 	base: NodeJS.ProcessEnv = process.env,
 	overrides?: Record<string, string | undefined> | NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
+ for(const key of ['AF_SESSION_ROOTS','AF_TARGET_BASE_PROJECT','AF_TARGET_EFFECTIVE_PROJECT'])if(overrides&&Object.prototype.hasOwnProperty.call(overrides,key)&&overrides[key]!==base[key])throw Error(`child_session_context_override:${key}`);
+ const roots=sessionRootsFromEnv(base);
 	const merged: NodeJS.ProcessEnv = { ...base };
 	if (overrides) {
 		for (const [key, value] of Object.entries(overrides)) {
@@ -197,7 +203,8 @@ export function nativeChildEnv(
 		}
 	}
 	for (const key of Object.keys(merged)) if (key.startsWith('AF_D6') || key.startsWith('AF_D9_') || key.startsWith('AF_D7_') || (NATIVE_CHILD_STRIPPED_ENV_KEYS as readonly string[]).includes(key)) delete merged[key];
-	return merged;
+ if(roots)merged.AF_SESSION_ROOTS=JSON.stringify(roots);
+	return roots?.mode==='targeted'?sessionGitEnv(merged):merged;
 }
 
 const discoveryProcessRevocations = new WeakMap<ChildProcess, () => void>();
@@ -232,6 +239,17 @@ async function spawnPiAgentUnchecked(
 	opts: SpawnPiAgentOptions,
 	cbs: SpawnPiAgentCallbacks = {},
 ): Promise<SpawnPiAgentResult> {
+ const inherited=nativeChildEnv(process.env,opts.env),roots=sessionRootsFromEnv(inherited);
+ if(roots?.mode==='targeted'){
+  if(realpathSync(opts.cwd??process.cwd())!==roots.executionRoot)throw Error('native_child_target_mismatch');
+  const extensions=(opts.extensions??[]).map(path=>realpathSync(resolve(roots.workspaceRoot,path)));
+  if(extensions.some(path=>![roots.workspaceRoot,roots.resourceRoot].some(root=>path.startsWith(root+'/'))))throw Error('native_child_foreign_resource');
+  if(!extensions.includes(realpathSync(join(roots.workspaceRoot,'.pi/harnesses/damage-control-continue/index.ts'))))throw Error('native_child_missing_damage_control');
+  const closure=resourceClosureGaps(roots.resourceRoot,extensions,[roots.workspaceRoot]);if(closure.length)throw Error(`native_child_incomplete_resources:${closure.join(';')}`);
+  readDamagePolicy(roots.executionRoot,roots);
+  const session=resolve(opts.sessionFile);if(![join(roots.workspaceRoot,'.pi/agent-sessions'),join(roots.workspaceRoot,'.pi/flow-sessions')].some(base=>session.startsWith(base+'/')))throw Error('native_child_foreign_session_state');
+  opts={...opts,cwd:roots.executionRoot,extensions};
+ }
 	const promptArg = opts.systemPrompt !== undefined
 		? ["--system-prompt", opts.systemPrompt]
 		: ["--append-system-prompt", opts.appendSystemPrompt ?? ""];
@@ -243,6 +261,11 @@ async function spawnPiAgentUnchecked(
 		"--model", opts.model, "--tools", opts.tools, "--thinking", opts.thinking,
 		...promptArg, "--session", opts.sessionFile,
 	];
+ if(roots?.mode==='targeted'){
+  args.push('--no-approve','--no-mcp','--no-themes','--no-skills','--no-prompt-templates');
+  if(!opts.noContextFiles)for(const name of ['AGENTS.md','CLAUDE.md']){const full=join(roots.workspaceRoot,name);if(existsSync(full)){const canonical=realpathSync(full);if(![roots.workspaceRoot,roots.resourceRoot].some(root=>canonical.startsWith(root+'/')))throw Error('native_child_foreign_instructions');args.push('--append-system-prompt',canonical);break;}}
+  if(!opts.noSkills)for(const path of ['.pi/skills','skills']){const full=join(roots.workspaceRoot,path);if(existsSync(full)){const canonical=realpathSync(full);if(![roots.workspaceRoot,roots.resourceRoot].some(root=>canonical.startsWith(root+'/')))throw Error('native_child_foreign_skills');args.push('--skill',canonical);}}
+ }
 	if (opts.resume) args.push("-c");
 
 	const generation = opts.physicalAttempt?.generation ?? 1;
@@ -258,7 +281,9 @@ async function spawnPiAgentUnchecked(
  };
  const damageTools = opts.tools.split(',').map(t=>t.trim()).filter((t,i,all)=>['bash','write','edit','read','filesystem'].includes(t) && opts.damageRegistration?.tools.includes(t) && all.indexOf(t)===i);
  const damageAssigned = damageTools.length > 0;
+ const checkTarget=()=>{if(sessionRootsFromEnv()?.targetId!==roots?.targetId)throw Error('native_child_target_changed');if(roots)validateSessionRoots(roots);};
  const checkDamage = () => {
+  checkTarget();
   if (!damageAssigned) return;
   let valid = false;
   try {
@@ -295,10 +320,10 @@ async function spawnPiAgentUnchecked(
   const effectiveTools = opts.tools.split(',').map(t=>t.trim()).filter(t=>opts.discoveryRegistration!.owner.effectiveTools.includes(t));
   try {
    discoveryAttempt = openDiscoveryAttempt({...opts.discoveryRegistration,owner:{...opts.discoveryRegistration.owner,effectiveTools,cwd:opts.cwd??process.cwd()}});
-   if(opts.discoveryRegistration.extension)args.push('-e',opts.discoveryRegistration.extension);
+   if(opts.discoveryRegistration.extension){const extension=roots?.mode==='targeted'?realpathSync(opts.discoveryRegistration.extension):opts.discoveryRegistration.extension;if(roots?.mode==='targeted'&&!extension.startsWith(roots.resourceRoot+'/'))throw Error('native_child_foreign_discovery_resource');args.push('-e',extension);}
   } catch(error) {
    // D9 availability is advisory; authoritative launch admission still fails closed.
-   if(error instanceof Error&&error.message==='owner_admission_changed')throw error;
+   if(error instanceof Error&&['owner_admission_changed','native_child_foreign_discovery_resource'].includes(error.message))throw error;
    opts={...opts,prompt:opts.prompt+'\n\nFile discovery physical attempt: unavailable (registration unavailable). Continue ordinary permitted discovery; original task, scope and gates remain authoritative.'};
   }
  }
@@ -311,7 +336,7 @@ async function spawnPiAgentUnchecked(
 		});
 	}
  checkDamage();
- args.push('-e',fileURLToPath(new URL('./context-continuity-child.ts',import.meta.url)));
+ args.push('-e',roots?.mode==='targeted'?join(roots.resourceRoot,'.pi/harnesses/agent-hub/context-continuity-child.ts'):fileURLToPath(new URL('./context-continuity-child.ts',import.meta.url)));
  try {
   contextBroker ??= createContextContinuityBroker();
   const broker=await contextBroker;
@@ -477,6 +502,7 @@ async function spawnPiAgentUnchecked(
 			}).filter(Boolean).join("\n");
 		};
 		const handleEvent = (event: any) => {
+   try{checkTarget();}catch{terminate('cancelled');return;}
    if(event.type==='message_end' && event.message?.role==='assistant' && event.message.stopReason==='stop' && recoveryAbortEpisode!==undefined && contextOwner?.status.phase==='continued' && contextOwner.status.episode===recoveryAbortEpisode+1) {assistantError=undefined;recoveryAbortEpisode=undefined;}
 			if (event.type === "message_update") {
 				const delta = event.assistantMessageEvent;

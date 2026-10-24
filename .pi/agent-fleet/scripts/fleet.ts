@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { parseFleetCommand } from "./lib/fleet-command.ts";
 import { resolveMonitorEnv } from "./lib/monitor-env.ts";
 import { assertRuntimeDependencies } from "./lib/runtime-dependencies.js";
+import {resolveSessionRoots,sessionRootsFromEnv,type SessionRoots} from '../../harnesses/lib/workspace-context.ts';
 
 const PI_LAUNCH_RECIPES = new Set([
 	"_fleet-core",
@@ -17,6 +18,18 @@ const PI_LAUNCH_RECIPES = new Set([
 ]);
 
 const HELP = `Agent Fleet — one guarded Hub runtime, two work modes, independent topology
+
+СЕСИЕН WORKTREE TARGET
+  just fleet --worktree ../repo.worktree --dry-run
+  just fleet --worktree ../repo.worktree [--herdr] [--project example]
+  just flow quality --worktree ../repo.worktree
+      Workspace/config остава af; coding/Git cwd е регистрираният checkout.
+      Селекторът е относителен към Fleet workspace. Няма global active target,
+      worktree create/remove или автоматично разрешение за source export.
+      /af-worktree status и /af-worktree-consent <consumer> показват scope.
+      Targeted BTW/Hermes conductor отказват; external services не са изолирани.
+      Guide: docs/session-worktree-targeting.md (source) или
+      .pi/agent-fleet/docs/session-worktree-targeting.md (installed).
 
 SET UP A NEW REPOSITORY
   npx @chankov/agent-fleet@latest setup
@@ -165,15 +178,20 @@ Configuration:
   Full docs:      docs/pi-extensions.md and docs/pi-setup.md
 `;
 
-function main(): void {
+async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	if (argv[0] === "help" || argv[0] === "--help" || argv[0] === "-h") {
 		process.stdout.write(HELP);
 		return;
 	}
 	let invocation;
+ let roots:SessionRoots|undefined;
 	try {
 		invocation = parseFleetCommand(argv);
+  const inherited=sessionRootsFromEnv();
+  roots=invocation.selection?resolveSessionRoots(inherited?.workspaceRoot??process.cwd(),invocation.selection):inherited;
+  if(roots?.mode==='targeted'&&invocation.recipe.startsWith('_fleet-conductor'))throw Error('Targeted Hermes conductor is unsupported: external profile split-root contract is unverified; use --hub or a targeted Pi peer');
+  if(roots?.mode==='targeted'&&argv.slice(0,argv.indexOf('--')<0?argv.length:argv.indexOf('--')).includes('--all-extensions'))throw Error('--all-extensions is unsupported with --worktree; load explicit workspace extensions');
 	} catch (err) {
 		console.error(`fleet: ${err instanceof Error ? err.message : String(err)}\n`);
 		process.stderr.write(HELP);
@@ -188,13 +206,22 @@ function main(): void {
 	// a missing npm tree look like an unrelated "Unknown option" parser error.
 	if (PI_LAUNCH_RECIPES.has(invocation.recipe)) {
 		try {
-			assertRuntimeDependencies(process.cwd());
+			assertRuntimeDependencies(roots?.resourceRoot??process.cwd());
 		} catch (error) {
+   if(roots?.mode==='targeted'&&(invocation.preview||invocation.recipe.endsWith('-dry'))){console.log(JSON.stringify({ready:false,gaps:['missing_runtime_dependencies'],workspaceRoot:roots.workspaceRoot,executionRoot:roots.executionRoot,targetId:roots.targetId},null,2));process.exitCode=1;return;}
 			console.error(`fleet: ${error instanceof Error ? error.message : String(error)}`);
 			process.exitCode = 1;
 			return;
 		}
 	}
+ let environment:NodeJS.ProcessEnv=process.env;
+ if(roots?.mode==='targeted'){
+  const {targetReadiness,targetEnvironment}=await import('./lib/session-launch.ts');
+  const readiness=targetReadiness(roots);
+  if(invocation.preview){console.log(JSON.stringify(readiness,null,2));process.exitCode=readiness.ready?0:1;return;}
+  if(!readiness.ready){console.error(`fleet: targeted launch refused: ${readiness.gaps.join('; ')}`);process.exitCode=1;return;}
+  environment=targetEnvironment(roots);
+ }
 	// Every mode gets the monitor variables, not just `hub`: a plain `just fleet`
 	// or a `peer` loads no agent-hub and so reads them never, while `hub` and
 	// `team` both reach the hub through a Just recipe that inherits this
@@ -204,7 +231,8 @@ function main(): void {
 	// before this existed.
 	const result = spawnSync("just", [invocation.recipe, ...invocation.args], {
 		stdio: "inherit",
-		env: { ...process.env, ...(resolveMonitorEnv() ?? {}) },
+		env: { ...environment, ...(resolveMonitorEnv() ?? {}) },
+  cwd:roots?.workspaceRoot??process.cwd(),
 	});
 	if (result.error) {
 		console.error(`fleet: could not run just: ${result.error.message}`);
@@ -214,4 +242,4 @@ function main(): void {
 	process.exitCode = result.status ?? 1;
 }
 
-main();
+main().catch(error=>{console.error(`fleet: ${error instanceof Error?error.message:String(error)}`);process.exitCode=1;});

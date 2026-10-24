@@ -34,6 +34,7 @@ import type {
 	AgentSession,
 	AgentSessionEvent,
 } from "@mariozechner/pi-coding-agent";
+import {sessionRootsFromEnv} from '../../harnesses/lib/workspace-context.ts';
 import {
 	getMarkdownTheme,
 	copyToClipboard,
@@ -449,6 +450,7 @@ export default function btwExtension(pi: ExtensionAPI) {
 	}
 
 	async function launch(ctx: ExtensionCommandContext, note: string): Promise<void> {
+  if(sessionRootsFromEnv()?.mode==='targeted'){ctx.ui.notify('btw is unavailable for --worktree: its in-process fork does not carry Fleet guard registrations. Use dispatch_agent for a guarded side task.','error');return;}
 		const mainSession = ctx.sessionManager.getSessionFile();
 		if (!mainSession || !existsSync(mainSession)) {
 			ctx.ui.notify("btw: no session file to fork yet — send a message first.", "error");

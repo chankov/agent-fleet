@@ -2,6 +2,7 @@ import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discove
 import { registerDamageGuardHub, configureDamageGuardHub, resetDamageGuardHub, acceptDamageGuardInput, prepareDamageGuardNative } from './damage-guard-hub.ts';
 import { bindSemanticScope } from '../lib/semantic-approval.ts';
 import { registerAgenticHub, configureAgenticHub, agenticHubEnabled, agenticHubRuntime, resetAgenticHub } from './agentic-hub.ts';
+import {worktreeConsumerService} from '../lib/system1/worktree-service.ts';
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
 import { registerDispatchTriage } from "./tools/dispatch-triage.ts";
@@ -2412,7 +2413,7 @@ export default function (pi: ExtensionAPI) {
    taskTriageConfigured = taskTriageConfig.status !== "missing";
    taskTriageConfigStatus = taskTriageConfig.status === "active" ? "active" : taskTriageConfig.status === "invalid" ? "invalid" : "off";
    taskTriageActivity = taskTriageConfig.status === "active" ? createTaskTriageActivity({ directory: sessionDir ? path.join(sessionDir, "artifacts/task-triage-activity") : undefined }) : null;
-   taskTriage = taskTriageConfig.status === "active" ? createTaskTriageRuntime({ root: _ctx.cwd || process.cwd(), service: sharedService, serviceUnavailableReason, persist: state => pi.appendEntry(TASK_TRIAGE_RUNTIME_ENTRY, state), observer: taskTriageActivity! }) : null;
+   taskTriage = taskTriageConfig.status === "active" ? createTaskTriageRuntime({ root: _ctx.cwd || process.cwd(), service: worktreeConsumerService(sharedService,system1Snapshot.document,'taskTriage'), serviceUnavailableReason, persist: state => pi.appendEntry(TASK_TRIAGE_RUNTIME_ENTRY, state), observer: taskTriageActivity! }) : null;
    if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
     try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "service_init", configStatus: taskTriageConfig.status, consumerPresent: !!taskTriage, fakeTransportActive: taskTriageTestTransportActive, sharedServiceReady: !!sharedService, serviceUnavailableReason }) + "\n"); } catch { /* diagnostic only */ }
    }
@@ -2420,7 +2421,7 @@ export default function (pi: ExtensionAPI) {
     try { _ctx.ui.notify(`Task triage is enabled but unavailable (${serviceUnavailableReason}); no inference or new requirements will be added. Existing process obligations remain enforced.`, "warning"); }
     catch { /* Optional UI must not change process enforcement. The prompt retains the status. */ }
    }
-   triageRuntime = createTriageRuntime({ config: triageConfig, service: watchdogSystem1?.sharedService,
+   triageRuntime = createTriageRuntime({ config: triageConfig, service: worktreeConsumerService(watchdogSystem1?.sharedService,system1Snapshot.document,'dispatchTriage'),
     current: input => triageInput(input.task,input.scope,input.language,input.domain),
     trace: event => pi.appendEntry("agent-hub-triage", event),
    });
@@ -2439,7 +2440,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			if (proactiveConfig && sessionDir) {
 				try { proactiveRuntime = composeHubProactive({ config: proactiveConfig, root: _ctx.cwd, sessionDir,
-					rulesRoots: sessionOverrides.rulesDirs, policyRoots: sessionOverrides.policyRoots, service: watchdogSystem1?.sharedService, capture: hubCapture, onChange: updateWidget }); }
+					rulesRoots: sessionOverrides.rulesDirs, policyRoots: sessionOverrides.policyRoots, service: worktreeConsumerService(watchdogSystem1?.sharedService,system1Snapshot.document,'proactiveReview'), capture: hubCapture, onChange: updateWidget }); }
 				catch { proactiveRuntime = null; proactiveConfig = null; } // unavailable composition never reports reviewed
 			}
 		},

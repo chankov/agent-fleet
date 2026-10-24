@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {isolatedFleetTestEnv} from '../../../bin/test/helpers/test-environment.js';
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,7 +59,7 @@ function startRpcProbe(
 	extraArgs: string[] = [],
 	options: { beforeHubExtensions?: string[]; fleetArgs?: string[]; cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ) {
-	const env = { ...(options.env ?? process.env), PI_OFFLINE: "1" };
+	const env = { ...isolatedFleetTestEnv(options.env ?? process.env), PI_OFFLINE: "1" };
 	delete env.HERDR_ENV;
 	delete env.HERDR_PANE_ID;
 	delete env.HERDR_WORKSPACE_ID;
@@ -522,7 +523,7 @@ function streamPressure(model, context, options) {
     const output = {
       role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
       // 55% seed and 62.5% probe turns stay below the 70% target; only the probe result crosses it.
-      usage: { input: providerCalls === 1 ? 150000 : providerCalls === 2 ? 170000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      usage: { input: providerCalls === 1 ? 150000 : providerCalls <= 3 ? 170000 : 1000, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       stopReason: "pending", timestamp: Date.now(),
     };
@@ -532,11 +533,17 @@ function streamPressure(model, context, options) {
     const toolCount = context.tools?.length || getCurrentTools(context.messages ?? []).length;
     record({ type: "provider", call: providerCalls, summaryPrompt: /context summarization assistant/i.test(systemPrompt), toolCount, deferred: JSON.stringify(context.messages).includes("deferred-after-pressure") });
     stream.push({ type: "start", partial: output });
-    if (providerCalls === 2) {
-      const toolCall = { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} };
-      output.content.push(toolCall);
-      stream.push({ type: "toolcall_start", contentIndex: 0, partial: output });
-      stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: output });
+    if (providerCalls === 2 || providerCalls === 3) {
+      // Admission checks a batch before executing any calls. Bind in the preceding
+      // model step; do not bypass the pending-input gate for this fixture.
+      const calls = [providerCalls===2
+        ? { type: "toolCall", id: "pressure-bind", name: "set_task_tier", arguments: { tier: "small", risk: "low", scope: "read-only", reason: "Synthetic pressure fixture" } }
+        : { type: "toolCall", id: "pressure-call", name: "pressure_probe", arguments: {} }];
+      for (const toolCall of calls) {
+        const contentIndex=output.content.length;output.content.push(toolCall);
+        stream.push({ type: "toolcall_start", contentIndex, partial: output });
+        stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
+      }
       output.stopReason = "toolUse";
     } else {
       const text = providerCalls === 1 ? "seed ".repeat(20000) : "context recovery summary";
@@ -583,7 +590,7 @@ export default function (pi) {
 			await new Promise(resolve => setTimeout(resolve, 20));
 		}
 		await waitForRpcIdle(rpc.request);
-		const pressureReply = await rpc.request({ type: "prompt", message: "run the pressure probe" });
+		const pressureReply = await rpc.request({ type: "prompt", message: "Use Fleet specialist controls to bind this same task, then run the pressure probe. Do not dispatch a specialist." });
 		assert.equal(pressureReply.success, true, JSON.stringify(pressureReply));
 		const resultDeadline = Date.now() + 10_000;
 		for (;;) {
@@ -617,12 +624,15 @@ export default function (pi) {
 			await new Promise(resolve => setTimeout(resolve, 20));
 		}
 		const events = readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+		const binding=events.find(event=>event.type==='probe_result'&&event.tool==='set_task_tier');
+		assert.ok(binding&&!binding.isError,`binding must succeed: ${JSON.stringify(events)}`);
+		assert.ok(events.indexOf(binding)<events.findIndex(event=>event.type==='probe_executed'),'binding must finish before effects');
 		assert.equal(events.filter(event => event.type === "probe_executed" && event.chars === 140000).length, 1);
 		const providers = events.filter(event => event.type === "provider");
 		const deferredIndex = providers.findIndex(event => event.deferred);
-		assert.ok(deferredIndex >= 3, `expected seed + tool + compaction before replay: ${JSON.stringify(providers)}`);
-		assert.ok(providers.slice(0, 2).every(event => event.toolCount > 0 && !event.summaryPrompt), "seed and probe are ordinary agent calls");
-		assert.ok(providers.slice(2, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
+		assert.ok(deferredIndex >= 4, `expected seed + binding + tool + compaction before replay: ${JSON.stringify(providers)}`);
+		assert.ok(providers.slice(0, 3).every(event => event.toolCount > 0 && !event.summaryPrompt), "seed, binding and probe are ordinary agent calls");
+		assert.ok(providers.slice(3, deferredIndex).every(event => event.summaryPrompt && event.toolCount === 0),
 			`no ordinary provider request may run between pressure and recovery: ${JSON.stringify(providers)}`);
 		assert.equal(providers[deferredIndex].summaryPrompt, false);
 		assert.ok(providers[deferredIndex].toolCount > 0, "deferred input replays through the ordinary Hub surface");

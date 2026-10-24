@@ -1,19 +1,33 @@
 import { randomUUID } from "node:crypto";
 import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import {sessionRootsFromEnv,validateSessionRoots} from '../lib/workspace-context.ts';
+import {safeSourceRead} from '../lib/safe-source-read.js';
 import { safePathWithin } from "./helpers.ts";
 
 /** Allocate rather than clear: another live session may own any existing directory. */
 export function createEvidenceSession(cwd: string): string {
  const sessionId = randomUUID();
- const dir = safePathWithin(cwd, ".pi", "agent-sessions", "sessions", sessionId);
+ const roots=sessionRootsFromEnv();
+ if(roots?.mode==='targeted')cwd=roots.workspaceRoot;
+ const dir = roots?.mode==='targeted'?safePathWithin(cwd,'.pi','agent-sessions','targets',roots.targetId,'sessions',sessionId):safePathWithin(cwd, ".pi", "agent-sessions", "sessions", sessionId);
  mkdirSync(dir, { recursive: true, mode: 0o700 });
- writeFileSync(safePathWithin(dir, "session.json"), JSON.stringify({ sessionId, cwd, pid: process.pid, startedAt: new Date().toISOString() }, null, 2), { flag: "wx", mode: 0o600 });
+ writeFileSync(safePathWithin(dir, "session.json"), JSON.stringify({ sessionId, cwd:roots?.executionRoot??cwd, ...(roots?.mode==='targeted'?{workspaceRoot:roots.workspaceRoot,executionRoot:roots.executionRoot,targetId:roots.targetId,roots}:{}), pid: process.pid, startedAt: new Date().toISOString() }, null, 2), { flag: "wx", mode: 0o600 });
  return dir;
+}
+
+function evidenceTarget(sessionDir:string){
+ const path=safePathWithin(sessionDir,'session.json');if(!existsSync(path))return undefined;
+ const metadata=JSON.parse(safeSourceRead(sessionDir,path,65536).toString('utf8'));
+ if(!metadata.roots)return undefined;
+ const roots=validateSessionRoots(metadata.roots);
+ if(sessionRootsFromEnv()?.targetId!==roots.targetId)throw Error('evidence_target_mismatch');
+ return {targetId:roots.targetId,workspaceRoot:roots.workspaceRoot,executionRoot:roots.executionRoot,repositoryRoot:roots.repositoryRoot};
 }
 
 /** Request/result are separate create-exclusive records; even failed and resumed runs survive. */
 export function beginExecutionEvidence(sessionDir: string, dispatchId: string, request: object, inputs: { path: string }[] = []): string {
+ const target=evidenceTarget(sessionDir);
  const dir = safePathWithin(sessionDir, "dispatches", dispatchId);
  mkdirSync(dir, { recursive: true, mode: 0o700 });
  const retainedInputs = inputs.map((input, i) => {
@@ -21,13 +35,14 @@ export function beginExecutionEvidence(sessionDir: string, dispatchId: string, r
   copyFileSync(input.path, retainedPath, constants.COPYFILE_EXCL);
   return { path: input.path, retainedPath };
  });
- writeFileSync(safePathWithin(dir, "request.json"), JSON.stringify({ ...request, dispatchId, inputs: retainedInputs }, null, 2), { flag: "wx", mode: 0o600 });
+ writeFileSync(safePathWithin(dir, "request.json"), JSON.stringify({ ...request, dispatchId, ...(target?{sessionTarget:target}:{}), inputs: retainedInputs }, null, 2), { flag: "wx", mode: 0o600 });
  return dir;
 }
 
 export function finishExecutionEvidence<T extends object>(dir: string, result: T): T & { evidencePath: string } {
  const evidencePath = safePathWithin(dir, "result.json");
- const recorded = { ...result, evidencePath };
+ const target=evidenceTarget(dirname(dirname(dir)));
+ const recorded = { ...result, evidencePath, ...(target?{sessionTarget:target}:{}) };
  writeFileSync(evidencePath, JSON.stringify(recorded, null, 2), { flag: "wx", mode: 0o600 });
  return recorded;
 }
@@ -72,6 +87,7 @@ export function pruneEvidenceSessions(sessionDir: string, keep: number | null, a
 }
 
 export function retainDeliverable(sessionDir: string, dispatchId: string, index: number, bytes: Buffer): string {
+ evidenceTarget(sessionDir);
  const dir = safePathWithin(sessionDir, "dispatches", dispatchId, "deliverables");
  mkdirSync(dir, { recursive: true, mode: 0o700 });
  const path = safePathWithin(dir, String(index));

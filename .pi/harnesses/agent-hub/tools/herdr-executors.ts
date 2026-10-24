@@ -1,3 +1,5 @@
+import {workspaceRoot} from '../../lib/workspace-context.ts';
+import {peerTarget,targetPaneEnv,targetPeerCommand} from '../../lib/peer-target.ts';
 import { processPreEffectGate, type ProcessObligationState } from "../process-obligations.ts";
 import { PROFILE_ENV, profilePeerGate, profileSpawnPeerRefusal, readActiveProfile } from '../policy/profile-runtime.ts';
 import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peers.js";
@@ -14,7 +16,7 @@ export interface HerdrExecutorDeps {
 	provisionalCapabilityRefusal(pack: "workspace"): ToolExecutionResult | null;
 	isFleetReady(): boolean;
 	isComsReady(): boolean;
-	getIdentity(): { project: string } | null;
+	getIdentity(): { project: string; baseProject?:string } | null;
 	getCurrentContext(): { cwd?: string; hasUI?: boolean; ui?: any } | null;
 	peersInScope(): Array<{ name: string }>;
 	getComsPeerNames(): string[];
@@ -44,14 +46,17 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 		if (!d.isComsReady() || !identity) return { content: [{ type: "text", text: "Cannot spawn an addressable peer while coms is unavailable. Start without --solo/--no-coms, or use herdr_spawn_pane for a non-peer command." }], details: { error: "no coms" } };
 		try {
 			const cwd = d.getCurrentContext()?.cwd ?? process.cwd();
-			const plan = buildHubPeerSpawnPlan(params, { project: identity.project, peersYaml: peerManifest(cwd), personaExists: persona => peerPersonaExists(cwd, persona), worktreeTag: worktreeTag(cwd) });
-			const profileRefusal = profileSpawnPeerRefusal(plan); if (profileRefusal) return profileRefusal;
+			let plan = buildHubPeerSpawnPlan(params, { project: identity.project, peersYaml: peerManifest(cwd), personaExists: persona => peerPersonaExists(cwd, persona), worktreeTag: worktreeTag(cwd) });
+			const target=peerTarget(identity.project,identity.baseProject);
+   if(target){if(params.all_extensions)throw Error('Targeted peers refuse --all-extensions');plan={...plan,command:targetPeerCommand(plan.command,target.roots)};}
+   const profileRefusal = profileSpawnPeerRefusal(plan); if (profileRefusal) return profileRefusal;
 			if (d.peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
-			const env: Record<string, string> = {};
-			if (plan.envFile) { const envPath = resolveEnvFilePath(plan.envFile, cwd); if (!d.envFileExists(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`); Object.assign(env, parseEnvFile(d.readEnvFile(envPath), plan.envFile)); }
+			let env: Record<string, string> = {};
+			if (plan.envFile) { const envPath = resolveEnvFilePath(plan.envFile, workspaceRoot(cwd)); if (!d.envFileExists(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`); Object.assign(env, parseEnvFile(d.readEnvFile(envPath), plan.envFile)); }
 			const active = readActiveProfile(); if (active) env[PROFILE_ENV] = JSON.stringify(active);
 			const delay = plan.runner === "pi" ? spawnDelaySeconds(d.getLastPiSpawnAt()) : 0; if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
-			const launched = await launchHubPeerInPane(plan, {
+			if(target)env=targetPaneEnv(env,target.roots,target.baseProject,target.project);
+   const launched = await launchHubPeerInPane(plan, {
 				client: d.herdr, targetPaneId: ownPane, cwd, env,
 				waitForRegistration: name => waitForPeerRegistration(name, () => d.isComsReady() && d.getIdentity() !== null, d.getComsPeerNames),
 				paneTail,

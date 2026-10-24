@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {sessionRootsFromEnv,validateSessionRoots,type SessionRoots} from '../../../../harnesses/lib/workspace-context.ts';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
 const runNamespacePath: string = "../../../../../.pi/harnesses/agent-hub/run-namespace.js";
 const { makeRunId } = await import(runNamespacePath) as { makeRunId(): string };
 
@@ -11,14 +12,22 @@ export class FlowTrace {
 	readonly directory: string;
 	readonly file: string;
 	private ended = false;
+ private readonly roots?:SessionRoots;
+ currentTarget():boolean{try{return sessionRootsFromEnv()?.targetId===this.roots?.targetId&&(!this.roots||validateSessionRoots(this.roots).targetId===this.roots.targetId);}catch{return false;}}
 
 	constructor(options: { cwd?: string; runId?: string; command?: string[]; pid?: number; directory?: string } = {}) {
 		this.runId = options.runId ?? makeRunId();
 		this.cwd = resolve(options.cwd ?? process.cwd());
-		this.directory = options.directory ? resolve(options.directory) : resolve(this.cwd, ".pi", "flow-sessions", this.runId);
+		this.roots=sessionRootsFromEnv();
+  if(this.roots?.mode==='targeted'&&realpathSync(this.cwd)!==this.roots.executionRoot)throw Error('flow_trace_target_mismatch');
+  this.directory = options.directory ? resolve(options.directory) : this.roots?.mode==='targeted'?resolve(this.roots.workspaceRoot,'.pi/flow-sessions/targets',this.roots.targetId,this.runId):resolve(this.cwd, ".pi", "flow-sessions", this.runId);
+  if(this.roots?.mode==='targeted'){
+   if(!this.directory.startsWith(resolve(this.roots.workspaceRoot,'.pi')+'/'))throw Error('flow_trace_outside_workspace');
+   let parent=this.directory;while(!existsSync(parent))parent=dirname(parent);const canonical=realpathSync(parent);if(canonical!==this.roots.workspaceRoot&&!canonical.startsWith(this.roots.workspaceRoot+'/'))throw Error('flow_trace_storage_denied');
+  }
 		this.file = resolve(this.directory, "trace.jsonl");
-		mkdirSync(this.directory, { recursive: true });
-		this.write("run_start", { pid: options.pid ?? process.pid, command: options.command ?? process.argv });
+		mkdirSync(this.directory, { recursive: true, mode:0o700 });
+		this.write("run_start", { ...(this.roots?.mode==='targeted'?{sessionTarget:{targetId:this.roots.targetId,workspaceRoot:this.roots.workspaceRoot,executionRoot:this.roots.executionRoot,repositoryRoot:this.roots.repositoryRoot}}:{}), pid: options.pid ?? process.pid, command: options.command ?? process.argv });
 	}
 
 	write(type: string, data: Record<string, unknown> = {}): void {

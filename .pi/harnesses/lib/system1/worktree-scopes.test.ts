@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';import {test} from 'node:test';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';
+import {resolveSessionRoots,sessionGitEnv} from '../workspace-context.ts';
+import {loadSystem1Snapshot,readSystem1Document} from './config-loader.js';
+import {approveWorktreeScope,worktreeScopePreview,worktreeScopeApproved,projectWorktreeDocument} from './worktree-scopes.ts';
+import {worktreeConsumerService} from './worktree-service.ts';
+test('exact per-consumer target consent precedes any provider export and never edits configuration',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'fleet-scopes-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),docs=join(root,'docs'),old=process.env.AF_SESSION_ROOTS;
+ const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});
+ const document={version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{watchdog:{mode:'shadow'},agenticAsk:{mode:'advisory',remoteContextApproved:true,include:['git:tracked']}}};
+ try{
+  mkdirSync(join(af,'.ai'),{recursive:true});mkdirSync(join(af,'.pi'));writeFileSync(join(af,'.pi/damage-control-rules.yaml'),JSON.stringify({bashToolPatterns:[],zeroAccessPaths:[],readOnlyPaths:[],noDeletePaths:[]}));mkdirSync(repo);mkdirSync(docs);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','initial');git('worktree','add','--detach',target);
+  const configPath=join(af,'.ai/system1.json'),configBytes=JSON.stringify(document,null,2);writeFileSync(configPath,configBytes);writeFileSync(join(af,'.ai/agent-fleet-overrides.md'),'## Agent-Hub\ndocs: ../docs\n');
+  mkdirSync(join(target,'.ai'));writeFileSync(join(target,'.ai/system1.json'),'{}');writeFileSync(join(repo,'sentinel'),'MAIN');writeFileSync(join(target,'sentinel'),'TARGET');
+  process.env.AF_SESSION_ROOTS=JSON.stringify(resolveSessionRoots(af,{worktree:target}));
+  const readDocument=()=>readSystem1Document(target);const preview=worktreeScopePreview(document,'agenticAsk')!;
+  const applicationConfig={...document,consumers:{proactiveReview:{mode:'advisory',remoteContext:'selected-excerpts',include:['../repo/src/**','../docs/**']}}};
+  const projected=projectWorktreeDocument(applicationConfig);
+  assert.deepEqual(projected.consumers.proactiveReview.include,['src/**','../docs/**']);
+  assert.deepEqual(applicationConfig.consumers.proactiveReview.include,['../repo/src/**','../docs/**']);
+  assert.deepEqual((worktreeScopePreview(applicationConfig,'proactiveReview')!.effectiveScope as any).include,['src/**','../docs/**']);
+  assert.throws(()=>projectWorktreeDocument({...applicationConfig,consumers:{proactiveReview:{include:['../unknown/**']}}}),/ambiguous_application_scope/);
+  assert.equal(preview.executionRoot,target);assert.deepEqual(preview.scope,document.consumers.agenticAsk);assert.ok(preview.policy.roots.some(root=>root.path===docs));
+  assert.equal(loadSystem1Snapshot(target).consumers.agenticAsk.reason,'needs_worktree_consent');
+  assert.equal(loadSystem1Snapshot(target).consumers.watchdog.config.mode,'off');
+  let calls=0;const fake:any={async evaluate(){calls++;return {status:'cancelled'};}};
+  const service=worktreeConsumerService(fake,document,'agenticAsk')!;
+  const request:any={state:'sentinel',questions:[],questionSetVersion:'test'};
+  assert.equal((await service.evaluate(request)).status,'unavailable');assert.equal(calls,0);
+  assert.equal((await approveWorktreeScope({consumer:'agenticAsk',readDocument})).reason,'approval_requires_ui');
+  assert.equal((await approveWorktreeScope({consumer:'agenticAsk',readDocument,ask:async()=>false})).status,'refused');
+  assert.equal((await approveWorktreeScope({consumer:'watchdog',readDocument,ask:async()=>true})).status,'approved');
+  assert.equal(worktreeScopeApproved(document,'agenticAsk'),false);
+  let asked=0;
+  assert.equal((await approveWorktreeScope({consumer:'agenticAsk',readDocument,ask:async got=>{asked++;assert.equal(got.digest,preview.digest);return true;}})).status,'approved');assert.equal(asked,1);
+  assert.equal(loadSystem1Snapshot(target).consumers.agenticAsk.status,'ready');
+  assert.equal((await service.evaluate(request)).status,'cancelled');assert.equal(calls,1);
+  assert.equal(readFileSync(configPath,'utf8'),configBytes);
+  const first=process.env.AF_SESSION_ROOTS;process.env.AF_SESSION_ROOTS=JSON.stringify(resolveSessionRoots(af,{worktree:repo}));assert.equal(worktreeScopeApproved(document,'agenticAsk'),false);assert.equal((await service.evaluate(request)).status,'unavailable');assert.equal(calls,1);process.env.AF_SESSION_ROOTS=first;
+  let release!:()=>void,began!:()=>void;const started=new Promise<void>(resolve=>{began=resolve;});const late=worktreeConsumerService({evaluate:()=>new Promise(resolve=>{release=()=>resolve({status:'cancelled'});began();})},document,'agenticAsk')!.evaluate(request);
+  await started;writeFileSync(configPath,JSON.stringify({...document,mode:'off'}));release();assert.equal((await late).status,'unavailable');assert.equal(loadSystem1Snapshot(target).status,'off');
+  writeFileSync(configPath,configBytes);
+  const stale=await approveWorktreeScope({consumer:'agenticAsk',readDocument,ask:async()=>{writeFileSync(configPath,JSON.stringify({...document,model:'changed'}));return true;}});assert.equal(stale.reason,'scope_changed');writeFileSync(configPath,configBytes);
+  renameSync(docs,docs+'.old');mkdirSync(docs);assert.equal(worktreeScopeApproved(document,'agenticAsk'),false);assert.equal((await service.evaluate(request)).status,'unavailable');assert.equal(calls,1);
+  assert.throws(()=>worktreeScopePreview({...document,consumers:{'../../escape':{mode:'active'}}},'../../escape'),/unknown_consumer/);
+ }finally{if(old===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=old;rmSync(root,{recursive:true,force:true});}
+});

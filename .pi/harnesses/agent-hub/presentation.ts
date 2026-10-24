@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { sessionRootsFromEnv } from '../lib/workspace-context.ts';
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -39,6 +40,11 @@ export function abbrevThinking(level: string): string {
 }
 
 export function resolveDelegateExtension(cwd: string): string | null {
+ const roots=sessionRootsFromEnv();
+ if(roots?.mode==='targeted'){
+  const candidate=join(roots.resourceRoot,'.pi/harnesses/agent-hub/delegate.ts');
+  return existsSync(candidate)&&realpathSync(candidate).startsWith(roots.resourceRoot+'/')?realpathSync(candidate):null;
+ }
 	try {
 		const extension = fileURLToPath(new URL("./delegate.ts", import.meta.url));
 		if (existsSync(extension)) return extension;

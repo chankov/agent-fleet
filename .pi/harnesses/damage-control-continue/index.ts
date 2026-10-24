@@ -33,6 +33,9 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { createSessionTargetGuard } from '../lib/session-target.ts';
+import { readDamagePolicy } from '../lib/damage-policy.ts';
+import { sessionRootsFromEnv } from '../lib/workspace-context.ts';
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { beginRuntimeTrace, policyTraceReason, TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
 import { analyzeBashCommand, bashReferencesProtectedPath, bashPolicyText } from "../lib/bash-policy-analysis.ts";
@@ -105,8 +108,16 @@ function continueFeedback(toolName: string, violationReason: string, invocation:
 }
 
 export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} = {}) {
+ const sessionTarget=createSessionTargetGuard(pi);
 	const assignment=dependencies.assignment!==undefined?dependencies.assignment:takeSpawnedDamageAssignment();
 	let baselineEpoch=0;
+ let targetPolicyDigest:string|undefined;
+ let targetPolicyError:string|undefined;
+ function targetPolicyCurrent(cwd:string):boolean {
+  if(targetPolicyError)return false;
+  if(!process.env.AF_SESSION_ROOTS)return targetPolicyDigest===undefined;
+  try { const roots=sessionRootsFromEnv()!;return roots.mode!=='targeted'||(roots.executionRoot===fs.realpathSync(cwd)&&readDamagePolicy(cwd)?.digest===targetPolicyDigest); } catch {return false;}
+ }
 	let child: ReturnType<typeof createDamageChild> | undefined;
 	pi.on('tool_result', event => {
 		captureDamageResult(event);
@@ -271,13 +282,20 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 	pi.on("session_start", async (_event, ctx) => {
         disposeChild();
 		registerVersionStatus(ctx);
+  await sessionTarget.start(ctx);
 		// Non-blocking: never delay rule loading or session start for a registry fetch.
 		scheduleFleetUpdateCheck(ctx);
+  targetPolicyDigest=undefined;targetPolicyError=undefined;
 		const projectRulesPath = path.join(ctx.cwd, ".pi", "damage-control-rules.yaml");
 		const globalRulesPath = path.join(os.homedir(), ".pi", "damage-control-rules.yaml");
 		const rulesPath = fs.existsSync(projectRulesPath) ? projectRulesPath : fs.existsSync(globalRulesPath) ? globalRulesPath : null;
 		try {
-			if (rulesPath) {
+   const roots=sessionRootsFromEnv();
+   if(roots?.mode==='targeted') {
+    const loaded=readDamagePolicy(ctx.cwd)!;
+    rules=loaded.rules;targetPolicyDigest=loaded.digest;
+    ctx.ui.notify(`Damage-Control: loaded workspace policy for ${roots.executionRoot}`);
+   } else if (rulesPath) {
 				const content = fs.readFileSync(rulesPath, "utf8");
 				const loaded = yamlParse(content) as Partial<Rules>;
 				rules = {
@@ -293,6 +311,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				ctx.ui.notify("🛡️ Damage-Control (continue): No rules found at .pi/damage-control-rules.yaml (project or global)");
 			}
 		} catch (err) {
+   if(process.env.AF_SESSION_ROOTS)targetPolicyError=String(err);
 			ctx.ui.notify(`🛡️ Damage-Control (continue): Failed to load rules: ${err instanceof Error ? err.message : String(err)}`);
 		}
 
@@ -305,6 +324,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
+  const targetRefusal=sessionTarget.current(ctx.cwd);if(targetRefusal)return {block:true,reason:`Fleet target refused: ${targetRefusal}; start a new explicitly bound session.`};
+  if(!targetPolicyCurrent(ctx.cwd))return {block:true,reason:`Damage-Control: targeted workspace policy is missing, invalid or changed; restart the session. ${targetPolicyError??''}`};
 	 const finishPolicy=beginRuntimeTrace(pi.events,{kind:'policy',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',tool:event.toolName});
 	 let policyAnalysis:'static_operands'|'conservative_text'|undefined;
 	 const evaluate=async()=>{
@@ -312,7 +333,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
   const policySnapshot=JSON.stringify(rules),epoch=baselineEpoch;
   const exactCall=JSON.stringify(event),cwd=ctx.cwd;
   const semanticAllow=async()=>{
-   const unchanged=()=>epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd;
+   const unchanged=()=>targetPolicyCurrent(ctx.cwd)&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd;
    const blocked={block:true,reason:'Damage-Control: baseline authority changed; re-authorize the call.'};
    if(!unchanged())return blocked;
    const snapshot=JSON.stringify([rules,activeExemptions()]);

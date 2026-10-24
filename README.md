@@ -1,5 +1,8 @@
 # Agent Fleet
 
+За отделен Fleet workspace и сесиен `--worktree` избор вижте
+[ръководството за worktree targeting](docs/session-worktree-targeting.md).
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="800">
 </p>

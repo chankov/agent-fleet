@@ -1,3 +1,4 @@
+import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harnesses/lib/workspace-context.ts";
 // .pi/agent-fleet/scripts/coms-cli.ts
 //
 // Envelope-protocol CLI for non-pi participants in a coms pool. Registry and
@@ -88,7 +89,9 @@ function flagValue(parsed: ParsedArgs, flag: FlagName): string | undefined {
 }
 
 function scopeFrom(parsed: ParsedArgs): Scope {
-	const project = validateComsProject(flagValue(parsed, "project") ?? process.env.COMS_CLI_PROJECT ?? DEFAULT_PROJECT);
+	const rawProject=validateComsProject(flagValue(parsed, "project") ?? process.env.COMS_CLI_PROJECT ?? DEFAULT_PROJECT);
+ const roots=sessionRootsFromEnv();
+ const project=roots?.mode==="targeted"?projectForSession(rawProject,roots).project:rawProject;
 	const name = validateComsName(flagValue(parsed, "name") ?? process.env.COMS_CLI_NAME ?? DEFAULT_NAME);
 	return { project, name, includeExplicit: parsed.flags.get("all") === true };
 }
@@ -140,11 +143,13 @@ function peersInScope(scope: Scope): RegistryEntry[] {
 }
 
 function makeIdentity(name: string, sessionId: string): SenderIdentity {
-	return { session_id: sessionId, name, endpoint: makeEndpoint(sessionId), cwd: process.cwd() };
+	return { session_id: sessionId, name, endpoint: makeEndpoint(sessionId), cwd: executionRoot(process.cwd()) };
 }
 
 function registerCliEntry(id: SenderIdentity, project: string, purpose: string): void {
-	const entry: RegistryEntry = {
+	const roots=sessionRootsFromEnv();
+ const entry: RegistryEntry = {
+  ...(roots?.mode==='targeted'?{targetId:roots.targetId}:{}),
 		session_id: id.session_id,
 		name: id.name,
 		purpose,
@@ -266,7 +271,7 @@ async function cmdSend(argv: string[]): Promise<void> {
 		child.unref();
 		child.stdout!.destroy();
 
-		const id: SenderIdentity = { session_id: sessionId, name: scope.name, endpoint, cwd: process.cwd() };
+		const id: SenderIdentity = { session_id: sessionId, name: scope.name, endpoint, cwd: executionRoot(process.cwd()) };
 		const env = makePromptEnvelope(id, prompt);
 		const pendingFile = path.join(spool.pending, `${env.msg_id}.json`);
 		fs.writeFileSync(pendingFile, JSON.stringify({ msg_id: env.msg_id, target: peer.name, sent_at: nowIso() }));

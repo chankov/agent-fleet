@@ -10,6 +10,7 @@
 // variable (apiKeyEnv) and the key is read from the process environment (a
 // gitignored .env at the repo root, auto-loaded by the justfile's dotenv-load).
 
+import {workspaceRoot} from '../../harnesses/lib/workspace-context.ts';
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -103,14 +104,14 @@ function readConfigFile(): { raw: unknown; source: string } | undefined {
 		if (fromEnv.startsWith("{")) {
 			return { raw: JSON.parse(fromEnv), source: "PI_STT_CONFIG (inline)" };
 		}
-		const resolved = path.resolve(fromEnv);
+		const resolved = path.resolve(workspaceRoot(process.cwd()),fromEnv);
 		return { raw: JSON.parse(readFileSync(resolved, "utf8")), source: resolved };
 	}
 
-	// Project-local config in the target repo's .ai/ dir takes precedence over the
-	// global one, so a per-project STT setup wins when pi runs inside that repo.
+	// Fleet workspace configuration wins over global configuration. A selected
+	// application worktree cannot replace the operator's STT provider settings.
 	const candidates = [
-		path.resolve(process.cwd(), ".ai", "stt.json"),
+		path.resolve(workspaceRoot(process.cwd()), ".ai", "stt.json"),
 		path.join(homedir(), ".pi", "agent", "stt.json"),
 	];
 	for (const file of candidates) {

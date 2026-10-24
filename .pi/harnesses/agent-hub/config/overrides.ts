@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { workspaceRoot } from "../../lib/workspace-context.ts";
 import { resolvePolicyRoots, type PolicyRootTable } from "../../lib/policy-roots.ts";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH } from "../helpers.ts";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "../run-namespace.js";
@@ -67,15 +68,15 @@ function parseSubagentOverride(value: string): { model: string; tools?: string; 
 }
 
 function resolveOverridesPolicy(cwd: string, overrides: AgentTeamOverrides): AgentTeamOverrides {
-	overrides.policyRoots = resolvePolicyRoots(cwd, overrides);
+	overrides.policyRoots = resolvePolicyRoots(cwd, overrides, workspaceRoot(cwd));
 	for (const diagnostic of overrides.policyRoots.diagnostics) {
-		overrides.warnings.push(`policy roots: ${diagnostic.message} — check rules/docs paths relative to the checkout; grants do not authorize writes or remote capture`);
+		overrides.warnings.push(`policy roots: ${diagnostic.message} — check rules/docs paths relative to the Fleet workspace; grants do not authorize writes or remote capture`);
 	}
 	return overrides;
 }
 
 export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
-	const file = join(cwd, ".ai", "agent-fleet-overrides.md");
+	const file = join(workspaceRoot(cwd), ".ai", "agent-fleet-overrides.md");
 	if (!existsSync(file)) return resolveOverridesPolicy(cwd, freshOverrides());
 	let raw: string;
 	try { raw = readFileSync(file, "utf-8"); } catch { return resolveOverridesPolicy(cwd, freshOverrides()); }

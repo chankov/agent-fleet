@@ -1,4 +1,5 @@
 import {randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
+import {sessionRootsFromEnv,validateSessionRoots} from '../../lib/workspace-context.ts';
 import {realpathSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {sourceHash,exportPathAllowed} from '../agentic-sources.ts';
@@ -11,6 +12,8 @@ export interface DiscoveryOwner {
 export interface DiscoveryAssignment {endpoint:string;capability:string;sessionId:string;taskId:string;ownerId:string;attemptId:string;queryHash:string}
 export interface OwnerLease extends DiscoveryOwner {sessionId:string;capability:string;queryHash:string;signal:AbortSignal;attemptSignal:AbortSignal;expiresAt:number}
 export function createDiscoveryOwners(sessionId:string,currentTaskId:()=>string,options:{maxOwners?:number;now?():number;ttlMs?:number;currentContext?():string}={}) {
+ const binding=sessionRootsFromEnv();
+ const targetCurrent=()=>{try{return sessionRootsFromEnv()?.targetId===binding?.targetId&&(!binding||validateSessionRoots(binding).targetId===binding.targetId);}catch{return false;}};
  const leases=new Map<string,{lease:OwnerLease;controller:AbortController;attemptController:AbortController;timer:ReturnType<typeof setTimeout>;requests:Set<string>;context:string}>();
  const parents=new Map<string,string>(),launches=new Map<string,Map<string,{identity:string;attempts:number;capability:string}>>();
  const now=options.now??Date.now;let closed=false;
@@ -18,11 +21,12 @@ export function createDiscoveryOwners(sessionId:string,currentTaskId:()=>string,
  // authoritative revocation so a later task switch/dispose can still terminate it.
  const expire=(capability:string)=>{const row=leases.get(capability);if(!row)return;row.controller.abort();clearTimeout(row.timer);for(const [child,parent]of parents)if(parent===capability)expire(child);};
  const revoke=(capability:string)=>{const row=leases.get(capability);if(!row)return;expire(capability);for(const [child,parent]of parents)if(parent===capability)revoke(child);row.attemptController.abort();leases.delete(capability);parents.delete(capability);launches.delete(capability);};
- const active=(lease:OwnerLease)=>!closed&&lease.sessionId===sessionId&&lease.taskId===currentTaskId();
- const fresh=(lease:OwnerLease)=>!closed&&!lease.signal.aborted&&lease.sessionId===sessionId&&lease.taskId===currentTaskId()&&lease.expiresAt>now()&&leases.get(lease.capability)?.context===(options.currentContext?.()??currentTaskId());
+ const active=(lease:OwnerLease)=>targetCurrent()&&!closed&&lease.sessionId===sessionId&&lease.taskId===currentTaskId();
+ const fresh=(lease:OwnerLease)=>targetCurrent()&&!closed&&!lease.signal.aborted&&lease.sessionId===sessionId&&lease.taskId===currentTaskId()&&lease.expiresAt>now()&&leases.get(lease.capability)?.context===(options.currentContext?.()??currentTaskId());
  return {
- admitted(owner:Pick<DiscoveryOwner,'taskId'>){return !closed&&owner.taskId===currentTaskId();},
+ admitted(owner:Pick<DiscoveryOwner,'taskId'>){return targetCurrent()&&!closed&&owner.taskId===currentTaskId();},
  register(owner:DiscoveryOwner,ttlMs=options.ttlMs??1200000):OwnerLease {
+  if(!targetCurrent()||binding?.mode==='targeted'&&realpathSync(owner.cwd)!==binding.executionRoot)throw Error('owner_target_mismatch');
   if(closed||owner.taskId!==currentTaskId()||!owner.task.trim()||!owner.query.trim()||![sessionId,owner.taskId,owner.ownerId,owner.attemptId].every(v=>typeof v==='string'&&v.length>0&&v.length<=128)||leases.size>=(options.maxOwners??128)||!Number.isSafeInteger(ttlMs)||ttlMs<1||ttlMs>3600000)throw Error('owner_registration_denied');
   if([...leases.values()].some(({lease})=>lease.ownerId===owner.ownerId&&lease.attemptId===owner.attemptId))throw Error('attempt_already_registered');
   const capability=randomBytes(32).toString('hex'),controller=new AbortController(),attemptController=new AbortController();

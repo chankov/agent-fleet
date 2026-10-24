@@ -1,3 +1,4 @@
+import {workspaceRoot,sessionRootsFromEnv} from "../../../../harnesses/lib/workspace-context.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -22,10 +23,11 @@ export function parseEnv(text: string): Record<string, string> {
 }
 
 export function loadEnv(cwd = process.cwd(), env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-	const file = resolve(cwd, ".env");
+	const file = resolve(workspaceRoot(cwd), ".env");
 	if (!existsSync(file)) return {};
 	const loaded: Record<string, string> = {};
 	for (const [key, value] of Object.entries(parseEnv(readFileSync(file, "utf8")))) {
+		if(sessionRootsFromEnv()?.mode==="targeted"&&(key.startsWith("GIT_")||key.startsWith("AF_SESSION_")||key.startsWith("AF_TARGET_")))throw Error(`workflow_environment_context_override:${key}`);
 		if (env[key] !== undefined) continue;
 		env[key] = value;
 		loaded[key] = value;

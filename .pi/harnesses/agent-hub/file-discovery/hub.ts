@@ -1,3 +1,4 @@
+import {worktreeConsumerService} from '../../lib/system1/worktree-service.ts';
 import type {CommunicationStore} from '../system1-communication-store.ts';
 import {originalDamageResult} from '../../lib/damage-result-evidence.ts';
 import {damageResultView} from '../../lib/damage-result-view.ts';
@@ -40,7 +41,7 @@ export function configureDiscoveryHub(pi:ExtensionAPI,options:{snapshot:ReturnTy
  const context=()=>sourceHash(JSON.stringify([options.taskId(),task()]));
  let restored=restoreDiscoveryCounter(entries(),sessionId);const persist=(s:any)=>pi.appendEntry(DISCOVERY_COUNTER,s);
  if(restored){try{persist(restored);}catch{restored=null;}}
- const runtime=createDiscoveryRuntime({root:options.ctx.cwd,sessionId,config,service:options.service,context,persist,restored,observe:metadata=>options.communicationStore?.beginDiscovery(metadata)??(()=>{})});
+ const runtime=createDiscoveryRuntime({root:options.ctx.cwd,sessionId,config,service:worktreeConsumerService(options.service,options.snapshot.document,'fileDiscovery'),context,persist,restored,observe:metadata=>options.communicationStore?.beginDiscovery(metadata)??(()=>{})});
  // Latest user text revises Hub advice/cache, not the task bound to a live child.
  const owners=createDiscoveryOwners(sessionId,options.taskId);
  const session:Session={runtime,config,root:options.ctx.cwd,sessionDir:options.sessionDir,task,context,taskId:options.taskId,results:new Map(),events:new Map(),owners,broker:Promise.resolve(null)};

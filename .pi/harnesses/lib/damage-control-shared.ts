@@ -19,9 +19,19 @@ import * as os from "os";
 import * as path from "path";
 import { parse as parseYaml } from 'yaml';
 import { safeSourceRead } from './safe-source-read.js';
+import { readDamagePolicy } from './damage-policy.ts';
+import { sessionRootsFromEnv } from './workspace-context.ts';
 
 /** Explicit file-access check for consumers outside the named tool hook. Invalid policy fails closed. */
 export function currentFileAccessAllowed(root: string, target: string): boolean {
+ try {
+  const roots=sessionRootsFromEnv();
+  if(roots?.mode==='targeted') {
+   if(fs.realpathSync(root)!==roots.executionRoot)return false;
+   const policy=readDamagePolicy(root)!;
+   return !policy.rules.zeroAccessPaths.some(p=>damageControlPathMatches(path.resolve(root,target),p,roots.executionRoot));
+  }
+ } catch { return false; }
  const project = path.join(root, '.pi/damage-control-rules.yaml');
  const global = path.join(os.homedir(), '.pi/damage-control-rules.yaml');
  try {

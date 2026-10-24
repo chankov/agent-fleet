@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { normalizeSystem1Config } from './config-v2.js';
 import { parseConfigJson } from './config-json.js';
 import { system1SelectedByDesired } from './selection.js';
+import { workspaceRoot, sessionRootsFromEnv } from '../workspace-context.js';
+import { gateWorktreeSnapshot, projectWorktreeDocument } from './worktree-scopes.js';
 const MAX_CONFIG_BYTES = 1024 * 1024;
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
 function readWorkspaceJson(root, name) {
@@ -32,10 +34,17 @@ function readWorkspaceJson(root, name) {
  } catch (error) { return error.code === 'ENOENT' ? undefined : null; }
  finally { if (fd !== undefined) closeSync(fd); }
 }
-export function readSystem1Document(root) { return readWorkspaceJson(root, 'system1.json'); }
-export function loadSystem1Snapshot(root) { return normalizeSystem1Config(readSystem1Document(root)); }
+export function readSystem1Document(root,binding=sessionRootsFromEnv()) { return readWorkspaceJson(binding?.workspaceRoot??root, 'system1.json'); }
+export function loadSystem1Snapshot(root,binding=sessionRootsFromEnv()) {
+ const document=readSystem1Document(root,binding);
+ try {
+  const effectiveDocument=projectWorktreeDocument(document,binding);
+  const snapshot=normalizeSystem1Config(effectiveDocument);
+  return gateWorktreeSnapshot(effectiveDocument===document?snapshot:Object.freeze({...snapshot,document,effectiveDocument}),binding);
+ } catch { return Object.freeze({...normalizeSystem1Config(null),targetReason:'ambiguous_worktree_scope'}); }
+}
 export function readSystem1Selected(root) {
- return system1SelectedByDesired(readWorkspaceJson(root, 'agent-fleet.json'));
+ return system1SelectedByDesired(readWorkspaceJson(workspaceRoot(root), 'agent-fleet.json'));
 }
 export function providerDocument(snapshot) {
  if (snapshot.status === 'missing') return undefined;

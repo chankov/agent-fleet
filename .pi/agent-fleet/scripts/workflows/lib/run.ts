@@ -99,6 +99,7 @@ export class Run {
 
 	private finalize(accepted: boolean, reason?: string, exitCode = accepted ? 0 : 1, signal?: NodeJS.Signals): FinishResult {
 		this.finished = true;
+  if(accepted&&this.trace.currentTarget?.()===false){accepted=false;reason='flow_target_changed';exitCode=1;}
 		const status = accepted ? "accepted" : "rejected";
 		const banner = accepted ? `FLOW ACCEPTED (${this.trace.runId})` : `FLOW REJECTED (${this.trace.runId})${reason ? `: ${reason}` : ""}`;
 		this.lastResult = { accepted, reason, exitCode, status, banner, ...(signal ? { signal } : {}) };

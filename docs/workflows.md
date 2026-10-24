@@ -1,5 +1,9 @@
 # Deterministic Workflows
 
+За `just flow quality --worktree ../repo.worktree`, workspace-owned configuration,
+изолиран scout snapshot и границите на consent вижте
+[session worktree targeting](session-worktree-targeting.md).
+
 Agent Fleet provides a code-owned, headless workflow layer beside the interactive `agent-hub`. Workflow code fixes phase order, bounded retries, executable gates, permissions, and acceptance; agents are used only for phases that require judgment. Nothing in this layer changes `just fleet`.
 
 ## Run a flow

@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
+import {sessionRootsFromEnv,projectForSession} from './workspace-context.ts';
 import * as net from "node:net";
 import * as path from "node:path";
 
@@ -387,7 +388,9 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		shuttingDown = false;
 		const flags = readCliFlags(pi);
 		const frontmatter = readFrontmatterFromArgv(process.argv);
-		const project = flags.project || "default";
+  const roots=sessionRootsFromEnv();
+  const scopedProject=roots?.mode==='targeted'?projectForSession(flags.project||'default',roots):undefined;
+  const project=scopedProject?.project??flags.project??'default';
 		const sessionId = ulid();
 		const sessionName = typeof pi.getSessionName === "function" ? pi.getSessionName() || undefined : undefined;
 		const desiredName = flags.name || sessionName || frontmatter.name || `${options.defaultNamePrefix}-${sessionId.slice(-6)}`;
@@ -398,6 +401,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		if (flags.color && isValidHex(flags.color)) color = flags.color;
 		const endpoint = makeEndpoint(sessionId);
 		const cwd = options.ctx.cwd || process.cwd();
+  if(roots?.mode==='targeted'&&fs.realpathSync(cwd)!==roots.executionRoot)throw Error('coms_target_cwd_mismatch');
 		const model = options.ctx.model?.id ?? "unknown";
 		const purpose = flags.purpose || frontmatter.description || options.defaultPurpose;
 		try {
@@ -413,6 +417,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		catch (error) { throw new ComsConnectError("bind", error); }
 		const startedAt = nowIso();
 		const entry: RegistryEntry = {
+   ...(scopedProject?{targetId:roots!.targetId}:{}),
 			session_id: sessionId, name, purpose, model, color, pid: process.pid,
 			endpoint, cwd, started_at: startedAt, explicit: flags.explicit === true, version: 1,
 		};
@@ -425,6 +430,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		}
 		identity = {
 			session_id: sessionId, name, purpose, color, project, explicit: flags.explicit === true,
+   ...(scopedProject?{baseProject:scopedProject.baseProject,targetId:roots!.targetId}:{}),
 			cwd, model, endpoint, registryFile, started_at: startedAt,
 		};
 		scope.includeExplicit = false;

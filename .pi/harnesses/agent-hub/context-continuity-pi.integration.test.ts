@@ -9,8 +9,13 @@ import {spawnPiAgent} from "./spawn.ts";
 import {chmodSync} from "node:fs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
-const globalRuntime = join(process.execPath, "../../lib/node_modules/@earendil-works/pi-coding-agent");
-const runtime = process.env.CONTEXT_CONTINUITY_PI_RUNTIME ?? globalRuntime;
+import {resolvePiTestRuntime} from '../../../bin/test/helpers/pi-runtime.js';
+const runtimeInfo=resolvePiTestRuntime({root});
+const runtime=runtimeInfo.root;
+// Pi 1.1 resumes the existing agent run; the later verified contract emits
+// before_agent_start for the continuation as well. Effects/restore/replay
+// assertions below remain identical for both lifecycle variants.
+const expectedAgentStarts=(userRuns:number)=>userRuns+(runtimeInfo.version==='1.1.0'?0:1);
 
 // Real CLI, real compaction implementation, fake inference only. No custom summary
 // hook: the fake provider must also service Pi's actual summary request.
@@ -103,7 +108,7 @@ export default function(pi: any) {
 
 async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=false, native=false, readOnly=false, localOnly=false, smallSession=false, semantic=false, pressureTokens=45000) {
   assert.ok(existsSync(join(runtime, "dist/cli.js")), `Pi runtime missing: ${runtime}`);
-  assert.equal(JSON.parse(readFileSync(join(runtime, "package.json"), "utf8")).version, "1.3.0");
+  assert.equal(JSON.parse(readFileSync(join(runtime, "package.json"), "utf8")).version, runtimeInfo.version, 'SDK metadata must stay unchanged during the fixture');
   const dir = mkdtempSync(join(tmpdir(), "d7-contract-"));
   try {
     mkdirSync(join(dir, "agent"));
@@ -140,7 +145,7 @@ async function run(cancel: boolean | "during" | "inflight", hub=false, explicit=
   } finally { rmSync(dir,{recursive:true,force:true}); }
 }
 
-test("Pi 1.3.0 real -p CLI compacts, restores and continues exactly once", async () => {
+test("Project Pi real -p CLI compacts, restores and continues exactly once", async () => {
   const {result,events,effect} = await run(false);
   assert.equal(result.error, undefined, JSON.stringify({events,stderr:result.stderr,error:String(result.error)}));
   assert.equal(result.status,0,result.stderr);
@@ -189,7 +194,7 @@ test("production Hub resumes pressure-interrupted work without a new user turn",
   assert.equal(effect,"write-once\n");
   assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
-  assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
+  assert.equal(events.filter(e=>e.event==="before_agent_start").length,expectedAgentStarts(1));
   const monitor=runtimeEntries.filter(e=>e.customType==="agent-hub-compaction-monitor").map(e=>e.data);
   assert.deepEqual(monitor.slice(0,3).map(e=>e.phase),["started","restored","continuation_requested"]);
   assert.ok(monitor[0].beforePercent>=70 && monitor[0].beforePercent<=80,JSON.stringify(monitor));
@@ -208,7 +213,7 @@ test("low-pressure explicit request_compaction remains available through reads v
   assert.equal(events.filter(e=>e.event==="tool_result" && e.name==="request_compaction" && !e.error).length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
   assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
-  assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
+  assert.equal(events.filter(e=>e.event==="before_agent_start").length,expectedAgentStarts(1));
   assert.match(result.stdout,/D7_FINAL/);
 });
 
@@ -218,7 +223,7 @@ test("native physical spawn adapter compacts and continues write-once in the sam
  assert.equal(result.status,0,result.stderr);assert.equal(effect,"write-once\n");
  assert.equal(events.filter(e=>e.event==="restored").length,1,JSON.stringify(events));
  assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1,JSON.stringify(events));
- assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
+ assert.equal(events.filter(e=>e.event==="before_agent_start").length,expectedAgentStarts(1));
  assert.match(result.stdout,/D7_FINAL/);
 });
 
@@ -266,7 +271,7 @@ test("two tasks in one Pi session: authorized new_task keeps current explicit co
   assert.equal(records.filter(e=>e.event==="tool_result" && e.name==="request_compaction" && !e.error).length,1);
   assert.equal(records.filter(e=>e.event==="restored").length,1);
   assert.equal(records.filter(e=>e.event==="provider" && e.continuation).length,2); // read and final output within one continuation
-  assert.equal(records.filter(e=>e.event==="before_agent_start").length,3,"Pi 1.3 emits before_agent_start for the continuation run too");
+  assert.equal(records.filter(e=>e.event==="before_agent_start").length,expectedAgentStarts(2),"two accepted user runs plus the runtime-specific continuation event");
   assert.equal(records.filter(e=>e.event==="tool_result" && e.name==="read" && !e.error).length,3,JSON.stringify({records,results:messages.filter(m=>m.type==="tool_execution_end")}));
   assert.ok(JSON.stringify(messages).includes("D7_TASK_RESET_FINISHED"));
  } finally {child.kill("SIGTERM");if(!closed)await new Promise<void>(resolve=>{const timer=setTimeout(()=>{child.kill("SIGKILL");resolve();},1000);child.once("close",()=>{clearTimeout(timer);resolve();});});}
@@ -278,7 +283,7 @@ test("default Pi retention: small explicit request is honestly skipped and conti
  assert.equal(events.filter(e=>e.event==="restored").length,0);
  assert.equal(events.filter(e=>e.event==="provider" && e.summary).length,0);
  assert.equal(events.filter(e=>e.event==="provider" && e.continuation).length,1);
- assert.equal(events.filter(e=>e.event==="before_agent_start").length,2);
+ assert.equal(events.filter(e=>e.event==="before_agent_start").length,expectedAgentStarts(1));
  assert.ok(runtimeEntries.some(e=>e.customType==="agent-hub-context-continuity" && e.data.phase==="skipped"));
  assert.ok(!runtimeEntries.some(e=>e.type==="compaction" || e.customType==="agent-hub-context-pressure" && e.data.phase==="failed"));
  assert.match(result.stdout,/D7_FINAL/);

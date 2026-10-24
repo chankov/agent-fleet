@@ -4,6 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {resolveSessionRoots,withSessionRoots,sessionRootsFromEnv} from '../../lib/workspace-context.ts';
+import {loadSystem1Snapshot,readSystem1Document} from '../../lib/system1/config-loader.js';
+import {approveWorktreeScope} from '../../lib/system1/worktree-scopes.ts';
 import { registerRunFlow } from "./run-flow.ts";
 
 function repo(): string {
@@ -14,6 +17,25 @@ function repo(): string {
 }
 function harness(deps: any) { let definition: any; const shutdown: any[] = []; registerRunFlow({ registerTool(value: any) { definition = value; }, on(name: string, handler: any) { if (name === "session_shutdown") shutdown.push(handler); } } as any, deps); return { definition, shutdown }; }
 const report = { status: "success", summary: "Scout complete", artifacts: [], notes_for_next_agent: "", findings: ["README.md"] } as any;
+
+test('selected-target scout snapshots real dirty target bytes, keeps af resources and does not inherit source-export approval',async()=>{
+ const root=repo(),af=mkdtempSync(join(tmpdir(),'af-target-config-')),parent=mkdtempSync(join(tmpdir(),'af-target-source-')),target=join(parent,'worktree');let charges=0,childRoot='',snapshotTargetId='';
+ try{
+  execFileSync('git',['worktree','add','--detach',target],{cwd:root,stdio:'pipe'});writeFileSync(join(target,'README.md'),'TARGET SCOUT\n');mkdirSync(join(af,'.pi/agents/personas'),{recursive:true});mkdirSync(join(af,'.ai'));
+  writeFileSync(join(af,'.pi/damage-control-rules.yaml'),JSON.stringify({bashToolPatterns:[],zeroAccessPaths:[],readOnlyPaths:[],noDeletePaths:[]}));
+  writeFileSync(join(af,'.pi/agents/personas/researcher.md'),readFileSync(join(root,'agents/researcher.md')));writeFileSync(join(af,'.ai/system1.json'),JSON.stringify({version:2,mode:'auto',provider:'typesafe',model:'jev-1.13.0',apiKeyEnv:'TYPESAFE_API_KEY',consumers:{watchdog:{mode:'shadow'}}}));
+  const binding=resolveSessionRoots(af,{worktree:target});
+  const {definition}=harness({sessionDir:()=>join(af,'.pi/agent-sessions/targets',binding.targetId,'sessions/hub'),taskId:()=> 'target-task',processObligations:()=>({open:['acceptance']}),reserveBudget:async()=>{charges++;return {charged:true,operation:'research',owner:'hub'};},effectiveScoutConfig:()=>({model:'test/model',profile:null,tools:['read'],fallback:null,allowlisted:true}),scoutAgent:async(options:any)=>{
+   childRoot=options.cwd;const roots=sessionRootsFromEnv()!;snapshotTargetId=roots.targetId;assert.equal(roots.workspaceRoot,af);assert.equal(roots.executionRoot,options.cwd);assert.notEqual(roots.targetId,binding.targetId);assert.equal(options.dataReadRoot,options.cwd);assert.equal(readFileSync(join(options.cwd,'README.md'),'utf8'),'TARGET SCOUT\n');assert.equal(loadSystem1Snapshot(options.cwd).consumers.watchdog.reason,'needs_worktree_consent');assert.ok(options.run.trace.directory.startsWith(af+'/'));return report;
+  }});
+  await withSessionRoots(binding,async()=>{
+   assert.equal((await approveWorktreeScope({consumer:'watchdog',readDocument:()=>readSystem1Document(target),ask:async()=>true})).status,'approved');
+   const params={procedure:'scout',request:'Read selected README',invocation_id:'target-scout-1'};const result=await definition.execute('target',params,new AbortController().signal,()=>{},{cwd:target});
+   assert.equal(result.details.flowAcceptance.accepted,true,JSON.stringify(result));assert.equal(result.details.parentAcceptance.accepted,false);assert.equal(result.details.snapshot.sourceTargetId,binding.targetId);assert.equal(result.details.snapshot.snapshotTargetId,snapshotTargetId);assert.equal(existsSync(childRoot),false);assert.equal(charges,1);assert.equal(readFileSync(join(root,'README.md'),'utf8'),'baseline\n');assert.equal(readFileSync(join(target,'README.md'),'utf8'),'TARGET SCOUT\n');
+   const other=resolveSessionRoots(af,{worktree:root});await withSessionRoots(other,async()=>{const duplicate=await definition.execute('other',params,new AbortController().signal,()=>{},{cwd:root});assert.equal(duplicate.details.status,'stale-duplicate');assert.equal(charges,1);});
+  });assert.doesNotMatch(execFileSync('git',['branch','--list'],{cwd:root,encoding:'utf8'}),/flow\//);
+ }finally{rmSync(root,{recursive:true,force:true});rmSync(af,{recursive:true,force:true});rmSync(parent,{recursive:true,force:true});}
+});
 
 test("T13 run_flow uses exported dispatcher on isolated no-branch snapshot and preserves concurrent source edits", async () => {
 	const root = repo(), session = mkdtempSync(join(tmpdir(), "af-run-flow-session-")); let charges = 0, childCwd = "", release!: () => void;

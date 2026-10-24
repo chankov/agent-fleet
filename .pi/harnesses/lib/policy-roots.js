@@ -1,5 +1,5 @@
 // Shared runtime for Hub and the JavaScript-only CLI. Types live in policy-roots.ts.
-import { realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const deniedSegment = /^(?:\.git|\.pi|node_modules|vendor|dist|build|coverage|\.env(?:\..*)?|credentials?|secrets?)$/i;
@@ -21,15 +21,16 @@ function currentRoot(root) {
 }
 
 /** Explicit read grants only; not capture consent, registration or write ownership. */
-export function resolvePolicyRoots(checkout, config) {
+export function resolvePolicyRoots(checkout, config, configurationBase = checkout) {
  const workspace = realpathSync(checkout);
+ const configBase = realpathSync(configurationBase);
  const roots = [Object.freeze({ id: "workspace", role: "workspace", configuredPath: ".", lexicalPath: resolve(checkout), canonicalPath: workspace, kind: "directory" })];
  const diagnostics = [];
  const note = (code, path) => diagnostics.push(Object.freeze({ code, path, message: `${code}:${path}` }));
  for (const [role, paths] of [["rules", config.rulesDirs ?? []], ["docs", config.docsPaths ?? []]]) {
   for (const configuredPath of paths) {
    if (!configuredPath || isAbsolute(configuredPath) || configuredPath.includes("\\")) { note("invalid_root", configuredPath); continue; }
-   const lexicalPath = resolve(checkout, configuredPath);
+   const lexicalPath = resolve(configurationBase, configuredPath);
    if (denied(configuredPath)) { note("denied_path", configuredPath); continue; }
    let canonicalPath;
    try { canonicalPath = realpathSync(lexicalPath); }
@@ -46,7 +47,16 @@ export function resolvePolicyRoots(checkout, config) {
    roots.push(root);
   }
  }
- return Object.freeze({ workspace, roots: Object.freeze(roots), diagnostics: Object.freeze(diagnostics) });
+ // Local Fleet rules retain their existing read-only role, without granting the
+ // entire configuration workspace or considering target-local rule overrides.
+ if (configBase !== workspace) {
+  const path = resolve(configBase, '.ai/rules');
+  if (existsSync(path) && !roots.some(root => root.role === 'rules' && root.lexicalPath === path)) {
+   const canonicalPath=realpathSync(path);
+   if (!denied(canonicalPath) && statSync(canonicalPath).isDirectory()) roots.push(Object.freeze({id:`rules:${canonicalPath}`,role:'rules',configuredPath:'.ai/rules',lexicalPath:path,canonicalPath,kind:'directory'}));
+  }
+ }
+ return Object.freeze({ workspace, ...(configBase !== workspace ? {configBase} : {}), roots: Object.freeze(roots), diagnostics: Object.freeze(diagnostics) });
 }
 
 /** Revalidate lexical/canonical containment and root identity before every access. */
@@ -68,10 +78,10 @@ export function authorizePolicyPath(table, path, operation = "read") {
 }
 export function resolvePolicyReferences(table, paths, role) {
  return paths.map(path => {
-  const target = resolve(table.workspace, path);
-  if (inside(table.workspace, target)) return path;
-  const source = authorizePolicyPath(table, path);
-  if (source.root.role !== role) throw new Error(`ungranted_reference:${path}`);
+  const target = resolve(table.configBase ?? table.workspace, path);
+  if (!table.configBase && inside(table.workspace, target)) return path;
+  const source = authorizePolicyPath(table, target);
+  if (source.root.role !== role && source.root.role !== 'workspace') throw new Error(`ungranted_reference:${path}`);
   return source.path;
  });
 }
@@ -90,8 +100,9 @@ export function resolveRuleBinding(table, logicalPath) {
  if (!logicalPath.startsWith(".ai/rules/") || logicalPath.includes("\\") || logicalPath.split("/").some(part => !part || part === "." || part === "..") || denied(logicalPath)) throw new Error(`invalid_binding:${logicalPath}`);
  const suffix = logicalPath.slice(".ai/rules/".length);
  const candidates = [];
- const paths = [resolve(table.workspace, logicalPath), ...table.roots.filter(root => root.role === "rules").map(root => resolve(root.lexicalPath, suffix))];
+ const paths = [resolve(table.configBase ?? table.workspace, logicalPath), ...table.roots.filter(root => root.role === "rules").map(root => resolve(root.lexicalPath, suffix))];
  for (const path of paths) {
+  if (table.configBase && !existsSync(path)) continue;
   let candidate;
   try { candidate = authorizePolicyPath(table, path); }
   catch (error) {

@@ -76,7 +76,7 @@ test('agent-hub and standalone harness share the coms status and timeout contrac
   assert.match(standaloneSource, /createComsPeer/);
   assert.match(coreSource, /reply_timeout_ms:\s*params\.reply_timeout_ms \?\? null/);
   assert.match(coreSource, /pane_id:\s*pong\?\.pane_id \?\? null/);
-  assert.match(coreSource, /status:\s*pong\?\.status \?\? null/);
+  assert.match(coreSource, /status:\s*pong\?\.status \?\? "booting"/);
   assert.match(hubComsExecutionSource, /details:\s*\{ status: "pending" \}/);
 });
 

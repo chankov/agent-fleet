@@ -8,6 +8,15 @@ import { fileURLToPath } from "node:url";
 
 import { parseFleetCommand } from "./fleet-command.ts";
 
+test('explicit worktree parsing is independent of topology and strips only startup selection',()=>{
+ const selected=parseFleetCommand(['--worktree','../repo.worktree','--agents','frontend','--dry-run']);
+ assert.equal(selected.recipe,'_fleet-hub');assert.equal(selected.preview,true);assert.deepEqual(selected.selection,{worktree:'../repo.worktree',repository:undefined});assert.ok(!selected.args.includes('--worktree'));assert.ok(!selected.args.includes('--dry-run'));
+ const topology=parseFleetCommand(['--peers','review','--worktree','../repo.worktree','--dry-run']);assert.equal(topology.recipe,'_fleet-hub-team-dry');assert.ok(topology.selection);
+ assert.equal(parseFleetCommand(['peer','builder','--worktree','../repo.worktree','--dry-run']).recipe,'_fleet-peer-launch');
+ assert.throws(()=>parseFleetCommand(['--worktree','a','--worktree','b']));assert.throws(()=>parseFleetCommand(['--worktree']));assert.throws(()=>parseFleetCommand(['setup','--worktree','../repo']));
+ assert.ok(parseFleetCommand(['--','--worktree','prompt text']).args.includes('--worktree'));
+});
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {

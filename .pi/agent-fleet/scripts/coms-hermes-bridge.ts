@@ -6,6 +6,7 @@
 
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import {sessionRootsFromEnv,projectForSession,executionRoot} from '../../harnesses/lib/workspace-context.ts';
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,7 +143,8 @@ function hermesSend(to: string, text: string, profile: string | null): Promise<v
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const requestedName = flagValue(argv, "--name") ?? DEFAULT_NAME;
-	const project = flagValue(argv, "--project") ?? "default";
+	const rawProject=flagValue(argv,'--project')??'default',roots=sessionRootsFromEnv();
+ const project=roots?.mode==='targeted'?projectForSession(rawProject,roots).project:rawProject;
 	const to = flagValue(argv, "--to") ?? "telegram";
 	const hermesProfile = flagValue(argv, "--hermes-profile");
 	const timeoutMs = Number(flagValue(argv, "--timeout") ?? timeoutMsFromEnv());
@@ -164,7 +166,7 @@ async function main(): Promise<void> {
 		session_id: sessionId,
 		name: uniqueName,
 		endpoint: makeEndpoint(sessionId),
-		cwd: process.cwd(),
+		cwd: executionRoot(process.cwd()),
 	};
 	const pending = new Map<string, PendingQuestion>();
 	const closed = new Map<string, QuestionState>();
@@ -189,6 +191,7 @@ async function main(): Promise<void> {
 
 	function registryEntry(): RegistryEntry {
 		return {
+   ...(roots?.mode==='targeted'?{targetId:roots.targetId}:{}),
 			session_id: sessionId,
 			name: uniqueName,
 			purpose: DEFAULT_PURPOSE,

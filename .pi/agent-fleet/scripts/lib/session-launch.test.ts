@@ -1,0 +1,86 @@
+import assert from 'node:assert/strict';import {test} from 'node:test';
+import {isolateFleetTestProcess} from '../../../../bin/test/helpers/test-environment.js';
+import {chmodSync,cpSync,realpathSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,renameSync} from 'node:fs';import {tmpdir} from 'node:os';import {join,resolve} from 'node:path';import {execFileSync,spawn} from 'node:child_process';
+import {resolveSessionRoots,sessionGitEnv} from '../../../harnesses/lib/workspace-context.ts';
+import {buildSessionLaunch,targetEnvironment,targetProject,targetReadiness} from './session-launch.ts';import {resourceClosureGaps} from './resource-closure.js';
+import {loadExtensions} from '../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js';
+import {spawnPiAgent,nativeChildEnv} from '../../../harnesses/agent-hub/spawn.ts';
+import {ExtensionRunner,createReadTool,createBashTool,createEditTool,createWriteTool} from '@earendil-works/pi-coding-agent';
+const source=resolve(new URL('../../../../',import.meta.url).pathname);
+test('disposable non-Git af owns resources while installed Pi tools operate only in its external worktree',{timeout:90000},async()=>{
+ const restoreTestEnv=isolateFleetTestProcess();
+ const root=mkdtempSync(join(tmpdir(),'fleet-launch-roots-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.AF_SESSION_ROOTS;
+ const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});
+ const put=(base:string,path:string,text:string)=>{const full=join(base,path);mkdirSync(join(full,'..'),{recursive:true});writeFileSync(full,text);};
+ try{
+  mkdirSync(af);mkdirSync(repo);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','initial');git('worktree','add','--detach',target);
+  for(const path of ['.pi/harnesses','.pi/extensions','.pi/agent-fleet/scripts']){
+   cpSync(join(source,path),join(af,path),{recursive:true,filter:path=>!path.split('/').includes('node_modules')});
+   symlinkSync(join(source,path,'node_modules'),join(af,path,'node_modules'));
+  }
+  cpSync(join(source,'justfile'),join(af,'justfile'));cpSync(join(source,'.pi/agents'),join(af,'.pi/agents'),{recursive:true});
+  put(af,'.pi/damage-control-rules.yaml',JSON.stringify({bashToolPatterns:[{pattern:'FORBIDDEN',reason:'workspace policy'}],zeroAccessPaths:['private/**'],readOnlyPaths:['protected.txt'],noDeletePaths:['keep.txt']}));
+  put(af,'.pi/agents/personas/builder.md','---\nname: builder\nmodel: fixture-model\n---\nFixture persona');
+  put(af,'.pi/prompts/workspace.md','workspace template');put(af,'marker','FLEET');put(repo,'marker','MAIN');put(target,'marker','WORKTREE');
+  put(target,'.pi/extensions/poison/index.ts','throw new Error("target extension must not execute");');put(target,'.pi/damage-control-rules.yaml','{}');put(target,'private/key','PRIVATE');
+  const roots=resolveSessionRoots(af,{worktree:target}),environment=targetEnvironment(roots);
+  const raw=['--no-extensions','-e','.pi/harnesses/damage-control-continue/index.ts','-e','.pi/harnesses/agent-hub/index.ts','--project','sample'];
+  const launch=buildSessionLaunch(raw,environment,af);
+  assert.equal(launch.cwd,target);assert.equal(launch.env.AF_TARGET_BASE_PROJECT,'sample');assert.equal(launch.env.AF_TARGET_EFFECTIVE_PROJECT,targetProject('sample',roots));
+  assert.ok(launch.args.includes('--no-approve'));assert.ok(launch.args.includes('--no-mcp'));
+  assert.ok(launch.args.includes(join(af,'.pi/harnesses/agent-hub/index.ts')));assert.ok(launch.args.includes('--no-skills'));assert.ok(launch.args.includes('--no-prompt-templates'));assert.ok(launch.args.includes(join(af,'.pi/prompts')));assert.ok(!launch.args.includes('--session-dir'));
+  assert.deepEqual(buildSessionLaunch(raw,{},af),{command:'pi',args:raw,cwd:af,env:{}});
+  assert.throws(()=>buildSessionLaunch(raw.filter(arg=>arg!=='--no-extensions'),environment,af),/automatic extension/);
+  assert.throws(()=>buildSessionLaunch([...raw,'-e',join(target,'.pi/extensions/poison/index.ts')],environment,af),/outside Fleet/);
+  assert.throws(()=>buildSessionLaunch([...raw,'--session-dir',target],environment,af),/cwd-scoped/);
+  assert.equal(buildSessionLaunch([...raw,'--','prompt ending in .ts'],environment,af).args.at(-1),'prompt ending in .ts');
+  const agentDir=join(af,'.pi/test-agent-runtime');mkdirSync(agentDir,{recursive:true});writeFileSync(join(agentDir,'settings.json'),'{}');
+  const offlineRpc=async(selected:any)=>{const commandsReply:any=await new Promise((done,fail)=>{
+   const proc=spawn('pi',[...selected.args,'--offline','--no-session','--mode','rpc','--model','openai/gpt-4o'],{cwd:selected.cwd,env:{...selected.env,PI_OFFLINE:'1',PI_CODING_AGENT_DIR:agentDir,PI_COMS_DIR:join(af,'.pi/test-coms'),NODE_OPTIONS:`--import=${JSON.stringify(join(source,'bin/test/helpers/system1-no-network.js'))}`},stdio:['pipe','pipe','pipe']});
+   let buffer='',stderr='',reply:any;const timer=setTimeout(()=>{proc.kill('SIGKILL');fail(Error('Real Pi RPC target startup timed out: '+stderr));},20000);
+   proc.stderr.on('data',data=>{stderr+=String(data);});proc.stdout.on('data',data=>{buffer+=String(data);let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);try{const parsed=JSON.parse(line);if(parsed.id==='target-startup'){reply=parsed;proc.kill('SIGTERM');}}catch{}}});
+   proc.once('error',error=>{clearTimeout(timer);fail(error);});proc.once('close',()=>{clearTimeout(timer);if(reply)done(reply);else fail(Error('Real Pi RPC target startup failed: '+stderr));});
+   proc.stdin.write(JSON.stringify({type:'get_commands',id:'target-startup'})+'\n');
+  });assert.equal(commandsReply.success,true);assert.ok(commandsReply.data.commands.some((command:any)=>command.name==='af-worktree'));};await offlineRpc(launch);
+  const runPreview=(script:string,args:string[],env=environment)=>execFileSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(af,'.pi/agent-fleet/scripts',script),...args],{cwd:af,env:{...env,WORKTREE_PREVIEW_SECRET:'NEVER_PRINT_THIS_FIXTURE'},encoding:'utf8'});
+  const previewText=runPreview('fleet.ts',['--worktree','../repo.worktree','--dry-run']);assert.ok(!previewText.includes('NEVER_PRINT_THIS_FIXTURE'));assert.equal(JSON.parse(previewText).executionRoot,target);assert.equal(JSON.parse(previewText).ready,true);
+  const teamText=runPreview('team-up.ts',['--hub','--team','base','--agents','frontend','--browser','--project','sample','--dry-run']);const teamPreview=JSON.parse(teamText.slice(teamText.indexOf('{')));assert.equal(teamPreview.executionRoot,target);assert.equal(teamPreview.layout.cwd,target);assert.ok(teamPreview.layout.command.includes(join(af,'justfile')));assert.ok(teamPreview.layout.command.includes('frontend'));assert.ok(teamPreview.layout.command.includes('--browser'));assert.equal(JSON.parse(teamPreview.layout.env.AF_SESSION_ROOTS).targetId,roots.targetId);
+  const peerText=runPreview('peer-launch.ts',['side','--persona','builder','--model','fixture-model','--project','sample','--dry-run']);assert.ok(peerText.includes(targetProject('sample',roots)));assert.ok(peerText.includes(join(af,'justfile')));assert.ok(peerText.includes('executionRoot'));
+  assert.throws(()=>runPreview('fleet.ts',['conductor','hermes','--worktree','../repo.worktree','--dry-run']),/Targeted Hermes conductor is unsupported/);
+  assert.throws(()=>runPreview('team-up.ts',['--conductor','hermes','--dry-run']),/Targeted Hermes conductor is unsupported/);
+  assert.throws(()=>runPreview('peer-launch.ts',['side','--persona','builder','--all-extensions','--dry-run']),/refuse --all-extensions/);
+  const linkedAf=join(root,'linked-af');put(linkedAf,'justfile',readFileSync(join(af,'justfile'),'utf8'));put(linkedAf,'.pi/damage-control-rules.yaml',readFileSync(join(af,'.pi/damage-control-rules.yaml'),'utf8'));
+  for(const dir of ['agent-fleet','harnesses','extensions'])symlinkSync(join(source,'.pi',dir),join(linkedAf,'.pi',dir),'dir');
+  const linkedRoots=resolveSessionRoots(linkedAf,{worktree:target});assert.equal(linkedRoots.workspaceRoot,linkedAf);assert.equal(linkedRoots.resourceRoot,realpathSync(source));
+  const linkedLaunch=buildSessionLaunch(['--no-extensions','-e','.pi/harnesses/damage-control-continue/index.ts','-e','.pi/harnesses/agent-hub/index.ts','--project','linked'],targetEnvironment(linkedRoots),linkedAf);assert.equal(linkedLaunch.cwd,target);assert.ok(linkedLaunch.args.includes(join(realpathSync(source),'.pi/harnesses/damage-control-continue/index.ts')));await offlineRpc(linkedLaunch);
+  process.env.AF_SESSION_ROOTS=environment.AF_SESSION_ROOTS;
+  const extensions=launch.args.flatMap((arg,index)=>arg==='-e'?[launch.args[index+1]]:[]);
+  const loaded=await loadExtensions(extensions,target);assert.deepEqual(loaded.errors,[]);
+  const entries:any[]=[];(loaded.runtime as any).appendEntry=(customType:string,data:any)=>entries.push({type:'custom',customType,data});
+  const guard=loaded.extensions.find(extension=>extension.path.endsWith('/damage-control-continue/index.ts'))!;assert.ok(guard);
+  const runner:any=new ExtensionRunner([guard],{} as any,target,{} as any,{} as any);
+  runner.createContext=()=>({cwd:target,hasUI:false,sessionManager:{getBranch:()=>entries},ui:{notify(){},setStatus(){}}});
+  await runner.emit({type:'session_start'});
+  const tools:any={read:createReadTool(target),bash:createBashTool(target),edit:createEditTool(target),write:createWriteTool(target)};
+  const invoke=async(name:string,input:any)=>{
+   const event={type:'tool_call',toolName:name,toolCallId:`smoke-${name}`,input};const decision=await runner.emitToolCall(event);assert.ok(!decision?.block,JSON.stringify(decision));return tools[name].execute(event.toolCallId,input);
+  };
+  const read=await invoke('read',{path:'marker'});assert.match(JSON.stringify(read),/WORKTREE/);
+  const bash=await invoke('bash',{command:'pwd; cat marker'});assert.match(JSON.stringify(bash),/repo.worktree/);assert.match(JSON.stringify(bash),/WORKTREE/);
+  await invoke('edit',{path:'marker',edits:[{oldText:'WORKTREE',newText:'EDITED'}]});await invoke('write',{path:'created.txt',content:'TARGET WRITE'});
+  assert.equal(readFileSync(join(target,'marker'),'utf8'),'EDITED');assert.equal(readFileSync(join(target,'created.txt'),'utf8'),'TARGET WRITE');assert.equal(readFileSync(join(repo,'marker'),'utf8'),'MAIN');assert.equal(readFileSync(join(af,'marker'),'utf8'),'FLEET');
+  assert.equal((await runner.emitToolCall({type:'tool_call',toolName:'read',toolCallId:'deny',input:{path:'private/key'}})).block,true);
+  await runner.emit({type:'session_shutdown'});
+  const commands=join(af,'mock-commands');mkdirSync(commands);
+  const fakePi=join(commands,'pi');writeFileSync(fakePi,`#!${process.execPath}\nconst body={cwd:process.cwd(),roots:JSON.parse(process.env.AF_SESSION_ROOTS),args:process.argv.slice(2),hasSystem1Key:!!process.env.TYPESAFE_API_KEY,hasGitDir:!!process.env.GIT_DIR};console.log(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:JSON.stringify(body)}}));`);chmodSync(fakePi,0o755);
+  mkdirSync(join(af,'.pi/agent-sessions'),{recursive:true});
+  const nativeOptions:any={activeProfileSnapshot:null,cwd:target,model:'fixture-model',thinking:'off',tools:'read',appendSystemPrompt:'Workspace persona',prompt:'fixture',sessionFile:join(af,'.pi/agent-sessions/native.jsonl'),extensions:[join(af,'.pi/harnesses/damage-control-continue/index.ts')],env:{PATH:commands+':'+process.env.PATH,TYPESAFE_API_KEY:'TEST-ONLY-STRIPPED',GIT_DIR:'/not-a-repository'}};
+  const child=await spawnPiAgent(nativeOptions);assert.equal(child.exitCode,0,child.stderr);assert.equal(child.lifecycle?.launched,true);
+  const output=JSON.parse(child.output);assert.equal(output.cwd,target);assert.equal(output.roots.targetId,roots.targetId);assert.equal(output.hasSystem1Key,false);assert.equal(output.hasGitDir,false);assert.ok(output.args.includes('--no-skills'));assert.ok(output.args.includes('--no-prompt-templates'));assert.ok(output.args.includes(join(af,'.pi/harnesses/agent-hub/context-continuity-child.ts')));
+  const wrongCwd=await spawnPiAgent({...nativeOptions,cwd:repo});assert.equal(wrongCwd.lifecycle?.launched,false);assert.match(wrongCwd.spawnError!,/target_mismatch/);
+  const override=await spawnPiAgent({...nativeOptions,env:{...nativeOptions.env,AF_SESSION_ROOTS:JSON.stringify(resolveSessionRoots(af,{worktree:repo}))}});assert.equal(override.lifecycle?.launched,false);assert.match(override.spawnError!,/context_override/);
+  assert.throws(()=>nativeChildEnv(environment,{AF_SESSION_ROOTS:undefined}),/context_override/);
+  renameSync(join(af,'.pi/harnesses/lib/session-target.ts'),join(af,'.pi/harnesses/lib/session-target.held'));
+  assert.equal(targetReadiness(roots).ready,false);assert.ok(resourceClosureGaps(af,['.pi/harnesses/damage-control-continue/index.ts']).some(gap=>gap.includes('session-target.ts')));
+ }finally{if(saved===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=saved;restoreTestEnv();rmSync(root,{recursive:true,force:true});}
+});

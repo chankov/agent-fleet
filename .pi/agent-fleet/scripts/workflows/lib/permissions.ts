@@ -1,3 +1,5 @@
+import {sessionRootsFromEnv,sessionGitEnv,validateSessionRoots,type SessionRoots} from "../../../../harnesses/lib/workspace-context.ts";
+import {realpathSync} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
@@ -10,7 +12,7 @@ interface PathState {
 	worktree?: { kind: "file" | "symlink"; data: string; hash: string };
 	headTracked: boolean;
 }
-export interface PermissionSnapshot { cwd: string; paths: Map<string, PathState> }
+export interface PermissionSnapshot { sessionRoots?:SessionRoots;cwd: string; paths: Map<string, PathState> }
 export interface PermissionPolicy { writes?: string[]; protectedGlobs?: string[]; alwaysWritable?: string[] }
 export interface PermissionEnforcement { changed: string[]; violations: string[]; preDirtyPreserved: string[] }
 
@@ -25,8 +27,9 @@ export class PermissionBreach extends Error {
 	}
 }
 
+function checkedEnvironment(cwd:string){const roots=sessionRootsFromEnv();if(roots){validateSessionRoots(roots);if(roots.mode==="targeted"&&realpathSync(cwd)!==roots.executionRoot)throw new PermissionBreach(["target_mismatch"]);}return roots?.mode==="targeted"?sessionGitEnv():process.env;}
 function git(cwd: string, args: string[]): string {
-	return execFileSync("git", args, { cwd, encoding: "utf8" });
+	return execFileSync("git", args, { cwd,env:checkedEnvironment(cwd), encoding: "utf8" });
 }
 function zlist(value: string): string[] { return value.split("\0").filter(Boolean); }
 function worktreeState(cwd: string, path: string): PathState["worktree"] {
@@ -44,7 +47,7 @@ function indexState(cwd: string, path: string): PathState["index"] {
 	return match ? { mode: match[1], object: match[2], stage: match[3] } : undefined;
 }
 function headTracked(cwd: string, path: string): boolean {
-	try { execFileSync("git", ["cat-file", "-e", `HEAD:${path}`], { cwd, stdio: "ignore" }); return true; } catch { return false; }
+	try { execFileSync("git", ["cat-file", "-e", `HEAD:${path}`], { cwd,env:checkedEnvironment(cwd), stdio: "ignore" }); return true; } catch { return false; }
 }
 
 export function snapshot(cwd = process.cwd()): PermissionSnapshot {
@@ -61,10 +64,12 @@ export function snapshot(cwd = process.cwd()): PermissionSnapshot {
 	for (const path of new Set([...trackedChanges, ...untracked])) {
 		paths.set(path, { path, numstat: stats.get(path) ?? "untracked", index: indexState(cwd, path), worktree: worktreeState(cwd, path), headTracked: headTracked(cwd, path) });
 	}
-	return { cwd: resolve(cwd), paths };
+	const roots=sessionRootsFromEnv();if(roots)validateSessionRoots(roots);
+ return { cwd: resolve(cwd), paths,...(roots?{sessionRoots:roots}:{}) };
 }
 function signature(state?: PathState): string { return state ? JSON.stringify(state) : "clean"; }
 export function changedPaths(before: PermissionSnapshot, after: PermissionSnapshot): string[] {
+ if(before.sessionRoots?.targetId!==after.sessionRoots?.targetId)throw new PermissionBreach(["target_changed"]);
 	const paths = new Set([...before.paths.keys(), ...after.paths.keys()]);
 	return [...paths].filter(path => signature(before.paths.get(path)) !== signature(after.paths.get(path))).sort();
 }
@@ -97,14 +102,15 @@ export function permitted(path: string, policy: PermissionPolicy, cwd = process.
 }
 
 function restoreState(cwd: string, path: string, state?: PathState): void {
+ checkedEnvironment(cwd);
 	const full = resolve(cwd, path);
 	if (!state) {
-		if (headTracked(cwd, path)) execFileSync("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", path], { cwd });
-		else { rmSync(full, { recursive: true, force: true }); try { execFileSync("git", ["update-index", "--force-remove", "--", path], { cwd, stdio: "ignore" }); } catch {} }
+		if (headTracked(cwd, path)) execFileSync("git", ["restore", "--source=HEAD", "--staged", "--worktree", "--", path], { cwd,env:checkedEnvironment(cwd) });
+		else { rmSync(full, { recursive: true, force: true }); try { execFileSync("git", ["update-index", "--force-remove", "--", path], { cwd,env:checkedEnvironment(cwd), stdio: "ignore" }); } catch {} }
 		return;
 	}
-	if (state.index) execFileSync("git", ["update-index", "--add", "--cacheinfo", `${state.index.mode},${state.index.object},${path}`], { cwd });
-	else { try { execFileSync("git", ["update-index", "--force-remove", "--", path], { cwd, stdio: "ignore" }); } catch {} }
+	if (state.index) execFileSync("git", ["update-index", "--add", "--cacheinfo", `${state.index.mode},${state.index.object},${path}`], { cwd,env:checkedEnvironment(cwd) });
+	else { try { execFileSync("git", ["update-index", "--force-remove", "--", path], { cwd,env:checkedEnvironment(cwd), stdio: "ignore" }); } catch {} }
 	rmSync(full, { recursive: true, force: true });
 	if (state.worktree) {
 		mkdirSync(dirname(full), { recursive: true });
@@ -114,6 +120,7 @@ function restoreState(cwd: string, path: string, state?: PathState): void {
 	}
 }
 export function rollBack(before: PermissionSnapshot, paths: string[]): string[] {
+ if(before.sessionRoots){validateSessionRoots(before.sessionRoots);if(sessionRootsFromEnv()?.targetId!==before.sessionRoots.targetId)throw new PermissionBreach(['target_changed']);}
 	const preserved: string[] = [];
 	for (const path of paths) {
 		if (before.paths.has(path)) preserved.push(path);

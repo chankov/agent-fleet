@@ -669,6 +669,7 @@
             ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
             ".pi/agent-fleet/scripts/coms-cli.ts",
             ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+            ".pi/agent-fleet/scripts/exec-at-target.ts",
             ".pi/agent-fleet/scripts/fleet.ts",
             ".pi/agent-fleet/scripts/flow.ts",
             ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
@@ -680,14 +681,18 @@
             ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
             ".pi/agent-fleet/scripts/lib/monitor-env.ts",
             ".pi/agent-fleet/scripts/lib/peer-launch.ts",
+            ".pi/agent-fleet/scripts/lib/peer-target.ts",
             ".pi/agent-fleet/scripts/lib/persona-banner.ts",
             ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+            ".pi/agent-fleet/scripts/lib/resource-closure.js",
             ".pi/agent-fleet/scripts/lib/runtime-dependencies.js",
+            ".pi/agent-fleet/scripts/lib/session-launch.ts",
             ".pi/agent-fleet/scripts/lib/spawn-stagger.ts",
             ".pi/agent-fleet/scripts/lib/team-project.ts",
             ".pi/agent-fleet/scripts/lib/team-snapshot.ts",
             ".pi/agent-fleet/scripts/peer-banner.ts",
             ".pi/agent-fleet/scripts/peer-launch.ts",
+            ".pi/agent-fleet/scripts/pi-session.ts",
             ".pi/agent-fleet/scripts/team-snapshot.ts",
             ".pi/agent-fleet/scripts/team-up.ts",
             ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
@@ -727,7 +732,14 @@
             ".pi/harnesses/agent-hub/proactive-selection.ts",
             ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
             ".pi/harnesses/agent-hub/proactive-snapshot.ts",
-            ".pi/harnesses/agent-hub/proactive-types.ts"
+            ".pi/harnesses/agent-hub/proactive-types.ts",
+            ".pi/harnesses/lib/damage-policy.ts",
+            ".pi/harnesses/lib/peer-target.ts",
+            ".pi/harnesses/lib/resource-closure.js",
+            ".pi/harnesses/lib/safe-source-read.js",
+            ".pi/harnesses/lib/target-capabilities.js",
+            ".pi/harnesses/lib/workspace-context.js",
+            ".pi/harnesses/lib/workspace-context.ts"
           ],
           "sourceMode": "all",
           "target": null,
@@ -929,6 +941,7 @@
       "parents": [
         "companion:workflow-runtime",
         "pi-extension:btw",
+        "pi-extension:pi-voice-stt",
         "pi-harness:agent-hub",
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
@@ -962,6 +975,31 @@
         "pi-harness:ask-user-remote",
         "pi-harness:coms",
         "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:session-worktree-guide",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Session worktree targeting guide",
+      "summary": "Workspace/target roots, consent, resume and integration boundaries",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/session-worktree-targeting.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/docs/session-worktree-targeting.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "companion:workflow-runtime"
       ]
     },
     {
@@ -1120,6 +1158,7 @@
             ".pi/agent-fleet/scripts/package-lock.json",
             ".pi/agent-fleet/scripts/lib/flow-command.ts",
             ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/lib/resource-closure.js",
             ".pi/agent-fleet/scripts/workflows",
             ".pi/harnesses/agent-hub/return-contract.js",
             ".pi/harnesses/agent-hub/run-namespace.js",
@@ -1216,6 +1255,7 @@
       },
       "companions": [
         "companion:pi-harness-lib",
+        "companion:session-worktree-guide",
         "companion:workflow-deps",
         "companion:workflow-guide"
       ],
@@ -1973,6 +2013,7 @@
       "companions": [
         "companion:pi-extension-deps",
         "companion:pi-extension-manifests",
+        "companion:pi-harness-lib",
         "companion:stt-config"
       ]
     },

@@ -10,6 +10,7 @@
 // No sockets, no fs, no process.exit here — the wiring lives in
 // .pi/agent-fleet/scripts/team-snapshot.ts.
 
+import {validateSessionRoots,targetProject,type SessionRoots} from '../../../harnesses/lib/workspace-context.ts';
 import type { Peer } from "./herdr-layout.ts";
 import { DEFAULT_PROJECT, teamWorkspaceLabel, validateProject, validateTeamName } from "./team-project.ts";
 
@@ -25,6 +26,8 @@ export interface PeerSnapshot extends Peer {
 }
 
 export interface TeamSnapshot {
+ sessionRoots?:SessionRoots;
+ baseProject?:string;
 	version: 1;
 	team: string;
 	project: string;
@@ -59,6 +62,8 @@ export function buildSnapshot(opts: {
 	now?: Date;
 	project?: string;
 	tag?: string;
+ sessionRoots?:SessionRoots;
+ baseProject?:string;
 }): TeamSnapshot {
 	const { team, hub, peers, panes, agents, project = DEFAULT_PROJECT, tag } = opts;
 	validateTeamName(team);
@@ -76,6 +81,7 @@ export function buildSnapshot(opts: {
 	}
 	return {
 		version: 1,
+  ...(opts.sessionRoots?{sessionRoots:validateSessionRoots(opts.sessionRoots),baseProject:opts.baseProject}:{}),
 		team,
 		project,
 		hub,
@@ -135,6 +141,13 @@ export function parseSnapshot(raw: string): TeamSnapshot {
 	}
 	validateProject(s.project);
 	return s;
+}
+
+export function assertSnapshotTarget(snap:TeamSnapshot,selected?:SessionRoots):void {
+ if(!snap.sessionRoots){if(selected?.mode==='targeted')throw Error('unbound_snapshot_requires_new_session');return;}
+ const roots=validateSessionRoots(snap.sessionRoots);
+ if(!selected||roots.targetId!==validateSessionRoots(selected).targetId)throw Error('snapshot_target_mismatch: select the original --worktree');
+ if(typeof snap.baseProject!=='string'||targetProject(snap.baseProject,roots)!==snap.project)throw Error('snapshot_project_binding_mismatch');
 }
 
 export function assertSnapshotProject(snap: TeamSnapshot, requestedProject: string): void {

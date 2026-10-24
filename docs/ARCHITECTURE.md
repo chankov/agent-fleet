@@ -7,6 +7,47 @@ For the principles governing future plans and design decisions, read the
 [project philosophy](PHILOSOPHY.md). That document states the intended direction;
 this page describes the current architecture.
 
+## Session worktree root contract
+
+The intended external Fleet layout is:
+
+```text
+root/
+├── af/                 # Fleet workspace: justfile, .pi/, .ai/, runtime dependencies
+├── repo/               # application's main Git checkout; no Fleet installation
+├── repo.worktree/      # registered linked/detached application checkout
+└── docs/               # separately configured rules/documentation repository
+```
+
+Here `workspaceRoot` / `resourceRoot` / `configBase` are `root/af`,
+`repositoryRoot` is `root/repo`, and `executionRoot` / `worktreeRoot` are
+`root/repo.worktree`. Relative selectors are resolved from `af`, so that checkout
+is `../repo.worktree`, not `./repo.worktree`. External docs/rules paths must be
+explicitly configured relative to `af` (for example `../docs`); neither sibling
+placement nor selecting a checkout grants read, write, or remote-export consent.
+Fleet must not be copied or symlinked into the application's checkouts.
+
+`just fleet --worktree <registered-checkout>` binds a session to immutable,
+canonical filesystem/Git registry identities independently of HEAD. Configuration,
+resources and Fleet evidence remain workspace-owned; a managed symlink install
+also pins its separate physical Fleet resource root without moving human config.
+Coding tools, Git, native
+specialists and workflow data use the execution root. Communications, retention
+and resume carry target identity. Serialized transport is revalidated, never a
+permission. Scoped workflows do not mutate a global active checkout.
+
+System 1 requires exact, separately approved per-consumer physical-target scopes.
+Off, pending consent, invalid adaptation, unchecked provider health and actual
+consumer results are distinct. A scout clone cannot borrow source-export consent
+from its source checkout. Routing is not OS isolation or external-service
+isolation. Targeted `/btw` and Hermes conductor explicitly refuse unsupported
+combinations. Interactive Pi history retains its global cwd-scoped location;
+Fleet artifacts and native session files remain partitioned in the workspace.
+
+See [usage and boundaries](session-worktree-targeting.md) and the
+[implementation/verification plan](plans/PLAN-session-worktree-targeting.md).
+No target-local Fleet copy or cwd-only workaround is needed.
+
 ## Runtime layers
 
 | Layer | Role | Implementation |

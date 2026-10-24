@@ -1,3 +1,4 @@
+import { gateWorktreeSnapshot } from '../lib/system1/worktree-scopes.ts';
 import { policyRootValidationContext, type PolicyRootTable } from "../lib/policy-roots.ts";
 import { normalizeSystem1Config } from "../lib/system1/config-v2.js";
 import { loadSystem1Snapshot } from "../lib/system1/config-loader.js";
@@ -13,7 +14,7 @@ export function parseProactiveConfig(value: unknown, roots?: PolicyRootTable): L
 }
 /** Missing or invalid section cannot authorize capture; shared snapshot is optional for standalone callers. */
 export function loadProactiveConfig(repo: string, snapshot = loadSystem1Snapshot(repo), roots?: PolicyRootTable): LocalProactiveConfig {
- const contextual = roots && snapshot.document ? normalizeSystem1Config(snapshot.document,policyRootValidationContext(roots)) : snapshot;
+ const contextual = gateWorktreeSnapshot(roots && snapshot.document ? normalizeSystem1Config(snapshot.effectiveDocument ?? snapshot.document,policyRootValidationContext(roots)) : snapshot);
  const section = contextual.consumers.proactiveReview;
  if (section.status === "invalid") throw new Error("Invalid $.consumers.proactiveReview");
  return section.config as LocalProactiveConfig ?? OFF;

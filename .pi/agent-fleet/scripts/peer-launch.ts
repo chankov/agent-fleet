@@ -20,6 +20,8 @@
 //   takes no command and silently ignores one (see spawned-peers.js).
 
 import { spawnSync } from "node:child_process";
+import {workspaceRoot,sessionRootsFromEnv} from "../../harnesses/lib/workspace-context.ts";
+import {peerTarget,targetPaneEnv,targetPeerCommand} from "./lib/peer-target.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +36,7 @@ import { worktreeTag } from "./lib/team-project.ts";
 import { PERSONA_DIRS } from "./lib/persona-dirs.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = fs.realpathSync(path.resolve(SCRIPT_DIR, "..", "..", ".."));
+const REPO_ROOT = workspaceRoot(fs.realpathSync(path.resolve(SCRIPT_DIR, "..", "..", "..")));
 const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 
 const USAGE =
@@ -72,13 +74,14 @@ async function waitForRegistration(plan: PeerLaunchPlan): Promise<{ found: boole
 	const wanted = plan.name.toLowerCase();
 	const started = Date.now();
 	for (let attempt = 0; ; attempt++) {
-		let live: { name: string }[] = [];
+		let live: { name: string;targetId?:string;cwd?:string }[] = [];
 		try {
 			live = pruneDeadEntries(plan.project);
 		} catch {
 			// Registry not readable yet; the timeout below bounds the wait.
 		}
-		if (live.some((entry) => entry.name.toLowerCase() === wanted)) {
+		const roots=sessionRootsFromEnv();
+  if (live.some((entry) => {if(entry.name.toLowerCase()!==wanted)return false;if(roots?.mode!=='targeted')return true;try{return entry.targetId===roots.targetId&&fs.realpathSync(entry.cwd!)===roots.executionRoot;}catch{return false;}})) {
 			return { found: true, waitedMs: Date.now() - started };
 		}
 		const remaining = PEER_READY_TIMEOUT_MS - (Date.now() - started);
@@ -97,17 +100,20 @@ async function main(): Promise<void> {
 		process.exit(2);
 	}
 
+	const target=peerTarget(args.project??"default");
+ if(target){if(args.allExtensions)die('Targeted peers refuse --all-extensions; select explicit workspace extensions');args.project=target.project;}
 	let plan: PeerLaunchPlan;
 	try {
 		plan = buildPeerLaunchPlan(args, {
 			peersYaml: readIfPresent(args.peersYaml ?? PEERS_YAML),
 			personaExists,
-			worktreeTag: worktreeTag(REPO_ROOT),
+			worktreeTag: worktreeTag(target?.roots.executionRoot??REPO_ROOT),
 		});
 	} catch (err) {
 		die(`fleet peer: ${err instanceof Error ? err.message : String(err)}`);
 	}
 
+ if(target)plan={...plan,command:targetPeerCommand(plan.command,target.roots)};
 	const inPane = process.env.HERDR_ENV === "1" ? process.env.HERDR_PANE_ID || null : null;
 
 	if (args.dryRun) {
@@ -123,7 +129,7 @@ async function main(): Promise<void> {
 		console.log(`# fleet peer (dry run) — "${plan.name}" [${plan.kind}], project "${plan.project}", ${source}`);
 		console.log(`# placement: ${placement}`);
 		console.log(`${plan.name}\t${plan.command.join(" ")}${envNote}`);
-		console.log(JSON.stringify(plan, null, 2));
+		console.log(JSON.stringify({...plan,...(target?{targetId:target.roots.targetId,workspaceRoot:target.roots.workspaceRoot,executionRoot:target.roots.executionRoot,baseProject:target.baseProject}:{})}, null, 2));
 		return;
 	}
 
@@ -158,15 +164,15 @@ async function main(): Promise<void> {
 		const [bin, ...rest] = plan.command;
 		const result = spawnSync(bin, rest, {
 			stdio: "inherit",
-			cwd: REPO_ROOT,
-			env: { ...process.env, ...paneEnv(plan) },
+			cwd: target?.roots.executionRoot??REPO_ROOT,
+			env: { ...process.env, ...(target?targetPaneEnv(paneEnv(plan),target.roots,target.baseProject,target.project):paneEnv(plan)) },
 		});
 		if (result.error) die(`fleet peer: could not run ${bin}: ${result.error.message}`);
 		process.exitCode = result.status ?? 1;
 		return;
 	}
 
-	const env = paneEnv(plan);
+	const env = target?targetPaneEnv(paneEnv(plan),target.roots,target.baseProject,target.project):paneEnv(plan);
 
 	// Import lazily so --dry-run and --here never touch the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import("../../../.pi/harnesses/lib/herdr-client.ts");
@@ -186,7 +192,7 @@ async function main(): Promise<void> {
 		const { pane } = await herdr.paneSplit({
 			target_pane_id: inPane,
 			direction: plan.direction,
-			cwd: REPO_ROOT,
+			cwd: target?.roots.executionRoot??REPO_ROOT,
 			...(Object.keys(env).length > 0 ? { env } : {}),
 			focus: false,
 		});
@@ -211,14 +217,14 @@ async function main(): Promise<void> {
 			console.error(`  close: herdr workspace close ${existing.workspace_id}`);
 			process.exit(1);
 		}
-		const created = await herdr.workspaceCreate({ label: plan.workspaceLabel, cwd: REPO_ROOT, focus: false });
+		const created = await herdr.workspaceCreate({ label: plan.workspaceLabel, cwd: target?.roots.executionRoot??REPO_ROOT, focus: false });
 		const wsId = created.workspace.workspace_id;
 		const initialTab = created.workspace.active_tab_id ?? created.tab?.tab_id;
 		// layout.apply pane nodes DO carry an argv, so no prompt-typing here.
 		const root: LayoutNode = {
 			type: "pane",
 			command: plan.command,
-			cwd: REPO_ROOT,
+			cwd: target?.roots.executionRoot??REPO_ROOT,
 			label: plan.name,
 			...(Object.keys(env).length > 0 ? { env } : {}),
 		};

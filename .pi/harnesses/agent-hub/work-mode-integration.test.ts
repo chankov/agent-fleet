@@ -271,7 +271,9 @@ test("same-turn pressure aborts after a large tool result and compacts only afte
 	assert.match(pressureLifecycleSource, /messageEnd\(event, ctx\)[\s\S]*?event\.message\.role !== "toolResult"[\s\S]*?observe\(ctx, "message_end", projected\)[\s\S]*?ctx\.abort\(\)/);
 	assert.match(indexSource, /pi\.on\("turn_end"[\s\S]*?pressureLifecycle\.turnEnd/);
 	assert.match(pressureLifecycleSource, /context\(ctx\)[\s\S]*?automaticPending[\s\S]*?ctx\.abort\(\)/);
-	assert.match(indexSource, /pi\.on\("agent_settled"[\s\S]*?pressureLifecycle\.agentSettled/);
+	assert.match(indexSource, /settlePressure: ctx => pressureLifecycle\.agentSettled\(ctx\)/);
+ assert.match(indexSource, /registerTurnSettlement\(pi,\s*\{\s*agentSettled: ctx => turnHandlers\.agentSettled\(ctx\)/);
+ assert.match(turnLifecycleSource, /events\.on\("agent_settled",[\s\S]*?handlers\.agentSettled\(ctx\)/);
 	assert.match(pressureLifecycleSource, /const runCompaction[\s\S]*?ctx\.compact\(/);
 	assert.match(indexSource, /pi\.on\("session_compact", async[\s\S]*?toolCatalogRuntime\.compact\(\{[\s\S]*?retainCounter: \(\) => unknownToolCounter\.noteCompaction\(\)[\s\S]*?settle: restored => pressureLifecycle\.sessionCompact\(restored\)/);
 });

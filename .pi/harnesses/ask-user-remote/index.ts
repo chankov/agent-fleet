@@ -75,9 +75,11 @@ interface ResolveStockOptions {
 // hard-crash later with a tool-name conflict — the preflight skips instead.
 const STOCK_PACKAGE_PATTERN = /(^|[/:])pi-ask-user(@[^/]*)?$/;
 
+import {workspaceRoot} from '../lib/workspace-context.ts';
+
 export function defaultSettingsPaths(): string[] {
 	return [
-		path.join(process.cwd(), ".pi", "settings.json"),
+		path.join(workspaceRoot(process.cwd()), ".pi", "settings.json"),
 		path.join(os.homedir(), ".pi", "agent", "settings.json"),
 	];
 }
@@ -500,7 +502,7 @@ function stockEntriesUnder(packageDir: string): string[] {
  */
 export function stockAskUserCandidatePaths(options: ResolveStockOptions = {}): string[] {
 	const moduleUrl = options.moduleUrl ?? import.meta.url;
-	const cwd = options.cwd ?? process.cwd();
+	const cwd = workspaceRoot(options.cwd ?? process.cwd());
 	const homeDir = options.homeDir ?? os.homedir();
 
 	// Pi's jiti loader preserves the workspace-facing path of a symlinked

@@ -1,16 +1,20 @@
+import {sessionRootsFromEnv,sessionGitEnv,validateSessionRoots} from "../lib/workspace-context.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export function snapshotWorktree(cwd, scopes = []) {
+ let binding;try{binding=sessionRootsFromEnv();if(binding?.mode==="targeted"&&realpathSync(cwd)!==binding.executionRoot)return {skipped:true,reason:"target_mismatch",paths:new Set(),head:undefined,fingerprints:new Map()};}catch{return {skipped:true,reason:"target_unavailable",paths:new Set(),head:undefined,fingerprints:new Map()};}
  const status = gitStatus(cwd);
+ if (status.skipped&&binding?.mode==='targeted')return {skipped:true,reason:status.reason,paths:new Set(),head:undefined,fingerprints:new Map()};
  if (status.skipped) return scopes.length ? snapshotNestedWorktrees(cwd, scopes) : { skipped: true, reason: status.reason, paths: new Set() };
  try {
   const fingerprints = new Map(status.paths.map(path => [path, fileFingerprint(cwd, path)]));
   let head = "";
-  try { head = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch {}
-  return { skipped: false, paths: new Set(status.paths), fingerprints, head };
+  try { head = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], { env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); } catch {}
+  if(binding)validateSessionRoots(binding);
+  return { skipped: false, paths: new Set(status.paths), fingerprints, head,...(binding?.mode==="targeted"?{targetId:binding.targetId}:{}) };
  } catch (error) { return { skipped: true, reason: String(error), paths: new Set() }; }
 }
 
@@ -36,7 +40,7 @@ function scopeRepository(cwd, scope) {
  }
  const physical = realpathSync(anchor);
  if (!within(workspace, physical)) throw new Error("Scope anchor is outside the workspace");
- const root = realpathSync(execFileSync("git", ["-C", physical, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim());
+ const root = realpathSync(execFileSync("git", ["-C", physical, "rev-parse", "--show-toplevel"], { env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim());
  if (root === workspace || !within(workspace, root) || !within(root, absolute)) throw new Error("No declared repository inside the workspace");
  return { root, prefix: relative(workspace, root).replace(/\\/g, "/"), localScope: relative(root, absolute).replace(/\\/g, "/") || "." };
 }
@@ -64,7 +68,7 @@ function snapshotNestedWorktrees(cwd, scopes) {
   try {
    const status = gitStatus(group.root, group.localScopes);
    if (status.skipped) throw new Error(status.reason);
-   const head = execFileSync("git", ["-C", group.root, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+   const head = execFileSync("git", ["-C", group.root, "rev-parse", "HEAD"], { env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
    const paths = status.paths.filter(path => !isSessionOutput(path) && group.localScopes.some(scope => scope === "." || matchesScope(path, scope)));
    repositories.push({ ...group, head, paths: new Set(paths), fingerprints: new Map(paths.map(path => [path, metadataFingerprint(group.root, path)])) });
   } catch (error) { for (const scope of group.scopes) gaps.push({ scope, reason: String(error) }); }
@@ -145,7 +149,7 @@ export function worktreeRevision(cwd, scopes = [], declaredScopes = scopes) {
 export function snapshotRevision(snapshot, scopes = []) {
  if (snapshot.skipped || snapshot.gaps?.length) return "unavailable";
  const entries = [...snapshot.fingerprints].filter(([path]) => !isSessionOutput(path) && (snapshot.nested || !scopes.length || checkScope([path], scopes).inScope.length)).sort(([a], [b]) => a.localeCompare(b));
- return createHash("sha256").update(JSON.stringify([snapshot.head, entries])).digest("hex");
+ return createHash("sha256").update(JSON.stringify([...(snapshot.targetId?[snapshot.targetId]:[]),snapshot.head, entries])).digest("hex");
 }
 
 export function checkScope(changedPaths, scopeGlobs) {
@@ -165,6 +169,7 @@ function gitStatus(cwd, scopes = []) {
 	try {
 		const pathspecs = scopes.map(scope => scope === "." ? ":(top,glob)**" : `:(top,${hasGlob(scope) ? "glob" : "literal"})${scope}`);
 		const output = execFileSync("git", ["-C", cwd, "status", "--porcelain", "-z", "--untracked-files=all", ...(pathspecs.length ? ["--", ...pathspecs] : [])], {
+			env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env,
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "pipe"],
 		});

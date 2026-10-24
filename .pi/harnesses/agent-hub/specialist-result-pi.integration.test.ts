@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnPiAgent } from "./spawn.ts";
 
+import {resolvePiTestRuntime} from '../../../bin/test/helpers/pi-runtime.js';
 const root=fileURLToPath(new URL("../../../",import.meta.url));
+const runtime=resolvePiTestRuntime({root});
 const probe=String.raw`
 import {createAssistantMessageEventStream} from "@earendil-works/pi-ai";
 let calls=0;
@@ -30,11 +32,11 @@ export default function(pi:any){
  }});
 }
 `;
-test("real Pi 1.3 validates a failed submission then delivers a repaired result through native transport",async()=>{
+test("real project Pi validates a failed submission then delivers a repaired result through native transport",async()=>{
  const dir=mkdtempSync(join(tmpdir(),"af-result-pi-"));
  try{
   mkdirSync(join(dir,"bin"));mkdirSync(join(dir,"agent"));
-  symlinkSync(join(process.execPath,"../../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"),join(dir,"bin/pi"));
+  symlinkSync(runtime.cli,join(dir,"bin/pi"));
   writeFileSync(join(dir,"provider.ts"),probe);writeFileSync(join(dir,"proof.txt"),"Verified fixture");
   writeFileSync(join(dir,"agent/settings.json"),JSON.stringify({compaction:{enabled:false}}));
   const results:any[]=[];

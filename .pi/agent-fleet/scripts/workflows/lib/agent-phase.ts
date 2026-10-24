@@ -1,3 +1,4 @@
+import {sessionRootsFromEnv,executionRoot} from "../../../../harnesses/lib/workspace-context.ts";
 import { profileFallback } from './model-profile.ts';
 import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -64,7 +65,8 @@ function readMeta(path: string): SessionMeta {
 }
 
 export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>): Promise<T> {
-	const cwd = options.cwd ?? process.cwd();
+	const cwd = options.cwd ?? executionRoot(process.cwd());
+ const binding=sessionRootsFromEnv();
 	const agentKey = options.persona.name.toLowerCase();
 	const model = resolvePhaseModel(options.persona, options.model);
 	const thinking = resolvePhaseThinking(options.persona, options.thinking);
@@ -104,7 +106,7 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 			options.run.trace.write("log", { phase: options.persona.name, message: `session recycled before spawn — ${overflow.message}` });
 		}
 		let measuredTokens = meta.contextTokens;
-		const scoutBoundary = options.dataReadRoot ? fileURLToPath(new URL("./scout-data-boundary.ts", import.meta.url)) : null;
+		const scoutBoundary = options.dataReadRoot ? binding?.mode==="targeted"?resolve(binding.resourceRoot,".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts"):fileURLToPath(new URL("./scout-data-boundary.ts", import.meta.url)) : null;
 		// Pi needs writable trust/auth locks even during read-only reconnaissance.
 		// Copy only runtime configuration, never the user's extensions or sessions.
 		const runtime = options.dataReadRoot ? mkdtempSync(resolve(directory, "pi-runtime-")) : null;
@@ -135,7 +137,7 @@ export async function runAgentPhase<T = unknown>(options: AgentPhaseOptions<T>):
 				model, tools: options.persona.tools, thinking,
 				systemPrompt: replacement, noSkills: true, noContextFiles: true, sessionFile, resume, prompt, cwd,
 				extensions: scoutBoundary
-					? [fileURLToPath(new URL("../../../../../.pi/harnesses/damage-control-continue/index.ts", import.meta.url)), scoutBoundary]
+					? [binding?.mode==="targeted"?resolve(binding.resourceRoot,".pi/harnesses/damage-control-continue/index.ts"):fileURLToPath(new URL("../../../../../.pi/harnesses/damage-control-continue/index.ts", import.meta.url)), scoutBoundary]
 					: [".pi/harnesses/damage-control-continue/index.ts"], detached: true, signal: options.run.signal,
 				...(options.dataReadRoot ? {
 					env: { [SCOUT_DATA_ROOT_ENV]: resolve(options.dataReadRoot), PI_CODING_AGENT_DIR: runtime!, TMPDIR: resolve(runtime!, "tmp") },

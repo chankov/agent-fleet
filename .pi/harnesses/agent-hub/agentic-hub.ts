@@ -1,3 +1,4 @@
+import {worktreeConsumerService} from '../lib/system1/worktree-service.ts';
 import {resolve} from 'node:path';
 import type {ExtensionAPI,ExtensionContext} from '@mariozechner/pi-coding-agent';
 import type {System1Service} from '../lib/system1/contracts.ts';
@@ -34,7 +35,7 @@ export function configureAgenticHub(pi:ExtensionAPI,options:{snapshot:ReturnType
  // Persist the zero baseline too, so an enabled session with no evaluations
  // resumes unambiguously; a missing historical baseline fails closed.
  if(restored){try{persist(restored);}catch{restored=null;}}
- const runtime=createAgenticRuntime({config,service:options.service,sessionId,context,persist,restored,collect,observe:(id,status)=>options.communicationStore?.finishAgentic(id,status)});
+ const runtime=createAgenticRuntime({config,service:worktreeConsumerService(options.service,options.snapshot.document,'agenticAsk'),sessionId,context,persist,restored,collect,observe:(id,status)=>options.communicationStore?.finishAgentic(id,status)});
  sessions.set(pi,{runtime,evidence});
 }
 export function registerAgenticHub(pi:ExtensionAPI):void {

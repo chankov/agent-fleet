@@ -17,6 +17,20 @@ function fixture(t: test.TestContext) {
  return { base, checkout, docs };
 }
 
+test("workspace config paths remain anchored outside the execution checkout", t => {
+ const { checkout, docs, base } = fixture(t);
+ const target=join(base,'repo.worktree');mkdirSync(join(target,'.ai/rules'),{recursive:true});
+ writeFileSync(join(checkout,'.ai/rules/local.md'),'workspace rule');
+ writeFileSync(join(target,'.ai/rules/local.md'),'target poison');
+ const table=resolvePolicyRoots(target,{rulesDirs:['.ai/rules'],docsPaths:['../docs/README.md']},checkout);
+ assert.equal(table.workspace,target);
+ assert.equal(table.configBase,checkout);
+ assert.equal(resolveRuleBinding(table,'.ai/rules/local.md').path,join(checkout,'.ai/rules/local.md'));
+ assert.deepEqual(resolvePolicyReferences(table,['../docs/README.md'],'docs'),[join(docs,'README.md')]);
+ assert.deepEqual(resolvePolicyReferences(table,['.ai/rules'],'rules'),[join(checkout,'.ai/rules')]);
+ assert.throws(()=>authorizePolicyPath(table,join(checkout,'README.md')),/ungranted/);
+});
+
 test("checkout anchors external roots regardless of nested caller or worktree layout", t => {
  const { checkout, docs } = fixture(t);
  mkdirSync(join(checkout, "nested"));

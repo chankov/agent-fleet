@@ -17,6 +17,7 @@ export interface PolicyRootDiagnostic {
 }
 export interface PolicyRootTable {
  readonly workspace: string;
+ readonly configBase?: string;
  readonly roots: readonly PolicyRoot[];
  readonly diagnostics: readonly PolicyRootDiagnostic[];
 }
@@ -24,7 +25,7 @@ export interface AuthorizedPolicyPath {
  readonly root: PolicyRoot;
  readonly path: string;
 }
-export const resolvePolicyRoots = runtime.resolvePolicyRoots as (checkout: string, config: { rulesDirs?: readonly string[]; docsPaths?: readonly string[] }) => PolicyRootTable;
+export const resolvePolicyRoots = runtime.resolvePolicyRoots as (checkout: string, config: { rulesDirs?: readonly string[]; docsPaths?: readonly string[] }, configurationBase?: string) => PolicyRootTable;
 export const authorizePolicyPath = runtime.authorizePolicyPath as (table: PolicyRootTable, path: string, operation?: "read" | "inventory") => AuthorizedPolicyPath;
 export const resolvePolicyReferences = runtime.resolvePolicyReferences as (table: PolicyRootTable, paths: readonly string[], role: "rules" | "docs") => string[];
 export const policyRootValidationContext = runtime.policyRootValidationContext as (table: PolicyRootTable) => { externalIncludeAllowed(include: string): boolean };

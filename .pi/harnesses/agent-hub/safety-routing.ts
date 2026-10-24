@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { sessionRootsFromEnv } from '../lib/workspace-context.ts';
 import { join, resolve } from "node:path";
 
 const CONTINUE_ENTRY = /damage-control-continue[/\\]index\.ts$/;
@@ -6,6 +7,11 @@ const MISSING_SAFETY_ERROR = "damage-control-continue harness not found — guar
 
 /** Resolve only the surviving continue harness; never downgrade to an unguarded or hard-stop child. */
 export function resolveSafetyHarness(cwd: string, argv: string[] = process.argv): string | null {
+ const roots=sessionRootsFromEnv();
+ if(roots?.mode==='targeted'){
+  const candidate=join(roots.resourceRoot,'.pi/harnesses/damage-control-continue/index.ts');
+  return existsSync(candidate)&&realpathSync(candidate).startsWith(roots.resourceRoot+'/')?realpathSync(candidate):null;
+ }
 	for (let i = 0; i < argv.length - 1; i++) {
 		if (argv[i] !== "-e" && argv[i] !== "--extension") continue;
 		const candidate = resolve(argv[i + 1]);

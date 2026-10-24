@@ -1,4 +1,6 @@
+import {parseWorktreeSelection,type WorktreeSelection} from "../../../harnesses/lib/workspace-context.ts";
 export interface FlowCommand {
+ selection?:WorktreeSelection;
 	/** Explicit opt-in; otherwise execute on the caller's current branch. */
 	branch?: boolean;
 	name: string;
@@ -12,6 +14,7 @@ export interface FlowCommand {
 }
 
 export interface FlowMaintenanceCommand {
+ selection?:WorktreeSelection;
 	action: "cleanup" | "merge";
 	selector?: string;
 	target?: string;
@@ -28,6 +31,9 @@ function safeRef(value: string): boolean {
 }
 
 export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceCommand {
+ const {rest,selection}=parseWorktreeSelection(argv);const command=parseFlowMaintenanceBase(rest);return selection?{...command,selection}:command;
+}
+function parseFlowMaintenanceBase(argv: string[]): FlowMaintenanceCommand {
 	const action = argv[0];
 	if (action !== "cleanup" && action !== "merge") throw new Error("Usage: flow <cleanup|merge> [number|flow/branch] [options]");
 	let selector: string | undefined, target: string | undefined, discard = false, yes = false;
@@ -57,6 +63,9 @@ export function parseFlowMaintenanceCommand(argv: string[]): FlowMaintenanceComm
 }
 
 export function parseFlowCommand(argv: string[]): FlowCommand {
+ const {rest,selection}=parseWorktreeSelection(argv);const command=parseFlowBase(rest);return selection?{...command,selection}:command;
+}
+function parseFlowBase(argv: string[]): FlowCommand {
 	if (argv.length === 0) throw new Error("Usage: flow <name> [args] [--branch] [--allow-dirty] [--run-id <id>] [--dry-run] [--panel <name>] [--rounds <n>] [--apply]");
 	const name = argv[0];
 	if (!FLOW_NAME.test(name)) throw new Error(`Invalid flow name: ${name}`);

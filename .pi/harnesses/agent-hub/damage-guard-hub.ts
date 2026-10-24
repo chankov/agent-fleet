@@ -1,3 +1,4 @@
+import {worktreeConsumerService} from '../lib/system1/worktree-service.ts';
 import {randomUUID} from 'node:crypto';
 import {beginRuntimeTrace,type TraceBus} from '../lib/execution-trace.ts';
 import {realpathSync} from 'node:fs';
@@ -63,9 +64,10 @@ export function createDamageHubSession(options:HubSessionOptions){
    return owners.validate(owner,tool,cwd);
   },revoke:owners.revoke,
  };
- const sharedService: System1Service|undefined=enabled&&options.service?{evaluate:async request=>{
+ const scopedService=worktreeConsumerService(options.service,options.snapshot.document,'damageGuard');
+ const sharedService: System1Service|undefined=enabled&&scopedService?{evaluate:async request=>{
   if(Date.now()<backoff)return {status:'unavailable',reason:'network'};
-  try{const result=await options.service!.evaluate(request);if(result.status!=='ok')backoff=Date.now()+config.limits.outageBackoffMs;return result;}catch(error){backoff=Date.now()+config.limits.outageBackoffMs;throw error;}
+  try{const result=await scopedService!.evaluate(request);if(result.status!=='ok')backoff=Date.now()+config.limits.outageBackoffMs;return result;}catch(error){backoff=Date.now()+config.limits.outageBackoffMs;throw error;}
  }}:undefined;
  const latestActions=new Map<string,string>();
  function noteAction(action:DamageAction){const key=overrideKey(action),prior=latestActions.get(action.owner);if(prior&&prior!==key)overrides.delete(prior);latestActions.set(action.owner,key);}

@@ -443,6 +443,7 @@
     },
     "pi-extension:pi-voice-stt": {
       "companions": [
+        "companion:pi-harness-lib",
         "companion:pi-extension-manifests",
         "companion:pi-extension-deps",
         "companion:stt-config"
@@ -568,6 +569,7 @@
     },
     "companion:workflow-runtime": {
       "companions": [
+        "companion:session-worktree-guide",
         "companion:workflow-guide",
         "companion:workflow-deps",
         "companion:pi-harness-lib"
@@ -575,6 +577,11 @@
     }
   },
   "companions": {
+    "companion:session-worktree-guide": {
+      "title": "Session worktree targeting guide",
+      "summary": "Workspace/target roots, consent, resume and integration boundaries",
+      "agents": {"pi": {"source": ["docs/session-worktree-targeting.md"], "target": ".pi/agent-fleet/docs/session-worktree-targeting.md", "strategy": "copy-file"}}
+    },
     "companion:skills-internal-grilling": {
       "title": "skills/_internal/grilling.md",
       "summary": "Shared helper for the interview-style skills",
@@ -777,6 +784,7 @@
             ".pi/agent-fleet/scripts/package-lock.json",
             ".pi/agent-fleet/scripts/lib/flow-command.ts",
             ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/lib/resource-closure.js",
             ".pi/agent-fleet/scripts/workflows",
             ".pi/harnesses/agent-hub/return-contract.js",
             ".pi/harnesses/agent-hub/run-namespace.js",

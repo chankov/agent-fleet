@@ -1,10 +1,11 @@
+import {workspaceRoot} from "../../../../harnesses/lib/workspace-context.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolvePolicyReferences, resolvePolicyRoots } from "../../../../harnesses/lib/policy-roots.ts";
 
 /** Workflow-side reader of the Hub's `## agent-hub` / `## agent-team` rules and docs contract. */
 export function readProjectPolicy(cwd: string): { rulesPaths: string[]; docsPaths: string[] } {
-	const file = join(cwd, ".ai", "agent-fleet-overrides.md");
+	const file = join(workspaceRoot(cwd), ".ai", "agent-fleet-overrides.md");
 	if (!existsSync(file)) return { rulesPaths: [], docsPaths: [] };
 	let raw: string;
 	try { raw = readFileSync(file, "utf8"); } catch { return { rulesPaths: [], docsPaths: [] }; }
@@ -29,8 +30,8 @@ export function resolveProjectPolicy(cwd: string, options: { rulesPaths?: string
 	const configured = readProjectPolicy(cwd);
 	const rulesPaths = [...new Set([...configured.rulesPaths, ...(options.rulesPaths ?? [])])];
 	const docsPaths = [...new Set([...configured.docsPaths, ...(options.docsPaths ?? [])])];
-	for (const path of rulesPaths) if (!existsSync(join(cwd, path))) warn(`agent-fleet-overrides: rules folder "${path}" not found in ${cwd}`);
-	for (const path of docsPaths) if (!existsSync(join(cwd, path))) warn(`agent-fleet-overrides: docs entry point "${path}" not found in ${cwd}`);
-	const roots=resolvePolicyRoots(cwd,{rulesDirs:rulesPaths,docsPaths});
+	for (const path of rulesPaths) if (!existsSync(join(workspaceRoot(cwd), path))) warn(`agent-fleet-overrides: rules folder "${path}" not found in ${cwd}`);
+	for (const path of docsPaths) if (!existsSync(join(workspaceRoot(cwd), path))) warn(`agent-fleet-overrides: docs entry point "${path}" not found in ${cwd}`);
+	const roots=resolvePolicyRoots(cwd,{rulesDirs:rulesPaths,docsPaths},workspaceRoot(cwd));
 	return { rulesPaths:resolvePolicyReferences(roots,rulesPaths,"rules"), docsPaths:resolvePolicyReferences(roots,docsPaths,"docs") };
 }

@@ -1,4 +1,7 @@
+import {parseWorktreeSelection,type WorktreeSelection} from '../../../harnesses/lib/workspace-context.ts';
 export interface FleetInvocation {
+ selection?:WorktreeSelection;
+ preview?:boolean;
 	recipe: string;
 	args: string[];
 	warnings?: string[];
@@ -180,6 +183,17 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 }
 
 export function parseFleetCommand(argv: string[]): FleetInvocation {
+ const {rest,selection}=parseWorktreeSelection(argv);
+ const boundary=rest.indexOf('--'),end=boundary<0?rest.length:boundary;
+ const options=rest.slice(0,end);
+ const direct=(options.length===0||options[0].startsWith('--')||options[0]==='hub')&&!options.includes('--herdr')&&!options.includes('--peers')&&!options.includes('--conductor');
+ const preview=Boolean(selection&&direct&&options.includes('--dry-run'));
+ const effective=preview?rest.filter((arg,index)=>arg!=='--dry-run'||index>=end):rest;
+ const invocation=parseFleetCommandBase(effective);
+ if(selection&&['_fleet-lifecycle','_fleet-deps'].includes(invocation.recipe))throw Error('--worktree selects a runtime checkout, not an installation target; run lifecycle commands from af without this flag');
+ return selection?{...invocation,selection,...(preview?{preview:true}:{})}:invocation;
+}
+function parseFleetCommandBase(argv: string[]): FleetInvocation {
 	if (argv.length === 0 || argv[0].startsWith("--")) {
 		return parseHubInvocation(argv);
 	}

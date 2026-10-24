@@ -1,3 +1,5 @@
+import {workspaceRoot} from "../../harnesses/lib/workspace-context.ts";
+import {peerTarget,bindTargetLayout} from "./lib/peer-target.ts";
 // .pi/agent-fleet/scripts/team-up.ts
 //
 // Spawn a team of reusable coms peers (from .pi/agents/peers.yaml) into a
@@ -51,7 +53,7 @@ import {
 } from "./lib/team-project.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = fs.realpathSync(path.resolve(SCRIPT_DIR, "..", "..", ".."));
+const REPO_ROOT = workspaceRoot(fs.realpathSync(path.resolve(SCRIPT_DIR, "..", "..", "..")));
 // Scopes the workspace label to this checkout so the same team from another
 // repo/worktree gets its own workspace instead of colliding (see worktreeTag).
 const WORKTREE_TAG = worktreeTag(REPO_ROOT);
@@ -165,9 +167,10 @@ function buildLayoutOrDie(
 	project: string,
 	rootPane?: { command: string[]; label: string; ratio: number; cwd?: string; env?: Record<string, string> },
 	delayForPeer?: (p: Peer) => number | undefined,
+ target?:ReturnType<typeof peerTarget>,
 ): LayoutNode {
 	try {
-		return buildTeamLayout({
+		return bindTargetLayout(buildTeamLayout({
 			team,
 			peers,
 			repoRoot: REPO_ROOT,
@@ -175,7 +178,7 @@ function buildLayoutOrDie(
 			project,
 			...(delayForPeer ? { delayForPeer } : {}),
 			...(rootPane ? { hub: rootPane } : {}),
-		});
+		}),target);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
@@ -186,9 +189,11 @@ async function main(): Promise<void> {
 	let team: string | null = null;
 	let peersYaml = DEFAULT_PEERS_YAML;
 	let project = DEFAULT_PROJECT;
+ let target:ReturnType<typeof peerTarget>;
 	try {
 		team = flagValue(argv, "--team");
 		project = parseProjectFlag(argv);
+  target=peerTarget(project);if(target)project=target.project;
 		// --peers: alternate manifest path (tests use it; defaults to the repo's).
 		peersYaml = flagValue(argv, "--peers") ?? DEFAULT_PEERS_YAML;
 	} catch (err) {
@@ -206,6 +211,7 @@ async function main(): Promise<void> {
 		hub = booleanFlag(argv, "--hub");
 		hubBrowser = booleanFlag(argv, "--browser");
 		hubAllExtensions = booleanFlag(argv, "--all-extensions");
+  if(target&&hubAllExtensions)throw Error("Targeted teams refuse --all-extensions; select explicit workspace resources");
 		hubNoComs = booleanFlag(argv, "--no-coms");
 		const workMode = flagValue(argv, "--work-mode");
 		if (workMode && workMode !== "operator" && workMode !== "orchestrator") {
@@ -236,7 +242,8 @@ async function main(): Promise<void> {
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
-	if (hub && conductor) die("--hub and --conductor are mutually exclusive");
+	if(conductor&&target)die('Targeted Hermes conductor is unsupported: external profile split-root contract is unverified; use --hub or a targeted Pi peer');
+ if (hub && conductor) die("--hub and --conductor are mutually exclusive");
 	const mode: "peers" | "hub" | "conductor" = hub ? "hub" : conductor ? "conductor" : "peers";
 
 	if (!team) {
@@ -261,7 +268,7 @@ async function main(): Promise<void> {
 			team,
 			project,
 		}) : undefined;
-		label = teamWorkspaceLabel(spec?.workspaceMode ?? (hub ? "hub" : "peers"), team, project, WORKTREE_TAG);
+		label = teamWorkspaceLabel(spec?.workspaceMode ?? (hub ? "hub" : "peers"), team, project, target?worktreeTag(target.roots.executionRoot):WORKTREE_TAG);
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
@@ -293,7 +300,7 @@ async function main(): Promise<void> {
 	if (dryRun) {
 		// No herdr calls and no env_file reads on this path — must work with no
 		// herdr installed, and secrets never reach the output.
-		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), project, rootPane);
+		const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, true), project, rootPane, undefined, target);
 		const projectNote = project === DEFAULT_PROJECT ? "" : `, project "${project}"`;
 		const extra = mode === "hub" ? " + hub" : spec ? " + Hermes conductor" : "";
 		console.log(
@@ -304,11 +311,11 @@ async function main(): Promise<void> {
 			const envNote = p.env_file ? `  [env_file: ${p.env_file} — values redacted]` : "";
 			console.log(`${p.name}\t${cmd.join(" ")}${envNote}`);
 		}
-		console.log(JSON.stringify({ label, layout }, null, 2));
+		console.log(JSON.stringify({ label, layout,...(target?{workspaceRoot:target.roots.workspaceRoot,executionRoot:target.roots.executionRoot,targetId:target.roots.targetId,baseProject:target.baseProject,project:target.project}:{}) }, null, 2));
 		return;
 	}
 
-	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), project, rootPane, makeDelayLoader(peers, mode));
+	const layout = buildLayoutOrDie(team, peers, makeEnvLoader(peers, false), project, rootPane, makeDelayLoader(peers, mode), target);
 
 	// Import lazily so --dry-run never touches the client (or the socket).
 	const { herdr, requireHerdr, HerdrUnavailableError } = await import(
@@ -341,7 +348,7 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	const created = await herdr.workspaceCreate({ label, cwd: REPO_ROOT, focus: false });
+	const created = await herdr.workspaceCreate({ label, cwd: target?.roots.executionRoot??REPO_ROOT, focus: false });
 	const wsId = created.workspace.workspace_id;
 	const initialTab = created.workspace.active_tab_id ?? created.tab?.tab_id;
 	await herdr.layoutApply({ workspace_id: wsId, root: layout });

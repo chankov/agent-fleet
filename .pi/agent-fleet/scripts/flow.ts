@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
+import {realpathSync} from "node:fs";
+import {parseWorktreeSelection,resolveSessionRoots,sessionRootsFromEnv,withSessionRoots,executionRoot} from "../../harnesses/lib/workspace-context.ts";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeRunId } from "../../../.pi/harnesses/agent-hub/run-namespace.js";
+import {loadSystem1Snapshot} from '../../harnesses/lib/system1/config-loader.js';
 import { parseFlowCommand, parseFlowMaintenanceCommand, type FlowCommand } from "./lib/flow-command.ts";
 import { runFlowMaintenance } from "./lib/flow-maintenance.ts";
 import { loadEnv } from "./workflows/lib/env.ts";
@@ -73,7 +76,10 @@ export interface HubScoutExecution {
 }
 
 export async function executeFlow(command: FlowCommand, options: { cwd?: string; command?: string[]; workflowsDir?: string; hubScout?: HubScoutExecution } = {}): Promise<FinishResult> {
-	const cwd = options.cwd ?? process.cwd();
+ if(command.selection){const selected=resolveSessionRoots(sessionRootsFromEnv()?.workspaceRoot??options.cwd??process.cwd(),command.selection);const next={...command};delete next.selection;return withSessionRoots(selected,()=>executeFlow(next,{...options,cwd:selected.executionRoot}));}
+ const binding=sessionRootsFromEnv();
+	const cwd = options.cwd ?? executionRoot(process.cwd());
+ if(binding?.mode==="targeted"&&realpathSync(cwd)!==binding.executionRoot)throw new StartRefusedError("Flow execution target mismatch");
 	if (options.hubScout && command.branch) throw Object.assign(new Error("Hub scout cannot create a branch"), { exitCode: 2 });
 	if (options.hubScout && command.name !== "scout") throw Object.assign(new Error("Hub no-branch execution currently permits only the read-only scout flow"), { exitCode: 2 });
 	const workflow = await resolveWorkflow(command.name, options.workflowsDir);
@@ -89,6 +95,7 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	const repositoryBaseline = snapshot(cwd);
 	const branch = !options.hubScout && command.branch ? createFlowBranch(command.name, runId, cwd) : undefined;
 	const run = new Run({ cwd, runId, command: options.command ?? process.argv, repositoryBaseline, traceDirectory: options.hubScout?.traceDirectory });
+ if(binding?.mode==='targeted'){const system1=loadSystem1Snapshot(cwd);run.trace.write('worktree_configuration',{targetId:binding.targetId,status:system1.status,reason:system1.targetReason??null,consumers:Object.fromEntries(Object.entries(system1.consumers).map(([name,section]:[string,any])=>[name,{status:section.status,reason:section.reason??null}]))});}
 	const persistResult = (result: FinishResult) => {
 		if (!branch) return;
 		try { recordFlowResult(branch, result.status, cwd); }
@@ -132,6 +139,8 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
+ let startup;try{startup=parseWorktreeSelection(argv);}catch(error){console.error(String(error));return 2;}
+ if(startup.selection){let selected;try{selected=resolveSessionRoots(sessionRootsFromEnv()?.workspaceRoot??process.cwd(),startup.selection);}catch(error){console.error(`Flow target refused: ${String(error)}`);return 3;}return withSessionRoots(selected,()=>main(startup.rest));}
 	if (argv[0] === "cleanup" || argv[0] === "merge") {
 		let command;
 		try { command = parseFlowMaintenanceCommand(argv); }

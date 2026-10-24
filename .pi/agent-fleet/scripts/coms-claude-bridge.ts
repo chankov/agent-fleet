@@ -1,3 +1,4 @@
+import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harnesses/lib/workspace-context.ts";
 // .pi/agent-fleet/scripts/coms-claude-bridge.ts
 //
 // The Claude Code ↔ coms bridge: one bridge per Claude Code pane, launched
@@ -141,7 +142,8 @@ export function bridgeRegistryEntry(
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const name = flagValue(argv, "--name") ?? die("--name <peer-name> is required");
-	const project = flagValue(argv, "--project") ?? "default";
+	const rawProject=flagValue(argv, "--project")??"default",roots=sessionRootsFromEnv();
+ const project=roots?.mode==="targeted"?projectForSession(rawProject,roots).project:rawProject;
 	const paneId = flagValue(argv, "--pane") ?? process.env.HERDR_PANE_ID ?? die("--pane <pane_id> required (or run inside a herdr pane)");
 	const replyTimeoutMs = Number(flagValue(argv, "--reply-timeout") ?? DEFAULT_REPLY_TIMEOUT_MS);
 
@@ -169,7 +171,7 @@ async function main(): Promise<void> {
 		session_id: sessionId,
 		name: uniqueName,
 		endpoint: makeEndpoint(sessionId),
-		cwd: process.cwd(),
+		cwd: executionRoot(process.cwd()),
 	};
 	const queue = new PromptQueue<PromptEnvelope>();
 	const purpose = "Claude Code (bridged pane)";
@@ -184,6 +186,7 @@ async function main(): Promise<void> {
 		cwd: id.cwd,
 		startedAt: nowIso(),
 	});
+ if(roots?.mode==='targeted')registryIdentity.targetId=roots.targetId;
 
 	function registryEntry(): RegistryEntry {
 		return bridgeRegistryEntry(registryIdentity, {

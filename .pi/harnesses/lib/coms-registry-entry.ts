@@ -16,6 +16,7 @@
 // Erasable-TS; testable under node --test.
 
 export interface ComsRegistryEntry {
+ targetId?:string;
 	session_id: string;
 	name: string;
 	purpose: string;
@@ -40,6 +41,7 @@ export interface ComsRegistryEntry {
 // harness `identity` object; it is the source of every field the heartbeat is
 // not allowed to invent.
 export interface ComsIdentity {
+ targetId?:string;
 	session_id: string;
 	name: string;
 	purpose: string;
@@ -77,6 +79,7 @@ function count(value: number | null | undefined): number {
 // nothing on disk.
 export function buildLiveRegistryEntry(identity: ComsIdentity, live: LiveSnapshot): ComsRegistryEntry {
 	return {
+  ...(identity.targetId?{targetId:identity.targetId}:{}),
 		session_id: identity.session_id,
 		name: identity.name,
 		purpose: identity.purpose,

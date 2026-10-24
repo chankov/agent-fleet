@@ -1,3 +1,4 @@
+import {workspaceRoot} from '../../lib/workspace-context.ts';
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
@@ -51,14 +52,14 @@ export async function paneTail(paneId: string, lines = 12): Promise<string> {
 
 export function peerManifest(cwd: string): string {
 	try {
-		return fs.readFileSync(path.join(cwd, ".pi", "agents", "peers.yaml"), "utf-8");
+		return fs.readFileSync(path.join(workspaceRoot(cwd), ".pi", "agents", "peers.yaml"), "utf-8");
 	} catch {
 		return "";
 	}
 }
 
 export function peerPersonaExists(cwd: string, persona: string): boolean {
-	return PERSONA_DIRS.some((dir) => fs.existsSync(path.join(cwd, ...dir, `${persona}.md`)));
+	return PERSONA_DIRS.some((dir) => fs.existsSync(path.join(workspaceRoot(cwd), ...dir, `${persona}.md`)));
 }
 
 export function spawnDelaySeconds(lastHubPiSpawnAt: number | null): number {

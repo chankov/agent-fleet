@@ -2,7 +2,8 @@ import { SPECIALIST_CLARIFICATION } from "../lib/clarification-policy.ts";
 import { profileService } from './policy/profile-runtime.ts';
 import { randomUUID } from "node:crypto";
 import { buildDeliverableProtocol } from "../lib/context-budget-child-prompt.ts";
-import { unlinkSync } from "node:fs";
+import { unlinkSync,realpathSync } from "node:fs";
+import {sessionRootsFromEnv,validateSessionRoots,targetProject} from '../lib/workspace-context.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ComsIdentity, ComsSendParams, ComsSendResult, PendingReply, RegistryEntry } from "../lib/coms-core.ts";
 import { judgeSessionFileName, type DriftJudgeOutcome } from "./drift-runtime.ts";
@@ -93,8 +94,11 @@ async function dispatchViaComs(
 	inputArtifacts: DispatchInputArtifactPreview[],
 	scopeGlobs: string[],
 ): Promise<ComsDispatchResult | null> {
+ const binding=sessionRootsFromEnv();
+ const targetCurrent=()=>{try{return sessionRootsFromEnv()?.targetId===binding?.targetId&&(!binding||validateSessionRoots(binding).targetId===binding.targetId);}catch{return false;}};
+ const verified=(entry:RegistryEntry|null)=>{if(!targetCurrent())return false;if(binding?.mode!=='targeted')return true;try{const identity=deps.getIdentity();return entry?.targetId===binding.targetId&&identity?.targetId===binding.targetId&&typeof identity.baseProject==='string'&&identity.project===targetProject(identity.baseProject,binding)&&realpathSync(entry.cwd)===binding.executionRoot;}catch{return false;}};
 	const peer = deps.resolveTarget(peerName);
-	if (!peer || !deps.getIdentity()) {
+	if (!peer || !deps.getIdentity() || !verified(peer)) {
 		if (allowNativeFallback) return null;
 		return { output: `coms dispatch failed: peer "${peerName}" left the pool (fallback: none).`, exitCode: 1, elapsed: 0 };
 	}
@@ -154,6 +158,7 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 	if (outcome.error !== "timeout") deps.deletePendingReply(msgId);
 
 	const after = deps.resolveTarget(peer.name);
+ if(binding?.mode==='targeted'&&(!verified(after)||after?.session_id!==peer.session_id))return {output:'coms result refused: target or peer ownership changed; no result was accepted.',exitCode:1,elapsed:0};
 	if (after?.context_used_pct != null) state.contextPct = after.context_used_pct;
 	if (abandoned) {
 		return {

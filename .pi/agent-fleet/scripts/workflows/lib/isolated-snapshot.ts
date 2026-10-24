@@ -1,3 +1,5 @@
+import {sessionRootsFromEnv,sessionGitEnv,validateSessionRoots} from "../../../../harnesses/lib/workspace-context.ts";
+import {realpathSync} from 'node:fs';
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
@@ -11,7 +13,7 @@ export interface IsolatedSnapshotManifest {
 	createdAt: string; entries: SnapshotEntry[]; excluded: string[]; workspace: string;
 }
 
-function git(cwd: string, args: string[]): string { return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); }
+function git(cwd: string, args: string[]): string { return execFileSync("git", args, { cwd,env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); }
 function safeRelative(path: string): string {
 	const value = path.replaceAll("\\", "/").replace(/^\.\//, "");
 	if (!value || isAbsolute(value) || value.split("/").includes("..") || value.includes("\0")) throw new Error(`Unsafe snapshot path: ${JSON.stringify(path)}`);
@@ -96,15 +98,17 @@ function writeOwnedFile(root: string, entry: SnapshotEntry, data: Buffer): void 
 
 /** Create a detached local clone plus a stable overlay of the current working tree. Never mutates sourceRoot. */
 export function createIsolatedWorkingTreeSnapshot(sourceRoot: string, workspace: string, manifestPath: string): IsolatedSnapshotManifest {
-	const root = resolve(sourceRoot), target = resolve(workspace);
+	const binding=sessionRootsFromEnv();if(binding)validateSessionRoots(binding);
+ const root = binding?.mode==='targeted'?realpathSync(sourceRoot):resolve(sourceRoot), target = resolve(workspace);
+ if(binding?.mode==='targeted'&&root!==binding.executionRoot)throw Error('snapshot_source_target_mismatch');
 	if (target === root || !relative(root, target).startsWith("..")) throw new Error("Snapshot destination must be outside the source tree");
 	if (pathExists(target)) throw new Error("Snapshot destination must be newly owned and absent");
 	const sourceRevision = git(root, ["rev-parse", "HEAD"]).trim();
 	const { included, excluded } = listedPaths(root);
 	const first = included.map(path => inspect(root, path));
 	mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-	execFileSync("git", ["clone", "--quiet", "--no-hardlinks", "--no-checkout", root, target]);
-	execFileSync("git", ["checkout", "--quiet", "--detach", sourceRevision], { cwd: target });
+	execFileSync("git", ["clone", "--quiet", "--no-hardlinks", "--no-checkout", root, target],{env:binding?.mode==="targeted"?sessionGitEnv():process.env});
+	execFileSync("git", ["checkout", "--quiet", "--detach", sourceRevision], { cwd: target,env:binding?.mode==="targeted"?sessionGitEnv():process.env });
 	for (const path of excluded) removeOwnedLeaf(target, path);
 	for (const entry of first) {
 		if (entry.state === "deleted") removeOwnedLeaf(target, entry.path);
@@ -119,7 +123,8 @@ export function createIsolatedWorkingTreeSnapshot(sourceRoot: string, workspace:
 	}
 	const second = included.map(path => inspect(root, path));
 	if (stateHash(first) !== stateHash(second)) { rmSync(target, { recursive: true, force: true }); throw new Error("Source working tree changed while isolated snapshot was created"); }
-	const manifest: IsolatedSnapshotManifest = { schema: ISOLATED_SNAPSHOT_SCHEMA, sourceRoot: root, sourceRevision, sourceStateHash: stateHash(second), createdAt: new Date().toISOString(), entries: second, excluded, workspace: target };
+	if(binding)validateSessionRoots(binding);
+ const manifest: IsolatedSnapshotManifest = { schema: ISOLATED_SNAPSHOT_SCHEMA, sourceRoot: root, sourceRevision, sourceStateHash: stateHash(second), createdAt: new Date().toISOString(), entries: second, excluded, workspace: target };
 	mkdirSync(dirname(manifestPath), { recursive: true, mode: 0o700 }); writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o400 });
 	return manifest;
 }

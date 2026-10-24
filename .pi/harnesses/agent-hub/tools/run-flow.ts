@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {sessionRootsFromEnv,resolveSessionRoots,withSessionRoots,validateSessionRoots} from '../../lib/workspace-context.ts';
+import { mkdirSync, mkdtempSync, rmSync,realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { executeFlow, type HubScoutExecution } from "../../../agent-fleet/scripts/flow.ts";
@@ -26,7 +27,7 @@ export interface RunFlowDeps {
 	buildRuntimeResult?: typeof buildRuntimeResult;
 }
 
-interface StoredRun { promise: Promise<any>; controller: AbortController; request: string }
+interface StoredRun { promise: Promise<any>; controller: AbortController; request: string;scope:string }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function failure(status: string, error: unknown, budgetCharged: boolean, executionStarted: boolean, extra: Record<string, unknown> = {}) {
@@ -39,7 +40,8 @@ function failure(status: string, error: unknown, budgetCharged: boolean, executi
 export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 	const runs = new Map<string, StoredRun>();
 	let activeId: string | null = null;
-	pi.on("session_shutdown", () => { for (const run of runs.values()) run.controller.abort("session shutdown"); });
+ let sessionEpoch=0;
+	pi.on("session_shutdown", () => {sessionEpoch++;for (const run of runs.values()) run.controller.abort("session shutdown");runs.clear();activeId=null;});
 	pi.registerTool({
 		name: "run_flow", label: "Run Flow", description: "Run the read-only scout workflow in an isolated no-branch snapshot. Initial T13 surface; writable flows are unavailable.",
 		parameters: Type.Object({
@@ -49,9 +51,12 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 		}, { additionalProperties: false }),
 		execute(_toolCallId, raw, signal, onUpdate, ctx) {
 			const params = raw as RunFlowParams;
+   const epoch=sessionEpoch;
+   let scope:string;
+   try{const roots=sessionRootsFromEnv(),cwd=realpathSync(ctx.cwd||process.cwd());if(roots?.mode==='targeted'&&cwd!==roots.executionRoot)return Promise.resolve(failure('target-refused','flow_source_target_mismatch',false,false));scope=roots?.targetId??cwd;}catch{return Promise.resolve(failure('target-refused','flow_source_target_unavailable',false,false));}
 			const existing = runs.get(params.invocation_id);
 			if (existing) {
-				if (existing.request !== params.request) return Promise.resolve({ content: [{ type: "text", text: "Stale duplicate refused: invocation_id is already bound to different scout inputs; no budget charged." }], details: { status: "stale-duplicate", budgetCharged: false, executionStarted: false } });
+				if (existing.request !== params.request || existing.scope!==scope) return Promise.resolve({ content: [{ type: "text", text: "Stale duplicate refused: invocation_id is already bound to different scout inputs; no budget charged." }], details: { status: "stale-duplicate", budgetCharged: false, executionStarted: false } });
 				return existing.promise;
 			}
 			if (activeId) return Promise.resolve({ content: [{ type: "text", text: `Flow busy: ${activeId} is active; no budget charged.` }], details: { status: "busy", activeInvocationId: activeId, budgetCharged: false, executionStarted: false } });
@@ -69,6 +74,7 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					const sessionDir = deps.sessionDir();
 					if (!sessionDir) return failure("invalid-environment", "run_flow requires an active managed Hub session", false, false);
 					const sourceCwd = ctx.cwd || process.cwd();
+     const sourceBinding=sessionRootsFromEnv();if(sourceBinding?.mode==='targeted'&&realpathSync(sourceCwd)!==sourceBinding.executionRoot)throw Error('flow_source_target_mismatch');
 					let config;
 					try {
 						config = deps.effectiveScoutConfig(sourceCwd);
@@ -84,7 +90,8 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					let manifest: IsolatedSnapshotManifest;
 					try { manifest = (deps.createSnapshot ?? createIsolatedWorkingTreeSnapshot)(sourceCwd, workspace, manifestPath); }
 					catch (error) { return failure("snapshot-refused", error, false, false); }
-					let budget: HubFlowBudgetReservation;
+					const snapshotBinding=sourceBinding?.mode==='targeted'?resolveSessionRoots(sourceBinding.workspaceRoot,{worktree:workspace}):undefined;
+     let budget: HubFlowBudgetReservation;
 					try { budget = await deps.reserveBudget(params, ctx, controller.signal); }
 					catch (error) { return failure("budget-failed", error, false, false); }
 					if (!budget.charged) return { content: [{ type: "text", text: budget.refusal ?? "Hub budget refused flow." }], details: { status: "budget-refused", budgetCharged: false, budgetOwner: "hub", executionStarted: false, parentAcceptance: { accepted: false, status: "not_accepted", assertionsProven: [] } } };
@@ -94,11 +101,14 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					let result;
 					try {
 						const hubScout: HubScoutExecution = { noBranch: true, traceDirectory: artifactDir, signal: controller.signal, ...(deps.scoutAgent ? { scoutAgent: deps.scoutAgent } : {}) };
-						result = await (deps.execute ?? executeFlow)({ name: "scout", args: [params.request], allowDirty: true, dryRun: false, runId }, { cwd: workspace, command: ["run_flow", "scout"], hubScout });
+						const invoke=()=> (deps.execute ?? executeFlow)({ name: "scout", args: [params.request], allowDirty: true, dryRun: false, runId:runId! }, { cwd: workspace!, command: ["run_flow", "scout"], hubScout });
+      result = await (snapshotBinding?withSessionRoots(snapshotBinding,invoke):invoke());
 					} catch (error) {
 						result = { accepted: false, status: "rejected" as const, exitCode: Number((error as any)?.exitCode ?? 1), reason: message(error), banner: "FLOW REJECTED" };
 					}
-					const afterRevision = revision(sourceCwd, []);
+					if(epoch!==sessionEpoch)return failure('stale-session','parent session changed',budgetCharged,executionStarted);
+     if(sourceBinding)validateSessionRoots(sourceBinding);
+     const afterRevision = revision(sourceCwd, []);
 					const unchanged = beforeRevision === afterRevision;
 					const runtimeResult = (deps.buildRuntimeResult ?? buildRuntimeResult)({
 						task: { id: deps.taskId(), current: unchanged, beforeRevision, afterRevision },
@@ -107,7 +117,7 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 						evidenceRefs: [manifestPath, join(artifactDir, "trace.jsonl")],
 					});
 					const obligations = deps.processObligations();
-					const details = { status: result.status, runId, invocationId: params.invocation_id, procedure: "scout", budgetCharged: true, budgetOwner: "hub", budgetOperation: "research", executionStarted: true, flowAcceptance: { accepted: result.accepted, status: result.status, reason: result.reason ?? null }, parentAcceptance: { accepted: false, status: "not_accepted", assertionsProven: [], obligations }, runtimeResult, effectiveConfiguration: config, snapshot: { schema: manifest.schema, sourceRevision: manifest.sourceRevision, sourceStateHash: manifest.sourceStateHash, manifestPath, originalRevisionUnchanged: unchanged }, tracePath: join(artifactDir, "trace.jsonl") };
+					const details = { status: result.status, runId, invocationId: params.invocation_id, procedure: "scout", budgetCharged: true, budgetOwner: "hub", budgetOperation: "research", executionStarted: true, flowAcceptance: { accepted: result.accepted, status: result.status, reason: result.reason ?? null }, parentAcceptance: { accepted: false, status: "not_accepted", assertionsProven: [], obligations }, runtimeResult, effectiveConfiguration: config, snapshot: { ...(sourceBinding?{sourceTargetId:sourceBinding.targetId,workspaceRoot:sourceBinding.workspaceRoot,snapshotTargetId:snapshotBinding?.targetId,executionRoot:workspace}:{}), schema: manifest.schema, sourceRevision: manifest.sourceRevision, sourceStateHash: manifest.sourceStateHash, manifestPath, originalRevisionUnchanged: unchanged }, tracePath: join(artifactDir, "trace.jsonl") };
 					return { content: [{ type: "text", text: `${result.banner}\nFlow acceptance is separate; parent task remains not accepted and no assertion was promoted.\nTrace: ${details.tracePath}` }], details };
 				} catch (error) {
 					return failure(executionStarted ? "result-failed" : "setup-failed", error, budgetCharged, executionStarted, runId ? { runId } : {});
@@ -127,8 +137,8 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 				content: snapshotCleanup.status === "failed" ? [...result.content, { type: "text", text: `Temporary scout snapshot cleanup failed; retained at ${snapshotCleanup.path}: ${snapshotCleanup.error}` }] : result.content,
 				details: { ...result.details, snapshotCleanup },
 			}));
-			runs.set(params.invocation_id, { promise, controller, request: params.request });
-			const cleanup = () => { if (activeId === params.invocation_id) activeId = null; signal?.removeEventListener("abort", forwardAbort); };
+			runs.set(params.invocation_id, { promise, controller, request: params.request,scope });
+			const cleanup = () => { if (epoch===sessionEpoch&&activeId === params.invocation_id) activeId = null; signal?.removeEventListener("abort", forwardAbort); };
 			void promise.then(cleanup, cleanup);
 			return promise;
 		},

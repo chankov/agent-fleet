@@ -1,4 +1,5 @@
 import { parseModelProfiles, type ModelProfiles } from './model-profiles.ts';
+import { workspaceRoot } from '../../lib/workspace-context.ts';
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createEvidenceSession } from "../execution-evidence.ts";
 import { join, resolve } from "node:path";
@@ -126,6 +127,7 @@ export interface AgentConfigurationPorts {
 }
 
 export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPorts): void {
+	cwd = workspaceRoot(cwd);
 	ports.setSessionDir(createEvidenceSession(cwd));
 	ports.ensureArtifactsLayout();
 	ports.resetAssertions();
@@ -159,6 +161,7 @@ export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPor
 }
 
 export function scanAgentDirs(cwd: string): AgentDef[] {
+	cwd = workspaceRoot(cwd);
 	const agents: AgentDef[] = [];
 	const seen = new Set<string>();
 	// PERSONA_DIRS fixes the precedence in one place: the user's own `agents/`

@@ -1,3 +1,4 @@
+import {workspaceRoot,sessionRootsFromEnv,sessionGitEnv} from "../../../../harnesses/lib/workspace-context.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -12,7 +13,7 @@ function splitArgv(value: string): string[] {
 }
 
 export function qualityCommand(cwd = process.cwd()): string[] {
-	const override = resolve(cwd, ".ai", "agent-fleet-overrides.md");
+	const override = resolve(workspaceRoot(cwd), ".ai", "agent-fleet-overrides.md");
 	if (!existsSync(override)) throw Object.assign(new Error("Flow start refused: configure `quality:` under `## workflows` in .ai/agent-fleet-overrides.md."), { exitCode: 3 });
 	const text = readFileSync(override, "utf8");
 	const heading = text.match(/^## workflows\s*$/m);
@@ -31,7 +32,7 @@ export async function executeQuality(argv: string[], options: { cwd?: string; lo
 	const timeoutMs = (options.timeoutSeconds ?? 1800) * 1000;
 	if (!argv.length || !argv[0]) throw new Error("Quality command requires a non-empty argv list");
 	const result = await new Promise<{ code: number; stdout: string; stderr: string }>(resolveResult => {
-		const child = spawn(argv[0], argv.slice(1), { cwd, env: process.env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(argv[0], argv.slice(1), { cwd, env: sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "", stderr = "", settled = false;
 		let timer: NodeJS.Timeout;
 		const onAbort = () => { stderr += "\nCancelled by flow signal"; child.kill("SIGTERM"); };

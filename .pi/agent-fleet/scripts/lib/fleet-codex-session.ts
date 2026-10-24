@@ -38,7 +38,7 @@ export class FleetSessionClient {
 		return nonempty(e.session_id) && nonempty(e.started_at) && Number.isFinite(Date.parse(e.started_at)) && registryHeartbeatIsFresh(e, this.now());
 	}
 	private view(project: string, e: RegistryEntry) {
-		return {project, peer:e.name, sessionId:e.session_id, purpose:e.purpose, model:e.model, cwd:e.cwd,
+		return {...(e.targetId?{targetId:e.targetId}:{}),project, peer:e.name, sessionId:e.session_id, purpose:e.purpose, model:e.model, cwd:e.cwd,
 			startedAt:e.started_at, heartbeatAt:e.heartbeat_at ?? null, presence:this.fresh(e) ? "available" : "unavailable",
 			contextUsedPct:e.context_used_pct ?? null, queueDepth:e.queue_depth ?? null};
 	}

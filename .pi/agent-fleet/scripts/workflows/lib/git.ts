@@ -1,3 +1,5 @@
+import {sessionRootsFromEnv,sessionGitEnv,validateSessionRoots} from "../../../../harnesses/lib/workspace-context.ts";
+import {realpathSync} from "node:fs";
 import { spawnSync } from "node:child_process";
 import { changedPaths, permitted, rollBack, snapshot, type PermissionPolicy, type PermissionSnapshot } from "./permissions.ts";
 
@@ -16,7 +18,8 @@ export interface FlowBranchMetadata {
 }
 
 function git(cwd: string, args: string[]): string {
-	const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+	const roots=sessionRootsFromEnv();if(roots){validateSessionRoots(roots);if(roots.mode==="targeted"&&realpathSync(cwd)!==roots.executionRoot)throw new GitOperationError("flow_git_target_mismatch");}
+ const result = spawnSync("git", args, { cwd,env:roots?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8" });
 	if (result.status !== 0) throw new GitOperationError((result.stderr || result.stdout || `git ${args.join(" ")} failed`).trim());
 	return result.stdout.trim();
 }

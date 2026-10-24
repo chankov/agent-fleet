@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {sessionRootsFromEnv,validateSessionRoots} from '../lib/workspace-context.ts';
 import {realpathSync} from 'node:fs';
 import {validDamageAssignment, type DamageAssignment} from './damage-guard-broker.ts';
 import {DAMAGE_ASSIGNMENT_ENV} from '../lib/damage-guard-port.ts';
@@ -29,11 +30,14 @@ export type DamagePhysicalIdentity=Readonly<{owner:string;attempt:string;tools:r
 export type DamageOwnerIdentity=Readonly<DamageOwnerAuthority & DamagePhysicalIdentity>;
 /** In-process parent capabilities, not launch permission or serializable credentials. */
 export function createDamageOwners(deps:{current():DamageOwnerAuthority;admit(identity:DamageOwnerIdentity):boolean}){
+ const binding=sessionRootsFromEnv();
+ const targetCurrent=()=>{if(!binding)return !sessionRootsFromEnv();try{return validateSessionRoots(binding).targetId===sessionRootsFromEnv()?.targetId;}catch{return false;}};
  const records=new Map<DamageOwnerIdentity,{controller:AbortController;parent?:DamageOwnerIdentity}>();let disposed=false;
  const valid=(identity:DamageOwnerIdentity):boolean=>{
   const row=records.get(identity);if(disposed||!row||identity.signal.aborted)return false;
   try {
    const current=deps.current();
+   if(!targetCurrent()||binding?.mode==='targeted'&&identity.cwd!==binding.executionRoot){revoke(identity);return false;}
    if(['session','taskToken','taskId','inputRevision'].some(k=>identity[k as keyof DamageOwnerAuthority]!==current[k as keyof DamageOwnerAuthority])||row.parent&&!valid(row.parent)||deps.admit(identity)!==true){revoke(identity);return false;}
    return true;
   } catch {revoke(identity);return false;}
@@ -42,6 +46,7 @@ export function createDamageOwners(deps:{current():DamageOwnerAuthority;admit(id
  return {
   register(spec:DamageOwnerSpec,parent?:DamageOwnerIdentity):DamageOwnerIdentity{
    const current=deps.current(),cwd=realpathSync(spec.cwd);
+   if(!targetCurrent()||binding?.mode==='targeted'&&cwd!==binding.executionRoot)throw Error('damage_owner_target_mismatch');
    if(disposed||!spec.owner||spec.owner==='hub'||!spec.tools.length||spec.tools.some(t=>!['bash','write','edit','read','filesystem'].includes(t))||Object.values(current).some(v=>typeof v!=='string'||!v))throw Error('damage_owner_authority_unavailable');
    if(parent&&(!valid(parent)||parent.cwd!==cwd||spec.tools.some(t=>!parent.tools.includes(t))))throw Error('damage_owner_scope_widening');
    const controller=new AbortController(),identity=Object.freeze({...current,owner:`${spec.owner}:${randomUUID()}`,attempt:randomUUID(),tools:Object.freeze([...new Set(spec.tools)]),cwd,signal:controller.signal});
