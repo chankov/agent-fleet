@@ -12,11 +12,13 @@ const source=resolve(new URL('../../../../',import.meta.url).pathname);
 const sdk=resolvePiTestRuntime({root:source});
 test('disposable non-Git af owns resources while installed Pi tools operate only in its external worktree',{timeout:90000},async()=>{
  const restoreTestEnv=isolateFleetTestProcess();
- const root=mkdtempSync(join(tmpdir(),'fleet-launch-roots-')),rpcComs=mkdtempSync(join(process.platform==='darwin'?'/tmp':tmpdir(),'afrpc-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.AF_SESSION_ROOTS;
+ // Reproduce macOS /private ancestors even on Linux: private/** must still
+ // protect project-private files, but must not block every public file here.
+ const sandbox=mkdtempSync(join(tmpdir(),'fleet-launch-roots-')),root=join(sandbox,'private'),rpcComs=mkdtempSync(join(process.platform==='darwin'?'/tmp':tmpdir(),'afrpc-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.AF_SESSION_ROOTS;
  const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});
  const put=(base:string,path:string,text:string)=>{const full=join(base,path);mkdirSync(join(full,'..'),{recursive:true});writeFileSync(full,text);};
  try{
-  mkdirSync(af);mkdirSync(repo);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','initial');git('worktree','add','--detach',target);
+  mkdirSync(root);mkdirSync(af);mkdirSync(repo);git('init');git('-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','--allow-empty','-m','initial');git('worktree','add','--detach',target);
   for(const path of ['.pi/harnesses','.pi/extensions','.pi/agent-fleet/scripts']){
    cpSync(join(source,path),join(af,path),{recursive:true,filter:path=>!path.split('/').includes('node_modules')});
    // CI installs repository dependencies only. This off-mode SDK fixture must
@@ -88,5 +90,5 @@ test('disposable non-Git af owns resources while installed Pi tools operate only
   assert.throws(()=>nativeChildEnv(environment,{AF_SESSION_ROOTS:undefined}),/context_override/);
   renameSync(join(af,'.pi/harnesses/lib/session-target.ts'),join(af,'.pi/harnesses/lib/session-target.held'));
   assert.equal(targetReadiness(roots).ready,false);assert.ok(resourceClosureGaps(af,['.pi/harnesses/damage-control-continue/index.ts']).some(gap=>gap.includes('session-target.ts')));
- }finally{if(saved===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=saved;restoreTestEnv();rmSync(root,{recursive:true,force:true});rmSync(rpcComs,{recursive:true,force:true});}
+ }finally{if(saved===undefined)delete process.env.AF_SESSION_ROOTS;else process.env.AF_SESSION_ROOTS=saved;restoreTestEnv();rmSync(sandbox,{recursive:true,force:true});rmSync(rpcComs,{recursive:true,force:true});}
 });

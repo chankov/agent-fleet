@@ -7,7 +7,18 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { resolveSessionRoots,sessionGitEnv } from './workspace-context.ts';
 import { readDamagePolicy } from './damage-policy.ts';
-import { currentFileAccessAllowed } from './damage-control-shared.ts';
+import { currentFileAccessAllowed,damageControlPathMatches } from './damage-control-shared.ts';
+test('relative protected paths do not accidentally match execution-root ancestors',()=>{
+ const cwd=join(tmpdir(),'private','project');
+ assert.equal(damageControlPathMatches(join(cwd,'marker'),'private/**',cwd),false);
+ assert.equal(damageControlPathMatches(join(cwd,'public/file'),'private/**',cwd),false);
+ assert.equal(damageControlPathMatches(join(cwd,'private/key'),'private/**',cwd),true);
+ assert.equal(damageControlPathMatches(join(cwd,'nested/private/key'),'private/**',cwd),true);
+ assert.equal(damageControlPathMatches(join(cwd,'marker'),join(tmpdir(),'private','**'),cwd),true,'explicit absolute ancestor rules still apply');
+ assert.equal(damageControlPathMatches(join(tmpdir(),'other/private/key'),'private/**',cwd),true,'outside-root protections remain');
+ assert.equal(damageControlPathMatches(join(tmpdir(),'other/public/file'),'private/**',cwd),false);
+ assert.equal(damageControlPathMatches('private/**','private/**',cwd),true,'discovery glob checks remain protected');
+});
 test('targeted damage policy is strict, workspace-owned and execution-relative',()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-damage-roots-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree');const old=process.env.AF_SESSION_ROOTS;
  const git=(...args:string[])=>execFileSync('git',['-C',repo,...args],{env:sessionGitEnv(),stdio:'pipe'});

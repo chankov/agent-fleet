@@ -235,5 +235,11 @@ export function damageControlPathMatches(targetPath: string, pattern: string, cw
 		.replace(/\*/g, ".*");
 	const regex = new RegExp(`^${regexPattern}$|^${regexPattern}/|/${regexPattern}$|/${regexPattern}/`);
 	const relativePath = path.relative(cwd, targetPath);
-	return regex.test(targetPath) || regex.test(relativePath) || targetPath.includes(resolvedPattern) || relativePath.includes(resolvedPattern);
+	// Relative policy patterns describe paths inside the execution root, not
+	// ancestors of that root (e.g. macOS /private/var must not match private/**
+	// for every public project file). Keep absolute/home patterns and paths
+	// outside cwd on the existing full-path matching contract.
+	const withinCwd = relativePath === "" || (!path.isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(`..${path.sep}`));
+	const candidates = !path.isAbsolute(resolvedPattern) && path.isAbsolute(targetPath) && withinCwd ? [relativePath] : [targetPath, relativePath];
+	return candidates.some(candidate => regex.test(candidate) || candidate.includes(resolvedPattern));
 }
