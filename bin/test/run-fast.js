@@ -76,6 +76,8 @@ const fastTestFiles = [
   ".pi/harnesses/agent-hub/provider-semaphore.test.js",
   ".pi/harnesses/agent-hub/context-window.test.ts",
   ".pi/harnesses/agent-hub/backend-policy.test.ts",
+  ".pi/agent-fleet/scripts/workflows/lib/writer-lease.test.ts",
+  ".pi/agent-fleet/scripts/workflows/lib/writer-lease-race.test.ts",
 ];
 
 console.log(`Fast lane: ${fastTestFiles.length} focused test files; release CI uses this lane. npm run test:full remains available locally.`);
