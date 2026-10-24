@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';import {test} from 'node:test';import {m
 import {resolveSessionRoots,targetProject,sessionGitEnv,withSessionRoots,sessionRootsFromEnv} from '../../../harnesses/lib/workspace-context.ts';import {buildSnapshot,parseSnapshot,assertSnapshotTarget} from './team-snapshot.ts';import {parseFlowCommand,parseFlowMaintenanceCommand} from './flow-command.ts';import {Run} from '../workflows/lib/run.ts';
 import {FlowTrace} from '../workflows/lib/trace.ts';
 const source=resolve(new URL('../../../../',import.meta.url).pathname);
-test('external-target flow CLI, quality, branch/list metadata, snapshots and late acceptance stay bound to the selected checkout',async()=>{
+// This is a multi-process scenario (seven CLI launches, each bounded to 20s),
+// not one unit operation. Keep its aggregate test budget separate from defaults.
+test('external-target flow CLI, quality, branch/list metadata, snapshots and late acceptance stay bound to the selected checkout',{timeout:90000},async()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-target-flow-')),af=join(root,'af config'),repo=join(root,'repo'),target=join(root,'repo worktree');const git=(cwd:string,...args:string[])=>execFileSync('git',['-C',cwd,...args],{env:sessionGitEnv(),stdio:'pipe'}).toString().trim();
  const cli=(...args:string[])=>spawnSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(source,'.pi/agent-fleet/scripts/flow.ts'),...args],{cwd:af,encoding:'utf8',env:{...process.env,AF_SESSION_ROOTS:undefined,AF_TARGET_BASE_PROJECT:undefined,AF_TARGET_EFFECTIVE_PROJECT:undefined,PI_OFFLINE:'1'},timeout:20000});
  try{
