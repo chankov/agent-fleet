@@ -99,14 +99,23 @@ const fastTestFiles = [
 ];
 
 console.log(`Fast lane: ${fastTestFiles.length} focused test files; release CI uses this lane. npm run test:full remains available locally.`);
-const result = spawnSync(process.execPath, ["--test", "--test-concurrency=4", "--test-timeout=30000", ...fastTestFiles], {
-  cwd: root,
-  stdio: "inherit",
-});
-
-if (result.error) {
-  console.error(`Unable to start the fast test lane: ${result.error.message}`);
-  process.exitCode = 1;
-} else {
-  process.exitCode = result.status ?? 1;
+// The snapshot tests exercise a production 1500ms deadline; the other files
+// launch many real Git/SDK subprocesses. Isolate these integration scenarios
+// from parallel CPU contention without changing any production time budget.
+const deadlineSensitiveFiles = new Set([
+  ".pi/harnesses/agent-hub/proactive-snapshot.test.ts",
+  ".pi/harnesses/lib/system1/worktree-consumers.test.ts",
+  ".pi/agent-fleet/scripts/lib/session-launch.test.ts",
+  ".pi/agent-fleet/scripts/lib/worktree-flow.test.ts",
+]);
+const phases = [
+  {name:"bounded integrations",concurrency:1,files:fastTestFiles.filter(file=>deadlineSensitiveFiles.has(file))},
+  {name:"parallel",concurrency:4,files:fastTestFiles.filter(file=>!deadlineSensitiveFiles.has(file))},
+];
+for(const phase of phases){
+  if(!phase.files.length)continue;
+  console.log(`Fast lane phase: ${phase.name} (${phase.files.length} files)`);
+  const result=spawnSync(process.execPath,["--test",`--test-concurrency=${phase.concurrency}`,"--test-timeout=30000",...phase.files],{cwd:root,stdio:"inherit"});
+  if(result.error){console.error(`Unable to start the fast test lane: ${result.error.message}`);process.exitCode=1;break;}
+  if(result.status!==0){process.exitCode=result.status??1;break;}
 }

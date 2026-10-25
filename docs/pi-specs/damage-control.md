@@ -39,6 +39,6 @@ The extension uses `isToolCallEventType(toolName, event)` for type-safe narrowin
 - Every interception (block or confirm) is logged using `pi.appendEntry("damage-control-log", { tool, input, rule, action })`. This ensures the security audit is part of the permanent session history.
 
 ## 6. Implementation Notes
-- **Path Resolution**: Must match against both raw input (e.g., `src/main.ts`) and absolute resolved paths. Handle `ctx.cwd` fallback for optional paths.
+- **Path Resolution**: Resolve tool paths against `ctx.cwd` (also the fallback for optional paths). For an absolute path inside that execution root, relative non-directory rules match its cwd-relative path, including nested names, not ancestors of `cwd`: `private/**` blocks `private/key` and `nested/private/key`, but not a public file merely because macOS placed the checkout under `/private/var`. Explicit absolute/home rules, paths outside the execution root, raw discovery globs, and trailing-slash directory rules retain full-path handling. Blocks and exemptions use the same matcher.
 - **Tilde Expansion**: Manually expand `~` to `process.env.HOME` or `os.homedir()`.
-- **Graceful Fallback**: If YAML parsing fails, notify the user and continue with no active rules rather than crashing the extension.
+- **Policy Failure**: Legacy mode retains its warning/fallback behavior. Targeted sessions fail closed for a missing, malformed, or changed workspace policy; they must not silently fall back to a global policy or no rules.
