@@ -1,0 +1,3251 @@
+{
+  "schemaVersion": 2,
+  "packageVersion": "2.0.23",
+  "groups": [
+    {
+      "id": "skills",
+      "title": "Skills",
+      "order": 1,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "phase",
+      "subcategories": [
+        "define",
+        "plan",
+        "build",
+        "verify",
+        "review",
+        "ship",
+        "orchestrate",
+        "learn",
+        "meta"
+      ]
+    },
+    {
+      "id": "personas",
+      "title": "Agent personas",
+      "order": 2,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "access",
+      "subcategories": [
+        "rw",
+        "ro",
+        "pi-only"
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "Commands / prompts",
+      "order": 3,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "references",
+      "title": "References",
+      "order": 4,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "coms-bridge",
+      "title": "Claude Code coms bridge",
+      "order": 11,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "pi-extensions",
+      "title": "pi extensions & runtime skills",
+      "order": 5,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "extension",
+        "runtime-skill"
+      ]
+    },
+    {
+      "id": "pi-harnesses",
+      "title": "pi harnesses",
+      "order": 6,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "hermes",
+      "title": "Hermes plugins & skills",
+      "order": 7,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": "type",
+      "subcategories": [
+        "plugin",
+        "skill"
+      ]
+    },
+    {
+      "id": "external-packages",
+      "title": "External packages",
+      "order": 9,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    },
+    {
+      "id": "companions",
+      "title": "Companions",
+      "order": 10,
+      "agents": [
+        "pi"
+      ],
+      "subcategoryLabel": null,
+      "subcategories": []
+    }
+  ],
+  "presets": {
+    "default": {
+      "title": "Launchable recommended Agent Fleet",
+      "items": [
+        "command:build",
+        "command:plan",
+        "command:review",
+        "command:spec",
+        "command:test",
+        "persona:builder",
+        "persona:code-reviewer",
+        "persona:test-engineer",
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue",
+        "skill:code-review-and-quality",
+        "skill:compound-learning",
+        "skill:debugging-and-error-recovery",
+        "skill:git-workflow-and-versioning",
+        "skill:incremental-implementation",
+        "skill:orchestration-verification",
+        "skill:planning-and-task-breakdown",
+        "skill:spec-driven-development",
+        "skill:test-driven-development",
+        "skill:using-agent-skills"
+      ]
+    },
+    "full": {
+      "title": "All stable platform-applicable catalogue roots",
+      "rule": "stable"
+    },
+    "minimal": {
+      "title": "Internal lifecycle support preset",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    }
+  },
+  "features": {
+    "voice": {
+      "title": "Voice",
+      "stability": "stable",
+      "items": [
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    "browser": {
+      "title": "Browser",
+      "stability": "stable",
+      "items": [
+        "pi-extension:chrome-devtools-mcp",
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    "hermes": {
+      "title": "Hermes",
+      "stability": "stable",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    },
+    "telegram": {
+      "title": "Telegram",
+      "stability": "stable",
+      "requiresFeatures": [
+        "hermes"
+      ],
+      "items": [
+        "hermes-skill:hub-liaison"
+      ]
+    },
+    "claude-bridge": {
+      "title": "Claude bridge",
+      "stability": "stable",
+      "items": [
+        "skill:peer-coms"
+      ]
+    },
+    "chatgpt-client": {
+      "title": "ChatGPT Fleet session client",
+      "stability": "experimental",
+      "items": [
+        "companion:fleet-client-runtime",
+        "companion:fleet-client-skill"
+      ]
+    },
+    "system1": {
+      "title": "System 1 provider foundation",
+      "stability": "experimental",
+      "items": [
+        "companion:pi-harness-lib",
+        "companion:system1-config"
+      ]
+    },
+    "system1-task-triage": {
+      "title": "Active System 1 task triage (separate data consent required)",
+      "stability": "experimental",
+      "requiresFeatures": [
+        "system1"
+      ],
+      "items": [
+        "pi-harness:agent-hub"
+      ]
+    }
+  },
+  "profiles": {
+    "minimal": {
+      "title": "Lifecycle skills and their commands, nothing else",
+      "items": [
+        "skill:using-agent-skills",
+        "skill:spec-driven-development",
+        "skill:planning-and-task-breakdown",
+        "skill:incremental-implementation",
+        "skill:test-driven-development",
+        "skill:code-review-and-quality",
+        "command:spec",
+        "command:plan",
+        "command:build",
+        "command:test",
+        "command:review"
+      ]
+    },
+    "recommended": {
+      "title": "Every item marked recommended for this agent",
+      "rule": "recommended"
+    },
+    "full": {
+      "title": "Every item available for this agent",
+      "rule": "all"
+    },
+    "pi-fleet-core": {
+      "title": "The pi harness core stack",
+      "items": [
+        "pi-harness:agent-hub",
+        "pi-harness:damage-control-continue",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-extension:compact-and-continue",
+        "pi-extension:btw"
+      ]
+    },
+    "hermes-plugins": {
+      "title": "Hermes plugin/bridge closure (operator-applied)",
+      "items": [
+        "hermes-plugin:agent-fleet-herdr",
+        "hermes-plugin:agent-fleet-monitor",
+        "hermes-skill:hub-conductor",
+        "hermes-skill:hub-liaison",
+        "hermes-skill:hub-watchdog"
+      ]
+    }
+  },
+  "items": [
+    {
+      "id": "command:build",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "build",
+      "summary": "Implement the next task incrementally — build, test, verify, request review unless whole-plan was explicitly requested",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-build.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-build.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/build.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:code-simplify",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "code-simplify",
+      "summary": "Simplify code for clarity and maintainability — reduce complexity without changing behavior",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-code-simplify.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-code-simplify.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/code-simplify.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:constraints",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "constraints",
+      "summary": "Establish or check the project's quality bar — write CONSTRAINTS.md and guard the diff against a lowered bar",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-constraints.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-constraints.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/constraints.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:plan",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "plan",
+      "summary": "Break work into small verifiable tasks with acceptance criteria and dependency ordering",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-plan.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-plan.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/plan.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:review",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "review",
+      "summary": "Conduct a five-axis code review — correctness, readability, architecture, security, performance",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-review.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-review.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/review.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:set-hermes-telegram",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "set-hermes-telegram",
+      "summary": "Install/status the Hermes liaison or turn its Telegram ask_user bridge on/off",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-set-hermes-telegram.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-set-hermes-telegram.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/set-hermes-telegram.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:set-hermes-watchdog",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "set-hermes-watchdog",
+      "summary": "Inspect or safely install the fail-closed Hermes watchdog",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-set-hermes-watchdog.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-set-hermes-watchdog.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/set-hermes-watchdog.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:setup-rules",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "setup-rules",
+      "summary": "Set up or extend repository AI rules from the Fleet catalogue — discovery, proposal, grilling, diff, apply, verify.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-setup-rules.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-setup-rules.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/setup-rules.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:ship",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "ship",
+      "summary": "Run the pre-launch checklist and prepare for production deployment",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-ship.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-ship.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/ship.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:spec",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "spec",
+      "summary": "Start spec-driven development — write a structured specification before writing code",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-spec.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-spec.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/spec.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "command:test",
+      "kind": "command",
+      "group": "commands",
+      "subcategory": null,
+      "title": "test",
+      "summary": "Run TDD workflow — write failing tests, implement, verify.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/prompts/af-test.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/prompts/af-test.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".pi/prompts/test.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "companion:damage-control-rules",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/damage-control-rules.yaml",
+      "summary": "Rule set the damage-control harness enforces",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/damage-control-rules.yaml"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/damage-control-rules.yaml",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:fleet-client-runtime",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Lightweight ChatGPT Fleet client",
+      "summary": "Local instruction and read client; no daemon or model calls",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/scripts/fleet-codex-client.ts",
+            ".pi/agent-fleet/scripts/fleet-codex-read.py",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-session.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-operations.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-transport.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts",
+            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+            ".pi/harnesses/lib/herdr-client.ts",
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
+            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      }
+    },
+    {
+      "id": "companion:fleet-client-skill",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "ChatGPT Fleet client skill",
+      "summary": "Workspace Codex skill for the explicit session client",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "codex/fleet-session-client"
+          ],
+          "sourceMode": "first",
+          "target": ".agents/skills/fleet-session-client",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "companion:harness-runtime-closure",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "harness-runtime-closure",
+      "summary": "Runtime files the pi harness recipes shell out to",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/skills",
+            ".pi/agent-fleet/scripts/claude-code-preflight.ts",
+            ".pi/agent-fleet/scripts/coms-claude-bridge.ts",
+            ".pi/agent-fleet/scripts/coms-cli.ts",
+            ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
+            ".pi/agent-fleet/scripts/exec-at-target.ts",
+            ".pi/agent-fleet/scripts/fleet.ts",
+            ".pi/agent-fleet/scripts/flow.ts",
+            ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
+            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
+            ".pi/agent-fleet/scripts/lib/fleet-command.ts",
+            ".pi/agent-fleet/scripts/lib/flow-command.ts",
+            ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
+            ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
+            ".pi/agent-fleet/scripts/lib/monitor-env.ts",
+            ".pi/agent-fleet/scripts/lib/peer-launch.ts",
+            ".pi/agent-fleet/scripts/lib/peer-target.ts",
+            ".pi/agent-fleet/scripts/lib/persona-banner.ts",
+            ".pi/agent-fleet/scripts/lib/persona-dirs.ts",
+            ".pi/agent-fleet/scripts/lib/resource-closure.js",
+            ".pi/agent-fleet/scripts/lib/runtime-dependencies.js",
+            ".pi/agent-fleet/scripts/lib/session-launch.ts",
+            ".pi/agent-fleet/scripts/lib/spawn-stagger.ts",
+            ".pi/agent-fleet/scripts/lib/team-project.ts",
+            ".pi/agent-fleet/scripts/lib/team-snapshot.ts",
+            ".pi/agent-fleet/scripts/peer-banner.ts",
+            ".pi/agent-fleet/scripts/peer-launch.ts",
+            ".pi/agent-fleet/scripts/pi-session.ts",
+            ".pi/agent-fleet/scripts/team-snapshot.ts",
+            ".pi/agent-fleet/scripts/team-up.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/changes.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/debate.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/env.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/envelopes.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/gates.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/git.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/isolated-snapshot.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/merge.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/model-profile.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/model-visibility.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/permissions.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/personas.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/poll.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/quality.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/run.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/trace.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/voices.ts",
+            ".pi/agent-fleet/scripts/workflows/lib/writer-lease.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-build-test.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-debate.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-document.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-poll.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-quality.ts",
+            ".pi/agent-fleet/scripts/workflows/wf-scout.ts",
+            ".pi/harnesses/agent-hub/proactive-config.ts",
+            ".pi/harnesses/agent-hub/proactive-evaluate.ts",
+            ".pi/harnesses/agent-hub/proactive-feedback.ts",
+            ".pi/harnesses/agent-hub/proactive-findings.ts",
+            ".pi/harnesses/agent-hub/proactive-local.ts",
+            ".pi/harnesses/agent-hub/proactive-observer.ts",
+            ".pi/harnesses/agent-hub/proactive-rules.ts",
+            ".pi/harnesses/agent-hub/proactive-runtime.ts",
+            ".pi/harnesses/agent-hub/proactive-selection.ts",
+            ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
+            ".pi/harnesses/agent-hub/proactive-snapshot.ts",
+            ".pi/harnesses/agent-hub/proactive-types.ts",
+            ".pi/harnesses/lib/damage-policy.ts",
+            ".pi/harnesses/lib/peer-target.ts",
+            ".pi/harnesses/lib/resource-closure.js",
+            ".pi/harnesses/lib/safe-source-read.js",
+            ".pi/harnesses/lib/target-capabilities.js",
+            ".pi/harnesses/lib/workspace-context.js",
+            ".pi/harnesses/lib/workspace-context.ts"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:justfile-region",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "justfile managed region",
+      "summary": "Harness launch recipes between the agent-fleet sentinels",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "justfile"
+          ],
+          "sourceMode": "first",
+          "target": "justfile",
+          "strategy": "managed-region"
+        }
+      },
+      "companions": [
+        "companion:workflow-runtime"
+      ],
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:pi-agent-configs",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/agents configs",
+      "summary": "teams, peers, chains, dispatch policy, and model panels (voices.yaml) the harnesses read",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agents/dispatch-policy.yaml",
+            ".pi/agents/model-profiles.yaml",
+            ".pi/agents/peers.yaml",
+            ".pi/agents/teams.yaml",
+            ".pi/agents/voices.yaml"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "companion:pi-extension-deps",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "npm ci (.pi/extensions)",
+      "summary": "Installs the extension runtime dependencies",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "exec",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/extensions"
+        ],
+        "cwd": "."
+      },
+      "parents": [
+        "pi-extension:btw",
+        "pi-extension:chrome-devtools-mcp",
+        "pi-extension:compact-and-continue",
+        "pi-extension:mcp-bridge",
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:pi-extension-manifests",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/extensions package manifests",
+      "summary": "Runtime dependency manifests for the extensions",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/package.json",
+            ".pi/extensions/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/extensions",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-extension:btw",
+        "pi-extension:chrome-devtools-mcp",
+        "pi-extension:compact-and-continue",
+        "pi-extension:mcp-bridge",
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-deps",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "npm ci (.pi/harnesses)",
+      "summary": "Installs the harness runtime dependencies",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "exec",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/harnesses"
+        ],
+        "cwd": "."
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-lib",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/harnesses/lib",
+      "summary": "Shared modules every harness imports",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/lib"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/lib",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "companion:workflow-runtime",
+        "pi-extension:btw",
+        "pi-extension:pi-voice-stt",
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:pi-harness-manifests",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".pi/harnesses package manifests",
+      "summary": "Runtime dependency manifests for the harnesses",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/package.json",
+            ".pi/harnesses/package-lock.json"
+          ],
+          "sourceMode": "all",
+          "target": ".pi/harnesses",
+          "strategy": "copy-tree"
+        }
+      },
+      "parents": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "companion:session-worktree-guide",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Session worktree targeting guide",
+      "summary": "Workspace/target roots, consent, resume and integration boundaries",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/session-worktree-targeting.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/docs/session-worktree-targeting.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "companion:workflow-runtime"
+      ]
+    },
+    {
+      "id": "companion:skills-internal-grilling",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "skills/_internal/grilling.md",
+      "summary": "Shared helper for the interview-style skills",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/_internal/grilling.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/_internal/grilling.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:idea-refine",
+        "skill:planning-and-task-breakdown",
+        "skill:spec-driven-development"
+      ]
+    },
+    {
+      "id": "companion:stt-config",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".ai/stt.json",
+      "summary": "Non-secret voice provider config; keys stay in .env — asked for, never generated",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "operatorSteps": [
+        "pick a provider and write .ai/stt.json — see docs/pi-extensions.md",
+        "put the API key in a gitignored .env under the env-var name stt.json references; never in stt.json itself",
+        "the extension binds Alt+S only once a provider resolves — until then it is a no-op"
+      ],
+      "parents": [
+        "pi-extension:pi-voice-stt"
+      ]
+    },
+    {
+      "id": "companion:system1-config",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": ".ai/system1.json",
+      "summary": "Human-owned, non-secret unified System 1 v2 configuration",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator"
+        }
+      },
+      "operatorSteps": [
+        "write .ai/system1.json with version 2, mode auto|off, provider typesafe, model jev-1.13.0, apiKeyEnv TYPESAFE_API_KEY, and consumers; missing consumer sections are off; migrate v1 explicitly using setup --migrate-system1-config --dry-run then --yes",
+        "provide TYPESAFE_API_KEY directly in the process environment when live inference is explicitly requested; setup never creates or reads the secret",
+        "run agent-fleet doctor to inspect local readiness without loading .env or contacting the provider"
+      ]
+    },
+    {
+      "id": "companion:workflow-deps",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "npm ci (scripts)",
+      "summary": "Installs the deterministic workflow runtime dependencies",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "exec",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "exec"
+        }
+      },
+      "exec": {
+        "command": "npm",
+        "args": [
+          "ci",
+          "--prefix",
+          ".pi/agent-fleet/scripts"
+        ],
+        "cwd": "."
+      },
+      "parents": [
+        "companion:workflow-runtime"
+      ]
+    },
+    {
+      "id": "companion:workflow-guide",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Workflow runtime guide",
+      "summary": "Managed workflow map read by the drafting skill",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/workflows.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/docs/workflows.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "companion:workflow-runtime"
+      ]
+    },
+    {
+      "id": "companion:workflow-runtime",
+      "kind": "companion",
+      "group": "companions",
+      "subcategory": null,
+      "title": "Deterministic workflow runtime",
+      "summary": "Headless flow dispatcher, workflow graphs, and scoped configuration",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/scripts/flow.ts",
+            ".pi/agent-fleet/scripts/package.json",
+            ".pi/agent-fleet/scripts/package-lock.json",
+            ".pi/agent-fleet/scripts/lib/flow-command.ts",
+            ".pi/agent-fleet/scripts/lib/flow-maintenance.ts",
+            ".pi/agent-fleet/scripts/lib/resource-closure.js",
+            ".pi/agent-fleet/scripts/workflows",
+            ".pi/harnesses/agent-hub/return-contract.js",
+            ".pi/harnesses/agent-hub/run-namespace.js",
+            ".pi/harnesses/agent-hub/config/agents.ts",
+            ".pi/harnesses/agent-hub/config/overrides.ts",
+            ".pi/harnesses/agent-hub/backend-policy.js",
+            ".pi/harnesses/agent-hub/execution-evidence.ts",
+            ".pi/harnesses/agent-hub/context-window.js",
+            ".pi/harnesses/agent-hub/spawn.ts",
+            ".pi/harnesses/agent-hub/specialist-result-receipt.ts",
+            ".pi/harnesses/agent-hub/damage-guard-owners.ts",
+            ".pi/harnesses/agent-hub/damage-guard-broker.ts",
+            ".pi/harnesses/agent-hub/damage-guard-contract.ts",
+            ".pi/harnesses/agent-hub/context-continuity.ts",
+            ".pi/harnesses/agent-hub/context-continuity-compat.ts",
+            ".pi/harnesses/agent-hub/context-continuity-owners.ts",
+            ".pi/harnesses/agent-hub/context-continuity-broker.ts",
+            ".pi/harnesses/agent-hub/context-continuity-client.ts",
+            ".pi/harnesses/agent-hub/context-continuity-child.ts",
+            ".pi/harnesses/agent-hub/context-compaction.ts",
+            ".pi/harnesses/agent-hub/context-compaction-runtime.ts",
+            ".pi/harnesses/agent-hub/context-compaction-monitor.ts",
+            ".pi/harnesses/agent-hub/file-discovery",
+            ".pi/harnesses/agent-hub/agentic-sources.ts",
+            ".pi/harnesses/agent-hub/agentic-sources-worker.mjs",
+            ".pi/harnesses/agent-hub/system1-communication-store.ts",
+            ".pi/harnesses/agent-hub/task-triage-contract.ts",
+            ".pi/harnesses/agent-hub/runtime-test-check.ts",
+            ".pi/harnesses/agent-hub/tool-protocol.ts",
+            ".pi/harnesses/agent-hub/policy/profile-runtime.ts",
+            ".pi/harnesses/agent-hub/config/model-profiles.ts",
+            ".pi/harnesses/agent-hub/scope-gate.js",
+            ".pi/harnesses/agent-hub/write-isolation.ts",
+            ".pi/harnesses/agent-hub/deterministic-fs.ts",
+            ".pi/harnesses/agent-hub/helpers.ts",
+            ".pi/harnesses/agent-hub/external-blocker.js",
+            ".pi/harnesses/damage-control-continue",
+            ".pi/harnesses/agent-hub/types.ts",
+            ".pi/harnesses/agent-hub/dispatch-core.ts",
+            ".pi/harnesses/agent-hub/dispatch-coms.ts",
+            ".pi/harnesses/agent-hub/drift-runtime.ts",
+            ".pi/harnesses/agent-hub/acceptance.ts",
+            ".pi/harnesses/agent-hub/artifacts.js",
+            ".pi/harnesses/agent-hub/tools/context.ts",
+            ".pi/harnesses/agent-hub/drift-watchdog.js",
+            ".pi/harnesses/agent-hub/return-extract.js",
+            ".pi/harnesses/agent-hub/dispatch-native.ts",
+            ".pi/harnesses/agent-hub/assist-profile.ts",
+            ".pi/harnesses/agent-hub/monitor-control.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-prepare.ts",
+            ".pi/harnesses/agent-hub/bounded-output.ts",
+            ".pi/harnesses/agent-hub/filesystem-tool.ts",
+            ".pi/harnesses/agent-hub/run-budget.js",
+            ".pi/harnesses/agent-hub/session-health.js",
+            ".pi/harnesses/agent-hub/safety-routing.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-types.ts",
+            ".pi/harnesses/agent-hub/ui/history-store.ts",
+            ".pi/harnesses/agent-hub/ui/zoom.ts",
+            ".pi/harnesses/agent-hub/dispatch-observability.ts",
+            ".pi/harnesses/agent-hub/ui/activity-dots.ts",
+            ".pi/harnesses/agent-hub/task-resume-contract.ts",
+            ".pi/harnesses/agent-hub/system1-runtime.ts",
+            ".pi/harnesses/agent-hub/dispatch-triage-contract.ts",
+            ".pi/harnesses/agent-hub/dispatch-triage-state.ts",
+            ".pi/harnesses/agent-hub/dispatch-triage-policy.ts",
+            ".pi/harnesses/agent-hub/dispatch-triage-runtime.ts",
+            ".pi/harnesses/agent-hub/dispatch-triage-eval.ts",
+            ".pi/harnesses/agent-hub/system1-communication-store.ts",
+            ".pi/harnesses/agent-hub/ui/system1-communication.ts",
+            ".pi/harnesses/agent-hub/tools/dispatch-triage.ts",
+            ".pi/harnesses/agent-hub/drift-system1-policy.ts",
+            ".pi/harnesses/agent-hub/drift-system1.ts",
+            ".pi/harnesses/agent-hub/system1-activity.ts",
+            ".pi/harnesses/agent-hub/drift-judge.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-spawn.ts",
+            ".pi/harnesses/agent-hub/timeline.ts",
+            ".pi/harnesses/agent-hub/dispatch-native-complete.ts",
+            ".pi/harnesses/agent-hub/research/runtime.ts",
+            ".pi/harnesses/agent-hub/context/hub-state.ts",
+            ".pi/harnesses/agent-hub/context/budgets.ts",
+            ".pi/harnesses/agent-hub/hub-state-audit.js",
+            ".pi/harnesses/agent-hub/budget-recovery.ts",
+            ".pi/harnesses/agent-hub/context/assertions-artifacts.ts",
+            ".pi/harnesses/agent-hub/provider-semaphore.js",
+            ".pi/harnesses/agent-hub/research/spawn-run.ts",
+            ".pi/harnesses/agent-hub/research-watchdog.ts",
+            ".pi/agent-fleet/scripts/lib/persona-dirs.ts"
+          ],
+          "sourceMode": "all",
+          "target": null,
+          "strategy": "copy-tree",
+          "preserveLayout": true
+        }
+      },
+      "companions": [
+        "companion:pi-harness-lib",
+        "companion:session-worktree-guide",
+        "companion:workflow-deps",
+        "companion:workflow-guide"
+      ],
+      "parents": [
+        "companion:justfile-region",
+        "skill:drafting-workflows"
+      ]
+    },
+    {
+      "id": "external:pi-ask-user",
+      "kind": "external-package",
+      "group": "external-packages",
+      "subcategory": null,
+      "title": "pi-ask-user",
+      "summary": "Native ask_user widget for pi",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "external",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "external"
+        }
+      },
+      "package": {
+        "manager": "pi",
+        "spec": "npm:pi-ask-user",
+        "scope": "project",
+        "probe": "pi-ask-user"
+      }
+    },
+    {
+      "id": "external:playwright-cli",
+      "kind": "external-package",
+      "group": "external-packages",
+      "subcategory": null,
+      "title": "playwright-cli",
+      "summary": "Playwright Agent CLI the bowser runtime skill drives",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "external",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "external"
+        }
+      },
+      "package": {
+        "manager": "npm",
+        "spec": "@playwright/cli@latest",
+        "scope": "global",
+        "probe": "playwright-cli"
+      }
+    },
+    {
+      "id": "hermes-plugin:agent-fleet-herdr",
+      "kind": "hermes-plugin",
+      "group": "hermes",
+      "subcategory": "plugin",
+      "title": "agent-fleet-herdr",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr",
+            ".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "clone agent-fleet — .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    {
+      "id": "hermes-plugin:agent-fleet-monitor",
+      "kind": "hermes-plugin",
+      "group": "hermes",
+      "subcategory": "plugin",
+      "title": "agent-fleet-monitor",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/plugins/agent-fleet-monitor",
+            ".pi/agent-fleet/hermes/desktop-plugins/agent-fleet-monitor"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "clone agent-fleet — .pi/agent-fleet/scripts/install-hermes-plugin.sh is repo-only, not shipped on npm",
+        ".pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-monitor --profile <profile>",
+        "restart the Hermes Desktop app — plugin routers mount only when its gateway boots",
+        "hermes --profile <profile> gateway restart   # only if the web dashboard/TUI needs the routes"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-conductor",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-conductor",
+      "summary": "Conducts local pi hub-team peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-s…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/skills/hub-conductor"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "copy .pi/agent-fleet/hermes/skills/hub-conductor into <hermes-profile>/skills/hub-conductor",
+        "hermes --profile <profile> skills config   # enable hub-conductor",
+        "hermes --profile <profile> gateway restart"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-liaison",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-liaison",
+      "summary": "On any Telegram HUB-Q reply ALWAYS write the pi hub bridge answer file — even when the thread shows cancel/closed/tim…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/skills/hub-liaison"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "agent-fleet set-hermes-telegram install --profile <profile>",
+        "hermes --profile <profile> skills config   # enable hub-liaison",
+        "hermes --profile <profile> tools enable --platform telegram terminal file",
+        "agent-fleet set-hermes-telegram status --profile <profile>   # confirm ready"
+      ]
+    },
+    {
+      "id": "hermes-skill:hub-watchdog",
+      "kind": "hermes-skill",
+      "group": "hermes",
+      "subcategory": "skill",
+      "title": "hub-watchdog",
+      "summary": "Foreground, fail-closed local Agent Hub watchdog.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "operator",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hermes/skills/hub-watchdog"
+          ],
+          "sourceMode": "first",
+          "target": null,
+          "strategy": "operator",
+          "targetScope": "hermes-profile"
+        }
+      },
+      "operatorSteps": [
+        "agent-fleet set-hermes-watchdog install --profile <profile>",
+        "agent-fleet set-hermes-watchdog status --profile <profile>   # confirm the receipt and lock state"
+      ]
+    },
+    {
+      "id": "hook:coms-stop-hook",
+      "kind": "hook",
+      "group": "coms-bridge",
+      "subcategory": null,
+      "title": "coms-stop-hook",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/agent-fleet/hooks/coms-stop-hook.mjs"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agent-fleet/hooks/coms-stop-hook.mjs",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            ".claude/hooks/coms-stop-hook.mjs"
+          ]
+        }
+      },
+      "parents": [
+        "skill:peer-coms"
+      ]
+    },
+    {
+      "id": "persona:architect",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "architect",
+      "summary": "System architect — owns design decisions and migration strategy; answers design questions with concrete, justified re…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/architect.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/architect.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/architect.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:bowser",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "bowser",
+      "summary": "Headless browser automation agent using Playwright CLI.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/bowser.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/bowser.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/bowser.md"
+          ]
+        }
+      },
+      "requires": [
+        "pi-runtime-skill:bowser"
+      ]
+    },
+    {
+      "id": "persona:builder",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "builder",
+      "summary": "Implementation and code generation — lands changes in small verifiable increments.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/builder.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/builder.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/builder.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:code-reviewer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "code-reviewer",
+      "summary": "Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security…",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/code-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/code-reviewer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/code-reviewer.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:deep-researcher",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "deep-researcher",
+      "summary": "Read-only deep reconnaissance for hard, ambiguous, or high-stakes questions — traces cross-cutting call paths, maps u…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/deep-researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/deep-researcher.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/deep-researcher.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:documenter",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "documenter",
+      "summary": "Documentation and README generation",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/documenter.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/documenter.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/documenter.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:orchestrator",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "orchestrator",
+      "summary": "Verification-Contract orchestrator — coordinates small, evidence-gated batches and does not report completion until e…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/orchestrator.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/orchestrator.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/orchestrator.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:plan-reviewer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "plan-reviewer",
+      "summary": "Plan critic — reviews, challenges, and validates implementation plans",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/plan-reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/plan-reviewer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/plan-reviewer.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:planner",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "planner",
+      "summary": "Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/planner.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/planner.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/planner.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:releaser",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "releaser",
+      "summary": "Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/releaser.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/releaser.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/releaser.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:researcher",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "researcher",
+      "summary": "Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/researcher.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/researcher.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/researcher.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:security-auditor",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "security-auditor",
+      "summary": "Security engineer focused on vulnerability detection, threat modeling, and secure coding practices.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/security-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/security-auditor.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/security-auditor.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:test-engineer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "rw",
+      "title": "test-engineer",
+      "summary": "QA engineer specialized in test strategy, test writing, and coverage analysis.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/test-engineer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/test-engineer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/test-engineer.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:web-debugger",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "pi-only",
+      "title": "web-debugger",
+      "summary": "Interactive headful Chrome debugging via Chrome DevTools MCP — live DOM snapshots, console, network, and performance…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/web-debugger.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/web-debugger.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/web-debugger.md"
+          ]
+        }
+      },
+      "requires": [
+        "pi-extension:chrome-devtools-mcp"
+      ]
+    },
+    {
+      "id": "persona:web-performance-auditor",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": "ro",
+      "title": "web-performance-auditor",
+      "summary": "Web performance engineer focused on Core Web Vitals, loading, rendering, and network optimization.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/web-performance-auditor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/web-performance-auditor.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/web-performance-auditor.md"
+          ]
+        }
+      },
+      "companions": [
+        "reference:performance-checklist"
+      ]
+    },
+    {
+      "id": "pi-extension:btw",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "btw",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/btw"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/btw",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests",
+        "companion:pi-harness-lib"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-extension:chrome-devtools-mcp",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "chrome-devtools-mcp",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/chrome-devtools-mcp"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/chrome-devtools-mcp",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ]
+    },
+    {
+      "id": "pi-extension:compact-and-continue",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "compact-and-continue",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/compact-and-continue"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/compact-and-continue",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:ask-user-remote",
+        "pi-harness:coms",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-extension:mcp-bridge",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "mcp-bridge",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/mcp-bridge"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/mcp-bridge",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests"
+      ]
+    },
+    {
+      "id": "pi-extension:pi-voice-stt",
+      "kind": "pi-extension",
+      "group": "pi-extensions",
+      "subcategory": "extension",
+      "title": "pi-voice-stt",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/extensions/pi-voice-stt"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/extensions/pi-voice-stt",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:pi-extension-deps",
+        "companion:pi-extension-manifests",
+        "companion:pi-harness-lib",
+        "companion:stt-config"
+      ]
+    },
+    {
+      "id": "pi-harness:agent-hub",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "agent-hub",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/agent-hub"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/agent-hub",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-agent-configs",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-harness:ask-user-remote",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-harness:ask-user-remote",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "ask-user-remote",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/ask-user-remote"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/ask-user-remote",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-harness:damage-control-continue"
+      ],
+      "recommendsWith": [
+        "external:pi-ask-user"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "pi-harness:coms",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "coms",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/coms"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/coms",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-agent-configs",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-harness:ask-user-remote",
+        "pi-harness:damage-control-continue"
+      ]
+    },
+    {
+      "id": "pi-harness:damage-control-continue",
+      "kind": "pi-harness",
+      "group": "pi-harnesses",
+      "subcategory": null,
+      "title": "damage-control-continue",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/harnesses/damage-control-continue"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/harnesses/damage-control-continue",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:damage-control-rules",
+        "companion:harness-runtime-closure",
+        "companion:justfile-region",
+        "companion:pi-harness-deps",
+        "companion:pi-harness-lib",
+        "companion:pi-harness-manifests"
+      ],
+      "requires": [
+        "pi-extension:btw",
+        "pi-extension:compact-and-continue",
+        "pi-harness:ask-user-remote"
+      ],
+      "pinnedBy": [
+        "pi-harness:agent-hub",
+        "pi-harness:coms"
+      ]
+    },
+    {
+      "id": "pi-runtime-skill:bowser",
+      "kind": "pi-runtime-skill",
+      "group": "pi-extensions",
+      "subcategory": "runtime-skill",
+      "title": "bowser",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            ".pi/skills/bowser"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/bowser",
+          "strategy": "copy-tree"
+        }
+      },
+      "recommendsWith": [
+        "external:playwright-cli"
+      ]
+    },
+    {
+      "id": "reference:accessibility-checklist",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "accessibility-checklist",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/accessibility-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/accessibility-checklist.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:frontend-ui-engineering",
+        "skill:shipping-and-launch"
+      ]
+    },
+    {
+      "id": "reference:communication-contract",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "communication-contract",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/communication-contract.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/communication-contract.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:planning-and-task-breakdown"
+      ]
+    },
+    {
+      "id": "reference:definition-of-done",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "definition-of-done",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/definition-of-done.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/definition-of-done.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:constraint-driven-development",
+        "skill:incremental-implementation",
+        "skill:planning-and-task-breakdown",
+        "skill:shipping-and-launch",
+        "skill:using-agent-skills"
+      ]
+    },
+    {
+      "id": "reference:fleet-coordination-patterns",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "fleet-coordination-patterns",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/fleet-coordination-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/fleet-coordination-patterns.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:orchestration-verification"
+      ]
+    },
+    {
+      "id": "reference:observability-checklist",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "observability-checklist",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/observability-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/observability-checklist.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:observability-and-instrumentation"
+      ]
+    },
+    {
+      "id": "reference:orchestration-patterns",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "orchestration-patterns",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/orchestration-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/orchestration-patterns.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:doubt-driven-development"
+      ]
+    },
+    {
+      "id": "reference:performance-checklist",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "performance-checklist",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/performance-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/performance-checklist.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "persona:web-performance-auditor",
+        "skill:code-review-and-quality",
+        "skill:performance-optimization",
+        "skill:shipping-and-launch"
+      ]
+    },
+    {
+      "id": "reference:prompting-patterns",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "prompting-patterns",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/prompting-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/prompting-patterns.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:context-engineering",
+        "skill:designing-agents"
+      ]
+    },
+    {
+      "id": "reference:security-checklist",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "security-checklist",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/security-checklist.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/security-checklist.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:code-review-and-quality",
+        "skill:security-and-hardening",
+        "skill:shipping-and-launch"
+      ]
+    },
+    {
+      "id": "reference:testing-patterns",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "testing-patterns",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/testing-patterns.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/testing-patterns.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:test-driven-development"
+      ]
+    },
+    {
+      "id": "reference:workflow-authoring",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "workflow-authoring",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/workflow-authoring.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/workflow-authoring.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:drafting-workflows"
+      ]
+    },
+    {
+      "id": "skill:api-and-interface-design",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "api-and-interface-design",
+      "summary": "Guides stable API and interface design.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/api-and-interface-design"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/api-and-interface-design",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:browser-testing-with-devtools",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "verify",
+      "title": "browser-testing-with-devtools",
+      "summary": "Tests in real browsers via Chrome DevTools MCP.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/browser-testing-with-devtools",
+            "vendor/agent-skills-upstream/skills/browser-testing-with-devtools"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/browser-testing-with-devtools",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:ci-cd-and-automation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "ci-cd-and-automation",
+      "summary": "Automates CI/CD pipeline setup.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/ci-cd-and-automation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/ci-cd-and-automation",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:code-review-and-quality",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "code-review-and-quality",
+      "summary": "Conducts multi-axis code review.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/code-review-and-quality",
+            "vendor/agent-skills-upstream/skills/code-review-and-quality"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/code-review-and-quality",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
+    },
+    {
+      "id": "skill:code-simplification",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "code-simplification",
+      "summary": "Simplifies code for clarity.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/code-simplification"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/code-simplification",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:compound-learning",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "learn",
+      "title": "compound-learning",
+      "summary": "Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session…",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/compound-learning"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/compound-learning",
+          "strategy": "copy-tree"
+        }
+      },
+      "recommendsWith": [
+        "command:compound",
+        "persona:documenter"
+      ]
+    },
+    {
+      "id": "skill:constraint-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "plan",
+      "title": "constraint-driven-development",
+      "summary": "Establishes a project's quality bar as a written contract and stops agents quietly lowering it.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/constraint-driven-development",
+            "vendor/agent-skills-upstream/skills/constraint-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/constraint-driven-development",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:definition-of-done"
+      ]
+    },
+    {
+      "id": "skill:context-engineering",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "context-engineering",
+      "summary": "Optimizes agent context setup.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/context-engineering",
+            "vendor/agent-skills-upstream/skills/context-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/context-engineering",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:prompting-patterns"
+      ]
+    },
+    {
+      "id": "skill:debugging-and-error-recovery",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "verify",
+      "title": "debugging-and-error-recovery",
+      "summary": "Guides systematic root-cause debugging.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/debugging-and-error-recovery"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/debugging-and-error-recovery",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:deprecation-and-migration",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "deprecation-and-migration",
+      "summary": "Manages deprecation and migration.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/deprecation-and-migration",
+            "vendor/agent-skills-upstream/skills/deprecation-and-migration"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/deprecation-and-migration",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:designing-agents",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "designing-agents",
+      "summary": "Designs and writes a focused artifact another agent runs — an agent persona in .pi/agents/personas/, a workflow skill…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/designing-agents"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/designing-agents",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:prompting-patterns"
+      ]
+    },
+    {
+      "id": "skill:documentation-and-adrs",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "documentation-and-adrs",
+      "summary": "Records decisions and documentation.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/documentation-and-adrs"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/documentation-and-adrs",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:doubt-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "doubt-driven-development",
+      "summary": "Subjects every non-trivial decision to a fresh-context adversarial review before it stands.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/doubt-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/doubt-driven-development",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:orchestration-patterns"
+      ]
+    },
+    {
+      "id": "skill:drafting-workflows",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "drafting-workflows",
+      "summary": "Drafts deterministic Agent Fleet workflows by adapting the nearest existing flow and proving the draft compiles and d…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/drafting-workflows"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/drafting-workflows",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:workflow-runtime",
+        "reference:workflow-authoring"
+      ]
+    },
+    {
+      "id": "skill:frontend-ui-engineering",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "frontend-ui-engineering",
+      "summary": "Builds production-quality, accessible, responsive user-facing UIs.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/frontend-ui-engineering",
+            "vendor/agent-skills-upstream/skills/frontend-ui-engineering"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/frontend-ui-engineering",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:accessibility-checklist"
+      ]
+    },
+    {
+      "id": "skill:git-workflow-and-versioning",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "git-workflow-and-versioning",
+      "summary": "Structures git workflow practices.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/git-workflow-and-versioning",
+            "vendor/agent-skills-upstream/skills/git-workflow-and-versioning"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/git-workflow-and-versioning",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:idea-refine",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "idea-refine",
+      "summary": "Refines raw ideas into sharp, actionable concepts through structured divergent and convergent thinking.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/idea-refine",
+            "vendor/agent-skills-upstream/skills/idea-refine"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/idea-refine",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    {
+      "id": "skill:incremental-implementation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "incremental-implementation",
+      "summary": "Delivers changes incrementally in thin, verifiable slices and resolves routine technical choices independently and gr…",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/incremental-implementation",
+            "vendor/agent-skills-upstream/skills/incremental-implementation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/incremental-implementation",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:definition-of-done"
+      ]
+    },
+    {
+      "id": "skill:interview-me",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "interview-me",
+      "summary": "Extracts what the user actually wants instead of what they think they should want.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/interview-me",
+            "vendor/agent-skills-upstream/skills/interview-me"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/interview-me",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:observability-and-instrumentation",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "observability-and-instrumentation",
+      "summary": "Instruments code so production behavior is visible and diagnosable.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/observability-and-instrumentation"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/observability-and-instrumentation",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:observability-checklist"
+      ]
+    },
+    {
+      "id": "skill:orchestration-verification",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "orchestrate",
+      "title": "orchestration-verification",
+      "summary": "Defines the Verification Contract that keeps a multi-agent run honest — dispatcher-owned acceptance assertions, a par…",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/orchestration-verification"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/orchestration-verification",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:fleet-coordination-patterns"
+      ],
+      "recommendsWith": [
+        "persona:builder",
+        "persona:code-reviewer",
+        "persona:orchestrator",
+        "persona:test-engineer"
+      ]
+    },
+    {
+      "id": "skill:peer-coms",
+      "kind": "skill",
+      "group": "coms-bridge",
+      "subcategory": null,
+      "title": "peer-coms",
+      "summary": "Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them m…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/peer-coms"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/peer-coms",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "hook:coms-stop-hook"
+      ]
+    },
+    {
+      "id": "skill:performance-optimization",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "performance-optimization",
+      "summary": "Optimizes application performance across frontend, backend, queries, and databases.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/performance-optimization",
+            "vendor/agent-skills-upstream/skills/performance-optimization"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/performance-optimization",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:performance-checklist"
+      ]
+    },
+    {
+      "id": "skill:planning-and-task-breakdown",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "plan",
+      "title": "planning-and-task-breakdown",
+      "summary": "Breaks work into a sequential implementation plan and grills unresolved material design decisions before writing tasks.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/planning-and-task-breakdown",
+            "vendor/agent-skills-upstream/skills/planning-and-task-breakdown"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/planning-and-task-breakdown",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling",
+        "reference:communication-contract",
+        "reference:definition-of-done"
+      ]
+    },
+    {
+      "id": "skill:repository-ai-setup",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": null,
+      "title": "repository-ai-setup",
+      "summary": "Sets up repository AI rules from the packaged Fleet catalogue — discover target evidence, propose semantic adaptation…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/repository-ai-setup"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/repository-ai-setup",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:security-and-hardening",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "review",
+      "title": "security-and-hardening",
+      "summary": "Hardens code against vulnerabilities.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/security-and-hardening",
+            "vendor/agent-skills-upstream/skills/security-and-hardening"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/security-and-hardening",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:security-checklist"
+      ]
+    },
+    {
+      "id": "skill:shipping-and-launch",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "ship",
+      "title": "shipping-and-launch",
+      "summary": "Prepares production launches.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/shipping-and-launch"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/shipping-and-launch",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:accessibility-checklist",
+        "reference:definition-of-done",
+        "reference:performance-checklist",
+        "reference:security-checklist"
+      ]
+    },
+    {
+      "id": "skill:source-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "source-driven-development",
+      "summary": "Grounds every implementation decision in official documentation.",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/source-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/source-driven-development",
+          "strategy": "copy-tree"
+        }
+      }
+    },
+    {
+      "id": "skill:spec-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "define",
+      "title": "spec-driven-development",
+      "summary": "Creates specs before coding.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/spec-driven-development",
+            "vendor/agent-skills-upstream/skills/spec-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/spec-driven-development",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "companion:skills-internal-grilling"
+      ]
+    },
+    {
+      "id": "skill:test-driven-development",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "build",
+      "title": "test-driven-development",
+      "summary": "Drives development with tests using the red-green-refactor loop.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "vendor/agent-skills-upstream/skills/test-driven-development"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/test-driven-development",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:testing-patterns"
+      ]
+    },
+    {
+      "id": "skill:using-agent-skills",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "meta",
+      "title": "using-agent-skills",
+      "summary": "Discovers and invokes agent skills.",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/using-agent-skills",
+            "vendor/agent-skills-upstream/skills/using-agent-skills"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/using-agent-skills",
+          "strategy": "copy-tree"
+        }
+      },
+      "companions": [
+        "reference:definition-of-done"
+      ]
+    }
+  ]
+}

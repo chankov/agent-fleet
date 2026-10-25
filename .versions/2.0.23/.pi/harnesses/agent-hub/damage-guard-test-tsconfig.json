@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "./damage-guard-*.test.ts",
+    "./action-authorization.test.ts",
+    "./approval-wait.test.ts",
+    "./system1-communication-store.test.ts",
+    "./spawn-system1-env.test.ts",
+    "../damage-control-continue/system1-*.test.ts",
+    "../damage-control-continue/result*.test.ts",
+    "../lib/damage-guard-port.test.ts",
+    "../lib/damage-result-evidence.test.ts",
+    "../lib/system1/payload-screen.test.ts"
+  ],
+  "exclude": []
+}
