@@ -1,0 +1,342 @@
+// Usage accounting and task-tier policy. Dispatch/research counts and task/turn
+// duration are observable, never continuation quotas. Individual child deadlines,
+// cancellation and context recycling still bound a physical run.
+
+// Task tiers — the dispatcher's complexity triage, child deadlines and delegation.
+// Unset/junk tier is treated as DEFAULT_TASK_TIER (`small`).
+export const TASK_TIERS = ["trivial", "small", "feature", "project"];
+// The tier ASSUMED when the dispatcher never called set_task_tier. It is
+// deliberately not the middle of the range: the tier is task-scoped, so a skipped
+// triage latches for the whole task, and skipped triage is exactly the case where
+// the dispatcher was not thinking about proportionality. Assuming `feature` there
+// unlocked planner/plan-reviewer/security-auditor, loosened the review cap, and
+// handed out the full feature envelope — the over-apparatus failure mode, granted
+// by forgetting a tool call. Assuming `small` costs an explicit escalation (with a
+// reason) when the work really is bigger, which is the cheap direction to be wrong in.
+export const DEFAULT_TASK_TIER = "small";
+
+/** "Small", " TRIVIAL " → canonical tier name, or null when unrecognized. */
+export function normalizeTaskTier(value) {
+	const v = String(value ?? "").trim().toLowerCase();
+	return TASK_TIERS.includes(v) ? v : null;
+}
+
+// Session-recycle context threshold (percent, measured over input+cacheRead+
+// cacheWrite): beyond this, resuming the specialist session mostly re-bills
+// stale context, so a fresh session is cheaper than the memory is worth.
+export const RECYCLE_CONTEXT_PCT = 60;
+
+// Hard ceiling: at or past a full window the accumulated session no longer
+// fits, so no threshold override may keep it alive. Session 1 of the
+// post-mortem logged 315% → 176% → 100% while the configured threshold was
+// still being consulted as if it were advisory.
+export const HARD_RECYCLE_CONTEXT_PCT = 100;
+
+export const TIER_BUDGETS = {
+	trivial: {
+		agentTurnMs: 10 * 60_000,
+		recycleRuns: 3,
+		delegation: false,
+	},
+	small: {
+		agentTurnMs: 10 * 60_000,
+		recycleRuns: 3,
+		delegation: false,
+	},
+	feature: {
+		agentTurnMs: 30 * 60_000,
+		recycleRuns: 5,
+		delegation: true,
+	},
+	project: {
+		agentTurnMs: 30 * 60_000,
+		recycleRuns: 5,
+		delegation: true,
+	},
+};
+
+/** Legacy quota overrides are ignored. Only child deadlines and recycling are configurable. */
+export function resolveTurnBudget(tier, overrides = {}) {
+	const base = TIER_BUDGETS[normalizeTaskTier(tier) ?? DEFAULT_TASK_TIER];
+	const ceiling = (key) => {
+		const override = overrides[key];
+		if (override === undefined || override === null) return base[key];
+		if (base[key] == null) return override;
+		return Math.min(base[key], override);
+	};
+	return {
+		agentTurnMs: ceiling("agentTurnMs"),
+		recycleRuns: ceiling("recycleRuns"),
+		delegation: base.delegation,
+	};
+}
+
+/**
+ * Recycle the specialist's accumulated session before this run? True when the
+ * session already served `recycleRuns` runs, its context reached a full window
+ * (HARD_RECYCLE_CONTEXT_PCT, not overridable), or it passed the configured
+ * RECYCLE_CONTEXT_PCT — resuming past any of those mostly re-bills stale
+ * context on every subsequent model call.
+ */
+export function shouldRecycleSession(runsSinceFresh, contextPct, budget, thresholdPct = RECYCLE_CONTEXT_PCT) {
+	if (runsSinceFresh <= 0) return false;
+	if (contextPct >= HARD_RECYCLE_CONTEXT_PCT) return true;
+	if (budget.recycleRuns != null && runsSinceFresh >= budget.recycleRuns) return true;
+	return contextPct >= thresholdPct;
+}
+
+/**
+ * The one case recycling cannot fix: a *fresh* session already measured over a
+ * full window means a single run overflowed on its own, so there is no
+ * accumulated history to drop. Either `contextWindow` is wrong for that
+ * provider or the run genuinely ran over — both need a human, not a retry.
+ * Returns the diagnostic line, or null when recycling covers the situation.
+ */
+export function contextOverflowDiagnostic(runsSinceFresh, contextPct, { agent = "agent", model = "unknown model" } = {}) {
+	if (runsSinceFresh > 0) return null;
+	if (!(contextPct >= HARD_RECYCLE_CONTEXT_PCT)) return null;
+	return (
+		`⚠ ${agent} measured ${Math.round(contextPct)}% context on a fresh session (${model}) — ` +
+		"recycling cannot help, one run overflowed the window on its own. Either the resolved " +
+		"contextWindow is wrong for this provider or the run genuinely ran over: check the model's " +
+		"declared window and narrow the task's inputs."
+	);
+}
+
+/** One-line usage chip: "Tier: small · 1 disp · 0 res · task 4 disp". Counts, never quotas.
+ * @param {{dispatches: number, research: number}} counters this turn
+ * @param {string|null} [tier]
+ * @param {{dispatches: number}|null} [task] counts for the whole task
+ */
+export function budgetStatusLine(counters, tier = null, task = null) {
+	const taskSuffix = task ? ` · task ${task.dispatches} disp` : "";
+	return `Tier: ${tier || DEFAULT_TASK_TIER} · ${counters.dispatches} disp · ${counters.research} res${taskSuffix}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier ratchet (the tier is TASK-scoped, not turn-scoped)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Turn-scoped tiers cannot bind on a steered run: every follow-up message reset
+// the tier to null, the next dispatch re-assumed `feature`, and a two-word
+// correction ("no, only the one line") bought six fresh dispatches. Worse, the
+// reset direction was always upward — nobody re-declares `trivial` after a
+// steering message, so the effective tier drifted to the ceiling.
+//
+// The tier now survives the turn and moves by ratchet: DOWN is free (cheap and
+// self-limiting), UP costs an explicit reason that is recorded and shown. Only
+// an explicit new task (`set_task_tier` with `new_task: true`) clears it.
+
+export const TIER_RANK = { trivial: 0, small: 1, feature: 2, project: 3 };
+
+/**
+ * Move the task tier from `current` to `next`.
+ * Returns { ok, tier, escalated, reason, message }: `tier` is always the tier
+ * that should be in force afterwards, so a refused escalation keeps the old one.
+ */
+export function applyTierChange(current, next, reason = "") {
+	const target = normalizeTaskTier(next);
+	if (!target) {
+		return {
+			ok: false,
+			tier: current ?? null,
+			escalated: false,
+			reason: "unknown_tier",
+			message: `Unknown tier "${next}" — expected one of: ${TASK_TIERS.join(", ")}. ` +
+				`Tier unchanged (${current ?? "unset"}).`,
+		};
+	}
+	const from = normalizeTaskTier(current);
+	if (!from) {
+		return { ok: true, tier: target, escalated: false, reason: "initial", message: `Task tier: ${target}.` };
+	}
+	if (TIER_RANK[target] <= TIER_RANK[from]) {
+		return {
+			ok: true,
+			tier: target,
+			escalated: false,
+			reason: TIER_RANK[target] === TIER_RANK[from] ? "unchanged" : "lowered",
+			message: `Task tier: ${from} → ${target}.`,
+		};
+	}
+	if (!String(reason || "").trim()) {
+		return {
+			ok: false,
+			tier: from,
+			escalated: false,
+			reason: "raise_without_reason",
+			message: `⚠ Tier escalation ${from} → ${target} refused: raising the tier needs an explicit ` +
+				"`reason` naming what the ask turned out to contain that the lower tier does not cover. " +
+				`Tier stays ${from}. Lowering the tier never needs a reason.`,
+		};
+	}
+	return {
+		ok: true,
+		tier: target,
+		escalated: true,
+		reason: "raised",
+		message: `⚠ Task tier ESCALATED ${from} → ${target}: ${String(reason).trim()}`,
+	};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task clock — active time is visible accounting, never a continuation quota
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ACTIVE milliseconds in one turn: wall clock minus the time the human was away.
+ * A lunch break, an overnight pause or a long `ask_user` answer is not fleet work,
+ * so the reported task duration excludes it.
+ */
+export function turnActiveMs(turnStartedAt, now, askUserWaitMs = 0) {
+	if (!turnStartedAt) return 0;
+	return Math.max(0, now - turnStartedAt - Math.max(0, askUserWaitMs || 0));
+}
+
+/** A serializable, deterministic task clock. `active` is authoritative. */
+export function createTaskClock() {
+	return { active: false, accumulatedMs: 0, turnStartedAt: 0, askUserWaitMs: 0 };
+}
+
+/**
+ * Open a task turn. A still-open prior interval is closed first as defensive
+ * recovery for a missing end event; normal turns are closed by agent_end.
+ */
+export function openTaskClock(clock, now) {
+	const base = clock?.active ? closeTaskClock(clock, now) : { ...createTaskClock(), ...clock };
+	return { ...base, active: true, turnStartedAt: now, askUserWaitMs: 0 };
+}
+
+/** Add a completed ask_user wait to the currently open turn. */
+export function addTaskClockWait(clock, waitMs) {
+	if (!clock?.active) return { ...createTaskClock(), ...clock };
+	return {
+		...clock,
+		askUserWaitMs: Math.max(0, clock.askUserWaitMs || 0) + Math.max(0, waitMs || 0),
+	};
+}
+
+/** Finished turns plus the open turn, excluding completed and in-flight waits. */
+export function taskClockElapsedMs(clock, now, openWaitMs = 0) {
+	if (!clock) return 0;
+	const accumulated = Math.max(0, clock.accumulatedMs || 0);
+	if (!clock.active) return accumulated;
+	return accumulated + turnActiveMs(
+		clock.turnStartedAt,
+		now,
+		Math.max(0, clock.askUserWaitMs || 0) + Math.max(0, openWaitMs || 0),
+	);
+}
+
+/** Close the current turn once. Repeated closes are no-ops. */
+export function closeTaskClock(clock, now) {
+	const base = { ...createTaskClock(), ...clock };
+	if (!base.active) return base;
+	return {
+		active: false,
+		accumulatedMs: taskClockElapsedMs(base, now),
+		turnStartedAt: 0,
+		askUserWaitMs: 0,
+	};
+}
+
+/**
+ * Open a fresh task window. During an active turn, the new task begins at the
+ * reset instant; between turns, no timestamp is carried into the next task.
+ */
+export function resetTaskClock(clock, now) {
+	const active = clock?.active === true;
+	return {
+		active,
+		accumulatedMs: 0,
+		turnStartedAt: active ? now : 0,
+		askUserWaitMs: 0,
+	};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tier persona gate (B3) — heavy apparatus is not available at low tiers
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// "A trivial ask gets one specialist" was prose in the system prompt, and prose
+// lost: a one-line Azure permission change was routed through planner →
+// plan-reviewer → security-auditor and grew a 1216-line plan. These personas
+// each open a pipeline (plans, reviews, findings that ratchet back into the
+// plan), so at trivial/small tiers they are refused in code. The escape hatch is
+// the honest one: raise the tier with a reason.
+
+export const HEAVY_PERSONAS = ["architect", "security-auditor", "deep-researcher"];
+export const REVIEW_PERSONAS = ["code-reviewer", "plan-reviewer", "security-auditor"];
+const GATED_TIERS = new Set(["trivial", "small"]);
+
+/**
+ * Refuse a heavy persona at a low tier. Returns null when allowed, else
+ * { reason, message }. Unknown/absent tier never gates here; the harness assumes
+ * DEFAULT_TASK_TIER before calling.
+ */
+export function checkTierPersonaGate(tier, persona) {
+	const t = normalizeTaskTier(tier);
+	if (!t || !GATED_TIERS.has(t)) return null;
+	const name = String(persona || "").trim().toLowerCase();
+	if (!HEAVY_PERSONAS.includes(name)) return null;
+	return {
+		reason: "tier_persona_gate",
+		message: `⚠ ${name} is not available at tier "${t}" — and this dispatch was NOT counted against any budget.\n` +
+			`At trivial/small tiers the apparatus is one specialist plus its own evidence: no planning pipeline, ` +
+			`no plan review, no separate audit pass. Each of those personas opens a document/finding loop whose ` +
+			`output then has to be executed and re-reviewed.\n` +
+			`Either dispatch the specialist that does the actual work (builder, test-engineer, code-reviewer, ` +
+			`documenter), or — if the ask really is bigger than "${t}" — call set_task_tier with a higher tier ` +
+			`AND a reason naming what it turned out to contain. Do not raise the tier merely to unlock a persona.`,
+	};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review finding budget (B6) — a review is a gate, and a gate has a size
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Unbounded review authority is a ratchet: every round produced new blocking
+// findings, each finding added an invariant to the plan, and the enlarged plan
+// justified another round. PLAN37 recorded P37-001…011, R37-IMM-001 and six
+// script-review remediations — none of which the user asked for. The cap is on
+// BLOCKING findings only; everything else still gets reported, just not as a gate.
+
+export const BLOCKING_FINDING_CAPS = { trivial: 1, small: 2, feature: 5, project: null };
+
+// Review rounds are observable, never a continuation quota; independent review
+// evidence is unchanged.
+
+/** Blocking-finding cap for a tier; null = uncapped (project / unset tier). */
+export function blockingFindingCap(tier) {
+	const t = normalizeTaskTier(tier);
+	if (!t) return null;
+	return BLOCKING_FINDING_CAPS[t] ?? null;
+}
+
+/** Is this a review persona (gets the finding-budget clause)? */
+export function isReviewPersona(persona) {
+	return REVIEW_PERSONAS.includes(String(persona || "").trim().toLowerCase());
+}
+
+/**
+ * The finding-budget clause appended to a review persona's task text.
+ * Returns null when the persona is not a reviewer or the tier is uncapped.
+ */
+export function reviewBudgetClause(tier, persona) {
+	if (!isReviewPersona(persona)) return null;
+	const cap = blockingFindingCap(tier);
+	if (cap == null) return null;
+	return [
+		`## Finding budget (task tier: ${normalizeTaskTier(tier)})`,
+		``,
+		`Report at most ${cap} BLOCKING finding${cap === 1 ? "" : "s"}. Rank by severity and put everything`,
+		`else under a "## Non-blocking (optional)" heading — non-blocking findings are advice, and must not`,
+		`gate the change or be re-raised as blockers in a later round.`,
+		``,
+		`A blocking finding may only enforce an invariant the task, the plan, or the project rules ALREADY`,
+		`state. It may NOT introduce a new invariant, a new evidence artifact, a new script/manifest/fixture,`,
+		`or a new process requirement — that is scope growth wearing a reviewer's hat. If you believe a new`,
+		`invariant is genuinely needed, write it under "## Non-blocking (optional)" as a recommendation for`,
+		`the human to decide, and do not block on it.`,
+	].join("\n");
+}
