@@ -6,7 +6,7 @@
 
 # How agent-fleet compares
 
-> This page compares the **skill-library layer** of Agent Fleet, which shares its lineage with [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (vendored here — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). The referenced head-to-head experiment was run against that shared skill library. Agent Fleet's orchestration layer (agent-hub, herdr, coms, Hermes, and the experimental Codex Android conductor) has no counterpart in the compared collections.
+> This page compares the **skill-library layer** of Agent Fleet, which shares its lineage with [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (vendored here — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). The referenced head-to-head experiment was run against that shared skill library. Agent Fleet's orchestration layer (agent-hub, herdr, coms, Hermes, and the local Codex native Fleet workflow) has no counterpart in the compared collections.
 
 People often ask how **agent-fleet** relates to two other popular "skills for coding agents" collections: **Superpowers** (by Jesse Vincent / obra) and **Matt Pocock's skills**. All three are good, share a lot of DNA, and are worth learning from. This page is an honest map of how they're *shaped* differently so you can pick the one that fits how you work - or borrow from more than one.
 

@@ -120,19 +120,25 @@ export function createDamageHubSession(options:HubSessionOptions){
   if(state.needsArm(action)&&!armed)return 'blocked';
   if(!state.held(action)&&!state.needsArm(action)){
    if(!sharedService||Date.now()<backoff)return 'unavailable';
+   // Inference must settle before the authenticated transport deadline. Spending
+   // the entire IPC budget here races the broker/client timers and turns an
+   // optional provider outage into apparent loss of transport authority.
+   const assessmentMs=Math.min(context.remainingMs,config.limits.hookTimeoutMs)-100;
+   if(assessmentMs<=0)return 'unavailable';
    const controller=new AbortController(),abort=()=>controller.abort();context.signal.addEventListener('abort',abort,{once:true});owner.signal.addEventListener('abort',abort,{once:true});
-   const deadline=Date.now()+Math.min(context.remainingMs,config.limits.hookTimeoutMs),timer=setTimeout(abort,Math.max(1,deadline-Date.now()));
+   const deadline=Date.now()+assessmentMs,timer=setTimeout(abort,Math.max(1,deadline-Date.now()));
+   const timedOut=()=>{backoff=Date.now()+config.limits.outageBackoffMs;return 'unavailable' as const;};
    try{
     const raw=event.input as Record<string,unknown>,input=event.toolName!=='bash'&&typeof raw.path==='string'?{...raw,path:resolve(owner.cwd,raw.path)}:raw;
     const screened=await screenDamagePayload({kind:event.toolName==='bash'?'command':'edit',input},{root:options.root,config,canRead:options.canRead,signal:controller.signal});
-    if(!current())return 'revoked';if(controller.signal.aborted)return 'indeterminate';if(screened.status!=='ready')return 'no_hold';
+    if(!current())return 'revoked';if(controller.signal.aborted)return timedOut();if(screened.status!=='ready')return 'no_hold';
     const request={state:{owner:owner.owner,trigger:event.toolName,scope:screened.scope,coverage:screened.coverage,bytes:screened.bytes,payload:screened.payload},questions:DAMAGE_GUARD_QUESTIONS,questionSetVersion:DAMAGE_GUARD_VERSION,timeoutMs:Math.max(1,deadline-Date.now()),signal:controller.signal};
     if(Buffer.byteLength(JSON.stringify({...request,signal:undefined}))>config.limits.maxPayloadBytes)return 'no_hold';
     const result=await Promise.race([sharedService.evaluate(request),new Promise<import('../lib/system1/contracts.ts').System1Result>(r=>{if(controller.signal.aborted)r({status:'cancelled'});else controller.signal.addEventListener('abort',()=>r({status:'cancelled'}),{once:true});})]);
-    if(!current())return 'revoked';if(controller.signal.aborted)return 'indeterminate';if(result.status!=='ok')return 'unavailable';
+    if(!current())return 'revoked';if(controller.signal.aborted)return timedOut();if(result.status!=='ok')return 'unavailable';
     if(damageVerdict(result,'call')!=='hold_exact_action')return 'no_hold';
     state.hold(action);
-   }catch{return state.held(action)?'blocked':'indeterminate';}
+   }catch{return state.held(action)?'blocked':!current()?'revoked':controller.signal.aborted?timedOut():'indeterminate';}
    finally{clearTimeout(timer);context.signal.removeEventListener('abort',abort);owner.signal.removeEventListener('abort',abort);}
   }
   try{state.hold(action);}catch{return 'blocked';}

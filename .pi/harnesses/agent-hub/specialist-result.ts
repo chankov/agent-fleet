@@ -1,3 +1,4 @@
+import { BOUND_ASSERTION_IDS_ENV, decodeBoundAssertionIds, validateBoundAssertionIds } from "./return-contract.js";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { createHash } from "node:crypto";
@@ -6,8 +7,11 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const text=Type.String({minLength:1,maxLength:4000});
 const strings=Type.Array(text,{maxItems:100});
-const assertion=Type.Object({id:Type.String({pattern:"^A[0-9]+$"}),note:Type.Optional(text),evidence:Type.Optional(text),reason:Type.Optional(text)},{additionalProperties:false});
-export const SpecialistResultSchema=Type.Object({
+export function specialistResultSchema(boundIds?: readonly string[]) {
+ const ids=validateBoundAssertionIds(boundIds);
+ const id=ids===undefined?Type.String({pattern:"^A[0-9]+$"}):ids.length?Type.Union(ids.map(value=>Type.Literal(value))):Type.Never();
+ const assertion=Type.Object({id,note:Type.Optional(text),evidence:Type.Optional(text),reason:Type.Optional(text)},{additionalProperties:false});
+return Type.Object({
  status:Type.Union([Type.Literal("completed"),Type.Literal("partial"),Type.Literal("blocked")]),
  summary:text,
  changed_files:strings,
@@ -19,6 +23,8 @@ export const SpecialistResultSchema=Type.Object({
  requires_user_decision:strings,
  evidence:Type.Array(Type.Object({path:text},{additionalProperties:false}),{maxItems:50}),
 },{additionalProperties:false});
+}
+export const SpecialistResultSchema=specialistResultSchema();
 
 export interface SpecialistResult {
  status:"completed"|"partial"|"blocked"; summary:string;
@@ -26,8 +32,9 @@ export interface SpecialistResult {
  tests_run:string[]; open_risks:string[]; requires_user_decision:string[];
  evidence:{path:string;sha256:string;bytes:number}[];
 }
-export function validateSpecialistResult(input:unknown,cwd:string):SpecialistResult {
- if(!Value.Check(SpecialistResultSchema,input))throw new Error("Invalid submit_result fields: "+[...Value.Errors(SpecialistResultSchema,input)].slice(0,5).map(e=>e.path+": "+e.message).join("; "));
+export function validateSpecialistResult(input:unknown,cwd:string,boundIds?:readonly string[]):SpecialistResult {
+ const schema=specialistResultSchema(boundIds);
+ if(!Value.Check(schema,input))throw new Error("Invalid submit_result fields: "+[...Value.Errors(schema,input)].slice(0,5).map(e=>e.path+": "+e.message).join("; "));
  if(Buffer.byteLength(JSON.stringify(input))>65536)throw new Error("submit_result exceeds 64 KiB; use evidence references");
  const root=realpathSync(cwd);
  let totalBytes=0;
@@ -55,13 +62,15 @@ export function validateSpecialistResult(input:unknown,cwd:string):SpecialistRes
 export { resultFromToolEvent } from "./specialist-result-receipt.ts";
 
 export default function specialistResultExtension(pi:any) {
+ const ids=decodeBoundAssertionIds(process.env[BOUND_ASSERTION_IDS_ENV]);
+ const schema=specialistResultSchema(ids);
  pi.registerTool({
   name:"submit_result",label:"Submit specialist result",
   description:"Hand off your structured result. Evidence paths must exist inside the workspace. A valid report is not proof that the entire task is accepted. Call after completing work; if blocked/partial, state that honestly.",
-  parameters:SpecialistResultSchema,
+  parameters:schema,
   async execute(_id:string,input:unknown,_signal:any,_update:any,ctx:any){
    if(_signal?.aborted)throw new Error("Submission cancelled");
-   const result=validateSpecialistResult(input,ctx.cwd);
+   const result=validateSpecialistResult(input,ctx.cwd,ids);
    return {content:[{type:"text",text:"Specialist report received; whole-task acceptance remains with the runtime."}],details:{specialistResult:result}};
   },
  });

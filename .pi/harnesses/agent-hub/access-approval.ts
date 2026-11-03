@@ -19,6 +19,9 @@ type ApprovalContext = {
 };
 
 type ReplySocket = {
+	destroyed?: boolean;
+	on?(event: string, listener: () => void): unknown;
+	removeListener?(event: string, listener: () => void): unknown;
 	write(chunk: string): unknown;
 	end(): unknown;
 };
@@ -47,7 +50,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 		typeof request.pattern === "string" && request.pattern.length > 0 &&
 		(request.category === "zero_access" || request.category === "read_only" || request.category === "no_delete");
 
-	const decide = (request: AccessRequest): Promise<AccessDecisionChoice> => {
+	const decide = (request: AccessRequest, signal: AbortSignal): Promise<AccessDecisionChoice> => {
 		const agent = (typeof request.agent === "string" && request.agent) || request.sender_session || "unknown-agent";
 		const pattern = request.pattern;
 		const cacheKey = accessRequestCacheKey({ ...request, agent, pattern });
@@ -87,7 +90,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 					options,
 					{ timeout: 600_000, signal: waitSignal },
 				);
-				if (requestGeneration !== generation) { finishTrace({status:'cancelled'});return "deny"; }
+				if (signal.aborted || requestGeneration !== generation) { finishTrace({status:'cancelled'});return "deny"; }
 				const selected = allowed.find((decision) => labels.get(decision) === choice) ?? "deny";
 				finishTrace({status:choice===undefined?'cancelled':selected==='deny'?'denied':'allowed'});
 				if (selected === "deny" && choice === labels.get("deny")) denyCache.add(cacheKey);
@@ -96,7 +99,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 				finishTrace({status:'failed'});
 				return "deny";
 			}
-		}).then(value=>value??'deny' as AccessDecisionChoice).finally(()=>finishQueue({status:'cancelled'}));
+		}, signal).then(value=>value??'deny' as AccessDecisionChoice).finally(()=>finishQueue({status:'cancelled'}));
 		pending.set(cacheKey, ask);
 		void ask.finally(() => pending.delete(cacheKey));
 		return ask;
@@ -109,7 +112,18 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 				return;
 			}
 			const agent = (typeof request.agent === "string" && request.agent) || request.sender_session || "unknown-agent";
-			const decision = await decide(request).catch((): AccessDecisionChoice => "deny");
+			const controller = new AbortController();
+			const disconnected = () => controller.abort();
+			socket.on?.("close", disconnected);
+			socket.on?.("error", disconnected);
+			if (socket.destroyed) controller.abort();
+			let decision: AccessDecisionChoice;
+			try { decision = await decide(request, controller.signal).catch((): AccessDecisionChoice => "deny"); }
+			finally {
+				socket.removeListener?.("close", disconnected);
+				socket.removeListener?.("error", disconnected);
+			}
+			if (controller.signal.aborted || socket.destroyed) return;
 			const exemptionsFile = deps.getExemptionsFile();
 			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile) {
 				try {

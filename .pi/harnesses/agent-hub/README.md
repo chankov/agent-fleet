@@ -293,7 +293,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   while its original file is unchanged, so the projected prefix moves in steps instead
   of on every turn. This reduces repeated history; it makes no provider-token or
   latency guarantee.
-- Plain `continue`/`resume`/`продължи` retains the accepted task input. An identical
+- Plain `continue`/`resume` (including Bulgarian `продължи`, meaning “continue”) retains the accepted task input. An identical
   `set_task_tier` declaration returns unchanged without another assessment or
   process write. A changed request still requires the existing task binding.
 
@@ -1377,7 +1377,32 @@ run it through the existing approved bash path after edits. The child-loaded
 runtime-test-check observer preserves Pi's configured shell/prefix, execution context,
 renderers and tool_result error flag; the parent retains command, actual exit and
 before/after revisions, binding source/text/reference/critical conditions to task ID.
-Compilation only checks the minimal change requirement, never semantic assertions.
+Optional `set_assertions.compiler_command` declares an additional exact bash compiler
+command for test/code-grep requirements. When both commands are declared, both need
+their own successful runtime receipt; compiler-only explicit declarations are supported.
+No command is inferred from prose, and declaration never executes it. Automatic
+changed-file compiler diagnostics still check only the minimal change requirement.
+An existing `AF-MIN-CHANGE` ledger row remains valid: dispatch keeps its declaration
+and conditions, adds the runtime minimum conditions, and does not append a duplicate.
+A bound command on that row is not silently replaced by unrelated compiler success.
+
+Native same-task, same-revision continuation may retain up to 64 successful checks
+(256 KiB journal metadata) via the existing process-state journal. Capture anchors
+bind task/generation/session, exact scope and revision, accepted input and input-artifact
+hashes, complete declarations (including both commands and coverage), original native
+dispatch, capture time, exclusivity epoch and contained evidence-byte hashes. Original
+command attribution, revision, timestamps and evidence references are not rewritten.
+Overlapping/unsettled captures, backend/identity/declaration changes, changed or missing
+evidence, and newer failed/unknown/missing command results prevent reuse. Native bash
+starts lacking a usable result explicitly invalidate that command's retained success.
+Legacy files without capture anchors, model reports and proven ledger stamps cannot
+seed continuation. Hash readback is local integrity checking, not cryptographic
+attestation or protection against a hostile same-user filesystem writer.
+
+This is source behavior, not activation of a running session. New harness source has
+a new inspected revision; historical receipts cannot be relabelled or imported into
+new acceptance. Recovery never reruns producers implicitly, grants permission, resets
+obligations, or changes operator-current-state gates or manual unsupported semantics.
 
 The native dispatcher passes the explicitly declared dispatch scopes to the test
 observer. In a non-Git workspace containing nested Git repositories, the observer

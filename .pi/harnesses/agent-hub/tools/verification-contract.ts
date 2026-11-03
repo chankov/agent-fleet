@@ -18,6 +18,7 @@ export function registerVerificationContract(pi: ExtensionAPI, toolCtx: ToolCont
 					source: Type.String(),
 					reference: Type.Optional(Type.String()),
                     test_command: Type.Optional(Type.String({ description: "Exact bash check for test/code-grep; execution is not semantic adequacy." })),
+					compiler_command: Type.Optional(Type.String({ description: "Exact additional bash compiler check; both commands require successful runtime receipts when both declared." })),
 					critical_conditions: Type.Optional(Type.Array(Type.String())),
 				}),
 				{ description: `Replacement list; soft cap ${MAX_OPEN_ASSERTIONS}.` },

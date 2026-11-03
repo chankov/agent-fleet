@@ -14,7 +14,7 @@ export interface Assertion {
 	source: string;
 	reference?: string;
 	criticalConditions?: string[];
- testCommand?: string;
+ testCommand?: string; compilerCommand?: string;
 	status: AssertionStatus;
 	evidence?: string;
 	evidenceTaskId?: string;
@@ -79,7 +79,7 @@ export function createAssertionsArtifactsContext(state: AssertionsArtifactsState
 		const source = origin ? ` ⇐ ${origin}` : "";
 		const critical = assertion.criticalConditions?.length ? ` — critical: ${assertion.criticalConditions.join("; ")}` : "";
 		const binding = assertion.evidenceTaskId || assertion.evidenceRevision ? ` — bound: ${assertion.evidenceTaskId ?? "?"}@${assertion.evidenceRevision ?? "?"}` : "";
-		return `${assertion.id} [${assertion.tag}] ${assertion.status.toUpperCase()}: ${assertion.text}${source}${critical}${assertion.testCommand ? ` — test command: ${JSON.stringify(assertion.testCommand)}` : ""}${evidence}${binding}`;
+		return `${assertion.id} [${assertion.tag}] ${assertion.status.toUpperCase()}: ${assertion.text}${source}${critical}${assertion.testCommand ? ` — test command: ${JSON.stringify(assertion.testCommand)}` : ""}${assertion.compilerCommand ? ` — compiler command: ${JSON.stringify(assertion.compilerCommand)}` : ""}${evidence}${binding}`;
 	});
 	const renderAssertionLedgerText = () => state.getAssertions().length === 0
 		? ""

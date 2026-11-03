@@ -203,3 +203,22 @@ test("coms serializes inbound turns, reports truthful state, and correlates repl
 	assert.equal(card?.status, "idle");
 	assert.equal(card?.queue_depth, 0);
 });
+
+test('S6a native owner gate precedes enqueue; capability, terminal lookup and legacy coexist', async t => {
+ const root=await shortTmp('s6ac-'),old=process.env.PI_COMS_DIR,herdr=process.env.HERDR_ENV;process.env.PI_COMS_DIR=root;process.env.HERDR_ENV='0';
+ const{createComsPeer,sendEnvelope}=await import(`./coms-core.ts?s6a=${Date.now()}`);const{handleInstructionReceipt,ownerOf}=await import('./coms-instruction-receipts.ts');
+ const branch:any[]=[],deliveries:string[]=[];const add=(e:any)=>branch.push({...e,id:String(branch.length),parentId:branch.length?String(branch.length-1):null});
+ const manager={getBranch:()=>branch,getLeafId:()=>branch.at(-1)?.id??null,getEntry:(id:string)=>branch[Number(id)]};
+ let peer:any;const ctx:any={cwd:root,model:{id:'fixture'},hasUI:false,getContextUsage:()=>null,sessionManager:manager,ui:{notify(){},setWidget(){},setStatus(){}}};
+ const pi:any={getFlag:(f:string)=>f==='name'?'receiver':f==='project'?'fixture':undefined,getSessionName:()=>undefined,appendEntry:(customType:string,data:any)=>add({type:'custom',customType,data}),sendMessage:(m:any)=>{deliveries.push(m.details.msg_id);add({type:'custom_message',customType:m.customType,details:m.details});}};
+ peer=createComsPeer({pi,getContext:()=>ctx,instructionReceipts:true,handleCustomEnvelope:(socket:any,e:any)=>handleInstructionReceipt(e,socket,()=>peer.identity?ownerOf(peer.identity):null,manager)});
+ t.after(async()=>{await peer.shutdown();if(old===undefined)delete process.env.PI_COMS_DIR;else process.env.PI_COMS_DIR=old;if(herdr===undefined)delete process.env.HERDR_ENV;else process.env.HERDR_ENV=herdr;await rm(root,{recursive:true,force:true});});await peer.connect({ctx,defaultNamePrefix:'fixture',defaultPurpose:''});assert.ok(peer.identity.endpoint.startsWith(root+'/'));const owner=ownerOf(peer.identity),wire='c'.repeat(64);
+ const base:any={sender_session:'fake-sender',sender_endpoint:join(root,'absent.sock'),hops:0,timestamp:new Date().toISOString()};
+ const pong=await sendEnvelope(peer.identity.endpoint,{...base,type:'ping',msg_id:'probe'});assert.equal(pong.instruction.version,1);assert.deepEqual(pong.instruction.owner,owner);
+ for(const bad of [{...owner,project:'other'},{...owner,peer:'other'},{...owner,sessionId:'other'},{...owner,startedAt:'2026-01-01T00:00:00Z'}])await assert.rejects(()=>sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:wire,prompt:'fixture',instruction:{version:1,owner:bad}}),/owner/);
+ assert.deepEqual(deliveries,[]);await assert.rejects(()=>sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:wire,prompt:'fixture',instruction:{version:1}}),/owner/);assert.deepEqual(deliveries,[]);
+ const ack=await sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:wire,prompt:'fixture',instruction:{version:1,owner}});assert.equal(ack.instruction.version,1);assert.equal(deliveries.length,1);
+ add({type:'message',message:{role:'assistant',stopReason:'stop',content:[{type:'thinking',thinking:'PRIVATE'},{type:'text',text:'token=SECRET done'}]}});await peer.settleTurn(ctx);
+ const receipt=await sendEnvelope(peer.identity.endpoint,{type:'instruction_receipt_request',msg_id:'lookup1',version:1,owner,wireId:wire,sender_session:'fake',sender_endpoint:''});assert.equal(receipt.status,'available');assert.equal(receipt.receipt.wireId,wire);assert.equal(receipt.receipt.text.includes('SECRET'),false);assert.equal(receipt.receipt.text.includes('PRIVATE'),false);
+ await sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:'legacy',prompt:'legacy'});assert.equal(deliveries.at(-1),'legacy');
+});

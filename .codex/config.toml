@@ -1,0 +1,11 @@
+# S4–S6b local MCP tools. Native loading and per-action human confirmation remain separate.
+[mcp_servers.af-local-read]
+command = "/home/nchankov/.nvm/versions/node/v25.2.1/bin/node"
+args = [
+  "/home/nchankov/repos/agent-fleet/.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts",
+  "--registry-root", "/home/nchankov/.pi/coms",
+  "--policy-root", "/home/nchankov/.codex/af-local-read-smoke-s4",
+  "--host-profile", "personal-local-smoke",
+  "--principal", "local-owner",
+]
+enabled_tools = ["fleet_discover", "fleet_binding_prepare", "fleet_binding_commit", "fleet_check_read", "fleet_observe", "fleet_overview", "fleet_resync", "fleet_watch", "fleet_instruction_prepare", "fleet_instruction_commit", "fleet_instruction_receipt", "fleet_answer_prepare", "fleet_answer_commit", "fleet_answer_receipt", "fleet_journal_upgrade_prepare", "fleet_journal_upgrade_commit"]

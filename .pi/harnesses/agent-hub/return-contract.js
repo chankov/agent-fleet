@@ -33,6 +33,24 @@ const LINE_FORM_STATUS = {
 const LINE_FORM_RE =
 	/^\s*(?:[-*]\s+|\d+[.)]\s+)?\**(?:ASSERTION\s+)?(A\d+)\**\s*[:\-–—]\s*\**(PASS|PASSED|PROVEN|FAIL|FAILED|BLOCKED|UNPROVEN|UNVERIFIED)\**\s*(?:[:\-–—]\s*(.*))?$/i;
 
+/** Parent-owned exact assertion IDs. Undefined alone denotes a legacy caller.
+ * Bound contracts: at most 100 unique ASCII IDs, 64 bytes each, 8192 JSON bytes.
+ * A malformed provided value must never fall back to task-text extraction.
+ */
+export function validateBoundAssertionIds(value) {
+ if (value === undefined) return undefined;
+ if (!Array.isArray(value) || value.length > 100 || Buffer.byteLength(JSON.stringify(value)) > 8192
+  || Array.from(value).some(id => typeof id !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(id))
+  || new Set(value).size !== value.length) throw Error("Invalid bound assertion IDs");
+ return [...value];
+}
+export const BOUND_ASSERTION_IDS_ENV = "AGENT_HUB_BOUND_ASSERTION_IDS";
+export function decodeBoundAssertionIds(raw) {
+ if (raw === undefined) return undefined;
+ if (typeof raw !== "string" || Buffer.byteLength(raw) > 8192) throw Error("Invalid bound assertion IDs");
+ return validateBoundAssertionIds(JSON.parse(raw));
+}
+
 export function extractAssertionIds(taskText) {
 	const ids = [];
 	const seen = new Set();
@@ -79,7 +97,7 @@ export function parseDeliveredReturn(finalText, dispatchedIds, delivered) {
 }
 
 export function crossCheck(parsed, dispatchedIds) {
-	const ids = Array.from(new Set(dispatchedIds || []));
+	const ids = validateBoundAssertionIds(dispatchedIds) ?? [];
 	if (!parsed) {
 		return ids.length > 0 ? [{ type: "no_structured_return", ids }] : [];
 	}
@@ -88,7 +106,11 @@ export function crossCheck(parsed, dispatchedIds) {
 	const present = new Set();
 	for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) {
 		for (const entry of parsed[key] || []) {
-			if (entry && entry.id) present.add(entry.id);
+			if (entry && entry.id) {
+    if (present.has(entry.id)) notices.push({ type: "duplicate", id: entry.id });
+    if (!ids.includes(entry.id)) notices.push({ type: "unknown", id: entry.id });
+    present.add(entry.id);
+   }
 		}
 	}
 	for (const id of ids) {

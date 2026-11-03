@@ -44,10 +44,12 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		artifacts: requestedContract?.artifacts ?? inputArtifacts.map(artifact => artifact.path),
 		model: requestedContract?.model ?? model,
 		permissions: requestedContract?.permissions ?? state.def.tools,
-		previous: state.resumeContract,
+		boundAssertionIds: requestedContract?.boundAssertionIds,
+  previous: state.resumeContract,
 	});
  const contractOf=(value: typeof resumeContract)=>Object.freeze({
   taskId:value.taskId,instructions:value.instructions,
+  boundAssertionIds:value.boundAssertionIds === undefined ? undefined : Object.freeze([...value.boundAssertionIds]),
   scope:Object.freeze([...value.scope]),deliverables:Object.freeze([...value.deliverables]),
   artifacts:Object.freeze([...value.artifacts]),permissions:Object.freeze([...value.permissions]),
  });
@@ -55,6 +57,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  const contractSnapshot=JSON.stringify(admittedContract);
  const currentContract=()=>contractOf(bindResume({
   taskId:requestedContract?.taskId??task,instructions:requestedContract?.instructions??task,
+  boundAssertionIds:requestedContract?.boundAssertionIds,
   scope:requestedContract?.scope??scopeGlobs,deliverables:requestedContract?.deliverables,
   artifacts:requestedContract?.artifacts??inputArtifacts.map(a=>a.path),permissions:requestedContract?.permissions??state.def.tools,
  }));

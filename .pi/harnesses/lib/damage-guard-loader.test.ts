@@ -68,3 +68,23 @@ test("a native child takes its spawned assignment before tools run, and malforme
  const result = await f.bash("assigned");
  assert.equal(result?.block, true); assert.match(result.reason, /optional assessment transport or registration failed/);
 });
+
+test("Pi loader retains the assigned broker across sequential bash calls and results", async t => {
+ const { createDamageOwners } = await import('../agent-hub/damage-guard-owners.ts');
+ const { createDamageBroker } = await import('../agent-hub/damage-guard-broker.ts');
+ const owners = createDamageOwners({ current: () => ({ session: 'fixture', taskToken: 't', taskId: 'task', inputRevision: 'r' }), admit: () => true });
+ let calls = 0;
+ const broker = await createDamageBroker({ authority: owners, assess: async () => { calls++; return 'no_hold'; } });
+ t.after(async () => { await broker.close(); owners.dispose(); });
+ const assignment = broker.register({ owner: 'child', tools: ['bash'], cwd: process.cwd() });
+ const saved = process.env.AF_D6_ASSIGNMENT;
+ t.after(() => { saved === undefined ? delete process.env.AF_D6_ASSIGNMENT : process.env.AF_D6_ASSIGNMENT = saved; delete (globalThis as any)[portStore]?.spawned; });
+ process.env.AF_D6_ASSIGNMENT = JSON.stringify(assignment);
+ const f = await fixture(t);
+ for (const [i, command] of ['node --test --test-timeout=15000 .pi/agent-fleet/scripts/fleet-codex-actions-compat.test.ts', 'node --test --test-timeout=15000 .pi/harnesses/ask-user-remote/questions-guarded.test.ts'].entries()) {
+  const event = { type: 'tool_call', toolCallId: 'seq-' + i, toolName: 'bash', input: { command, timeout: 180 } };
+  assert.equal((await f.emit(0, 'tool_call', event))?.block, false);
+  await f.emit(0, 'tool_result', { ...event, type: 'tool_result', content: [{ type: 'text', text: '13 pass' }], details: {}, isError: false });
+ }
+ assert.equal(calls, 2);
+});

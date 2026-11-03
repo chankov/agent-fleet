@@ -243,7 +243,7 @@ test("agent phase refuses a missing writes policy before spawning", async () => 
 
 test("model tag is path-safe", () => {
 	assert.equal(modelTag("openai-codex/gpt-6.1-sol"), "openai-codex-gpt-6.1-sol");
-	assert.equal(modelTag("github-copilot/claude-opus-5"), "github-copilot-claude-opus-5");
+	assert.equal(modelTag("github-copilot/claude-opus-5.5"), "github-copilot-claude-opus-5.5");
 	assert.equal(modelTag("a b/c*"), "a-b-c-");
 	assert.equal(phaseSessionKey("researcher"), "researcher");
 	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6.1-sol"), "researcher-openai-codex-gpt-6.1-sol");

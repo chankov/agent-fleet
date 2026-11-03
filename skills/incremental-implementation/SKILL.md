@@ -79,7 +79,7 @@ A small plan or a separate worktree is a reason the operator might ask. It is no
 
 **Counts as explicit**
 
-- A direct request in the current execution instruction, in English or Bulgarian, to run this plan at once. Examples: "execute the whole plan", "run the plan at once", "whole-plan", "изпълни целия план наведнъж", "без slice-ове", "автономно без въпроси", when they refer to executing this plan.
+- A direct request in the current execution instruction, in English or Bulgarian, to run this plan at once. English examples: "execute the whole plan", "run the plan at once", "whole-plan". Bulgarian examples: "изпълни целия план наведнъж" ("execute the entire plan at once"), "без slice-ове" ("without slices"), "автономно без въпроси" ("autonomously without questions"), when they refer to executing this plan.
 - An operator-authored line already in the plan, such as `Execution: whole-plan`. Do not write that line yourself to waive the gate.
 
 Those phrases waive slice approval only. They do not waive `ask_user`. If the operator said "without questions" and an unresolved plan or PRD problem still appears, interrupt and ask.

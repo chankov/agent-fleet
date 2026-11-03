@@ -1,3 +1,4 @@
+import { BOUND_ASSERTION_IDS_ENV, validateBoundAssertionIds } from "./return-contract.js";
 import { relative } from "node:path";
 import { RUNTIME_TEST_SCOPE_ENV } from "./runtime-test-check.ts";
 import { TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
@@ -140,6 +141,9 @@ function createSpawnCallbacks(run: PreparedNativeRun, drift: DriftRuntime, usage
 
 export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeSpawnOutcome> {
 	const { deps, state, ctx, model, effectiveTools, thinkingLevel, replacementSystemPrompt, agentSessionFile, runPrompt, extensions, delegateEnv, turnBudget, personaKey, originalModelFallback } = run;
+	// Parent-owned exact IDs. An absent contract or absent IDs is the legacy caller (child keeps A-number
+	// extraction; no env key). A provided malformed contract is refused here, before any drift/observer side effect.
+	const boundAssertionIds = validateBoundAssertionIds(run.resumeContract?.boundAssertionIds);
 	const drift = startDriftRuntime(run);
 	const proactive = deps.getProactiveRuntime?.();
 	const assignment = run.proactiveAssignment;
@@ -182,6 +186,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		cwd: run.admittedCwd,
 		extensions,
 		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId,
+   ...(boundAssertionIds === undefined ? {} : { [BOUND_ASSERTION_IDS_ENV]: JSON.stringify(boundAssertionIds) }),
    [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.scopeGlobs) },
 		attemptLifecycle: {
    ...drift.attemptLifecycle,

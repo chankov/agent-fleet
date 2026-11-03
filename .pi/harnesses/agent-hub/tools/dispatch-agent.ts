@@ -19,6 +19,8 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 			scope_mode: Type.Optional(Type.Union([Type.Literal("existing"), Type.Literal("create")], { description: "Default existing: refuse missing scope roots; create explicitly permits new roots." })),
 			watchdog: Type.Optional(Type.Boolean({ description: "Override this dispatch's drift watchdog." })),
 			review_reason: Type.Optional(Type.String({ description: "New focus or docs-only reason; skips review reuse." })),
+   review_mode: Type.Optional(Type.Union([Type.Literal("changes"),Type.Literal("operator-current-state")],{description:"Default changes. Explicit native current-state verification for existing Git-visible dirty files; no historical authorship claim, no automatic manual proof."})),
+
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),

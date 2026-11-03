@@ -52,6 +52,7 @@ export function validateAssertionBatch(input) {
 			source: str(a?.source),
 			...(reference ? { reference } : {}),
             ...(str(a?.test_command) ? { testCommand: str(a.test_command) } : {}),
+            ...(str(a?.compiler_command) ? { compilerCommand: str(a.compiler_command) } : {}),
 			...(criticalConditions.length ? { criticalConditions } : {}),
 		};
 	});

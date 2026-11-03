@@ -18,6 +18,7 @@ test("review coverage persists and invalidates on code, contract or report chang
  const input=reviewInput(cwd,"task","security-auditor",["a.ts"],state,requirements,[]);assert.ok(input);
  state=normalizeProcessState(retainReview(state,input,"review.md",cwd));
  assert.ok(reusableReview(state,input,cwd));
+ assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,[{...requirements[0],compilerCommand:"tsc --noEmit"}],[]),cwd),null);
  writeFileSync(join(cwd,"unrelated.txt"),"unrelated");
  assert.ok(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,requirements,[]),cwd));
  assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,[{...requirements[0],criticalConditions:["different requirement"]}],[]),cwd),null);

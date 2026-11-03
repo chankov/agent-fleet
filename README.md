@@ -1,7 +1,7 @@
 # Agent Fleet
 
-За отделен Fleet workspace и сесиен `--worktree` избор вижте
-[ръководството за worktree targeting](docs/session-worktree-targeting.md).
+For a separate Fleet workspace and session-scoped `--worktree` selection, see
+[the worktree targeting guide](docs/session-worktree-targeting.md).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/chankov/agent-fleet/main/docs/assets/branding/agent-fleet-logo-white-v1.png" alt="Agent Fleet — Many agents. One direction." width="800">
@@ -66,7 +66,7 @@ flowchart TD
 | **coms** | Peer data plane — bidirectional messaging between agents (including Claude Code panes) |
 | **[Hermes Desktop plugin](#watch-the-fleet-from-your-desktop--the-hermes-plugin)** | Live fleet panel in the Hermes desktop app — every session, its state, what it is doing, and who is waiting on you |
 | **[Hermes relay](docs/coms-hermes-bridge.md)** | Remote human control — relay hub questions to your phone and answer them there |
-| **Codex conductor (experimental)** | Android-initiated, approval-gated delegation to live coms peers through a user-systemd service |
+| **[Codex native voice workflow](docs/fleet-native-voice.md)** | Local named Fleet connections and addressed actions through the native MCP interface |
 | **[Skills](docs/skills-catalog.md) + [personas](docs/agents.md)** | Lifecycle discipline — how to spec, plan, build, verify, review, and ship |
 
 ---

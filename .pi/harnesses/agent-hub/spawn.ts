@@ -5,7 +5,7 @@ import { openContextOwner, revokeContextOwner } from './context-continuity-owner
 import { CONTEXT_CHANNEL_ENV, parseContextChannel } from './context-continuity-client.ts';
 import { fileURLToPath } from 'node:url';
 let contextBroker: ReturnType<typeof createContextContinuityBroker> | undefined;
-import { runtimeTestFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
+import { runtimeTestObservationFromResult, type RuntimeTestRecord } from "./runtime-test-check.ts";
 import { createToolEventRecorder, type ToolExecutionEvent } from "./tool-protocol.ts";
 import { readActiveProfile, assertProfileModel, profileFallback, withProfileWork, PROFILE_ENV, type ActiveModelProfile } from './policy/profile-runtime.ts';
 import { DISCOVERY_CHILD_ENV_KEYS, openDiscoveryAttempt, type DiscoverySpawnRegistration } from './file-discovery/owners.ts';
@@ -154,7 +154,7 @@ export interface SpawnPiAgentResult {
 	termination?: Termination;
 	/** T3 runtime lifecycle facts: launched/close/termination are separate dimensions.
 	 *  Safety refusal and spawn failure never launched; timeout without close stays uncertain. */
-	lifecycle: { launched: boolean; closeSeen: boolean };
+	lifecycle: { launched: boolean; closeSeen: boolean; /** Parent-observed tool stream integrity, independent of completed checks. */ runtimeCaptureIntegrity?: "complete" | "tainted" };
 	boundedOutput?: { truncated: boolean; totalBytes: number; handle: string; contentPath: string; sha256: string };
 	writeIsolation?: Pick<WriteIsolationResult, "applied" | "failClosed" | "mechanism" | "permissionExpansion" | "rollsBackUserEdits" | "protectsConcurrentUserWrites">;
 }
@@ -417,17 +417,27 @@ async function spawnPiAgentUnchecked(
 			endAttempt();
 		};
 		let assistantError: string | undefined;
+		let pendingMessageSeparator = false;
   let recoveryAbortEpisode: number | undefined;
 		let toolCallsStarted = 0;
  const runtimeTests: RuntimeTestRecord[] = [];
  let specialistResult: SpecialistResult | undefined;
  const resultStarts = new Map<string,unknown>();
  const runtimeTestStarts = new Map<string, string>();
+ const overlappedChecks = new Set<string>();
+ const seenToolIds = new Set<string>();
+ const toolNames = new Map<string,string>();
+ let malformedToolOrder = false;
+ const invalidateToolOrder = () => {
+  malformedToolOrder = true;
+  for (const record of runtimeTests) record.exclusive = false;
+ };
  const toolEventRecorder = createToolEventRecorder();
  const toolEvents: ToolExecutionEvent[] = toolEventRecorder.events;
 		const settle = (code: number | null, spawnError?: string) => {
 			if (settled) return;
 			settled = true;
+   if (toolStarts.size) invalidateToolOrder();
 			cleanup();
 			if (termination) termination.confirmed = closeSeen;
 			// A pipe held by a descendant must not hold the caller forever.
@@ -443,11 +453,11 @@ async function spawnPiAgentUnchecked(
 				// never mark a provider/model error as successful.
 				exitCode: assistantError && code === 0 ? 1 : code,
 				stderr: stderrChunks.join(""),
-				toolCallsStarted, runtimeTests, toolEvents, specialistResult, specialistResultTool: opts.specialistResultTool,
+				toolCallsStarted, runtimeTests: [...runtimeTests, ...[...runtimeTestStarts.values()].map(command => ({ producer: "agent-fleet.runtime-test/v1" as const, command, exitCode: null, beforeRevision: "unavailable", afterRevision: "unavailable", exclusive: false }))], toolEvents, specialistResult, specialistResultTool: opts.specialistResultTool,
 				modelUsed: opts.model,
 				// T3: explicit lifecycle facts travel with every settlement.
 				// Missing close or an unconfirmed process tree stays uncertain downstream.
-				lifecycle: { launched: true, closeSeen },
+				lifecycle: { launched: true, closeSeen, runtimeCaptureIntegrity: malformedToolOrder ? "tainted" : "complete" },
 				...(spawnError ? { spawnError } : {}),
 				...(assistantError ? { assistantError } : {}),
 				...(termination ? { termination } : {}),
@@ -488,7 +498,10 @@ async function spawnPiAgentUnchecked(
 		}
 
 		const toolStarts = new Map<string, number>();
-		const toolId = (event: any) => String(event.toolCallId ?? event.tool_call_id ?? event.id ?? "");
+		const toolId = (event: any) => {
+   const id = event.toolCallId ?? event.tool_call_id ?? event.id;
+   return typeof id === "string" && id.trim() ? id : "";
+  };
 		const toolResultText = (result: any): string => {
 			const content = result?.content ?? result;
 			if (typeof content === "string") return content;
@@ -506,7 +519,11 @@ async function spawnPiAgentUnchecked(
    if(event.type==='message_end' && event.message?.role==='assistant' && event.message.stopReason==='stop' && recoveryAbortEpisode!==undefined && contextOwner?.status.phase==='continued' && contextOwner.status.episode===recoveryAbortEpisode+1) {assistantError=undefined;recoveryAbortEpisode=undefined;}
 			if (event.type === "message_update") {
 				const delta = event.assistantMessageEvent;
-				if (delta?.type === "text_delta") { textChunks.push(delta.delta || ""); cbs.onTextDelta?.(delta.delta || ""); }
+				if (delta?.type === "text_delta") {
+					if (delta.delta && pendingMessageSeparator) textChunks.push("\n");
+					if (delta.delta) pendingMessageSeparator = false;
+					textChunks.push(delta.delta || ""); cbs.onTextDelta?.(delta.delta || "");
+				}
 				else if (delta?.type === "thinking_delta") cbs.onThinkingDelta?.(delta.delta || "");
 			} else if (event.type === "tool_execution_start") {
 				toolCallsStarted++;
@@ -514,11 +531,21 @@ async function spawnPiAgentUnchecked(
 				try { argStr = event.args != null ? JSON.stringify(event.args) : ""; } catch {}
 				const id = toolId(event);
 				const name = event.toolName || "tool";
-				if (id && !toolStarts.has(id)) toolStarts.set(id, Date.now());
+    if (typeof event.toolName !== "string" || !event.toolName || (event.toolName === "bash" && typeof event.args?.command !== "string")) invalidateToolOrder();
+				if (!id || seenToolIds.has(id)) invalidateToolOrder();
+    if (id && !seenToolIds.has(id)) {
+     seenToolIds.add(id);
+     toolStarts.set(id, Date.now());
+     toolNames.set(id, name);
+    }
 				const protocolArgs = event.args && typeof event.args === "object"
 					? JSON.stringify(Object.fromEntries(["path", "file", "filePath"].filter(key => typeof event.args[key] === "string").map(key => [key, event.args[key]])))
 					: "{}";
 				toolEventRecorder.start(name, protocolArgs, id || undefined);
+                if (opts.runtimeTestObserver && (toolStarts.size > 1 || !id)) {
+                 for (const checkId of runtimeTestStarts.keys()) overlappedChecks.add(checkId);
+                 if (id) overlappedChecks.add(id);
+                }
 				if(opts.specialistResultTool){specialistResult=undefined;resultStarts.clear();} // Further or overlapping tool work invalidates the handoff.
                 if(opts.specialistResultTool && event.toolName==="submit_result" && id && toolStarts.size===1)resultStarts.set(id,event.args);
                 if (opts.runtimeTestObserver && event.toolName === "bash" && typeof event.args?.command === "string" && toolId(event)) runtimeTestStarts.set(toolId(event), event.args.command);
@@ -536,15 +563,16 @@ async function spawnPiAgentUnchecked(
 				}
 				const rawIsError = event.isError ?? event.is_error ?? event.result?.isError ?? event.result?.is_error;
 				toolEventRecorder.end(id || undefined, typeof rawIsError === "boolean" ? rawIsError : undefined);
-				const startedCommand = id ? runtimeTestStarts.get(id) : undefined;
+				if (!id || !toolStarts.has(id) || toolNames.get(id) !== event.toolName) invalidateToolOrder();
+    const startedCommand = id ? runtimeTestStarts.get(id) : undefined;
                 if (id) runtimeTestStarts.delete(id);
                 const submitted=resultFromToolEvent(opts.specialistResultTool,resultStarts.get(id),event.toolName,event.result,rawIsError);
                 if(submitted)specialistResult=submitted;
                 resultStarts.delete(id);
-                const check = runtimeTestFromResult(opts.runtimeTestObserver, startedCommand, event.toolName, event.result);
-                if (check) runtimeTests.push(check);
+                const check = runtimeTestObservationFromResult(opts.runtimeTestObserver, startedCommand, event.toolName, event.result);
+                if (check) runtimeTests.push({ ...check, startedAt: toolStarts.get(id), finishedAt: Date.now(), ...(malformedToolOrder || overlappedChecks.has(id) ? { exclusive: false } : {}) });
 				const startedAt = id ? toolStarts.get(id) : undefined;
-				if (id) toolStarts.delete(id);
+				if (id) { toolStarts.delete(id); toolNames.delete(id); }
 				cbs.onToolEnd?.(
 					event.toolName || "tool",
 					id || undefined,
@@ -553,6 +581,8 @@ async function spawnPiAgentUnchecked(
 					startedAt == null ? undefined : Math.max(0, Date.now() - startedAt),
 				);
 			} else if (event.type === "message_end") {
+				// Defer the seam until more text arrives; preserve the final message bytes.
+				if (event.message?.role === "assistant") pendingMessageSeparator = textChunks.length > 0 && !textChunks.join("").endsWith("\n");
 				if (event.message?.role === "assistant"
 					&& (event.message.stopReason === "error" || event.message.stopReason === "aborted")) {
      recoveryAbortEpisode=(event.message.stopReason==='aborted' || event.message.errorMessage==='This operation was aborted') && contextOwner?.status.phase==='pending' ? contextOwner.status.episode : undefined;
@@ -566,19 +596,26 @@ async function spawnPiAgentUnchecked(
 			}
 		};
 
+		// An unparseable stdout line may have carried a tool event: the capture is no longer trustworthy (fail closed).
+		// Valid events are handled exactly as before; a handler exception still does not abort the stream.
+		const ingestLine = (line: string) => {
+			let event: unknown;
+			try { event = JSON.parse(line); } catch { invalidateToolOrder(); return; }
+			try { handleEvent(event); } catch {}
+		};
 		proc.stdout!.setEncoding("utf-8");
 		proc.stdout!.on("data", (chunk: string) => {
 			buffer += chunk;
 			const lines = buffer.split("\n");
 			buffer = lines.pop() || "";
-			for (const line of lines) { if (line.trim()) try { handleEvent(JSON.parse(line)); } catch {} }
+			for (const line of lines) if (line.trim()) ingestLine(line);
 		});
 		proc.stderr!.setEncoding("utf-8");
 		proc.stderr!.on("data", (chunk: string) => stderrChunks.push(chunk));
   proc.once('exit', () => { discoveryAttempt?.signal.removeEventListener('abort', onAbort); damageLease?.identity.signal.removeEventListener('abort', onAbort); revokeDamage(); discoveryAttempt?.revoke(); });
 		proc.on("close", (code) => {
 			closeSeen = true;
-			if (buffer.trim()) try { handleEvent(JSON.parse(buffer)); } catch {}
+			if (buffer.trim()) ingestLine(buffer);
 			settle(code);
 		});
 		proc.on("error", (err) => settle(1, err.message));

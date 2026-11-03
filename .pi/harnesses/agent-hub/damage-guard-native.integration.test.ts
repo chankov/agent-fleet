@@ -167,3 +167,25 @@ test('F8 parent and physical owners share outage backoff without per-request inf
  assert.equal((await session.call({toolName:'bash',toolCallId:'parent',input:{command:'echo hello'}},{cwd:process.cwd(),revalidateBaseline:()=>true})).block,false);assert.equal(calls,1);
  }finally{await session.dispose();}
 });
+
+for (const abortResult of ['late-severe', 'rejection']) test('provider timeout returns authenticated unavailable: ' + abortResult, { timeout: 5000 }, async () => {
+ const { createDamageClient } = await import('../damage-control-continue/system1-client.ts');
+ let calls = 0, asks = 0, aborted = false;
+ const rows: any[] = [];
+ const session = fixture({ append: (customType: string, data: unknown) => rows.push({ customType, data }), ask: async () => { asks++; throw Error('late assessment must not ask'); }, service: { evaluate: async (request: any) => {
+  calls++;
+  return await new Promise((resolve, reject) => request.signal.addEventListener('abort', () => { aborted = true; if (abortResult === 'rejection') reject(Error('provider aborted')); else resolve(severe()); }, { once: true }));
+ } } });
+ session.accept('input'); await session.start();
+ try {
+  const lease = await session.prepare({ ownerId: 'child', cwd: process.cwd(), tools: ['bash'], admit: () => true })!.open({ tools: ['bash'], cwd: process.cwd() });
+  const client = createDamageClient(lease.assignment);
+  try {
+   assert.equal((await client.assess('bash', { command: 'echo first' })).outcome, 'unavailable');
+   assert.equal(aborted, true); assert.equal(asks, 0);
+   assert.equal(rows.some(r => r.customType === 'damage-guard-denial'), false);
+   assert.equal((await client.assess('bash', { command: 'echo second' })).outcome, 'unavailable');
+   assert.equal(calls, 1, 'provider backoff does not retry inference');
+  } finally { client.dispose(); }
+ } finally { await session.dispose(); }
+});

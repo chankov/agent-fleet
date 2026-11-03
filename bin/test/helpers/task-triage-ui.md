@@ -1,101 +1,101 @@
-# Човешка UI проверка — System 1 task triage
+# Human UI verification — System 1 task triage
 
-**Статус:** T6 случаите 1–5 са потвърдени лично в разговора и C3 е приет независимо; този checklist остава повторяем, не записва нови наблюдения автоматично. **Новият exact-action UI тест е лично изпълнен и одобрен според потребителското потвърждение; post-fix C4 review още е отворен и първият BLOCK остава запазен.** Потребителят даде общо одобрение на представения тест, не подробен отчет по случаи, screenshots или данни за терминала. Зелените тестове, PTY smoke или отварянето на прозореца не са човешко одобрение.
+**Status:** T6 cases 1–5 were personally confirmed in the conversation and C3 was independently accepted; this checklist remains repeatable and does not automatically record new observations. **The new exact-action UI test was personally performed and approved according to the user's confirmation; the post-fix C4 review is still open and the original BLOCK remains preserved.** The user gave overall approval of the presented test, not a detailed case-by-case report, screenshots, or terminal information. Passing tests, a PTY smoke test, or opening the window do not constitute human approval.
 
-Всички случаи стартират истински production Hub от checkout-а, но в нов временен workspace с fake Jev transport и фиксиран synthetic Pi provider. Не се изпращат данни към API и не се наследяват истински ключове. Няма реален модел или автоматичен човешки отговор. Случаите 1–5 не изпълняват tools; само случай 6 предлага точно фиксираните synthetic bash/write/edit заявки по-долу. Не въвеждай реални задачи, @files, shell commands или други Hub execution команди в тези сесии.
+All cases launch the actual production Hub from the checkout, but in a new temporary workspace with a fake Jev transport and a fixed synthetic Pi provider. No data is sent to APIs and no real keys are inherited. There is no real model or automatic human response. Cases 1–5 execute no tools; only case 6 proposes the exact fixed synthetic bash/write/edit requests below. Do not enter real tasks, @files, shell commands, or other Hub execution commands in these sessions.
 
-## Стартиране
+## Launch
 
-От root на agent-fleet:
+From the agent-fleet root:
 
 ```bash
 node bin/test/helpers/task-triage-ui.mjs applied --keep
 ```
 
-Замени `applied` с `waived`, `timeout`, `oversized`, `stale` или `action` за следващия случай. Всеки старт е нова сесия/workspace. `--keep` пази само синтетичните записи след `/quit`; launcher-ът показва директорията. Без `--keep` тя се премахва при изход. Това не прави setup или промени в текущия repo workspace.
+Replace `applied` with `waived`, `timeout`, `oversized`, `stale`, or `action` for the next case. Each launch creates a new session/workspace. `--keep` preserves only synthetic records after `/quit`; the launcher displays the directory. Without `--keep`, it is removed on exit. This does not run setup or change the current repository workspace.
 
-**Общи действия:** `/af-agents-list` отваря Fleet. `1` отваря communication viewer. `e` включва session-only capture, `d` го изключва и изчиства. `Esc` връща към Fleet, `q` затваря Fleet. `/af-audit` показва metadata JSON. `/quit` излиза.
+**Common actions:** `/af-agents-list` opens Fleet. `1` opens the communication viewer. `e` enables session-only capture; `d` disables and clears it. `Esc` returns to Fleet; `q` closes Fleet. `/af-audit` displays metadata JSON. `/quit` exits.
 
-## 1. Applied и capture
+## 1. Applied and capture
 
-1. Отвори `/af-agents-list`, натисни `1`: провери **capture OFF** и липса на възстановени payloads.
-2. Натисни `e`, после `Esc`, `q`.
-3. Изпълни `/triage-ui-fill applied`. Той само поставя текста в editor-а. Натисни **Enter** за изпращане.
-4. Отвори `/af-agents-list`: провери `experimental`, `applied`, `current`, security probability, active addition и отворен review. Няма worker rows или зелено task acceptance.
-5. Натисни `1`, избери запис и Enter. Провери request/response, probabilities и предупреждението, че provider result не е task acceptance.
-6. Пробвай стрелките, Enter copy и `d` clear. Clipboard не се изчиства автоматично: използвай само synthetic данните. След clearing няма payload за повторно копиране.
-7. Свий терминала до около 40 колони, после го разшири. Няма излизане извън viewport; при тесен екран част от metadata се clipping-ва, подробностите са в `/af-audit`.
+1. Open `/af-agents-list`, press `1`: verify **capture OFF** and no restored payloads.
+2. Press `e`, then `Esc`, `q`.
+3. Run `/triage-ui-fill applied`. It only places text in the editor. Press **Enter** to submit.
+4. Open `/af-agents-list`: check `experimental`, `applied`, `current`, security probability, an active addition, and an open review. There are no worker rows or green task acceptance.
+5. Press `1`, select a record, and press Enter. Check the request/response, probabilities, and warning that a provider result is not task acceptance.
+6. Try the arrow keys, Enter to copy, and `d` to clear. The clipboard is not cleared automatically: use synthetic data only. After clearing, no payload remains to copy again.
+7. Narrow the terminal to about 40 columns, then widen it. Nothing should extend beyond the viewport; some metadata is clipped on a narrow screen, with details available in `/af-audit`.
 
 ## 2. Waived
 
-1. Стартирай `waived --keep`, изпълни `/triage-ui-fill applied`, Enter.
-2. Изпълни `/triage-ui-waiver`. Той само подготвя реалната `/af-task-triage-waive …` команда.
-3. Натисни Enter; прегледай въпроса. Избери **Yes — authorize once** само за това synthetic addition.
-4. В Fleet и `/af-audit`: source addition и review са `waived`, не `satisfied`. Baseline acceptance остава отворен. Няма автоматично task acceptance или бюджетна промяна.
+1. Launch `waived --keep`, run `/triage-ui-fill applied`, and press Enter.
+2. Run `/triage-ui-waiver`. It only prepares the actual `/af-task-triage-waive …` command.
+3. Press Enter; review the question. Choose **Yes — authorize once** only for this synthetic addition.
+4. In Fleet and `/af-audit`: the source addition and review are `waived`, not `satisfied`. Baseline acceptance remains open. There is no automatic task acceptance or budget change.
 
 ## 3. Timeout
 
-1. Стартирай `timeout --keep`, изпълни `/triage-ui-fill timeout`, Enter.
-2. След bounded timeout отвори Fleet и audit. Статусът е `unavailable`, няма нови additions. Attempts/usage не се измислят като известна нула. Няма endless retry.
-3. Ако включиш capture преди изпращането, viewer показва failed/unavailable result, не успех.
+1. Launch `timeout --keep`, run `/triage-ui-fill timeout`, and press Enter.
+2. After the bounded timeout, open Fleet and audit. The status is `unavailable`, with no new additions. Attempts/usage are not fabricated as a known zero. There is no endless retry.
+3. If you enable capture before submitting, the viewer shows a failed/unavailable result, not success.
 
-## 4. Oversized и viewer withholding
+## 4. Oversized and viewer withholding
 
-1. Стартирай `oversized --keep`, изпълни `/triage-ui-fill oversized`, Enter. В editor-а има 40961 ASCII bytes.
-2. Fleet/audit показват `oversized_input`, нула нови provider calls и без additions. Viewer няма request, който никога не е изпратен.
-3. За отделната viewer граница: включи capture от Fleet → `1` → `e`, върни се с `Esc`, `q`.
-4. `/triage-ui-fill viewer-withheld`, Enter: 33792-byte task е валиден за consumer-а, но над viewer payload лимита.
-5. В viewer request е `payload withheld or too large`, не truncation или възстановено съдържание. Copy request не копира нищо; малкият response остава отделно достъпен.
+1. Launch `oversized --keep`, run `/triage-ui-fill oversized`, and press Enter. The editor contains 40961 ASCII bytes.
+2. Fleet/audit show `oversized_input`, zero new provider calls, and no additions. The viewer has no request that was never sent.
+3. For the separate viewer boundary: enable capture through Fleet → `1` → `e`, then return with `Esc`, `q`.
+4. `/triage-ui-fill viewer-withheld`, Enter: the 33792-byte task is valid for the consumer but exceeds the viewer payload limit.
+5. In the viewer, the request shows `payload withheld or too large`, not truncation or restored content. Copy request copies nothing; the small response remains separately available.
 
 ## 5. Stale/pending
 
-1. Стартирай `stale --keep`, изпълни `/triage-ui-fill applied`, Enter.
-2. След това `/triage-ui-fill stale`, Enter.
-3. Fleet/audit: новото input не освобождава старите задължения; старото addition е `stale` и `task_transition_pending` е blocker. Process completion е unknown, не accepted.
-4. Не използвай reset/waiver за този тест; целта е видимият pending fence.
+1. Launch `stale --keep`, run `/triage-ui-fill applied`, and press Enter.
+2. Then run `/triage-ui-fill stale`, Enter.
+3. Fleet/audit: the new input does not release old obligations; the old addition is `stale` and `task_transition_pending` is a blocker. Process completion is unknown, not accepted.
+4. Do not use reset/waiver for this test; the goal is the visible pending fence.
 
-## 6. Нов exact-action prompt — отделно C4 човешко наблюдение
+## 6. New exact-action prompt — separate C4 human observation
 
 ```bash
 node bin/test/helpers/task-triage-ui.mjs action --keep
 ```
 
-1. Изпълни `/triage-ui-fill action`, после **Enter**. Самата команда само поставя прегледания synthetic текст. Не изпращай реални задачи и не използвай waiver/reset за този случай.
-2. Ще получиш четири **отделни production въпроса**. Преди избора провери `Operation`, `Target` hash, различен `Action` ID, `Working directory (JSON)` с временния workspace и **цялото** съдържание между `BEGIN ACTION INPUT JSON` и `END ACTION INPUT JSON`. Не приемай hash или частичен preview за достатъчни подробности. Ако не можеш да прочетеш всичко, избери **No — deny** и съобщи BLOCK.
-3. Подробностите и очакваните човешки решения са:
+1. Run `/triage-ui-fill action`, then **Enter**. The command itself only places the reviewed synthetic text in the editor. Do not submit real tasks or use waiver/reset for this case.
+2. You will receive four **separate production questions**. Before choosing, check `Operation`, the `Target` hash, a distinct `Action` ID, `Working directory (JSON)` containing the temporary workspace, and the **entire** content between `BEGIN ACTION INPUT JSON` and `END ACTION INPUT JSON`. Do not consider a hash or partial preview sufficient detail. If you cannot read everything, choose **No — deny** and report BLOCK.
+3. Details and expected human decisions:
 
-| Въпрос | Пълни synthetic inputs | Решение само след преглед |
+| Question | Full synthetic inputs | Decision only after review |
 |---|---|---|
 | bash | `command: "printf 'synthetic bash preview\\n'"`, `timeout: 5` | Yes — authorize once |
 | write | `path: "action-write.txt"`; `content: "synthetic write line 1\nsynthetic write line 2\n"` | Yes — authorize once |
-| edit | `path: "action-edit.txt"`; **две** `edits`: `alpha-before` → `alpha-after`, `beta-before` → `beta-after` | Yes — authorize once |
-| следващ отделен write | `path: "action-denied.txt"`; `content: "later action needs its own decision"` | **No — deny** |
+| edit | `path: "action-edit.txt"`; **two** `edits`: `alpha-before` → `alpha-after`, `beta-before` → `beta-after` | Yes — authorize once |
+| subsequent separate write | `path: "action-denied.txt"`; `content: "later action needs its own decision"` | **No — deny** |
 
-4. `1`/`2` избира Yes/No, **Enter** потвърждава; не натискай Enter на сляпо. Използвай **PgUp/PgDn** за prompt-а. При collapsed context следвай показания `expand context` shortcut. Свий терминала при edit въпроса (например 48 колони), разгледай и двете замени и крайната JSON граница, после разшири. Връщането към широк екран не дава разрешение само по себе си. **Esc** отменя въпроса.
-5. След четвъртия въпрос следват две автоматично отказани write заявки: `action-sensitive.txt` с фиксиран **фалшив** `password=synthetic-only-action-sentinel` и `action-large.txt` с 20000 `x` символа. Те не трябва да отворят Yes/No prompt или да създадат файл; Pi може да показва заявката в стандартния tool transcript, който е отделен от metadata audit. В този личен сценарий няма ESC-control payload, за да не разстройва terminal renderer-а; control refusal е проверен отделно в automated authority/RPC тестове.
-6. Изчакай `Fixed action sequence finished`. `/triage-ui-action-status` трябва да показва `write: exact expected bytes`, `edit: exact expected bytes`, а `denied`, `sensitive`, `large`: `missing`. Status е read-only проверка на фиксираните временни файлове; **не е** човешки или независим verdict. Ако откажеш/отмениш някое от първите три действия, очакваните bytes за него естествено няма да са налични — запиши какво си избрал.
-7. `/af-audit`: отделни grant/consumption/result факти; следващите ефекти още изискват confirmation. Няма semantic task acceptance. Action metadata не трябва да съдържа content или сурови paths; обикновеният Pi transcript има различна privacy граница.
-8. `/quit` излиза. `--keep` пази synthetic файлове/записи в **действително показаната** директория; fixture използва `--no-session`, не обещава persistent Pi transcript или screenshot. Не споделяй други terminal tabs/credentials.
+4. `1`/`2` selects Yes/No; **Enter** confirms. Do not press Enter blindly. Use **PgUp/PgDn** for the prompt. If context is collapsed, follow the displayed `expand context` shortcut. Narrow the terminal for the edit question (for example, to 48 columns), inspect both replacements and the final JSON boundary, then widen it. Returning to a wide screen does not itself grant permission. **Esc** cancels the question.
+5. After the fourth question come two automatically refused write requests: `action-sensitive.txt` with the fixed **fake** `password=synthetic-only-action-sentinel` and `action-large.txt` with 20000 `x` characters. They must not open a Yes/No prompt or create a file; Pi may display the request in the standard tool transcript, which is separate from the metadata audit. This personal test scenario has no ESC-control payload to avoid disrupting the terminal renderer; control refusal is checked separately in automated authority/RPC tests.
+6. Wait for `Fixed action sequence finished`. `/triage-ui-action-status` should show `write: exact expected bytes`, `edit: exact expected bytes`, and `denied`, `sensitive`, `large`: `missing`. Status is a read-only check of the fixed temporary files; it is **not** a human or independent verdict. If you deny/cancel any of the first three actions, its expected bytes will naturally be absent — record your choice.
+7. `/af-audit`: separate grant/consumption/result facts; subsequent effects still require confirmation. There is no semantic task acceptance. Action metadata must not contain content or raw paths; the ordinary Pi transcript has a different privacy boundary.
+8. `/quit` exits. `--keep` preserves synthetic files/records in the **actually displayed** directory; the fixture uses `--no-session` and does not promise a persistent Pi transcript or screenshot. Do not share other terminal tabs/credentials.
 
-Това е local-only **test fixture** с изолирани HOME/agent настройки и no-network guard. Production confirmation не е обещано local-only: съществуващият настроен ask-user local/remote **human** канал може да получи точни command/path/content подробности. 8 KiB е cap на пълния action detail block, не гаранция за четимост на всеки терминал или remote rendering. Липсващи/опасни/oversized inputs отказват grant **без truncation или partial redaction**. Sensitive detection е heuristic, не пълна гаранция.
+This is a local-only **test fixture** with isolated HOME/agent settings and a no-network guard. Production confirmation is not promised to be local-only: the existing configured ask-user local/remote **human** channel may receive exact command/path/content details. 8 KiB is the cap on the complete action detail block, not a guarantee of readability in every terminal or remote renderer. Missing/unsafe/oversized inputs refuse a grant **without truncation or partial redaction**. Sensitive-data detection is heuristic, not a complete guarantee.
 
-## Запис на човешкото наблюдение
+## Recording human observation
 
-Попълни в отговора или отделен review artifact:
+Complete this in the response or a separate review artifact:
 
-| Случай | Видян лично? | PASS / BLOCK / НЕПРОВЕРЕН | Бележки / запис |
+| Case | Personally observed? | PASS / BLOCK / UNVERIFIED | Notes / record |
 |---|---|---|---|
 | Applied / capture / copy / clear | | | |
 | Waived | | | |
 | Timeout | | | |
 | Oversized / viewer withholding | | | |
 | Stale / pending | | | |
-| Тесен и широк терминал | | | |
-| **Нов C4:** bash command/timeout + cwd | | | |
-| **Нов C4:** write path/пълно content + cwd | | | |
-| **Нов C4:** edit path/двете замени + narrow/wide + край на JSON | | | |
-| **Нов C4:** отделен No, sensitive/oversized refusal и file status | | | |
+| Narrow and wide terminal | | | |
+| **New C4:** bash command/timeout + cwd | | | |
+| **New C4:** write path/full content + cwd | | | |
+| **New C4:** edit path/both replacements + narrow/wide + JSON end | | | |
+| **New C4:** separate No, sensitive/oversized refusal, and file status | | | |
 
-Ако са налични, посочи OS/терминал, проверена ревизия и действителните директории, които launcher-ът е запазил. Не измисляй липсващи metadata, timestamps или screenshots. Screenshot/terminal recording трябва да съдържат само synthetic fixture данни, не други терминални tabs/credentials. Не се изисква публикуване на clipboard или сурови payloads. Ако не е видяно лично, запиши **НЕПРОВЕРЕН**, не PASS.
+If available, specify the OS/terminal, verified revision, and actual directories preserved by the launcher. Do not invent missing metadata, timestamps, or screenshots. Screenshots/terminal recordings must contain only synthetic fixture data, not other terminal tabs/credentials. Publishing clipboard contents or raw payloads is not required. If not personally observed, record **UNVERIFIED**, not PASS.
 
-Тази проверка не доказва live Jev accuracy, calibration, независим A1 review, universal remote effect coverage или release readiness. За новия случай 6 след лично човешко потвърждение остават отделно разрешен post-fix C4 review и окончателно maintainer техническо приемане. Старият C4 BLOCK не се променя от този checklist.
+This verification does not prove live Jev accuracy, calibration, independent A1 review, universal remote effect coverage, or release readiness. For new case 6, a separately authorized post-fix C4 review and final maintainer technical acceptance remain after personal human confirmation. This checklist does not change the old C4 BLOCK.

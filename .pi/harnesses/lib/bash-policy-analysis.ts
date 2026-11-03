@@ -128,7 +128,7 @@ export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
    || /^[A-Za-z_]\w*=/.test(words[0]) || ["bash", "sh", "zsh"].includes(name)
    || ["sed", "file"].includes(name)
    || name !== "find" && args.some(arg => /^-[^-].+/.test(arg))
-   || ["node", "nodejs", "python", "python3", "perl", "ruby"].includes(name) && args.some(arg => /^-(?:.*[ec]|-eval)(?:=|$)/.test(arg))) return false;
+   || ["node", "nodejs", "python", "python3", "perl", "ruby"].includes(name) && args.some(arg => /^(?:-[^-]*[ec]|--eval)(?:=|$)/.test(arg))) return false;
   if(requiresDataSink&&!readers.has(name)&&!dataCommands.has(name)&&name!=="tee")return false;
   let modified: string[] = [];
   if (writers.has(name)) modified = paths;

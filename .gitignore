@@ -34,3 +34,4 @@ docs/prds/
 .tmp-proactive-*
 .pi/tmp-*/
 .tmp-*
+.codex/config.toml.s5c-backup-20261029T064030Z

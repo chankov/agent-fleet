@@ -225,3 +225,26 @@ test("dispatcher prompt makes declared checks and unsupported requirement limits
  const prompt = verificationFragment(12);
  for (const phrase of ["test_command", "critical_conditions", "expected_result", "code-grep", "manual", "runtime-ui", "separate code review", "NOT semantic test adequacy"]) assert.ok(prompt.includes(phrase), phrase);
 });
+
+test('explicit compiler command requires its own exact receipt, compiler-only works, prose and manual never bind', () => {
+ const requirement = { id: 'A2', tag: 'test', text: 'exact checks', source: 'request', testCommand: 'test-exact', compilerCommand: 'compile-exact' };
+ const check = (command: string, kind: string, exitCode: number | null = 0) => ({ producer: 'runtime', taskId: 'task-1', kind, command: [command], exitCode, inspectedRevision: 'rev-after', evidenceRef: `/e/${command}`, requirementIds: ['A2'], coverage: [{ id: 'A2', source: 'request', text: 'exact checks', criticalConditions: [] }] });
+ for (const [requirements, checks, expected] of [
+  [[requirement], [check('test-exact', 'test')], 'missing'],
+  [[requirement], [check('compile-exact', 'compilation')], 'missing'],
+  [[requirement], [check('test-exact', 'test'), check('compile-exact', 'compilation')], 'passed'],
+  [[requirement], [check('test-exact', 'test'), check('compile-exact ', 'compilation')], 'missing'],
+  [[requirement], [check('test-exact', 'test'), check('compile-exact', 'compilation', 2)], 'failed'],
+  [[{ ...requirement, testCommand: undefined }], [check('compile-exact', 'compilation')], 'passed'],
+  [[{ ...requirement, compilerCommand: undefined, criticalConditions: ['run compile-exact'] }], [check('compile-exact', 'compilation')], 'missing'],
+  [[{ ...requirement, tag: 'manual' }], [check('compile-exact', 'compilation')], 'unsupported'],
+ ] as any[]) assert.equal(runtime({ requirements, checks }).verification.requirements[0].status, expected);
+ assert.equal(runtime({ requirements: [{ ...minimalChangeRequirement(), tag: 'manual' }], checks: [{ ...check('test-exact', 'test'), requirementIds: ['AF-MIN-CHANGE'] }] }).verification.requirements[0].status, 'unsupported');
+});
+
+test('deduplicated inherited AF-MIN-CHANGE command is not weakened by unrelated compiler success', () => {
+ const requirement={...minimalChangeRequirement(),testCommand:'original-exact',criticalConditions:['historical evidence is not current proof',...minimalChangeRequirement().criticalConditions]};
+ const result=runtime({requirements:[requirement],checks:[{producer:'runtime',taskId:'task-1',kind:'compilation',command:['tsc'],exitCode:0,inspectedRevision:'rev-after',evidenceRef:'/e/compiler',requirementIds:['AF-MIN-CHANGE']}]});
+ assert.equal(result.verification.requirements[0].status,'missing');assert.equal(result.acceptance.accepted,false);
+ assert.deepEqual(result.verification.requirements[0].criticalConditions,requirement.criticalConditions);
+});

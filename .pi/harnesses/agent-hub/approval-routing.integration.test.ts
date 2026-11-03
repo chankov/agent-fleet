@@ -124,3 +124,22 @@ test("non-delete path approval can remain agent-scoped and is persisted", async 
 		{ pattern: ".env", agent: "builder" },
 	]);
 });
+
+test('disconnected requester cannot create a late session exemption', async () => {
+ const exemptionsFile = join(mkdtempSync(join(tmpdir(), 'approval-disconnect-')), 'exemptions.json');
+ const { EventEmitter } = await import('node:events');
+ const socket = Object.assign(new EventEmitter(), fakeSocket());
+ let answer!: (value: string) => void;
+ let signal: AbortSignal | undefined;
+ const router = createAccessApprovalRouter({
+  getContext: () => ({hasUI:true,ui:{notify(){},select:(_title,_options,settings)=>{signal=settings.signal;return new Promise(resolve=>{answer=resolve;});}}}),
+  getExemptionsFile:()=>exemptionsFile, appendLog(){}, now:()=>new Date().toISOString(),
+ });
+ const handling=router.handle(socket,request({category:'read_only',pattern:'/bin/'}));
+ await new Promise(resolve=>setImmediate(resolve));
+ socket.emit('close');
+ answer('Allow for all agents (this session)');
+ await handling;
+ assert.equal(signal?.aborted,true);
+ assert.deepEqual(readExemptionsFile(exemptionsFile),[]);
+});

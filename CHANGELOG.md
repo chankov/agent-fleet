@@ -5,15 +5,15 @@
 ### Patch Changes
 
 - 9647f07: Serialize stale writer-lease recovery so competing local processes cannot both acquire the same writer lease. Keep a bounded fail-closed response when the guard is abandoned, and add a native two-process regression test.
-- eda75f7: Изолира тестовете за bounded snapshot capture в отделна serial fast-lane фаза, без да увеличава production capture deadline при CPU contention.
+- eda75f7: Isolate bounded snapshot capture tests in a separate serial fast-lane phase without increasing the production capture deadline under CPU contention.
 
-  Отделя consumer matrix тестовете с индивидуални deadlines и поправя relative path guard matching: `private/**` не блокира публични файлове заради системен `/private` ancestor, но пази действителните private paths и explicit absolute правила.
+  Separate consumer matrix tests with individual deadlines and fix relative path guard matching: `private/**` no longer blocks public files because of a system `/private` ancestor, while protecting actual private paths and honoring explicit absolute rules.
 
-  Поправя CI portability при macOS `/var` aliases: canonical temp fixtures, безопасна physical trace containment и canonical scout roots. Launch fixture използва проектния SDK и само root dependencies; целият fast suite се проверява и със symlink-нат TMPDIR.
+  Fix CI portability with macOS `/var` aliases: canonical temporary fixtures, safe physical trace containment, and canonical scout roots. The launch fixture uses the project's SDK and root dependencies only; the entire fast suite is also checked with a symlinked TMPDIR.
 
-  Поправя runtime regression проверките чрез избор на проектния Pi SDK вместо предположен global runtime, актуални lifecycle/status contracts и коректно task binding преди pressure probe.
+  Fix runtime regression checks by selecting the project's Pi SDK instead of assuming a global runtime, using current lifecycle/status contracts, and establishing correct task binding before the pressure probe.
 
-  Добавя сесиен избор на registered Git worktree с отделен Fleet workspace, target-scoped peers/evidence/workflows, immutable resume binding и ново per-consumer System 1 scope approval. Неподдържаните targeted btw/Hermes-conductor комбинации се отказват изрично; изборът не обещава OS или external-service isolation.
+  Add session-scoped selection of a registered Git worktree with a separate Fleet workspace, target-scoped peers/evidence/workflows, immutable resume binding, and fresh per-consumer System 1 scope approval. Unsupported targeted btw/Hermes-conductor combinations are explicitly refused; selection does not promise OS or external-service isolation.
 
 ## 2.0.22
 

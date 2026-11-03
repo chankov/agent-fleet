@@ -79,3 +79,11 @@ test("requirement reference and critical conditions normalize without breaking l
  const res = validateAssertionBatch([{ id: "A1", tag: "test", text: "UTC rule", source: "user request", reference: " PLAN.md:42 ", critical_conditions: [" UTC calendar day ", "", "not current instant"] }]);
  assert.deepEqual(res.assertions[0], { id: "A1", tag: "test", text: "UTC rule", source: "user request", reference: "PLAN.md:42", criticalConditions: ["UTC calendar day", "not current instant"] });
 });
+
+test('optional compiler command preserves AF-MIN-CHANGE ledger declarations', () => {
+ const row = { id: 'AF-MIN-CHANGE', tag: 'test', text: 'inherited condition', source: 'user', test_command: 'node --test exact.js', compiler_command: 'tsc --noEmit', critical_conditions: ['Historical logs are not imported as current runtime checks.'] };
+ const result = validateAssertionBatch([row]);
+ assert.equal(result.ok, true);
+ assert.equal(result.assertions[0].compilerCommand, row.compiler_command);
+ assert.deepEqual(result.assertions[0].criticalConditions, row.critical_conditions);
+});

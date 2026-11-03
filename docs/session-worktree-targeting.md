@@ -1,18 +1,18 @@
-# Сесиен избор на Git worktree
+# Session-scoped Git worktree selection
 
-Fleet може да остане извън приложението:
+Fleet can remain outside the application:
 
 ```text
-root/                    # може да не е Git repository
+root/                    # does not have to be a Git repository
   af/                    # Fleet installation, configuration, resources, evidence
-  repo/                  # main checkout на приложението
-  repo.worktree/         # вече регистриран linked или detached checkout
-  docs/                  # независимо, споделено documentation repository
+  repo/                  # application's main checkout
+  repo.worktree/         # already registered linked or detached checkout
+  docs/                  # independent, shared documentation repository
 ```
 
-## Стартиране
+## Launch
 
-От `root/af`, след обичайния setup на Fleet и неговите зависимости:
+From `root/af`, after the usual setup of Fleet and its dependencies:
 
 ```sh
 just fleet --worktree ../repo.worktree --dry-run
@@ -22,78 +22,78 @@ just fleet --worktree ../repo.worktree --herdr --project example
 just flow quality --worktree ../repo.worktree
 ```
 
-Пътищата на селектора са относителни към Fleet workspace (`af`); при launch без
-наследен binding това е директорията на командата. По избор
-`--repository ../repo` проверява изрично owning main checkout. Селекцията е startup
-опция, не глобален active pointer. Fleet не създава, мести или премахва worktree-и;
-операторът ги управлява с Git/Worktrunk. Без селектор се запазва legacy режимът.
+Selector paths are relative to the Fleet workspace (`af`); when launching without
+an inherited binding, this is the command's working directory. Optionally,
+`--repository ../repo` explicitly verifies the owning main checkout. Selection is a startup
+option, not a global active pointer. Fleet does not create, move, or remove worktrees;
+the operator manages them with Git/Worktrunk. Without a selector, legacy mode is preserved.
 
-`workspaceRoot` е `af`; `executionRoot` е избраният checkout. При copy installation
-`resourceRoot` е също `af`; при управлявана symlink installation той е физическият
-Fleet source root. Неговата identity е част от binding-а, а human config остава в
-`af`. Произволен resource извън тези два проверени roots се отказва.
-Agents, profiles, teams, overrides, guard policy, extensions, skills и prompts
-остават workspace-owned. Git и относителните coding операции работят в target-а.
-Конфигурацията на target-а не подменя Fleet конфигурацията. Workspace `AGENTS.md`
-(или `CLAUDE.md`) е изрично подаден ресурс; автоматичното target-local discovery
-е изключено. Проектните инструкции се четат като изрично поискани project data.
+`workspaceRoot` is `af`; `executionRoot` is the selected checkout. For a copy installation,
+`resourceRoot` is also `af`; for a managed symlink installation, it is the physical
+Fleet source root. Its identity is part of the binding, while human configuration remains in
+`af`. Arbitrary resources outside these two verified roots are refused.
+Agents, profiles, teams, overrides, guard policy, extensions, skills, and prompts
+remain workspace-owned. Git and relative coding operations run in the target.
+Target configuration does not replace Fleet configuration. The workspace's `AGENTS.md`
+(or `CLAUDE.md`) is an explicitly supplied resource; automatic target-local discovery
+is disabled. Project instructions are read as explicitly requested project data.
 
-## Проверка, resume и откази
+## Verification, resume, and refusals
 
-В интерактивна сесия `/af-worktree status` и `/af-worktree verify` показват binding,
-namespace и конфигурационното състояние. Base project се запазва, но effective
-project включва физическата target identity: еднаквите peer имена на два екипа не
-ги свързват помежду им. Resume изисква същия workspace и същите физически roots.
-Премахнат/подменен target, несъвпадаща history или липсваща задължителна workspace
-policy водят до отказ, не до fallback към main. След такава промяна стартирайте
-нова сесия с изричен селектор. Няма live switch на target в съществуваща сесия.
+In an interactive session, `/af-worktree status` and `/af-worktree verify` show the binding,
+namespace, and configuration state. The base project is preserved, but the effective
+project includes the physical target identity: matching peer names in two teams do not
+connect them. Resume requires the same workspace and physical roots.
+A removed/replaced target, mismatched history, or missing mandatory workspace
+policy causes a refusal, not a fallback to main. After such a change, start
+a new session with an explicit selector. There is no live target switch in an existing session.
 
-Fleet evidence, peer snapshots и workflow state са target-partitioned под `af`.
-Интерактивната Pi history запазва стандартното global, cwd-scoped местоположение;
-нейните custom entries носят immutable binding. Native specialists използват
-workspace-owned session artifacts. Тези различни видове state не са permissions.
+Fleet evidence, peer snapshots, and workflow state are partitioned by target under `af`.
+Interactive Pi history retains its standard global, cwd-scoped location;
+its custom entries carry an immutable binding. Native specialists use
+workspace-owned session artifacts. These different kinds of state are not permissions.
 
-## System 1: отделно разрешение за всеки consumer
+## System 1: separate consent for each consumer
 
-Съществуващото разрешение за main не разрешава source export от worktree.
-`/af-worktree-consent agenticAsk` показва точния effective scope и изисква ново
-интерактивно потвърждение. Повторете отделно за желаните consumers: `watchdog`,
+Existing approval for main does not authorize source export from a worktree.
+`/af-worktree-consent agenticAsk` shows the exact effective scope and requires fresh
+interactive confirmation. Repeat separately for the desired consumers: `watchdog`,
 `dispatch`, `proactiveReview`, `taskTriage`, `agenticAsk`, `fileDiscovery`,
-`contextCompaction`, `damageGuard`. Рестартирайте след одобрение.
+`contextCompaction`, `damageGuard`. Restart after approval.
 
-Approval не активира изключен consumer и не изменя конфигурация, budgets,
-model/provider, local bindings или rule pins. Променен policy/config/scope изисква
-ново одобрение. Непроецируем scope се отказва. Snapshot на scout е отделен physical
-target и не наследява автоматично source-export approval от оригинала.
-`needs_worktree_consent`, invalid/adaptation и off са различни от проверен helper
-result. `providerChecked: false`/`applicabilityChecked: false` не са положителна
-проверка на provider или local-rule applicability.
+Approval does not enable a disabled consumer or change configuration, budgets,
+model/provider, local bindings, or rule pins. A changed policy/config/scope requires
+fresh approval. A scope that cannot be projected is refused. A scout snapshot is a separate physical
+target and does not automatically inherit source-export approval from the original.
+`needs_worktree_consent`, invalid/adaptation, and off are distinct from a verified helper
+result. `providerChecked: false`/`applicabilityChecked: false` do not indicate successful
+verification of the provider or local-rule applicability.
 
-## Граници и optional integrations
+## Boundaries and optional integrations
 
-- Shared docs се разрешават чрез изрични workspace-relative read grants. Това не
-  разрешава writes; редакция на общото docs repository изисква отделен task scope.
-- Browser/MCP, STT и remote clients запазват отделните си credentials/endpoints.
-  Правилен cwd **не** означава отделни browser profiles, frontend ports, API,
-  database или gateway. Не се пренаписват автоматично такива destinations.
-- `/btw` и targeted Hermes conductor отказват тази комбинация; използвайте guarded
-  `dispatch_agent`, Hub или targeted Pi peer. Външният Hermes conductor profile
-  няма проверен split-root resource contract. Legacy conductor остава непроменен.
-- `--all-extensions`, custom `--session-dir` и worktree селектори за installation
-  lifecycle команди се отказват. Setup/doctor/deps/uninstall се изпълняват от `af`.
-- Preview не извършва provider/browser/Herdr/gateway live проверка. Липсваща
-  capability е gap, а не доказателство за работеща интеграция.
+- Shared docs are authorized through explicit workspace-relative read grants. This does not
+  authorize writes; editing the shared docs repository requires separate task scope.
+- Browser/MCP, STT, and remote clients retain their separate credentials/endpoints.
+  A correct cwd does **not** mean separate browser profiles, frontend ports, API,
+  database, or gateway. These destinations are not automatically rewritten.
+- `/btw` and the targeted Hermes conductor refuse this combination; use guarded
+  `dispatch_agent`, Hub, or a targeted Pi peer. The external Hermes conductor profile
+  has no verified split-root resource contract. The legacy conductor is unchanged.
+- `--all-extensions`, custom `--session-dir`, and worktree selectors for installation
+  lifecycle commands are refused. Run setup/doctor/deps/uninstall from `af`.
+- Preview does not perform live provider/browser/Herdr/gateway verification. A missing
+  capability is a gap, not evidence of a working integration.
 
-Това е проверено operational routing и bounded guards, **не OS sandbox** и не
-изолация на външни услуги. Не копирайте Fleet в application worktree и не заменяйте
-root contract с произволни symlinks или само `cd`.
+This provides verified operational routing and bounded guards, **not an OS sandbox** or
+external-service isolation. Do not copy Fleet into the application worktree or replace
+the root contract with arbitrary symlinks or just `cd`.
 
 ## Regression runtime
 
-`npm run test:full` използва проектния Pi SDK от `devDependencies` (в момента
-1.1.0), а не версия, предположена от `PATH` или директорията на Node executable.
-Отделният интерактивен launcher може да сочи към друга инсталация.
-`CONTEXT_CONTINUITY_PI_RUNTIME` е изричен test-only override към SDK directory;
-невалиден override се отказва, без silent fallback. Това не променя production
-runtime selection или permissions. SDK fixtures изолират наследени Fleet role,
-root и exemption metadata, за да проверяват собствената си synthetic session.
+`npm run test:full` uses the project's Pi SDK from `devDependencies` (currently
+1.1.0), not a version inferred from `PATH` or the Node executable's directory.
+The separate interactive launcher may point to another installation.
+`CONTEXT_CONTINUITY_PI_RUNTIME` is an explicit test-only override pointing to an SDK directory;
+an invalid override is refused without silent fallback. This does not change production
+runtime selection or permissions. SDK fixtures isolate inherited Fleet role,
+root, and exemption metadata to test their own synthetic session.

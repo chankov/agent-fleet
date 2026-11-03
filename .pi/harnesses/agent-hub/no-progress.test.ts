@@ -450,12 +450,12 @@ test('registered tool schemas retain runtime optional fields and provider compat
  const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
  const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
  registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
- assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend','triage_id','triage_reason'].sort());
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','triage_id','triage_reason'].sort());
  assert.deepEqual(Object.keys(tools[1].parameters.properties).sort(), ['task','persona','model','artifacts','read_scope','goal','expected_result'].sort());
  assert.doesNotMatch(JSON.stringify(tools.map(t => t.parameters)), /\(\?[=!<]/);
  for (const tool of tools) {
   const kind = tool.name === 'dispatch_agent' ? 'dispatch' : 'research';
-  const params = kind === 'dispatch' ? { agent: 'builder', task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
+  const params = kind === 'dispatch' ? { agent: 'builder', task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', review_mode: 'changes', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
   let calls = 0;
   const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, kind, async () => { calls++; return { content: [] }; });
   await run('one', params as any, undefined, undefined, { cwd: process.cwd() } as any);

@@ -22,7 +22,7 @@ const FALLBACK_PALETTE = [
 export type RegistryEntry = ComsRegistryEntry;
 export type ComsTurnState = "idle" | "working";
 export type PeerStatus = "idle" | "queued" | "working" | "booting";
-export type EnvelopeType = "prompt" | "response" | "ping";
+export type EnvelopeType = "prompt" | "response" | "ping" | "instruction_receipt_request";
 
 export function derivePeerStatus(
 	turnState: ComsTurnState,
@@ -46,6 +46,9 @@ export function nextInboundForDispatch<T extends { fulfilled: boolean }>(
 }
 
 export interface Envelope {
+ version?: 1;
+ owner?: InstructionTag['owner'];
+ wireId?: string;
 	type: EnvelopeType;
 	msg_id: string;
 	sender_session: string;
@@ -54,7 +57,9 @@ export interface Envelope {
 	timestamp: string;
 }
 
+export type InstructionTag = { version: 1; owner: { project: string; peer: string; sessionId: string; startedAt: string } };
 export interface PromptEnvelope extends Envelope {
+ instruction?: InstructionTag;
 	type: "prompt";
 	prompt: string;
 	sender_name: string;
@@ -66,6 +71,7 @@ export interface PromptEnvelope extends Envelope {
 
 export interface ResponseEnvelope extends Envelope {
 	type: "response";
+ instruction?: { version: 1; owner: InstructionTag['owner']; receipt: import('./coms-instruction-receipts.ts').TerminalReceipt | null };
 	response: any;
 	error?: string | null;
 }
@@ -114,6 +120,7 @@ export interface InboundContext {
 	prompt: string;
 	response_schema?: object | null;
 	fulfilled: boolean;
+ instruction?: InstructionTag;
 }
 
 export interface ComsIdentity {

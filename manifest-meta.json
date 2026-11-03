@@ -173,7 +173,8 @@
   "exclude": {
     "_comment": "Installer-only or non-artifact entries that must never appear as menu rows.",
     "skills": [
-      "_internal"
+      "_internal",
+      "fleet-native-voice"
     ],
     "personas": [],
     "commands": [

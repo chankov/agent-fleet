@@ -8,6 +8,6 @@ default:
     model: xai/grok-4.7
     thinking: medium
   - name: opus
-    model: github-copilot/claude-opus-5
+    model: github-copilot/claude-opus-5.5
     thinking: medium
     integrator: true

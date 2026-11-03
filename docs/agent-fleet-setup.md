@@ -1,7 +1,7 @@
 # Agent Fleet — Project Files
 
-При външен Fleet workspace тези файлове остават под `af`, не под избрания
-application worktree. Вижте [launch, consent и resume](session-worktree-targeting.md).
+With an external Fleet workspace, these files remain under `af`, not under the selected
+application worktree. See [launch, consent, and resume](session-worktree-targeting.md).
 
 agent-fleet keeps a few small files in a project's `.ai/` directory. They have
 different readers and different lifetimes, so they are kept separate.

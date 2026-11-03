@@ -15,6 +15,7 @@ export interface DispatchAgentParams {
 	deliverables?: string[];
 	watchdog?: boolean;
 	review_reason?: string;
+ review_mode?: "changes" | "operator-current-state";
 	backend?: "auto" | "native" | "coms";
 }
 
@@ -46,7 +47,7 @@ export interface TeamAdjustParams {
 }
 
 export interface SetAssertionsParams {
-	assertions: Array<{ id: string; tag: string; text: string; source?: string; reference?: string; critical_conditions?: string[]; test_command?: string }>;
+	assertions: Array<{ id: string; tag: string; text: string; source?: string; reference?: string; critical_conditions?: string[]; test_command?: string; compiler_command?: string }>;
 }
 
 export interface UpdateAssertionParams {

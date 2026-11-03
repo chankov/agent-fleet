@@ -1,6 +1,10 @@
+import { validateBoundAssertionIds } from "../return-contract.js";
+import { anchorRuntimeReceipt, beginReceiptCapture, receiptDeclarationHash, reusableRuntimeChecks, type ReceiptCapture, type RuntimeReceipt } from "../runtime-receipts.ts";
 import { captureReviewBaseline, retainReviewHistory, reviewContinuation, type ReviewBaseline } from "../review-continuity.ts";
 import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
 import { reviewInput, retainReview, reusableReview, type ReviewInput } from "../review-reuse.ts";
+import { affirmativeReviewVerdict } from "../review-verdict.ts";
+import { captureOperatorState, operatorStateChecksPassed, operatorReviewState, operatorScopeSyntax, persistOperatorStateProof, type OperatorStateCandidate } from "../operator-current-state.ts";
 import { retainDeliverable } from "../execution-evidence.ts";
 import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, readBackDeliverables, type AcceptanceRequirement, type DeliverableContract, type VerificationCheckInput } from "../acceptance.ts";
 import { normalizeResearchContract, withNoProgress, canonicalExecutor, type NoProgressGuard } from "../no-progress.ts";
@@ -49,7 +53,7 @@ export interface DispatchExecutionState {
 	getUserLanguage(): string;
 	getSessionDir(): string;
 	getAgentStates(): Map<string, AgentState>;
-	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
+	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; compilerCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
 	getResearchPersonas(): ResearchAgentDef[];
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
 	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
@@ -79,9 +83,9 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
-interface Tracking { writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
+interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
@@ -156,14 +160,19 @@ export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, ta
 function dispatchRequirements(d: DispatchExecutorDeps, agent: string, task: string): AcceptanceRequirement[] {
 	const state = d.state.getAgentStates().get(agent.toLowerCase());
 	if (!state || !hasWriteCapability(state.def.tools)) return [];
-	const ids = new Set(extractAssertionIds(task));
-	const ledger = d.state.getAssertions().filter(assertion => ids.size === 0 || ids.has(assertion.id)).map(assertion => ({
+	// validateBoundAssertionIds returns undefined only for an undefined input (legacy caller marker); the ledger map is always an array,
+	// so `?? []` is a type narrowing with no runtime effect — an invalid ledger still throws, an empty ledger still yields an empty set.
+	const ledgerIds = validateBoundAssertionIds(d.state.getAssertions().map(assertion => assertion.id)) ?? [];
+ const ids = new Set(ledgerIds.filter(id => String(task).split(/[^A-Za-z0-9_-]+/).includes(id)));
+	const ledger = d.state.getAssertions().filter(assertion => assertion.id === "AF-MIN-CHANGE" || ids.size === 0 || ids.has(assertion.id)).map(assertion => ({
 		id: assertion.id, tag: assertion.tag, text: assertion.text, source: assertion.source,
-		reference: assertion.reference, criticalConditions: assertion.criticalConditions, testCommand: assertion.testCommand,
+		reference: assertion.reference, criticalConditions: assertion.criticalConditions, testCommand: assertion.testCommand, compilerCommand: assertion.compilerCommand,
 		status: assertion.status as AcceptanceRequirement["status"], evidenceTaskId: assertion.evidenceTaskId,
 		evidenceRevision: assertion.evidenceRevision, evidenceRefs: assertion.evidence ? [assertion.evidence] : [],
 	}));
-	return [...ledger, minimalChangeRequirement()];
+	const minimal = minimalChangeRequirement(), inherited = ledger.find(r => r.id === minimal.id);
+ if (inherited) inherited.criticalConditions = [...new Set([...(inherited.criticalConditions ?? []), ...(minimal.criticalConditions ?? []), ...(inherited.text !== minimal.text ? [minimal.text] : [])])];
+ return inherited ? ledger : [...ledger, minimal];
 }
 
 function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceRequirement[]): string {
@@ -171,13 +180,17 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 	const lines = requirements.map(requirement => {
 		const origin = [requirement.source, requirement.reference].filter(Boolean).join(" · ");
 		const critical = requirement.criticalConditions?.length ? ` Critical: ${requirement.criticalConditions.join("; ")}.` : "";
-		return `- ${requirement.id} [${requirement.tag}]: ${requirement.text} (source: ${origin}).${critical}${requirement.testCommand ? ` Explicit verification command: ${JSON.stringify(requirement.testCommand)} (execute only through approved bash).` : ""}`;
+		return `- ${requirement.id} [${requirement.tag}]: ${requirement.text} (source: ${origin}).${critical}${requirement.compilerCommand ? ` Explicit compiler command: ${JSON.stringify(requirement.compilerCommand)} (execute only through approved bash).` : ""}${requirement.testCommand ? ` Explicit verification command: ${JSON.stringify(requirement.testCommand)} (execute only through approved bash).` : ""}`;
 	});
 	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance.\n${lines.join("\n")}`;
 }
 
 export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
+ const operatorMode = params.review_mode === 'operator-current-state';
+ if(operatorMode){try{operatorScopeSyntax(scope);}catch{return refusal(d,agent,task,'operator_state_preflight_failed','Current-state scope must contain 1–128 unique exact files; no aliases/globs.');}}
+ if(operatorMode && (!['code-reviewer','security-auditor'].includes(agent)||params.backend!=='native'||params.scope_mode==='create'||params.deliverables?.length||!s.getProcessState))
+  return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native code/security reviewer, existing exact files and no deliverables.');
 	const rosterRefusal = validateDispatchAgent(d, agent, task);
 	if (rosterRefusal) return rosterRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
@@ -188,7 +201,19 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	let contract: DeliverableContract;
 	try { contract = preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: s.getSessionDir() }); }
 	catch (error) { return refusal(d, agent, task, "scope_preflight_failed", String(error)); }
-	const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${review_reason ?? ""}\n${JSON.stringify(scope ?? [])}` : task);
+	const takeSnapshot=()=>snapshotWorktree(ctx.cwd||process.cwd(),(scope||[]).map(String).map(x=>x.trim()).filter(Boolean));
+ let operatorCandidate:OperatorStateCandidate|undefined,operatorSnapshot:any;
+ if(operatorMode){
+  try {
+   const state=s.getAgentStates().get(agent),tools=String(state?.def.tools??'').split(',').map(t=>t.trim());
+   if(!state||tools.some(t=>['edit','write'].includes(t)))throw Error('operator_state_writable_tools');
+   if(!tools.includes('bash'))throw Error('operator_state_tests_unavailable');
+   operatorSnapshot=takeSnapshot();
+   operatorCandidate=captureOperatorState({scope,cwd:ctx.cwd||process.cwd(),snapshot:operatorSnapshot,revision:snapshotRevision(operatorSnapshot)});
+   if(checkScope(s.getProcessState!().changedFiles,operatorCandidate.paths).outOfScope.length)throw Error('operator_state_incomplete_scope');
+  }catch(e){return refusal(d,agent,task,'operator_state_preflight_failed',e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable');}
+ }
+ const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${review_reason ?? ""}\n${JSON.stringify(scope ?? [])}${operatorMode?'\noperator-current-state':''}` : task);
 	if (s.getTurnDispatchFingerprints().has(fingerprint)) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
 	let inputArtifacts: InputArtifactPreview[];
 	try { inputArtifacts = d.artifacts.loadInputArtifacts(artifacts, ctx); }
@@ -197,30 +222,41 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (isReviewPersona(agent)) s.setTaskReviewRounds(s.getTaskReviewRounds() + 1);
 	s.getSessionTotals().dispatches++; d.budget.updateModeStatus();
 	const scopeGlobs = (scope || []).map(String).map(x => x.trim()).filter(Boolean);
-	const requirements = dispatchRequirements(d, agent, task);
-	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements);
+	const requirements = dispatchRequirements(d, agent, operatorMode ? '' : task);
+	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements) + (operatorCandidate ? '\n\n## Explicit operator-current-state verification\nInspect the exact current candidate; do not modify source or claim historical authorship. Run every explicit automated verification command through approved bash, and report full scoped regression evidence. Manual assertions remain unsupported by automation. Return an explicit APPROVE/REJECT; runtime verifies unchanged scope/revision and actual checks. This does not make your read-only task a changed-task success.' : '');
 	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
 	const agentState = s.getAgentStates().get(agent.toLowerCase());
 	const resumeContract = {
 		taskId: d.noProgress.taskId(), instructions: declaredTask, scope: scopeGlobs,
+  // No parent ledger is the supported legacy task-text contract, not a bound minimal-only contract.
+  boundAssertionIds: s.getAssertions().length ? Object.freeze(validateBoundAssertionIds(requirements.map(requirement => requirement.id))) : undefined,
 		deliverables: contract.files.map(file => file.path), artifacts: inputArtifacts.map(artifact => artifact.path),
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: agentState?.def.tools ?? "",
 	};
 	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
-	const beforeSnapshot = snapshotWorktree(ctx.cwd || process.cwd(), scopeGlobs);
-	return { beforeSnapshot, reviewInput: s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, s.getProcessState(), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();
+ return { operatorCandidate, beforeSnapshot, reviewInput: s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
 	const s = d.state; const state = s.getAgentStates().get(prepared.agent.toLowerCase()); const canWrite = !!state && hasWriteCapability(state.def.tools);
-	const tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), concurrentAtStart: s.getActiveWritableDispatches() > 0 };
+	const tracking: Tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), concurrentAtStart: s.getActiveWritableDispatches() > 0 };
 	if (canWrite) {
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
 		tracking.snapshot = prepared.beforeSnapshot ?? snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
 	}
+ if (canWrite && s.getProcessState && s.setProcessState && s.persistProcessVerdict) {
+  const processState = s.getProcessState();
+  const started = beginReceiptCapture(processState.runtimeReceipts, { taskId: prepared.taskId, sessionDir: prepared.sessionDir, scope: prepared.scopeGlobs, declarationHash: receiptDeclarationHash(prepared.requirements, prepared.scopeGlobs, s.getAcceptedUserInput?.(), prepared.inputArtifacts) }, !tracking.concurrentAtStart);
+  const next = { ...processState, runtimeReceipts: started.state };
+  s.setProcessState(next);
+  s.persistProcessVerdict(next, evaluateProcessObligations(next, { writable: true, budgetTier: s.getTaskTier() ?? "small" }));
+  if (s.processBlock?.()) throw Error("Runtime receipt capture could not be persisted");
+  tracking.receiptCapture = started.capture;
+ }
 	return tracking;
 }
 
@@ -297,7 +333,7 @@ async function diagnoseObservation(d: DispatchExecutorDeps, observation: Worktre
 async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, run: RunData, tracking: Tracking, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<ToolExecutionResult> {
 	const s = d.state; const { result, researchRounds } = run; const cwd = ctx.cwd || process.cwd();
 	const sameTaskNow = () => p.taskToken === d.noProgress.taskToken() && p.sessionDir === s.getSessionDir();
-	const ids = extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
+	const ids = validateBoundAssertionIds(p.resumeContract.boundAssertionIds) ?? extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
 	// Observe immediately at logical child completion, before Hub-owned artifacts are written.
 	const observation = tracking.writable ? observeWorktree(d, tracking, ctx) : null;
 	const submission = disposition.delivered ? result.specialistResult : undefined;
@@ -387,25 +423,65 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		inspectedRevision: compilerInspectedRevision, evidenceRef: compilerEvidencePath ?? "",
 		requirementIds: ["AF-MIN-CHANGE"],
 	}));
-    for (const record of backendUsed === "native" && tracking.writable ? result.runtimeTests ?? [] : []) for (const kind of ["test", "code-grep"] as const) {
-        const covered = p.requirements.filter(requirement => requirement.tag === kind && requirement.source && requirement.testCommand === record.command);
+    const receiptCapture = tracking.receiptCapture;
+    const receiptState = s.getProcessState?.().runtimeReceipts;
+    // Stream integrity is independent of observations: an empty check list is not proof of a clean capture.
+    // When native capture is expected, a missing integrity value fails closed; only an explicit "complete" is clean.
+    const captureExpected = backendUsed === "native" && (tracking.writable || !!p.operatorCandidate);
+    const captureIntegrity = result.lifecycle?.runtimeCaptureIntegrity;
+    const captureClean = captureExpected ? captureIntegrity === "complete" : captureIntegrity !== "tainted";
+    // Only declared evidence producers govern receipt exclusivity. Preparatory
+    // bash inspections can overlap reads without overlapping any evidence run.
+    // Source revision, stream integrity and concurrent-writer gates still apply.
+    const evidenceCommands = new Set(p.requirements.flatMap(requirement =>
+      [requirement.testCommand, requirement.compilerCommand].filter(Boolean)));
+    const exclusive = captureClean && !(result.runtimeTests ?? []).some(record => evidenceCommands.has(record.command) && record.exclusive === false) && !tracking.concurrentAtStart && s.getWritableOverlapCounter() === tracking.overlapBaseline && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0);
+    const captureCurrent = !!receiptCapture && !!receiptState && sameTaskNow() && receiptCapture.taskId === d.noProgress.taskId()
+      && receiptState.pending.length === 1 && receiptState.pending[0] === receiptCapture.captureId
+      && receiptCapture.sessionDir === s.getSessionDir() && receiptCapture.generation === receiptState.generation && receiptCapture.epoch === receiptState.epoch
+      && receiptCapture.declarationHash === receiptDeclarationHash(dispatchRequirements(d, p.agent, p.operatorCandidate ? '' : params.task), p.scopeGlobs, s.getAcceptedUserInput?.(), p.inputArtifacts);
+    const observations = backendUsed === "native" && (tracking.writable || !!p.operatorCandidate) ? result.runtimeTests ?? [] : [];
+    // A newer failure/unknown result for a command supersedes its success, even
+    // when the unknown observer result could not construct a success receipt.
+    const latest = new Map(observations.map(record => [record.command, record]));
+    if (receiptCapture && receiptState) {
+      const retained = captureCurrent && exclusive && p.beforeRevision === afterRevision && backendUsed === "native" ? reusableRuntimeChecks(receiptState, receiptCapture, afterRevision) : [];
+      checks.push(...retained.filter(check => !latest.has(check.command[0])));
+    }
+    const anchored: RuntimeReceipt[] = [];
+    for (const record of latest.values()) for (const kind of ["test", "code-grep", "compilation"] as const) {
+        const covered = p.requirements.filter(requirement => ["test", "code-grep"].includes(requirement.tag) && requirement.source && (kind === "compilation" ? requirement.compilerCommand === record.command : requirement.tag === kind && requirement.testCommand === record.command));
         if (!covered.length) continue;
         const coverage = covered.map(requirement => ({ id: requirement.id, source: requirement.source, text: requirement.text, reference: requirement.reference, criticalConditions: requirement.criticalConditions ?? [] }));
-        // This artifact records the observed command and declared coverage, not a
-        // pre-evaluation ledger snapshot. The acceptance artifact evaluates this
-        // check against the current task/revision and exact requirement binding.
-        const evidenceRef = d.artifacts.writeRunArtifact(`${key}-test-check`, state?.runCount ?? 0, JSON.stringify({
-            schema: "agent-fleet.runtime-test-evidence/v1",
-            observation: record,
+        const serialized = JSON.stringify({
+            schema: "agent-fleet.runtime-test-evidence/v1", observation: record,
             declaration: { taskId: p.taskId, dispatchId: result.dispatchId, kind, coverage },
+            ...(receiptCapture ? { capture: receiptCapture } : {}),
             evaluationSource: "agent-fleet.runtime-result/v1 verification.checks and verification.requirements",
-        }, null, 2), "evidence", randomUUID(), p.sessionDir);
-        checks.push({ producer: "runtime", kind, command: [record.command], exitCode: record.exitCode,
-            inspectedRevision: record.beforeRevision === record.afterRevision ? record.afterRevision : "changed-during-check",
-            evidenceRef, requirementIds: ["AF-MIN-CHANGE", ...covered.map(requirement => requirement.id)], taskId: p.taskId,
-            coverage,
-        });
+        }, null, 2);
+        const evidenceRef = d.artifacts.writeRunArtifact(`${key}-test-check`, state?.runCount ?? 0, serialized, "evidence", randomUUID(), p.sessionDir);
+        // Fresh observations follow the same rule as the parser-owned exclusive flag: anything other than an explicit
+        // "complete" capture stream (tainted, or a missing value) makes the record ineligible for acceptance.
+        const check: VerificationCheckInput = { producer: "runtime", kind, command: [record.command], exitCode: record.exitCode,
+            inspectedRevision: record.exclusive === false || captureIntegrity !== "complete" ? "unavailable" : record.beforeRevision === record.afterRevision ? record.afterRevision : "changed-during-check",
+            evidenceRef, requirementIds: [...new Set(["AF-MIN-CHANGE", ...covered.map(requirement => requirement.id)])], taskId: p.taskId, coverage };
+        checks.push(check);
+        if (captureCurrent && exclusive && record.producer === "agent-fleet.runtime-test/v1" && record.exclusive !== false && result.dispatchId && record.exitCode === 0 && record.beforeRevision === afterRevision && record.afterRevision === afterRevision && /^[a-f0-9]{64}$/.test(afterRevision)) {
+          try { anchored.push(anchorRuntimeReceipt(receiptCapture!, check, result.dispatchId, serialized)); } catch { /* No anchor => no continuation. */ }
+        }
     }
+    if (receiptCapture && receiptState && sameTaskNow()) {
+      // Retention is not reuse: a clean unrelated inspection must not erase
+      // anchors merely because its declaration/scope cannot borrow them. Reuse
+      // still validates the exact contract, revision and evidence bytes above.
+      // New observations (including failures/unknowns) supersede that command.
+      const records = captureCurrent && exclusive && p.beforeRevision === afterRevision && backendUsed === "native"
+        ? [...receiptState.records.filter(r => !latest.has(r.check.command[0])), ...anchored].slice(-64) : [];
+      const next = { ...s.getProcessState!(), runtimeReceipts: { ...receiptState, pending: receiptState.pending.filter(id => id !== receiptCapture.captureId), records } };
+      s.setProcessState?.(next);
+      // The ordinary finish path below journals this state through processAuditRecord.
+    }
+
 	const runtimeResult: any = buildRuntimeResult({
 		task: { id: p.taskId, current: sameTask && p.taskId === d.noProgress.taskId(), beforeRevision: p.beforeRevision, afterRevision },
 		execution: { status: executionStatus, exitCode: result.exitCode, dispatchId: result.dispatchId ?? null },
@@ -417,22 +493,37 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
   runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
  }
  let processVerdict: ProcessVerdict | null = null;
+ let operatorStateVerification:any = p.operatorCandidate ? {status:'unproven',origin:p.operatorCandidate.origin,historicalAttribution:'not_claimed',scope:p.operatorCandidate.paths,revision:afterRevision} : undefined;
 	if (s.getProcessState) {
 		let processState = s.getProcessState();
 		const taskChanges = (paths: string[]) => reviewableChangedPaths(paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
-		if (runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
+		if (!p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
 			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: taskChanges(observation?.paths ?? []) });
 		}
 		const stage = p.agent === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
-		const affirmativeReview = /(?:^|\n)\s*(?:verdict\s*:\s*)?APPROVE\b/im.test(result.output) && !/(?:^|\n)\s*(?:verdict\s*:\s*)?REJECT\b/im.test(result.output);
-		const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
-        const completedReviewInput = stage === "review" ? reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,processState,s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()) : null;
+		const affirmativeReview = affirmativeReviewVerdict(result.output);
+		// Candidate registration happens only after independent review and actual
+        // same-revision runtime checks, never from reported past edits.
+        const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()):null;
         const reviewComplete = !protocolDiagnostic && runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
             && (!submission || submission.status === "completed") && countReviewFindings(result.output).blocking === 0 && !(parsedReturn?.assertions_failed ?? []).length
             && !d.extractAskUserQuestions(result.output).length && !d.extractNeedsResearch(result.output).length
             && !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")
-            && (!p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput));
-		const reviewAuthorized = stage !== "review" || (reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
+            && (!p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput));
+        const candidateReady=!!p.operatorCandidate&&reviewComplete&&stage==='review'&&sameTaskNow()&&disposition.delivered&&result.exitCode===0
+          &&(!result.specialistResultTool||submission?.status==='completed')&&!!p.reviewInput&&affirmativeReview
+          &&reviewMayClose({revision:afterRevision,scope:p.operatorCandidate.paths,output:result.output,evidenceRef:runPath??undefined,declared:!!parsedReturn,wide:processState.scope==='wide'||!!processState.additions?.some(item=>item.status==='active'&&item.reason==='wide_change')})
+          &&operatorStateChecksPassed({candidate:p.operatorCandidate,revision:afterRevision,sameTask:sameTaskNow(),native:backendUsed==='native',exclusive,verification:runtimeResult.verification});
+        if(candidateReady&&p.operatorCandidate){
+          try {
+            const evidenceRef=persistOperatorStateProof({writer:d.artifacts.writeRunArtifact,sessionDir:p.sessionDir,runCount:state?.runCount??0,dispatchId:result.dispatchId||randomUUID(),record:{schema:'agent-fleet.operator-state-verification/v1',...p.operatorCandidate,taskId:p.taskId,checks:runtimeResult.verification.checks,manualAssertions:'not_automatically_proven'}});
+            processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
+            operatorStateVerification={...operatorStateVerification,status:'accepted',evidenceRef};
+          } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed'}; }
+        }
+        const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
+        const completedReviewInput = candidateReviewInput;
+		const reviewAuthorized = stage !== "review" || ((!p.operatorCandidate || operatorStateVerification?.status==='accepted') && reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
 		// nonempty plan return. The Hub cannot judge its semantic adequacy.
@@ -459,7 +550,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision });
 		}
 		s.setProcessState?.(processState);
-		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: runtimeResult.acceptance.accepted, currentRevision: afterRevision });
+		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: !p.operatorCandidate && runtimeResult.acceptance.accepted, currentRevision: afterRevision });
 		runtimeResult.process = processVerdict;
 		if (!processVerdict.accepted) {
 			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open").map(([name]) => `process_${name}_open`)])] };
@@ -486,7 +577,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             evidenceRef: runPath ?? '', openRequirements: runtimeResult.verification.requirements.filter((r: any) => r.status !== 'passed').map((r: any) => r.id),
         });
     }
-	const accepted = runtimeResult.acceptance.accepted;
+	const accepted = !p.operatorCandidate && runtimeResult.acceptance.accepted;
 	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
 	const questions = [...new Set([...d.extractAskUserQuestions(result.output), ...(submission?.requires_user_decision ?? []).filter(question => question.trim().toLowerCase() !== "none")])];
 	const contractGap = acceptanceStatus === "deliverable_failed" ? "missing_deliverable" : !parsedReturn && questions.length ? "missing_structured_return" : null;
@@ -528,7 +619,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(operatorStateVerification?{operatorStateVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -573,7 +664,7 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
-        if (isReviewPersona(agent) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && d.state.getProcessState) {
+        if (isReviewPersona(agent) && params.review_mode !== 'operator-current-state' && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && d.state.getProcessState) {
             const state=d.state.getProcessState();
             let cached=null;
             try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
@@ -603,7 +694,9 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
             if(continuation)prepared.task+="\nRecorded verification evidence (check its revision and applicability; not automatic proof of a fix): "+JSON.stringify(state.acceptance);
             prepared.resumeContract.instructions=prepared.task;
         }
-		const tracking = startTracking(d, prepared, ctx);
+        let tracking: Tracking;
+        try { tracking = startTracking(d, prepared, ctx); }
+        catch { d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); return refusal(d, agent, params.task, "receipt_capture_failed", "Runtime receipt capture could not be durably anchored; no child launched."); }
 		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }
 		catch (err: any) { return { content: [{ type: "text", text: `Error dispatching to ${prepared.agent}: ${err?.message || err}` }], details: { agent: prepared.agent, task: prepared.task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
 		finally { if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }

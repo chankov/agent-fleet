@@ -4,7 +4,7 @@ description: Implementation and code generation — lands changes in small verif
 tools: read,write,edit,bash,grep,find,ls
 model: openai-codex/gpt-6.1-sol
 models:
-  - github-copilot/claude-opus-5
+  - github-copilot/claude-opus-5.5
   - openai-codex/gpt-6-luna
   - openai-codex/gpt-6-luna
   - ollama/minimax-m3:cloud

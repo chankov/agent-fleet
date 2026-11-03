@@ -21,15 +21,15 @@ export function normalizeReviewEvidence(value:unknown):ReviewEvidence[] {
 /** No model judgment: match complete declared coverage, requirement declarations,
  * source additions, file state and the retained report's bytes. Unknown => rerun.
  */
-export function reviewInput(cwd:string,taskId:string,agent:string,scope:string[],state:ProcessObligationState,requirements:readonly {id:string;tag?:string;text?:string;source?:string;reference?:string;criticalConditions?:string[];testCommand?:string}[],artifacts:{path:string}[],acceptedInput?:string):ReviewInput|null {
+export function reviewInput(cwd:string,taskId:string,agent:string,scope:string[],state:ProcessObligationState,requirements:readonly {id:string;tag?:string;text?:string;source?:string;reference?:string;criticalConditions?:string[];testCommand?:string;compilerCommand?:string}[],artifacts:{path:string}[],acceptedInput?:string):ReviewInput|null {
  if(!reviewers.has(agent)||!scope.length||!state.changedFiles.length)return null;
  try {
   const normalized=[...new Set(scope.map(s=>s.trim()).filter(Boolean))].sort();
   const scopeRevision=worktreeRevision(cwd,normalized,normalized);
   if(scopeRevision==="unavailable")return null;
-  const declarations=requirements.map(r=>({id:r.id,tag:r.tag,text:r.text,source:r.source,reference:r.reference,criticalConditions:r.criticalConditions,testCommand:r.testCommand})).sort((a,b)=>a.id.localeCompare(b.id));
+  const declarations=requirements.map(r=>({id:r.id,tag:r.tag,text:r.text,source:r.source,reference:r.reference,criticalConditions:r.criticalConditions,testCommand:r.testCommand,compilerCommand:r.compilerCommand})).sort((a,b)=>a.id.localeCompare(b.id));
   const inputs=artifacts.map(a=>[a.path,digest(readFileSync(resolve(cwd,a.path)))]).sort(([a],[b])=>a.localeCompare(b));
-  return {taskId,agent,scope:normalized,scopeRevision,contractHash:digest(JSON.stringify({acceptedInput:acceptedInput===undefined?undefined:digest(acceptedInput),risk:state.risk,scope:state.scope,changedFiles:[...state.changedFiles].sort(),additions:state.additions,requirements:declarations,inputs}))};
+  return {taskId,agent,scope:normalized,scopeRevision,contractHash:digest(JSON.stringify({acceptedInput:acceptedInput===undefined?undefined:digest(acceptedInput),risk:state.risk,scope:state.scope,...(state.workOrigin?{workOrigin:state.workOrigin}:{}),changedFiles:[...state.changedFiles].sort(),additions:state.additions,requirements:declarations,inputs}))};
  } catch { return null; }
 }
 export function retainReview(state:ProcessObligationState,input:ReviewInput|null,evidenceRef:string,cwd:string):ProcessObligationState {

@@ -73,7 +73,7 @@ export interface AcceptanceRequirement {
  source: string;
  reference?: string;
  criticalConditions?: string[];
- testCommand?: string;
+ testCommand?: string; compilerCommand?: string;
  status?: "open" | "proven" | "unproven" | "failed";
  evidenceTaskId?: string;
  evidenceRevision?: string;
@@ -138,12 +138,15 @@ export function buildRuntimeResult(input: RuntimeResultInput) {
   return { ...check, command: [...check.command], requirementIds: [...(check.requirementIds ?? [])], status };
  });
  const requirements = input.requirements.map(requirement => {
-  const matching = checks.filter(check => check.requirementIds.includes(requirement.id) && (requirement.id === "AF-MIN-CHANGE" || (["test", "code-grep"].includes(requirement.tag) && check.kind === requirement.tag && check.taskId === input.task.id && check.command.length === 1 && check.command[0] === requirement.testCommand && check.coverage?.some(binding => binding.id === requirement.id && binding.source === requirement.source && binding.text === requirement.text && binding.reference === requirement.reference && JSON.stringify(binding.criticalConditions) === JSON.stringify(requirement.criticalConditions ?? [])))));
+  const automated = ["test", "code-grep"].includes(requirement.tag);
+  const bound = (check: typeof checks[number]) => check.taskId === input.task.id && check.command.length === 1 && check.coverage?.some(binding => binding.id === requirement.id && binding.source === requirement.source && binding.text === requirement.text && binding.reference === requirement.reference && JSON.stringify(binding.criticalConditions) === JSON.stringify(requirement.criticalConditions ?? []));
+  const declared = [requirement.testCommand && { kind: requirement.tag, command: requirement.testCommand }, requirement.compilerCommand && { kind: "compilation", command: requirement.compilerCommand }].filter(Boolean) as {kind: string; command: string}[];
+  const matching = checks.filter(check => check.requirementIds.includes(requirement.id) && (declared.length ? automated && bound(check) && declared.some(d => d.kind === check.kind && d.command === check.command[0]) : requirement.id === "AF-MIN-CHANGE"));
   let status: RequirementStatus;
-  if (requirement.id !== "AF-MIN-CHANGE" && !["test", "code-grep"].includes(requirement.tag)) status = "unsupported";
+  if (!["test", "code-grep"].includes(requirement.tag)) status = "unsupported";
   else if (matching.some(check => check.status === "failed")) status = "failed";
   else if (matching.some(check => check.status === "stale")) status = "stale";
-  else if (matching.some(check => check.status === "passed")) status = "passed";
+  else if (matching.some(check => check.status === "passed") && declared.every(d => matching.some(check => check.kind === d.kind && check.command[0] === d.command && check.status === "passed"))) status = "passed";
   else if (requirement.evidenceTaskId && requirement.evidenceTaskId !== input.task.id) status = "stale";
   else if (requirement.evidenceRevision && requirement.evidenceRevision !== input.task.afterRevision) status = "stale";
   else if (requirement.status === "failed") status = "failed";
@@ -157,6 +160,7 @@ export function buildRuntimeResult(input: RuntimeResultInput) {
    ...(requirement.reference ? { reference: requirement.reference } : {}),
    criticalConditions: [...(requirement.criticalConditions ?? [])],
    ...(requirement.testCommand ? { testCommand: requirement.testCommand } : {}),
+   ...(requirement.compilerCommand ? { compilerCommand: requirement.compilerCommand } : {}),
    taskId: input.task.id,
    revision: input.task.afterRevision,
    status,

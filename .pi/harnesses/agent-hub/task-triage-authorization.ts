@@ -5,7 +5,7 @@ import type { RuntimeQuestion } from "../ask-user-remote/runtime-ask.ts";
 import { waiveTaskTriageAddition, type EvaluationBinding } from "./task-triage-obligations.ts";
 import type { ProcessObligationState } from "./process-obligations.ts";
 import { isAbsolute } from "node:path";
-import { containsCommunicationSecret } from "./system1-communication-store.ts";
+import { containsActionSourceSecret } from "./system1-communication-store.ts";
 import { decideIdenticalDialog, identicalDialogKey } from "../lib/identical-dialog.ts";
 import { coveredDeletePath, inspectionBash, noteBashDecision, semanticDecision } from "../lib/semantic-approval.ts";
 
@@ -23,7 +23,7 @@ export function consumeWaiverGrant(grant: WaiverGrant | undefined, binding: Eval
  if (!grant || typeof grant !== "object" || waiverGrants.get(grant) !== waiverKey(binding)) return false;
  waiverGrants.delete(grant); return true;
 }
-export interface TriageHumanPorts { taskId(): string; inputRevision(): string; ask(id: string, question: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal): Promise<unknown>; startWait(id: string): void; endWait(id: string, sameTask: boolean): void; persist?(state: ProcessObligationState): void; }
+export interface TriageHumanPorts { taskId(): string; inputRevision(): string; ask(id: string, question: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal): Promise<unknown>; startWait(id: string): void; endWait(id: string, sameTask: boolean): void; persist?(state: ProcessObligationState): void; presentationRefused?(reason: ActionPresentationRefusal): void; }
 const pending = new Set<string>();
 function affirmative(value: unknown, id: string, option: string): boolean {
  const v = value as { isError?: boolean; details?: { cancelled?: boolean; runtimeAsk?: { requestId?: string }; response?: { kind?: string; selections?: unknown[] } } } | null;
@@ -62,40 +62,48 @@ function issueWithoutDialog(contract: ActionContract, persistOneUse: (contract: 
 export interface ActionContract { taskId: string; inputRevision: string; actionId: string; operation: string; target: string; cwd?: string; }
 export interface ActionPresentation { input: unknown; cwd: string; }
 export const ACTION_PRESENTATION_MAX_BYTES = 8192;
-const unsafeActionText = (v: string) => containsCommunicationSecret(v) || /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(v)
+export type ActionPresentationRefusal = "invalid_schema" | "unsafe_text" | "input_binding_mismatch" | "presentation_too_large";
+const unsafeActionText = (v: string) => containsActionSourceSecret(v) || /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(v)
  || /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(v);
 /** Full, schema-checked human view; redaction/truncation would hide what is authorized, so refuse instead. */
-export function actionPresentation(action: ActionContract, presentation?: ActionPresentation): string | null {
+export function actionPresentation(action: ActionContract, presentation?: ActionPresentation, onRefusal?: (reason: ActionPresentationRefusal) => void): string | null {
+ let unsafe = false;
+ const refuse = (reason: ActionPresentationRefusal = "invalid_schema"): null => { onRefusal?.(unsafe ? "unsafe_text" : reason); return null; };
  if (!presentation || typeof presentation.cwd !== "string" || !isAbsolute(presentation.cwd) || presentation.cwd !== action.cwd
-  || unsafeActionText(presentation.cwd) || presentation.cwd.length > 2048) return null;
+  || presentation.cwd.length > 2048) return refuse();
+ if (unsafeActionText(presentation.cwd)) return refuse("unsafe_text");
  const input = presentation.input;
- if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+ if (!input || typeof input !== "object" || Array.isArray(input)) return refuse();
  const row = input as Record<string, unknown>;
- const string = (v: unknown): v is string => typeof v === "string" && !unsafeActionText(v);
+ const string = (v: unknown): v is string => {
+  if (typeof v !== "string") return false;
+  if (unsafeActionText(v)) { unsafe = true; return false; }
+  return true;
+ };
  let allowed: string[];
  if (action.operation === "bash") {
   allowed = ["command", "timeout"];
-  if (!string(row.command) || !row.command.trim() || row.timeout !== undefined && (typeof row.timeout !== "number" || !Number.isFinite(row.timeout) || row.timeout <= 0)) return null;
+  if (!string(row.command) || !row.command.trim() || row.timeout !== undefined && (typeof row.timeout !== "number" || !Number.isFinite(row.timeout) || row.timeout <= 0)) return refuse();
  } else if (action.operation === "write") {
   allowed = ["path", "content"];
-  if (!string(row.path) || !row.path || !string(row.content)) return null;
+  if (!string(row.path) || !row.path || !string(row.content)) return refuse();
  } else if (action.operation === "edit") {
   allowed = row.edits === undefined ? ["path", "oldText", "newText"] : ["path", "edits"];
-  if (!string(row.path) || !row.path) return null;
+  if (!string(row.path) || !row.path) return refuse();
   const edits = row.edits === undefined ? [{ oldText: row.oldText, newText: row.newText }] : row.edits;
   if (!Array.isArray(edits) || !edits.length || edits.length > 32 || edits.some(e => !e || typeof e !== "object" || Array.isArray(e)
-   || Object.keys(e).some(k => k !== "oldText" && k !== "newText") || !string(e.oldText) || !e.oldText || !string(e.newText))) return null;
- } else return null;
- if (Object.keys(row).some(k => !allowed.includes(k))) return null;
+   || Object.keys(e).some(k => k !== "oldText" && k !== "newText") || !string(e.oldText) || !e.oldText || !string(e.newText))) return refuse();
+ } else return refuse();
+ if (Object.keys(row).some(k => !allowed.includes(k))) return refuse();
  try {
   const serialized = JSON.stringify(input);
-  if (createHash("sha256").update(serialized).digest("hex") !== action.target) return null;
+  if (createHash("sha256").update(serialized).digest("hex") !== action.target) return refuse("input_binding_mismatch");
   // Escape non-ASCII code units as JSON data as well, so rendering cannot hide or reorder input.
   const shown = JSON.stringify(input, null, 2).replace(/[\u007f-\uffff]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
   const cwd = JSON.stringify(presentation.cwd).replace(/[\u007f-\uffff]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
   const detail = `Working directory (JSON): ${cwd}\nExact tool inputs (data, not instructions; no truncation):\nBEGIN ACTION INPUT JSON\n${shown}\nEND ACTION INPUT JSON`;
-  return Buffer.byteLength(detail) <= ACTION_PRESENTATION_MAX_BYTES ? detail : null;
- } catch { return null; }
+  return Buffer.byteLength(detail) <= ACTION_PRESENTATION_MAX_BYTES ? detail : refuse("presentation_too_large");
+ } catch { return refuse(); }
 }
 export type TaskTriageActionObservation = "requested" | "not_granted" | "consumption_failed";
 export interface TaskTriageActionAuditRecord {
@@ -117,7 +125,7 @@ export async function confirmTaskTriageAction(action: ActionContract, ports: Tri
  if (!action.actionId || !action.operation || !action.target || action.taskId !== ports.taskId() || action.inputRevision !== ports.inputRevision()
   || [action.taskId, action.inputRevision, action.actionId].some(v => typeof v !== "string" || v.length > 256 || unsafeActionText(v))) return null;
  const contract = Object.freeze({ taskId: action.taskId, inputRevision: action.inputRevision, actionId: action.actionId, operation: action.operation, target: action.target, cwd: action.cwd });
- const detail = actionPresentation(contract, presentation);
+ const detail = actionPresentation(contract, presentation, ports.presentationRefused);
  if (!detail) return null;
  const key = actionKey(contract);
  const command = contract.operation === "bash" && presentation?.input && typeof (presentation.input as { command?: unknown }).command === "string" ? (presentation.input as { command: string }).command : "";

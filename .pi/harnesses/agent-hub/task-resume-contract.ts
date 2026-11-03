@@ -1,7 +1,9 @@
+import { validateBoundAssertionIds } from "./return-contract.js";
 import { posix } from "node:path";
 
 export interface TaskResumeInput {
 	taskId: string;
+ boundAssertionIds?: readonly string[];
 	instructions: string;
 	scope?: readonly string[];
 	deliverables?: readonly string[];
@@ -13,6 +15,7 @@ export interface TaskResumeInput {
 
 export interface TaskResumeContract {
 	taskId: string;
+ boundAssertionIds?: readonly string[];
 	instructions: string;
 	scope: string[];
 	deliverables: string[];
@@ -45,6 +48,7 @@ function identityOf(contract: Omit<TaskResumeContract, "resumeAllowed" | "inheri
 		contract.artifacts,
 		contract.model,
 		contract.permissions,
+  contract.boundAssertionIds,
 	]);
 }
 
@@ -52,6 +56,7 @@ function identityOf(contract: Omit<TaskResumeContract, "resumeAllowed" | "inheri
 export function bindResume(input: TaskResumeInput): TaskResumeContract {
 	const current = {
 		taskId: normalizeText(input.taskId),
+  boundAssertionIds: validateBoundAssertionIds(input.boundAssertionIds),
 		instructions: normalizeText(input.instructions),
 		scope: normalizeList(input.scope),
 		deliverables: normalizeList(input.deliverables),

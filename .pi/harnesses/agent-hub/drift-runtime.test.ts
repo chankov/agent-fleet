@@ -744,3 +744,32 @@ test("index cancel, restart and shutdown ports fence before kill", () => {
 	assert.equal(source.includes("fenceOperatorCancel(st)"), true);
 	assert.equal(source.includes("cancelOwned: state => { fenceOperatorCancel(state);"), true);
 });
+
+test("bound assertion env: absent contract is legacy (no key), exact contract is forwarded, malformed contract is refused before spawn", async () => {
+	const seen: Array<Record<string, string> | undefined> = [];
+	let spawns = 0;
+	const makeRun = (resumeContract: unknown): any => ({
+		nativeAdmitted: () => true, dispatchId: "dispatch-bound", key: "builder", agentKey: "builder", personaKey: "builder",
+		deps: {
+			displayName: (name: string) => name, guardrailEnv: () => ({}), notifyProviderQueue() {}, getSessionDir: () => "/tmp",
+			getWatchdogAgentOverride: () => undefined, getWatchdogSetting: () => "off", getWorkMode: () => "operator",
+			providerSemaphore: { run: async (_model: string, fn: () => Promise<unknown>) => fn() },
+			runDriftJudge: async () => ({ status: "unavailable", reason: "fixture" }), createDriftMonitor: () => monitor,
+			updateWidget() {}, appendTimelineText() {}, appendTimelineEvent() {}, shortModel: (model: string) => model, getReconSearchTimeoutMs: () => 1,
+			spawnPiAgentWithModelFallback: async (opts: any) => { spawns++; seen.push(opts.env); return { output: "", exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: "fake/model", lifecycle: { launched: true, closeSeen: true, runtimeCaptureIntegrity: "complete" } }; },
+		},
+		state: { def: { name: "builder" }, toolCount: 0, timeline: [] }, ctx: { cwd: "/tmp", ui: { notify() {} } },
+		watchdogParam: false, scopeGlobs: [], task: "task", model: "fake/model", effectiveTools: "read", thinkingLevel: "off",
+		replacementSystemPrompt: "", agentSessionFile: "/tmp/session.json", runPrompt: "prompt", extensions: [], turnBudget: {},
+		resumeAllowed: false, sessionRecycled: false, sessionReset: null, ...(resumeContract === undefined ? {} : { resumeContract }),
+	});
+	await runPreparedNative(makeRun(undefined));
+	await runPreparedNative(makeRun({}));
+	await runPreparedNative(makeRun({ boundAssertionIds: ["B1", "AF-MIN-CHANGE"] }));
+	assert.equal(spawns, 3);
+	assert.equal("AGENT_HUB_BOUND_ASSERTION_IDS" in (seen[0] ?? {}), false, "absent contract: legacy child keeps A-number extraction");
+	assert.equal("AGENT_HUB_BOUND_ASSERTION_IDS" in (seen[1] ?? {}), false, "contract without IDs: legacy");
+	assert.equal(seen[2]?.AGENT_HUB_BOUND_ASSERTION_IDS, JSON.stringify(["B1", "AF-MIN-CHANGE"]));
+	for (const malformed of [["a b"], "B1", ["B1", "B1"], [1]]) await assert.rejects(runPreparedNative(makeRun({ boundAssertionIds: malformed })), /Invalid bound assertion IDs/);
+	assert.equal(spawns, 3, "a malformed provided contract never reaches a child");
+});

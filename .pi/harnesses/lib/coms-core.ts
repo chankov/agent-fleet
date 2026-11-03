@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { instructionReceipt, ownerOf, sameOwner, validateInstructionTag } from './coms-instruction-receipts.ts';
 import * as fs from "node:fs";
 import {sessionRootsFromEnv,projectForSession} from './workspace-context.ts';
 import * as net from "node:net";
@@ -99,6 +100,7 @@ export interface CreateComsPeerDeps {
 	getContext: () => ExtensionContext | null;
 	onPeersChanged?: () => void;
 	acceptInbound?: () => string | null;
+ instructionReceipts?: boolean;
 	handleCustomEnvelope?: (socket: net.Socket, envelope: any) => boolean;
 }
 
@@ -201,7 +203,23 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		return derivePeerStatus(turnState, waitingInboundCount(), currentInbound !== null);
 	}
 
+ function instructionCapability() {
+  const manager = deps.getContext()?.sessionManager;
+  return deps.instructionReceipts && identity && typeof pi.appendEntry === 'function'
+   && typeof manager?.getLeafId === 'function' && typeof manager?.getEntry === 'function'
+   ? { version: 1 as const, owner: ownerOf(identity) } : undefined;
+ }
+ function terminalFor(inbound: InboundContext, response: unknown, error: unknown) {
+  if (!inbound.instruction || !identity || !sameOwner(ownerOf(identity),inbound.instruction.owner)) return undefined;
+  const receipt = instructionReceipt(ownerOf(identity),inbound.msg_id,response,error);
+  try { pi.appendEntry('coms-instruction-receipt',receipt); } catch { /* Wire evidence remains valid; later history may be unknown. */ }
+  return receipt;
+ }
 	function handlePrompt(socket: net.Socket, envelope: PromptEnvelope): void {
+  let native = false;
+  try { native = validateInstructionTag(envelope,identity ? ownerOf(identity) : {project:'',peer:'',sessionId:'',startedAt:''}); }
+  catch { nack(socket,envelope.msg_id,'instruction owner/version/payload mismatch'); return; }
+  if (native && (!instructionCapability() || inboundQueue.has(envelope.msg_id))) { nack(socket,envelope.msg_id,'instruction unsupported or duplicate'); return; }
 		const refusal = deps.acceptInbound?.();
 		if (refusal) { nack(socket, envelope.msg_id, refusal); return; }
 		if (typeof envelope.hops !== "number" || envelope.hops >= MAX_HOPS) {
@@ -218,9 +236,12 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			prompt: envelope.prompt,
 			response_schema: envelope.response_schema ?? null,
 			fulfilled: false,
+   ...(native ? {instruction: structuredClone(envelope.instruction!)} : {}),
 		};
+  const admission = currentInbound || turnState !== 'idle' || dispatchPaused ? 'queued' : 'submitted';
 		inboundQueue.set(envelope.msg_id, inbound);
-		ack(socket, envelope.msg_id);
+  if (native) { socket.write(JSON.stringify({type:'ack',msg_id:envelope.msg_id,instruction:{...instructionCapability(),admission}})+'\n');socket.end(); }
+  else ack(socket, envelope.msg_id);
 		audit({ event: "inbound_prompt", msg_id: envelope.msg_id, sender: envelope.sender_session, hops: envelope.hops });
 		dispatchNextInbound();
 	}
@@ -244,7 +265,9 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			currentInbound = null;
 			audit({ event: "inbound_delivery_failed", msg_id: inbound.msg_id, reason });
 			if (identity) {
+    const receipt=terminalFor(inbound,null,'peer agent could not start the queued turn');
 				void sendEnvelope(inbound.sender_endpoint, {
+     ...(inbound.instruction ? {instruction:{version:1 as const,owner:ownerOf(identity),receipt:receipt??null}} : {}),
 					type: "response", msg_id: inbound.msg_id, sender_session: identity.session_id,
 					sender_endpoint: identity.endpoint, hops: 0, timestamp: nowIso(), response: null,
 					error: "peer agent could not start the queued turn",
@@ -291,7 +314,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			pane_id: herdrPaneId() ?? null,
 			status: peerStatus(),
 		};
-		try { socket.write(`${JSON.stringify({ type: "pong", msg_id: envelope.msg_id, agent_card: card })}\n`); } catch { /* ignore */ }
+		try { socket.write(`${JSON.stringify({ type: "pong", msg_id: envelope.msg_id, agent_card: card, ...(instructionCapability() ? {instruction:instructionCapability()} : {}) })}\n`); } catch { /* ignore */ }
 		try { socket.end(); } catch { /* ignore */ }
 	}
 
@@ -604,10 +627,14 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	async function respond(ctx: ExtensionContext, inbound = currentInbound): Promise<void> {
 		if (!inbound || !identity || inbound.fulfilled) return;
 		const { response, error } = responseForInbound(ctx, inbound);
+  const receipt=terminalFor(inbound,response,error);
 		try {
 			await sendEnvelope(inbound.sender_endpoint, {
 				type: "response", msg_id: inbound.msg_id, sender_session: identity.session_id,
-				sender_endpoint: identity.endpoint, hops: 0, timestamp: nowIso(), response, error,
+				sender_endpoint: identity.endpoint, hops: 0, timestamp: nowIso(),
+    response: inbound.instruction ? receipt?.text??null : response,
+    error: inbound.instruction ? receipt?.state==='failed'?'instruction failed':null : error,
+    ...(inbound.instruction ? {instruction:{version:1 as const,owner:ownerOf(identity),receipt:receipt??null}} : {}),
 			} as ResponseEnvelope);
 			audit({ event: "outbound_response", msg_id: inbound.msg_id, error });
 		} catch (sendError: any) {

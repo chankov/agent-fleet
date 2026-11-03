@@ -1,5 +1,7 @@
 # ChatGPT Desktop/Android → Fleet session client
 
+> **Local Codex native interface:** [Native MCP guide](codex-local-mcp.md) describes exact-target multi-session discovery, read, separately authorized send and question actions, and explicit journal migration. The [voice workflow](fleet-native-voice.md) has a verified Codex desktop voice-to-agent discovery/read-policy path. The CLI client described below remains a separate, supported single-session route. Neither path promises idle wake, mobile native tools, automatic answers, or strong human-origin attestation.
+
 **Local completion:** implementation, text-based Android acceptance, T14 catalog, final review, regression and dependency audit are complete as of 2026-09-08. Commit/version/publication remain separate and have not run.
 
 Experimental opt-in client for an existing Pi session. ChatGPT carries human instructions and summaries; Pi owns execution, permissions, budgets, models and specialist orchestration. A ChatGPT conversation selects one Pi session. Other conversations have independent bindings. Pi continues while ChatGPT is inactive; synchronization happens when the human returns or requests an active watch.

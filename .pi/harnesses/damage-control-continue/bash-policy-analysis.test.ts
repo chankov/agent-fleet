@@ -45,3 +45,10 @@ for(const command of [
 ])test(`real protected operations remain blocked: ${JSON.stringify(command)}`,async t=>{
  assert.equal(await blocked(t,command),true);
 });
+
+test('node script options ending in e do not become inline interpreter source',async t=>{
+ assert.equal(await blocked(t,'node node_modules/typescript/bin/tsc --noEmit --module nodenext --strict src/example.ts'),false);
+});
+for (const command of ['node --eval "require(\'fs\').writeFileSync(\'/bin/x\', \'x\')"', 'node -e "require(\'fs\').writeFileSync(\'/bin/x\', \'x\')"', 'node script.js --output /bin/x']) test(`node protected writes remain blocked: ${command}`,async t=>{
+ assert.equal(await blocked(t,command),true);
+});

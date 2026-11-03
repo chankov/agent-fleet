@@ -51,7 +51,7 @@ test("parseStructuredReturn reads bullet, bold, and bare line forms", () => {
 	assert.equal(parsed.assertions_proven[1].evidence, "scripts/x.test.ts:88");
 	// A bare verdict names no evidence, so it must stay demotable.
 	assert.equal(parsed.assertions_proven[2].evidence, null);
-	assert.deepEqual(crossCheck(parsed, ["A3"]), [{ type: "proven_without_evidence", id: "A3", note: "" }]);
+	assert.deepEqual(crossCheck(parsed, ["A1", "A2", "A3", "A4"]), [{ type: "proven_without_evidence", id: "A3", note: "" }]);
 	assert.equal(parsed.assertions_failed[0].id, "A4");
 });
 
@@ -294,4 +294,13 @@ test("compiler correction never promotes an unproven assertion", () => {
 	const corrected = correctStructuredReturnForCompiler(parsed, ["A1"], compilerResult({ projects: [{ status: "passed", diagnostics: [] }] }));
 	assert.deepEqual(corrected.parsed.assertions_unproven, parsed.assertions_unproven);
 	assert.deepEqual(corrected.parsed.assertions_proven, []);
+});
+
+test('bound contract crosscheck rejects unknown and duplicate IDs and checks non-A omissions',()=>{
+ const ids=['AF-MIN-CHANGE','B1','B2','B3','B4','A1','A4','R2'];
+ assert.deepEqual(crossCheck({assertions_unproven:ids.map(id=>({id}))},ids),[]);
+ assert.ok(crossCheck({assertions_unproven:[{id:'B1'},{id:'B1'},{id:'A999'}]},ids).some(n=>n.type==='unknown'&&n.id==='A999'));
+ assert.ok(crossCheck({assertions_unproven:[{id:'B1'},{id:'B1'}]},ids).some(n=>n.type==='duplicate'&&n.id==='B1'));
+ assert.ok(crossCheck({},ids).some(n=>n.type==='missing'&&n.id==='R2'));
+ assert.throws(()=>crossCheck({},['B1','B1']));
 });

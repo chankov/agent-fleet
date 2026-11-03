@@ -20,6 +20,9 @@ export interface RuntimeTestRecord {
  exitCode: number | null;
  beforeRevision: string;
  afterRevision: string;
+ exclusive?: boolean;
+ startedAt?: number;
+ finishedAt?: number;
 }
 
 /** Observe the existing bash operation, never execute a second command or parse output. */
@@ -65,4 +68,12 @@ export function runtimeTestFromResult(enabled: boolean | undefined, startedComma
  const record = result?.details?.runtimeTest;
  if (!enabled || toolName !== "bash" || record?.producer !== "agent-fleet.runtime-test/v1" || typeof record.command !== "string" || !record.command || startedCommand !== record.command || !Number.isInteger(record.exitCode) || !record.beforeRevision || !record.afterRevision || typeof record.beforeRevision !== "string" || typeof record.afterRevision !== "string") return null;
  return { producer: "agent-fleet.runtime-test/v1", command: record.command, exitCode: record.exitCode, beforeRevision: record.beforeRevision, afterRevision: record.afterRevision };
+}
+
+/** A real matched bash result with no usable receipt is an unknown observation,
+ * not absence of evidence. It must supersede an older retained success. */
+export function runtimeTestObservationFromResult(enabled: boolean | undefined, startedCommand: string | undefined, toolName: string, result: any): RuntimeTestRecord | null {
+ const valid = runtimeTestFromResult(enabled, startedCommand, toolName, result);
+ if (valid) return valid;
+ return enabled && toolName === "bash" && startedCommand ? { producer: "agent-fleet.runtime-test/v1", command: startedCommand, exitCode: null, beforeRevision: "unavailable", afterRevision: "unavailable" } : null;
 }

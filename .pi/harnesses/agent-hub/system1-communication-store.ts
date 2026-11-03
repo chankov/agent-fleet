@@ -20,6 +20,14 @@ function redactSecretText(text: string): string {
 }
 /** True only for credential-like text; path masking is handled separately. */
 export function containsCommunicationSecret(text: string): boolean { return redactSecretText(text) !== text; }
+/** Source-only recognition of an exact Python attribute/parameter copy, not a credential literal.
+ * Keep diagnostic redaction conservative. Do not exempt arbitrary identifiers, expressions,
+ * other values or adjacent statements; rescan everything outside this narrowly recognized form.
+ */
+export function containsActionSourceSecret(text: string): boolean {
+ const source = text.replace(/(^[\t ]*|;[\t ]*)self\.(authorization)[\t ]*=[\t ]*\2(?=[\t ]*(?:;|\r?$))/gm, "$1");
+ return containsCommunicationSecret(source);
+}
 /** Conservative diagnostic copy, never an HTTP capture. Unknown consumer schemas are withheld. */
 export function redactCommunication(value: unknown): unknown {
  const seen = new WeakSet<object>();

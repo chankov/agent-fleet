@@ -133,7 +133,9 @@ import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmation
 import { confirmRecoverAction, confirmTaskSupersession, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
-import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
+import { handleQuestionEnvelope, registerQuestionPeer, questionChannel } from "../ask-user-remote/questions.ts";
+import { handleObservationEnvelope } from "../lib/coms-observation.ts";
+import { handleInstructionReceipt } from "../lib/coms-instruction-receipts.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts";
 import { RESEARCH_TOOLS, createResearchRuntime, parseResearchHandle } from "./research/runtime.ts";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
@@ -271,17 +273,28 @@ export default function (pi: ExtensionAPI) {
 	const coms = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
+		instructionReceipts: true,
 		onPeersChanged: () => refreshFleetUi(),
 		acceptInbound: () => currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)
 			? "orchestrator roster recovery required"
 			: null,
 		handleCustomEnvelope: (socket, envelope) => {
+			if (handleObservationEnvelope(socket, envelope, {
+				owner: observationOwner,
+				session: () => currentCtx?.sessionManager,
+				questions: () => { const owner = observationOwner(); return owner ? questionChannel.list(owner) : { status: 'stale' }; },
+			})) return true;
+			if (handleInstructionReceipt(envelope, socket, observationOwner, currentCtx?.sessionManager)) return true;
 			if (handleQuestionEnvelope(socket, envelope)) return true;
 			if (envelope.type !== "access_request") return false;
 			void accessApprovalRouter.handle(socket, envelope as AccessRequest);
 			return true;
 		},
 	});
+	function observationOwner() { return coms.ready && coms.identity ? {
+		project: coms.identity.project, peer: coms.identity.name,
+		sessionId: coms.identity.session_id, startedAt: coms.identity.started_at,
+	} : null; }
 	const unregisterQuestions = registerQuestionPeer(() => coms.ready && coms.identity ? {
 		project: coms.identity.project, peer: coms.identity.name,
 		sessionId: coms.identity.session_id, startedAt: coms.identity.started_at,
@@ -2085,7 +2098,9 @@ export default function (pi: ExtensionAPI) {
 			catch { /* Diagnostic trace cannot alter effect authorization. */ }
 		};
 		observeAction("requested");
+		let presentationFailure = "";
 		const grant = await confirmTaskTriageAction(action, {
+			presentationRefused: reason => { presentationFailure = `Task-triage approval was not shown: ${reason}. Exact action presentation refused; no authorization issued.`; },
 			taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
 			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal, { parentId: action.actionId, source: "task-triage" }),
 			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
@@ -2093,7 +2108,7 @@ export default function (pi: ExtensionAPI) {
 		if (processBlock() || ctx.cwd !== action.cwd || String(event.toolName) !== action.operation || String(event.toolCallId) !== action.actionId
 			|| noProgress.taskId() !== action.taskId || taskTriage?.current?.revision !== action.inputRevision
 			|| crypto.createHash("sha256").update(JSON.stringify(event.input)).digest("hex") !== action.target) { finishPolicy({ status: "blocked" }); return { block: true, reason: "Action changed while confirmation was pending; effect refused." }; }
-		if (!grant || !consumeActionGrant(grant, action)) { observeAction("not_granted"); finishPolicy({ status: "blocked" }); return { block: true, reason: gate.message }; }
+		if (!grant || !consumeActionGrant(grant, action)) { observeAction("not_granted"); finishPolicy({ status: "blocked" }); return { block: true, reason: presentationFailure || gate.message }; }
 		try { pi.appendEntry("agent-hub-task-triage-action-consumed", action); }
 		catch { observeAction("consumption_failed"); finishPolicy({ status: "blocked" }); return { block: true, reason: "One-use authorization consumption could not be persisted; effect refused." }; }
 		} catch (error) { finishPolicy({ status: "failed" }); throw error; }

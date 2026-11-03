@@ -96,7 +96,7 @@ export function reviewMayClose(input: { revision: string; scope: string[]; outpu
 		reviewerRan: true,
 	});
 	if (!rerun.accepted) return false;
-	if (rerun.mode === "full" && !/full regression|tests_run:\s*full/i.test(input.output)) return false;
+	if (rerun.mode === "full" && !/\bfull[\s-]+regression\b|\btests_run:\s*full\b/i.test(input.output)) return false;
 	return closeReview({
 		revision: input.revision,
 		scope: input.scope,

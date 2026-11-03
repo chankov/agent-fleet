@@ -21,7 +21,7 @@ const persona: PersonaDefinition = {
 const voices: Voice[] = [
 	{ name: "sol", model: "openai-codex/gpt-6.1-sol", thinking: "medium" },
 	{ name: "grok", model: "xai/grok-4.7", thinking: "medium" },
-	{ name: "opus", model: "github-copilot/claude-opus-5", thinking: "medium", integrator: true },
+	{ name: "opus", model: "github-copilot/claude-opus-5.5", thinking: "medium", integrator: true },
 ];
 
 function fixture() {
@@ -44,18 +44,18 @@ test("merge uses the integrator voice in a new session and attributes every clai
 			if (!options.prompt.includes("Merge the independent poll opinions")) {
 				return { output: JSON.stringify(ENVELOPE_EXAMPLES.poll), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
 			}
-			assert.equal(options.model, "github-copilot/claude-opus-5");
+			assert.equal(options.model, "github-copilot/claude-opus-5.5");
 			assert.equal(options.tools, "read,grep,find,ls");
 			assert.match(options.prompt, /must name a voice/);
 			return { output: JSON.stringify(ENVELOPE_EXAMPLES.merge), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
 		};
 		const opinions = [];
 		for (const voice of voices) opinions.push(await pollVoice({ run, cwd, persona, voice, task: "A or B?", panel: "default", spawn }));
-		const pollSession = sessions.find(path => /claude-opus-5-opus/.test(path));
+		const pollSession = sessions.find(path => /claude-opus-5\.5-opus/.test(path));
 		const merged = await runMerge({ run, cwd, persona, panel: "default", task: "A or B?", opinions, voices, spawn });
 		assert.equal(merged.integrator.name, "opus");
 		assert.equal(existsSync(merged.path), true);
-		const mergeSession = sessions.find(path => /claude-opus-5-merge/.test(path));
+		const mergeSession = sessions.find(path => /claude-opus-5\.5-merge/.test(path));
 		assert.ok(pollSession, `poll session missing in ${sessions.join(", ")}`);
 		assert.ok(mergeSession, `merge session missing in ${sessions.join(", ")}`);
 		assert.notEqual(dirname(pollSession), dirname(mergeSession));

@@ -394,6 +394,9 @@ function gitDiagnosticsFixture(t: any, git = true) {
  });
 }
 
+/** Stub stand-in for a launched native settlement. Production spawn always publishes parser-owned capture integrity (see the real-spawn tests below); a stub without it now fails closed at the parent, for fresh checks as well as receipt reuse. */
+const nativeCleanLifecycle={launched:true,closeSeen:true,runtimeCaptureIntegrity:'complete' as const};
+
 function compilerErrors(changedFiles: string[], overrides: Record<string, unknown> = {}) {
  return {
   status: "completed", changedFiles, attribution: "no_observed_overlap", uncoveredFiles: [],
@@ -680,7 +683,7 @@ for (const tag of ["test", "code-grep"]) test(`explicit ${tag} runtime evidence 
  d.dispatchAgent = async () => {
   writeFileSync(join(cwd, "semantic.js"), "export const utc = true;\n");
   const revision = worktreeRevision(cwd, []);
-  return { output: "This prose grants nothing", exitCode: 0, elapsed: 1, dispatchId: "semantic", runtimeTests: [{ command: "node --test utc.test.js", exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
+  return { output: "This prose grants nothing", exitCode: 0, elapsed: 1, dispatchId: "semantic", lifecycle: nativeCleanLifecycle, runtimeTests: [{ command: "node --test utc.test.js", exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
  };
  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 semantic check" }, undefined, undefined, { cwd } as any);
  const details = result.details as any;
@@ -700,7 +703,7 @@ test("T4 check evidence separates observed command, declared coverage, and evalu
   d.dispatchAgent = async () => {
    writeFileSync(join(cwd, "README.md"), `corrected ${scenario}\n`);
    const revision = worktreeRevision(cwd, []);
-   return { output: "delivered", exitCode: 0, elapsed: 1, dispatchId: `t4-check-${scenario}`, runtimeTests: [{
+   return { output: "delivered", exitCode: 0, elapsed: 1, dispatchId: `t4-check-${scenario}`, lifecycle: nativeCleanLifecycle, runtimeTests: [{
     producer: "agent-fleet.runtime-test/v1",
     command: scenario === "uncovered" ? "node --test other.test.js" : command,
     exitCode: scenario === "failed" ? 1 : 0,
@@ -912,7 +915,7 @@ async function runtimeEvidenceReviewFixture(t: any, unrelated = false, protectEv
   writeFileSync(join(sessionDir, "dispatches", "run", "result.json"), "{}\n");
   if (unrelated) writeFileSync(join(cwd, "src", "new-source.js"), "unrelated\n");
   const revision = worktreeRevision(cwd, []);
-  return { output: "README fixed", exitCode: 0, elapsed: 1, dispatchId: "build-evidence", runtimeTests: [{ command, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
+  return { output: "README fixed", exitCode: 0, elapsed: 1, dispatchId: "build-evidence", lifecycle: nativeCleanLifecycle, runtimeTests: [{ command, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
  };
  const execute = createDispatchExecutor(d as any);
  const build = await execute("build", { agent: "builder", task: "A1 README change", scope: ["README.md", ...(protectEvidence ? [".pi/agent-sessions/sessions/test/artifacts/watchdog/events.jsonl"] : [])] }, undefined, undefined, { cwd } as any);
@@ -1446,4 +1449,604 @@ test("native structured report bypasses extraction but does not replace task evi
  assert.equal(details.specialistCompletion,"completed");
  assert.equal(details.taskAccepted,false);
  assert.equal(details.structuredReturn.assertions_unproven[0].id,"A1");
+});
+
+async function operatorStateFixture(t:any,scenario='pass') {
+ const cwd=mkdtempSync(join(tmpdir(),'operator-review-'));t.after(()=>rmSync(cwd,{recursive:true,force:true}));execFileSync('git',['init','-q'],{cwd});
+ writeFileSync(join(cwd,'a.ts'),'export const a=1;\n');
+ const d=prepareDeps({agents:['code-reviewer'],tools:'read,bash'});d._agents.get('code-reviewer')!.lastBackend='native';
+ const session=mkdtempSync(join(tmpdir(),'operator-session-'));t.after(()=>rmSync(session,{recursive:true,force:true}));d.state.getSessionDir=()=>session;
+ const {createAssertionsArtifactsContext}=await import('../context/assertions-artifacts.ts');
+ d.artifacts.writeRunArtifact=createAssertionsArtifactsContext({getAssertions:()=>[],getSessionDir:()=>session,getRunHistoryKeep:()=>null,setStatus:()=>{}}).writeRunArtifact;
+ let state=applyProcessClassification(createProcessState(),{risk:'high',scope:'wide',reason:'fixture'}).state;
+ state=noteProcessStage(state,'plan',{evidenceRef:'fixture:plan',revision:worktreeRevision(cwd,[])});
+ d.state.getProcessState=()=>state;d.state.setProcessState=(value:any)=>{state=value;};
+ const command='node --test candidate.test.js';
+ d.state.getAssertions=()=>[{id:'A2',tag:'test',text:'candidate check',source:'fixture',testCommand:command,status:'open'},{id:'A1',tag:'manual',text:'relay recorded',source:'fixture',status:'open'}];
+ d.dispatchAgent=async()=>{
+  if(scenario==='modified')writeFileSync(join(cwd,'a.ts'),'export const a=2;\n');
+  if(scenario==='overlap')d._setOverlap(1);
+  const revision=worktreeRevision(cwd,[]);
+  const {validateSpecialistResult}=await import('../specialist-result.ts');
+  const submission=validateSpecialistResult({status:['partial','blocked'].includes(scenario)?scenario:'completed',summary:'Read-only current-state fixture',changed_files:[],assertions_proven:[],assertions_unproven:[],assertions_failed:scenario==='assertion-failed'?[{id:'A2',reason:'Unresolved assertion'}]:[],tests_run:['full scoped regression'],open_risks:[],requires_user_decision:scenario==='question'?['Choose behavior']:[],evidence:[]},cwd);
+  return {output:scenario==='reject'?'**Verdict:** REJECT':'**Verdict:** APPROVE\ntests_run: full regression',exitCode:0,elapsed:1,dispatchId:'current-state',
+   // Production native settlement always publishes parser-owned capture integrity; 'tainted' and 'no-integrity' model a lossy/absent capture.
+   ...(scenario==='no-integrity'?{}:{lifecycle:{launched:true,closeSeen:true,runtimeCaptureIntegrity:scenario==='tainted'?'tainted' as const:'complete' as const}}),
+   ...(scenario==='legacy'?{}:{specialistResultTool:true,...(scenario==='missing-submission'?{}:{specialistResult:submission})}),
+   runtimeTests:scenario==='no-checks'?[]:[{command,exitCode:scenario==='failed'?1:0,beforeRevision:scenario==='stale'?'other':revision,afterRevision:revision}]};
+ };
+ return {cwd,d,state:()=>state,run:createDispatchExecutor(d as any)};
+}
+test('explicit native current-state review closes scope-bound process without historical changes or manual proof',async t=>{
+ const f=await operatorStateFixture(t);const r=await f.run('current',{agent:'code-reviewer',task:'A2 current state, not authorship',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ const details=r.details as any;assert.ok(details.processVerdict,JSON.stringify(r));assert.equal(details.processVerdict.obligations.review.status,'satisfied',JSON.stringify({operator:details.operatorStateVerification,verification:details.verificationResult,process:details.processVerdict}));assert.equal(details.processVerdict.obligations.acceptance.status,'satisfied');
+ assert.equal(details.processVerdict.path,'operator-current-state');assert.deepEqual(details.processVerdict.auditScope,['a.ts']);
+ assert.equal(details.resultProtocol,'submit_result');assert.equal(details.structuredReturn.status,'completed');
+ assert.equal(details.operatorStateVerification.status,'accepted');assert.equal(details.operatorStateVerification.historicalAttribution,'not_claimed');
+ assert.equal(details.taskAccepted,false);assert.equal(details.changeResult.status,'unchanged');assert.equal(f.d.state.getAssertions()[1].status,'open');
+});
+test('current-state review fails closed on missing/failed/stale checks, reject, source mutation and overlap',async t=>{
+ for(const scenario of ['no-checks','failed','stale','reject','modified','overlap','partial','blocked','missing-submission','assertion-failed','question','tainted','no-integrity']){
+  const f=await operatorStateFixture(t,scenario);const r=await f.run(scenario,{agent:'code-reviewer',task:'A2 inspect '+scenario,scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+  assert.equal((r.details as any).operatorStateVerification.status,'unproven',scenario);assert.equal(f.state().review.evidenceRef,null,scenario);assert.equal(f.state().acceptance.evidenceRef,null,scenario);
+ }
+});
+test('current-state mode is explicit, native-only, exact observed files and never a normal builder bypass',async t=>{
+ for(const patch of [{backend:'coms'},{backend:'auto'},{review_mode:'invented'},{scope:['*.ts']},{scope:['a.ts','a.ts']},{scope:['clean.ts']},{scope_mode:'create'}]){
+  const f=await operatorStateFixture(t);const r=await f.run('invalid',{agent:'code-reviewer',task:'A2 invalid current state',scope:['a.ts'],backend:'native',review_mode:'operator-current-state',...patch} as any,undefined,undefined,{cwd:f.cwd} as any);
+  assert.equal((r.details as any).started,false);assert.equal(f.d._task(),0);
+ }
+ const f=await operatorStateFixture(t);const normal=await f.run('default',{agent:'code-reviewer',task:'A2 ordinary review',scope:['a.ts'],backend:'native'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal((normal.details as any).operatorStateVerification,undefined);assert.equal(f.state().acceptance.evidenceRef,null);
+});
+
+test('current-state mode cannot omit an active automated assertion by naming only another ID',async t=>{
+ const f=await operatorStateFixture(t),prior=f.d.state.getAssertions();f.d.state.getAssertions=()=>[...prior,{id:'A3',tag:'test',text:'second required check',source:'fixture',testCommand:'node --test second.test.js',status:'open'}];
+ const r=await f.run('all-tests',{agent:'code-reviewer',task:'A2 only in prose',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal((r.details as any).operatorStateVerification.status,'unproven');assert.equal(f.state().acceptance.evidenceRef,null);
+});
+
+test('current-state acceptance persists real evidence payload in captured session namespace',async t=>{
+ const f=await operatorStateFixture(t);const own=mkdtempSync(join(tmpdir(),'operator-owner-')),foreign=mkdtempSync(join(tmpdir(),'operator-foreign-'));
+ t.after(()=>{rmSync(own,{recursive:true,force:true});rmSync(foreign,{recursive:true,force:true});});f.d.state.getSessionDir=()=>own;
+ const {createAssertionsArtifactsContext}=await import('../context/assertions-artifacts.ts');
+ const artifacts=createAssertionsArtifactsContext({getAssertions:()=>[],getSessionDir:()=>foreign,getRunHistoryKeep:()=>null,setStatus:()=>{}});
+ let proofCall:any[]=[];f.d.artifacts.writeRunArtifact=(...args:any[])=>{
+  if(String(args[0]).startsWith('operator-state')){proofCall=args;assert.equal(typeof args[1],'number');assert.equal(args[3],'evidence');assert.equal(args[5],own);}
+  return (artifacts.writeRunArtifact as any)(...args);
+ };
+ const r=await f.run('real-evidence',{agent:'code-reviewer',task:'A2 current state with real writer',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ const proof=(r.details as any).operatorStateVerification;assert.equal(proof?.status,'accepted',JSON.stringify(r));
+ assert.ok(proof.evidenceRef.startsWith(join(own,'artifacts','evidence')));assert.equal(proofCall.length,6);
+ const persisted=JSON.parse(readFileSync(proof.evidenceRef,'utf8'));assert.equal(persisted.schema,'agent-fleet.operator-state-verification/v1');assert.equal(persisted.historicalAttribution,'not_claimed');
+ assert.deepEqual(persisted.paths,['a.ts']);assert.equal(persisted.revision,worktreeRevision(f.cwd,[]));assert.ok(persisted.checks.some((c:any)=>c.producer==='runtime'&&c.status==='passed'));
+});
+
+test('missing or hollow current-state evidence cannot register acceptance or review',async t=>{
+ for(const failure of ['hollow','missing','wrong-kind']){
+  const f=await operatorStateFixture(t),writer=f.d.artifacts.writeRunArtifact;
+  f.d.artifacts.writeRunArtifact=(...args:any[])=>{
+   if(args[0]==='operator-state'){
+    if(failure==='missing')return join(f.d.state.getSessionDir(),'artifacts','evidence','absent.md');
+    if(failure==='hollow')args[2]='evidence';else args[3]='returns';
+   }
+   return (writer as any)(...args);
+  };
+  const r=await f.run(failure,{agent:'code-reviewer',task:'A2 bad evidence '+failure,scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+  assert.equal((r.details as any).operatorStateVerification.status,'unproven');assert.equal((r.details as any).operatorStateVerification.reason,'evidence_readback_failed');
+  assert.equal(f.state().acceptance.evidenceRef,null);assert.equal(f.state().review.evidenceRef,null);
+ }
+});
+
+test('current-state preflight rejects inspection-only or source-writing reviewer tool sets',async t=>{
+ for(const tools of ['read,grep','read,bash,edit','read,bash,write']){
+  const f=await operatorStateFixture(t);f.d._agents.get('code-reviewer')!.def.tools=tools;
+  const r=await f.run('tools',{agent:'code-reviewer',task:'A2 invalid tool set',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+  assert.equal((r.details as any).started,false);assert.equal(f.d._task(),0);
+ }
+});
+
+test('current-state legacy return compatibility still requires actual checks and independent approval',async t=>{
+ const f=await operatorStateFixture(t,'legacy');
+ const r=await f.run('legacy',{agent:'code-reviewer',task:'A2 legacy current state',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal((r.details as any).operatorStateVerification.status,'accepted');
+ assert.notEqual((r.details as any).resultProtocol,'submit_result');
+ assert.equal(f.d.state.getAssertions()[1].status,'open');
+});
+
+test('receipt recovery: test-pass then guard-timeout then compiler-pass across two dispatches and journal reload', async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ writeFileSync(join(cwd, 'README.md'), 'current dirty candidate\n');
+ d._agents.get('builder').def.tools = 'read,bash';
+ const testCommand = 'node --test harness-only.test.js', compilerCommand = 'tsc --noEmit harness-only.ts';
+ d.state.getAssertions = () => [
+  { id: 'A1', tag: 'test', text: 'both exact producers', source: 'approved', testCommand, compilerCommand, status: 'open' },
+  { id: 'AF-MIN-CHANGE', tag: 'test', text: 'Inspect the actual changed state and run an applicable verification command against it.', source: 'runtime:minimal-change-contract', reference: 'T2a', testCommand, criticalConditions: ['Historical logs are not imported as current runtime checks.'], status: 'open' },
+ ];
+ let launches = 0;
+ d.dispatchAgent = async () => {
+  const revision = worktreeRevision(cwd, [], ['README.md']);
+  const command = ++launches === 1 ? testCommand : compilerCommand;
+  return { output: 'report', exitCode: 0, elapsed: 1, dispatchId: `recovery-${launches}`, lifecycle: nativeCleanLifecycle, runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision }, ...(launches === 1 ? [{ producer: 'agent-fleet.runtime-test/v1', command: compilerCommand, exitCode: null, beforeRevision: 'unavailable', afterRevision: 'unavailable' }] : [])] };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const first: any = await execute('one', { agent: 'builder', task: 'A1 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ assert.equal(first.details.accepted, false);
+ const journal = processAuditRecord(d.state.getProcessState(), evaluateProcessObligations(d.state.getProcessState(), { writable: true, budgetTier: 'small' }));
+ d.state.setProcessState(latestProcessState([{ customType: 'agent-hub-process-state', data: JSON.parse(JSON.stringify(journal)) }]));
+ const second: any = await execute('two', { agent: 'builder', task: 'A1 finish compiler only', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ const requirements = second.details.verificationResult.requirements;
+ assert.equal(requirements.filter((r: any) => r.id === 'AF-MIN-CHANGE').length, 1);
+ assert.ok(requirements.find((r: any) => r.id === 'AF-MIN-CHANGE').criticalConditions.includes('Historical logs are not imported as current runtime checks.'));
+ assert.equal(requirements.find((r: any) => r.id === 'A1').status, 'passed');
+ assert.equal(second.details.verificationResult.checks.length, 2);
+ const originalCheck = first.details.verificationResult.checks.find((c: any) => c.command[0] === testCommand);
+ const retainedCheck = second.details.verificationResult.checks.find((c: any) => c.command[0] === testCommand);
+ assert.deepEqual(JSON.parse(JSON.stringify(retainedCheck)), JSON.parse(JSON.stringify(originalCheck)), 'journal JSON retains original evidence path, command, coverage and revision');
+ assert.equal(JSON.parse(readFileSync(retainedCheck.evidenceRef, 'utf8')).declaration.dispatchId, 'recovery-1');
+ assert.equal(requirements.find((r: any) => r.id === 'AF-MIN-CHANGE').testCommand, testCommand);
+ assert.equal(launches, 2, 'no implicit test producer rerun');
+ assert.equal(second.details.accepted, false, 'read-only current inspection does not claim changed-task authorship');
+});
+
+for (const negative of ['revision', 'scope', 'task', 'declaration', 'compiler-declaration', 'coverage', 'accepted-input', 'input-artifact', 'backend', 'overlap', 'child-overlap', 'integrity', 'legacy', 'origin', 'unknown', 'failure'] as const) test(`receipt continuation refuses ${negative}`, async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ writeFileSync(join(cwd, 'README.md'), 'dirty candidate\n');
+ d._agents.get('builder').def.tools = 'read,bash';
+ let requirement = { id: 'A1', tag: 'test', text: 'exact', source: 'request', testCommand: 'test-exact', compilerCommand: 'compile-exact', criticalConditions: ['preserve'], status: 'open' };
+ d.state.getAssertions = () => [requirement];
+ const inputFile = join(d.state.getSessionDir(), 'input.md');
+ if (negative === 'input-artifact') { writeFileSync(inputFile, 'original input'); d.artifacts.loadInputArtifacts = () => [{path:inputFile,input:inputFile,displayPath:inputFile,preview:'input'}]; }
+ let run = 0;
+ d.dispatchAgent = async () => {
+  const revision = worktreeRevision(cwd, [], ['README.md']);
+  const command = ++run === 1 ? 'test-exact' : requirement.compilerCommand;
+  return { output: 'report', exitCode: 0, elapsed: 1, dispatchId: negative === 'origin' && run === 1 ? undefined : `negative-${negative}-${run}`, lifecycle: nativeCleanLifecycle, runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision, ...(negative === 'child-overlap' && run === 1 ? { exclusive: false } : {}) }] };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const invoke = (name: string, scope = ['README.md']) => execute(name, { agent: 'builder', task: `A1 ${name}`, scope }, undefined, undefined, { cwd } as any) as Promise<any>;
+ await invoke('capture');
+ const receipts = d.state.getProcessState().runtimeReceipts;
+ if (negative === 'revision') writeFileSync(join(cwd, 'README.md'), 'new revision\n');
+ if (negative === 'task') d.noProgress.adopt('different-task');
+ if (negative === 'declaration') requirement = { ...requirement, text: 'new declaration' };
+ if (negative === 'compiler-declaration') requirement = { ...requirement, compilerCommand: 'compile-new' };
+ if (negative === 'coverage') requirement = { ...requirement, criticalConditions: ['new condition'] };
+ if (negative === 'accepted-input') (d.state as any).getAcceptedUserInput = () => 'changed accepted input';
+ if (negative === 'input-artifact') writeFileSync(inputFile, 'changed input');
+ if (negative === 'integrity') writeFileSync(receipts.records[0].check.evidenceRef, 'forged same filename');
+ if (negative === 'legacy') d.state.setProcessState({ ...d.state.getProcessState(), runtimeReceipts: undefined });
+ if (negative === 'overlap') d.state.setActiveWritableDispatches(1);
+ if (negative === 'backend') d._agents.get('builder').lastBackend = 'coms';
+ if (negative === 'unknown' || negative === 'failure') {
+  const { runtimeTestObservationFromResult } = await import('../runtime-test-check.ts');
+  const original = d.dispatchAgent;
+  d.dispatchAgent = async () => ({ output: 'unknown/failed check', exitCode: 0, elapsed: 1, dispatchId: `invalidate-${negative}`, runtimeTests: [negative === 'unknown' ? runtimeTestObservationFromResult(true, 'test-exact', 'bash', {}) : { producer: 'agent-fleet.runtime-test/v1', command: 'test-exact', exitCode: 1, beforeRevision: worktreeRevision(cwd, []), afterRevision: worktreeRevision(cwd, []) }] });
+  await invoke('invalidate');
+  d.dispatchAgent = original;
+ }
+ const result = await invoke('compiler-only', negative === 'scope' ? ['README.md', 'src/api.ts'] : ['README.md']);
+ assert.notEqual(result.details.verificationResult?.requirements.find((r: any) => r.id === 'A1')?.status, 'passed', negative);
+ assert.notEqual(result.details.accepted, true);
+ if (negative === 'unknown' || negative === 'failure') assert.equal(d.state.getProcessState().runtimeReceipts.records.some((r: any) => r.check.command[0] === 'test-exact'), false);
+});
+
+/** Fresh in-dispatch observations must obey capture integrity at the parent, even when the record itself does not carry exclusive:false (stub adapter, foreign producer, or a lost integrity value). Only an explicit 'complete' stream is eligible. */
+for (const integrity of ['complete', 'tainted', 'missing'] as const) test(`fresh runtime-test check is eligible for acceptance only on a complete capture stream: ${integrity}`, async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ writeFileSync(join(cwd, 'README.md'), 'fresh candidate\n');
+ d._agents.get('builder').def.tools = 'read,bash';
+ const testCommand = 'node --test fresh-only.test.js';
+ d.state.getAssertions = () => [{ id: 'A1', tag: 'test', text: 'exact producer', source: 'approved', testCommand, status: 'open' }];
+ d.dispatchAgent = async () => {
+  const revision = worktreeRevision(cwd, [], ['README.md']);
+  return { output: 'report', exitCode: 0, elapsed: 1, dispatchId: `fresh-${integrity}`,
+   ...(integrity === 'missing' ? {} : { lifecycle: { launched: true, closeSeen: true, runtimeCaptureIntegrity: integrity } }),
+   runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command: testCommand, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
+ };
+ const result: any = await createDispatchExecutor(d as any)(`fresh-${integrity}`, { agent: 'builder', task: 'A1 fresh check', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ const check = result.details.verificationResult.checks.find((c: any) => c.command[0] === testCommand);
+ assert.ok(check, 'fresh observation is still reported as a check');
+ const requirement = result.details.verificationResult.requirements.find((r: any) => r.id === 'A1');
+ if (integrity === 'complete') {
+  assert.match(check.inspectedRevision, /^[a-f0-9]{64}$/, 'clean stream keeps the inspected revision');
+  assert.equal(requirement.status, 'passed');
+ } else {
+  assert.equal(check.inspectedRevision, 'unavailable', `${integrity} stream must not expose a usable inspected revision`);
+  assert.equal(requirement.status, 'stale', `${integrity} stream must not pass the bound requirement`);
+  assert.notEqual(result.details.accepted, true);
+ }
+});
+
+test('operator same-task recovery combines only anchored producers and leaves manual acceptance unsupported', async t => {
+ const f=await operatorStateFixture(t); const prior=f.d.state.getAssertions();
+ f.d.state.getAssertions=()=>prior.map(r=>r.id==='A2'?{...r,compilerCommand:'compile-exact'}:r);
+ let runs=0; const original=f.d.dispatchAgent;
+ f.d.dispatchAgent=async()=>{
+  const response:any=await original();const revision=worktreeRevision(f.cwd,[]);
+  response.dispatchId=`operator-continuation-${++runs}`;response.lifecycle=nativeCleanLifecycle;
+  response.runtimeTests=runs===1?[{producer:'agent-fleet.runtime-test/v1',command:'node --test candidate.test.js',exitCode:0,beforeRevision:revision,afterRevision:revision},{producer:'agent-fleet.runtime-test/v1',command:'compile-exact',exitCode:null,beforeRevision:'unavailable',afterRevision:'unavailable'}]:[{producer:'agent-fleet.runtime-test/v1',command:'compile-exact',exitCode:0,beforeRevision:revision,afterRevision:revision}];
+  return response;
+ };
+ const params:any={agent:'code-reviewer',task:'A2 inspect candidate',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'};
+ const one:any=await f.run('first',params,undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal(one.details.operatorStateVerification.status,'unproven');assert.equal(f.state().acceptance.evidenceRef,null);
+ const journal=processAuditRecord(f.state(),evaluateProcessObligations(f.state(),{writable:true,budgetTier:'small'}));
+ f.d.state.setProcessState(latestProcessState([{customType:'agent-hub-process-state',data:JSON.parse(JSON.stringify(journal))}]));
+ const two:any=await f.run('second',{...params,task:'A2 complete explicit compiler'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal(two.details.operatorStateVerification.status,'accepted',JSON.stringify(two.details));
+ assert.equal(two.details.taskAccepted,false);assert.equal(two.details.changeResult.status,'unchanged');
+ assert.equal(two.details.verificationResult.requirements.find((r:any)=>r.id==='A1').status,'unsupported');
+ assert.equal(two.details.verificationResult.requirements.find((r:any)=>r.id==='A2').status,'passed');
+ assert.equal(two.details.verificationResult.checks.length,2);assert.equal(runs,2);
+});
+
+/** Production transport: native spawn settlement -> completion adapter -> dispatcher. A test that spreads the raw spawn result skips the adapter and cannot prove end-to-end integrity propagation. */
+async function throughNativeCompletion(native:any,dispatchId:string){
+ const {completeNativeRun}=await import('../dispatch-native-complete.ts');
+ const state:any={def:{name:'builder'},status:'running',killedByOperator:false,restarting:false,timeline:[]};
+ const run:any={deps:{displayName:(n:string)=>n,finalizeMonitorChild:async()=>{},updateWidget(){},appendTimelineText(){},flushTimelineStore(){},executionHistory:{end(){}},bumpDriftStop(){}},state,ctx:{ui:{notify(){}}},histEntry:{id:'hist'},monitorStart:undefined,startTime:Date.now(),key:'builder',agentKey:'builder',effectiveTools:'read,bash',evidenceDir:'/tmp',dispatchId,transcriptPath:'/tmp/transcript.jsonl',resumeContract:{},agentSessionFile:'/tmp/session.json'};
+ return completeNativeRun(run,{res:native,runBilled:0,runOut:0,sessionRecycled:false,sessionReset:null,driftStop:null,driftAdvisories:[]});
+}
+
+for(const scenario of ['serial','overlap','unfinished','stale'] as const) test(`bound IDs and native interval attribution reach dispatcher: ${scenario} (offline only)`,async t=>{
+ const {cwd,d}=await gitDiagnosticsFixture(t);
+ const {spawnPiAgent}=await import('../spawn.ts');
+ const command='test-exact';const ids=['B1','A1','A4','R2'];
+ d.state.getAssertions=()=>ids.map(id=>({id,tag:id==='B1'?'test':'manual',text:'parent obligation',source:'fixture',status:'open',...(id==='B1'?{testCommand:command}:{})})) as any;
+ let captured:any;let completed:any;
+ d.dispatchAgent=async(...args:any[])=>{
+  captured=args[8];
+  assert.deepEqual(captured.boundAssertionIds,[...ids,'AF-MIN-CHANGE']);
+  writeFileSync(join(cwd,'README.md'),`candidate ${scenario}\n`);
+  const revision=worktreeRevision(cwd,[],['README.md']);
+  const start=(id:string,toolName:string)=>({type:'tool_execution_start',toolName,toolCallId:id,args:{command}});
+  const end=(id:string,toolName:string)=>({type:'tool_execution_end',toolName,toolCallId:id,result:toolName==='bash'?{details:{runtimeTest:{producer:'agent-fleet.runtime-test/v1',command,exitCode:0,beforeRevision:scenario==='stale'?'old':revision,afterRevision:revision}}}:{}});
+  const events=[start('r','read'),start('g','grep'),end('r','read'),end('g','grep'),start('b','bash'),...(scenario==='overlap'?[start('x','read')]:[]),end('b','bash'),...(scenario==='overlap'?[end('x','read')]:[]),...(scenario==='unfinished'?[start('lost','read')]:[])];
+  const bin=mkdtempSync(join(tmpdir(),'dispatch-events-'));t.after(()=>rmSync(bin,{recursive:true,force:true}));
+  writeFileSync(join(bin,'pi'),`#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(events.map(e=>JSON.stringify(e)).join('\n')+'\n')});\n`,{mode:0o755});
+  const native=await spawnPiAgent({model:'fake/offline',tools:'bash',thinking:'off',systemPrompt:'offline',sessionFile:join(bin,'session.json'),prompt:'fixture',cwd,env:{PATH:`${bin}:${process.env.PATH??''}`},runtimeTestObserver:true});
+  completed=await throughNativeCompletion(native,`interval-${scenario}`);
+  return {...completed,elapsed:1,output:JSON.stringify({changed_files:['README.md'],assertions_proven:ids.map(id=>({id,evidence:'untrusted claim'})),assertions_unproven:[{id:'AF-MIN-CHANGE'}],assertions_failed:[],tests_run:[],open_risks:[],requires_user_decision:[]})};
+ };
+ const result:any=await createDispatchExecutor(d as any)(scenario,{agent:'builder',task:'B1 A1 A4 R2 verify',scope:['README.md']},undefined,undefined,{cwd} as any);
+ assert.ok(captured);
+ assert.equal(completed.lifecycle?.runtimeCaptureIntegrity,scenario==='unfinished'?'tainted':'complete','completion adapter must forward parser-owned integrity');
+ const requirements=result.details.verificationResult.requirements;
+ assert.equal(requirements.find((r:any)=>r.id==='B1').status,scenario==='serial'?'passed':'stale',JSON.stringify(requirements));
+ for(const id of ['A1','A4','R2']) assert.equal(requirements.find((r:any)=>r.id===id).status,'unsupported');
+ assert.notEqual(result.details.accepted,true);
+ assert.equal(result.details.contractNotices.some((n:any)=>n.type==='missing'||n.type==='unknown'),false,JSON.stringify(result.details.contractNotices));
+});
+
+
+test("dispatch binding distinguishes an absent parent ledger from an exact parent contract", () => {
+ for (const tools of ["read", "read,write"]) {
+  const legacy = prepareDeps({ tools });
+  const legacyPrepared = prepareDispatch(legacy as any, { agent: "builder", task: "A1 legacy compiler claim" }, { cwd: process.cwd() } as any) as any;
+  assert.equal(legacyPrepared.resumeContract.boundAssertionIds, undefined);
+  const bound = prepareDeps({ tools });
+  bound.state.getAssertions = () => [{ id: "B1", tag: "manual", text: "parent-owned", source: "fixture", status: "open" }] as any;
+  const boundPrepared = prepareDispatch(bound as any, { agent: "builder", task: "B1 exact parent contract; A1 is not a member" }, { cwd: process.cwd() } as any) as any;
+  assert.deepEqual(boundPrepared.resumeContract.boundAssertionIds, tools === "read" ? [] : ["B1", "AF-MIN-CHANGE"]);
+  assert.ok(Object.isFrozen(boundPrepared.resumeContract.boundAssertionIds));
+ }
+});
+
+for (const scenario of ['clean-empty', 'clean-read', 'open-read', 'open-write', 'open-unknown', 'open-bash', 'orphan-end', 'missing-id', 'duplicate-start', 'malformed-bash', 'mismatched-name'] as const) test(`native empty-completed stream receipt continuation: ${scenario} (offline only)`, async t => {
+ const {cwd,d}=await gitDiagnosticsFixture(t);
+ const {spawnPiAgent}=await import('../spawn.ts');
+ const command='test-exact';
+ d._agents.get('builder').def.tools='read,bash';
+ d.state.getAssertions=()=>[{id:'B1',tag:'test',text:'exact parent obligation',source:'fixture',testCommand:command,status:'open'},...['A1','A4','R2'].map(id=>({id,tag:'manual',text:'manual stays open',source:'fixture',status:'open'}))] as any;
+ const bin=mkdtempSync(join(tmpdir(),'receipt-stream-'));t.after(()=>rmSync(bin,{recursive:true,force:true}));
+ const start=(toolName:string,id:any='x',args:any={})=>({type:'tool_execution_start',toolName,toolCallId:id,args});
+ const end=(toolName:string,id='x',result:any={})=>({type:'tool_execution_end',toolName,toolCallId:id,result});
+ const streams:Record<string,any[]>={
+  'clean-empty':[], 'clean-read':[start('read'),end('read')],
+  'open-read':[start('read')], 'open-write':[start('write')], 'open-unknown':[start('unknown')],
+  'open-bash':[start('bash','x',{command:'other-command'})], 'orphan-end':[end('read')],
+  'missing-id':[start('read',undefined)], 'duplicate-start':[start('read'),start('read'),end('read')],
+  'malformed-bash':[start('bash'),end('bash')], 'mismatched-name':[start('read'),end('grep')],
+ };
+ // Default parameters would supply an ID; explicitly remove it for this case.
+ delete streams['missing-id'][0].toolCallId;
+ let run=0;let native:any;let completed:any;
+ d.dispatchAgent=async()=>{
+  const revision=worktreeRevision(cwd,[],['README.md']);
+  const events=++run===1?[start('bash','seed',{command}),end('bash','seed',{details:{runtimeTest:{producer:'agent-fleet.runtime-test/v1',command,exitCode:0,beforeRevision:revision,afterRevision:revision}}})]:run===2?streams[scenario]:[];
+  writeFileSync(join(bin,'pi'),`#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(events.map(e=>JSON.stringify(e)).join('\n')+'\n')});\n`,{mode:0o755});
+  native=await spawnPiAgent({model:'fake/offline',tools:'bash',thinking:'off',systemPrompt:'offline',sessionFile:join(bin,'session.json'),prompt:'fixture',cwd,env:{PATH:`${bin}:${process.env.PATH??''}`},runtimeTestObserver:true});
+  completed=await throughNativeCompletion(native,`empty-stream-${scenario}-${run}`);
+  return {...completed,elapsed:1,output:'report'};
+ };
+ const execute=createDispatchExecutor(d as any);
+ const invoke=()=>execute('inspect',{agent:'builder',task:'B1 A1 A4 R2 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
+ const first=await invoke();
+ assert.equal(first.details.verificationResult.requirements.find((r:any)=>r.id==='B1').status,'passed');
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length,1,'seed is eligible');
+ const original=JSON.parse(JSON.stringify(d.state.getProcessState().runtimeReceipts.records[0]));
+ const current=await invoke();
+ assert.equal(native.runtimeTests.filter((r:any)=>r.finishedAt!==undefined).length,0,'current stream has zero completed observations');
+ assert.equal(native.runtimeTests.length,scenario==='open-bash'?1:0,'no fabricated test record');
+ const clean=scenario.startsWith('clean-');
+ assert.equal(current.details.verificationResult.checks.some((c:any)=>c.command[0]===command),clean,'parent must not reuse prior check after tainted stream');
+ assert.equal(native.lifecycle.runtimeCaptureIntegrity,clean?'complete':'tainted');
+ assert.equal(completed.lifecycle?.runtimeCaptureIntegrity,clean?'complete':'tainted','completion adapter must not strip parser-owned integrity');
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length,clean?1:0);
+ if(clean) assert.deepEqual(JSON.parse(JSON.stringify(d.state.getProcessState().runtimeReceipts.records[0])),original,'original receipt unchanged');
+ assert.notEqual(current.details.accepted,true);
+ for(const id of ['A1','A4','R2']) assert.equal(current.details.verificationResult.requirements.find((r:any)=>r.id===id).status,'unsupported');
+ const later=await invoke();
+ assert.equal(later.details.verificationResult.checks.some((c:any)=>c.command[0]===command),clean,'tainted capture cannot reappear on a later clean stream');
+});
+
+test('native completion without an explicit capture integrity fails closed for receipt reuse (offline only)', async t => {
+ const {cwd,d}=await gitDiagnosticsFixture(t);
+ const {spawnPiAgent}=await import('../spawn.ts');
+ const command='test-exact';
+ d._agents.get('builder').def.tools='read,bash';
+ d.state.getAssertions=()=>[{id:'B1',tag:'test',text:'exact parent obligation',source:'fixture',testCommand:command,status:'open'}] as any;
+ const bin=mkdtempSync(join(tmpdir(),'receipt-absent-'));t.after(()=>rmSync(bin,{recursive:true,force:true}));
+ let run=0;
+ d.dispatchAgent=async()=>{
+  const revision=worktreeRevision(cwd,[],['README.md']);
+  const events=++run===1?[{type:'tool_execution_start',toolName:'bash',toolCallId:'seed',args:{command}},{type:'tool_execution_end',toolName:'bash',toolCallId:'seed',result:{details:{runtimeTest:{producer:'agent-fleet.runtime-test/v1',command,exitCode:0,beforeRevision:revision,afterRevision:revision}}}}]:[];
+  writeFileSync(join(bin,'pi'),`#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(events.map(e=>JSON.stringify(e)).join('\n')+'\n')});\n`,{mode:0o755});
+  const native=await spawnPiAgent({model:'fake/offline',tools:'bash',thinking:'off',systemPrompt:'offline',sessionFile:join(bin,'session.json'),prompt:'fixture',cwd,env:{PATH:`${bin}:${process.env.PATH??''}`},runtimeTestObserver:true});
+  const completed=await throughNativeCompletion(run===1?native:{...native,lifecycle:{launched:true,closeSeen:true}},`absent-integrity-${run}`);
+  assert.equal(completed.lifecycle?.runtimeCaptureIntegrity,run===1?'complete':undefined,'adapter must not invent an integrity value');
+  return {...completed,elapsed:1,output:'report'};
+ };
+ const execute=createDispatchExecutor(d as any);
+ const invoke=()=>execute('inspect',{agent:'builder',task:'B1 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
+ const first=await invoke();
+ assert.equal(first.details.verificationResult.requirements.find((r:any)=>r.id==='B1').status,'passed');
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length,1,'seed is eligible');
+ const current=await invoke();
+ assert.equal(current.details.verificationResult.checks.some((c:any)=>c.command[0]===command),false,'absent integrity on an expected native capture must not reuse the prior check');
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length,0,'absent integrity clears reusable records');
+ assert.notEqual(current.details.accepted,true);
+});
+
+/** Offline composed regression. Fake Pi JSONL only; commands are receipt identities, never executed. */
+const COMPOSED_SHARED = 'node --test --test-timeout=15000 .pi/agent-fleet/scripts/fleet-codex-actions-compat.test.ts';
+const COMPOSED_B2 = 'node --test b2-offline-fixture.test.js';
+const COMPOSED_B3 = 'node --test b3-offline-fixture.test.js';
+const COMPOSED_B4 = 'node --test b4-offline-fixture.test.js';
+const COMPOSED_COMPILER = 'node --check b4-offline-fixture.js';
+const COMPOSED_TASK = 'AF-MIN-CHANGE B1 B2 B3 B4 A1 A4 R2 inspect current candidate';
+
+function composedLedger() {
+ return [
+  { id: 'AF-MIN-CHANGE', tag: 'test', text: 'Inspect the actual changed state and run an applicable verification command against it.', source: 'runtime:minimal-change-contract', reference: 'T2a', testCommand: COMPOSED_SHARED, criticalConditions: ['Historical logs are not imported as current runtime checks.'], status: 'open' },
+  { id: 'B1', tag: 'test', text: 'B1 exact producer', source: 'fixture', testCommand: COMPOSED_SHARED, status: 'open' },
+  { id: 'B2', tag: 'test', text: 'B2 exact producer', source: 'fixture', testCommand: COMPOSED_B2, status: 'open' },
+  { id: 'B3', tag: 'test', text: 'B3 exact producer', source: 'fixture', testCommand: COMPOSED_B3, status: 'open' },
+  { id: 'B4', tag: 'test', text: 'B4 test and compiler producers', source: 'fixture', testCommand: COMPOSED_B4, compilerCommand: COMPOSED_COMPILER, status: 'open' },
+  { id: 'A1', tag: 'manual', text: 'relay recorded', source: 'fixture', status: 'open' },
+  { id: 'A4', tag: 'manual', text: 'independent review', source: 'fixture', status: 'open' },
+  { id: 'R2', tag: 'manual', text: 'manual obligation', source: 'fixture', status: 'open' },
+ ];
+}
+
+function composedEvents(kind, revision) {
+ const start = (id, toolName, args = {}) => ({ type: 'tool_execution_start', toolName, toolCallId: id, args });
+ const end = (id, toolName, extra = {}) => ({ type: 'tool_execution_end', toolName, toolCallId: id, ...extra });
+ const reads = (prefix) => [start(prefix + 'r', 'read', { path: 'a.ts' }), start(prefix + 'g', 'grep', { path: 'a.ts' }), start(prefix + 'l', 'ls'), end(prefix + 'r', 'read'), end(prefix + 'g', 'grep'), end(prefix + 'l', 'ls')];
+ const ok = (id, command) => [start(id, 'bash', { command }), end(id, 'bash', { result: { details: { runtimeTest: { producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision } } } })];
+ const text = { type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: '**Verdict:** APPROVE\ntests_run: full regression\n' } };
+ if (kind === 'compiler-prep') return [text, start('prep-read', 'read'), ...ok('prep-status', 'git status --porcelain'), end('prep-read', 'read'), ...ok('compiler', COMPOSED_COMPILER)];
+ if (kind === 'compiler') return [text, ...reads('pre'), ...ok('compiler', COMPOSED_COMPILER), ...reads('post')];
+ const tests = [COMPOSED_SHARED, COMPOSED_B2, COMPOSED_B3, COMPOSED_B4];
+ const body: any[] = [text, ...reads('before')];
+ tests.forEach((command, index) => {
+  const id = 'b' + (index + 1);
+  body.push(start(id, 'bash', { command }));
+  if (kind === 'overlap' && index === 0) body.push(start('w', 'write', { path: 'a.ts' }));
+  body.push(end(id, 'bash', { result: { details: { runtimeTest: { producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision } } } }));
+  if (kind === 'overlap' && index === 0) body.push(end('w', 'write'));
+  body.push(...reads('between' + index));
+ });
+ body.push(start('compiler', 'bash', { command: COMPOSED_COMPILER }), end('compiler', 'bash', { isError: true, result: { isError: true } }));
+ return body;
+}
+
+async function composedFixture(t: any) {
+ const cwd = mkdtempSync(join(tmpdir(), 'composed-review-')); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync('git', ['init', '-q'], { cwd });
+ writeFileSync(join(cwd, 'a.ts'), 'export const a=1;\n');
+ const d = prepareDeps({ agents: ['code-reviewer'], tools: 'read,bash' });
+ d._agents.get('code-reviewer')!.lastBackend = 'native';
+ const session = mkdtempSync(join(tmpdir(), 'composed-session-')); t.after(() => rmSync(session, { recursive: true, force: true }));
+ d.state.getSessionDir = () => session;
+ const { createAssertionsArtifactsContext } = await import('../context/assertions-artifacts.ts');
+ d.artifacts.writeRunArtifact = createAssertionsArtifactsContext({ getAssertions: () => [], getSessionDir: () => session, getRunHistoryKeep: () => null, setStatus: () => {} }).writeRunArtifact;
+ let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'composed fixture' }).state;
+ state = noteProcessStage(state, 'plan', { evidenceRef: 'fixture:plan', revision: worktreeRevision(cwd, []) });
+ d.state.getProcessState = () => state; d.state.setProcessState = (value: any) => { state = value; };
+ const journalPath = join(session, 'process-journal.json');
+ // Offline stand-in only: writes processAuditRecord bytes. Does not call pi.appendEntry and is not a process restart.
+ d.state.persistProcessVerdict = (next: any, verdict: any) => {
+  const prior = existsSync(journalPath) ? JSON.parse(readFileSync(journalPath, 'utf8')) : [];
+  prior.push({ customType: 'agent-hub-process-state', data: processAuditRecord(next, verdict) });
+  writeFileSync(journalPath, JSON.stringify(prior));
+ };
+ const ledger = composedLedger();
+ d.state.getAssertions = () => ledger as any;
+ const bin = mkdtempSync(join(tmpdir(), 'composed-events-')); t.after(() => rmSync(bin, { recursive: true, force: true }));
+ const { spawnPiAgent } = await import('../spawn.ts');
+ let runs = 0; const completed: any[] = []; const commandsSeen: string[][] = []; const observedTests: any[][] = [];
+ const runKind = { current: 'interrupted' as 'interrupted' | 'compiler' | 'overlap', stdoutExtra: '' };
+ d.dispatchAgent = async () => {
+  const revision = worktreeRevision(cwd, []);
+  const events = composedEvents(runKind.current, revision);
+  const stdout = events.map((event: any) => JSON.stringify(event)).join('\n') + '\n' + runKind.stdoutExtra;
+  writeFileSync(join(bin, 'pi'), '#!/usr/bin/env node\nprocess.stdout.write(' + JSON.stringify(stdout) + ');\n', { mode: 0o755 });
+  const native = await spawnPiAgent({ model: 'fake/offline', tools: 'bash', thinking: 'off', systemPrompt: 'offline', sessionFile: join(bin, 'session.json'), prompt: 'fixture', cwd, env: { PATH: bin + ':' + (process.env.PATH ?? '') }, runtimeTestObserver: true });
+  commandsSeen.push((native.runtimeTests ?? []).map((row: any) => row.command));
+  observedTests.push(native.runtimeTests ?? []);
+  const adapted = await throughNativeCompletion(native, 'composed-' + runKind.current + '-' + (++runs));
+  completed.push(adapted);
+  return { ...adapted, elapsed: 1 };
+ };
+ return {
+  cwd, d, ledger, journalPath, completed, commandsSeen, observedTests, runKind, runs: () => runs,
+  state: () => state,
+  reloadFromDisk() {
+   const disk = JSON.parse(readFileSync(journalPath, 'utf8'));
+   state = latestProcessState(disk);
+   return state;
+  },
+  run: createDispatchExecutor(d as any),
+  params: { agent: 'code-reviewer', task: COMPOSED_TASK, scope: ['a.ts'], backend: 'native', review_mode: 'operator-current-state' } as any,
+ };
+}
+
+test('composed native interruption then compiler reuses original receipts for operator acceptance (offline only)', async t => {
+ const f = await composedFixture(t);
+ f.runKind.current = 'interrupted';
+ const one: any = await f.run('dispatch1', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(f.completed[0].lifecycle?.runtimeCaptureIntegrity, 'complete');
+ assert.notEqual(one.details.processVerdict?.accepted, true);
+ assert.equal(one.details.operatorStateVerification.status, 'unproven');
+ assert.equal(one.details.taskAccepted, false);
+ const receipts = f.state().runtimeReceipts.records;
+ assert.equal(receipts.length, 4, JSON.stringify(receipts.map((r: any) => r.check.command)));
+ const origin = receipts.map((r: any) => ({ command: r.check.command[0], id: r.originDispatchId, at: r.capturedAt }));
+ assert.ok(origin.every((row: any) => row.id === 'composed-interrupted-1' && Number.isSafeInteger(row.at) && row.at > 0));
+ const shared = receipts.find((r: any) => r.check.command[0] === COMPOSED_SHARED);
+ assert.ok(shared.check.requirementIds.includes('AF-MIN-CHANGE') && shared.check.requirementIds.includes('B1'));
+ assert.equal(f.commandsSeen[0].filter((command: string) => command === COMPOSED_SHARED).length, 1);
+ const memoryBeforeReload = f.state();
+ const diskBytes = readFileSync(f.journalPath, 'utf8');
+ const parsedJournal = JSON.parse(diskBytes);
+ const reloaded = f.reloadFromDisk();
+ assert.equal(reloaded.runtimeReceipts.records.length, 4);
+ assert.notEqual(reloaded, memoryBeforeReload, 'reload must be a distinct object from the pre-disk state');
+ assert.deepEqual(reloaded, latestProcessState(parsedJournal), 'reloaded state must be the normalized journal bytes');
+ assert.notEqual(reloaded, latestProcessState(parsedJournal), 'a second parse must not alias the reloaded object');
+ const persistedReceipts = parsedJournal.at(-1).data.state.runtimeReceipts.records;
+ assert.deepEqual(reloaded.runtimeReceipts.records.map((row: any) => row.originDispatchId), persistedReceipts.map((row: any) => row.originDispatchId));
+ const savedOrigin = reloaded.runtimeReceipts.records[0].originDispatchId;
+ reloaded.runtimeReceipts.records[0].originDispatchId = 'mutated-in-memory';
+ assert.equal(readFileSync(f.journalPath, 'utf8'), diskBytes, 'mutating the reloaded object must not rewrite the journal');
+ assert.notEqual(latestProcessState(JSON.parse(diskBytes)).runtimeReceipts.records[0].originDispatchId, 'mutated-in-memory');
+ reloaded.runtimeReceipts.records[0].originDispatchId = savedOrigin;
+ f.runKind.current = 'compiler';
+ f.runKind.stdoutExtra = '';
+ const two: any = await f.run('dispatch2', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(f.completed[1].lifecycle?.runtimeCaptureIntegrity, 'complete');
+ assert.deepEqual(f.commandsSeen[1], [COMPOSED_COMPILER]);
+ assert.equal(f.commandsSeen[1][0], COMPOSED_COMPILER);
+ for (const banned of [COMPOSED_SHARED, COMPOSED_B2, COMPOSED_B3, COMPOSED_B4]) assert.equal(f.commandsSeen[1].includes(banned), false, banned);
+ const retained = f.state().runtimeReceipts.records.filter((r: any) => r.check.command[0] !== COMPOSED_COMPILER);
+ assert.equal(retained.length, 4);
+ for (const row of origin) {
+  const again = retained.find((r: any) => r.check.command[0] === row.command);
+  assert.equal(again.originDispatchId, row.id);
+  assert.equal(again.capturedAt, row.at);
+  assert.equal(JSON.parse(readFileSync(again.check.evidenceRef, 'utf8')).declaration.dispatchId, row.id);
+ }
+ const requirements = two.details.verificationResult.requirements;
+ for (const id of ['AF-MIN-CHANGE', 'B1', 'B2', 'B3', 'B4']) assert.equal(requirements.find((r: any) => r.id === id).status, 'passed', id);
+ for (const id of ['A1', 'A4', 'R2']) assert.equal(requirements.find((r: any) => r.id === id).status, 'unsupported', id);
+ assert.equal(two.details.taskAccepted, false);
+ assert.equal(two.details.processVerdict.accepted, true, JSON.stringify(two.details.processVerdict));
+ assert.equal(two.details.processVerdict.obligations.acceptance.status, 'satisfied');
+ assert.equal(two.details.processVerdict.obligations.review.status, 'satisfied');
+ assert.equal(two.details.operatorStateVerification.status, 'accepted');
+ const proof = JSON.parse(readFileSync(two.details.operatorStateVerification.evidenceRef, 'utf8'));
+ const proofDispatchIds = proof.checks.map((check: any) => JSON.parse(readFileSync(check.evidenceRef, 'utf8')).declaration.dispatchId);
+ assert.ok(proofDispatchIds.includes('composed-interrupted-1') && proofDispatchIds.includes('composed-compiler-2'), JSON.stringify(proofDispatchIds));
+ assert.equal(f.runs(), 2);
+});
+
+for (const negative of ['overlap', 'revision', 'ledger', 'tamper', 'tainted'] as const) test('composed native receipt regression refuses ' + negative + ' independently (offline only)', async t => {
+ const f = await composedFixture(t);
+ f.runKind.current = negative === 'overlap' ? 'overlap' : 'interrupted';
+ const one: any = await f.run('dispatch1', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ if (negative === 'overlap') assert.equal(f.state().runtimeReceipts.records.length, 0, 'overlap clears reusable receipts');
+ else assert.equal(f.state().runtimeReceipts.records.length, 4);
+ f.reloadFromDisk();
+ if (negative === 'revision') writeFileSync(join(f.cwd, 'a.ts'), 'export const a=2;\n');
+ if (negative === 'ledger') f.ledger.find((row: any) => row.id === 'B4')!.compilerCommand = 'node --check changed-contract.js';
+ if (negative === 'tamper') {
+  const evidence = f.state().runtimeReceipts.records[0].check.evidenceRef;
+  writeFileSync(evidence, readFileSync(evidence, 'utf8') + '\n');
+ }
+ f.runKind.current = 'compiler';
+ f.runKind.stdoutExtra = negative === 'tainted' ? 'not-json-taint-outside-compiler-interval\n' : '';
+ const two: any = await f.run('dispatch2', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.notEqual(two.details.processVerdict?.accepted, true, negative);
+ assert.notEqual(two.details.operatorStateVerification?.status, 'accepted', negative);
+ assert.equal(two.details.taskAccepted, false);
+ const reused = (f.state().runtimeReceipts?.records ?? []).filter((r: any) => r.originDispatchId === 'composed-interrupted-1');
+ if (negative === 'overlap') assert.equal(reused.length, 0);
+ if (negative === 'revision' || negative === 'ledger' || negative === 'tamper') assert.equal(two.details.verificationResult.checks.some((c: any) => c.command[0] === COMPOSED_SHARED && c.status === 'passed'), false, negative);
+ if (negative === 'tainted') {
+  assert.equal(f.completed[1].lifecycle?.runtimeCaptureIntegrity, 'tainted');
+  const compiler = f.observedTests[1].find((row: any) => row.command === COMPOSED_COMPILER);
+  assert.equal(compiler?.exitCode, 0, 'taint must sit on a compiler success that would otherwise be eligible');
+  assert.deepEqual(f.commandsSeen[1], [COMPOSED_COMPILER], 'unparseable line must not be a second tool overlapping the compiler');
+  const control = await composedFixture(t);
+  control.runKind.current = 'interrupted';
+  control.runKind.stdoutExtra = '';
+  await control.run('dispatch1', control.params, undefined, undefined, { cwd: control.cwd } as any);
+  control.reloadFromDisk();
+  control.runKind.current = 'compiler';
+  const accepted: any = await control.run('dispatch2', control.params, undefined, undefined, { cwd: control.cwd } as any);
+  assert.equal(control.completed[1].lifecycle?.runtimeCaptureIntegrity, 'complete');
+  assert.equal(control.observedTests[1].find((row: any) => row.command === COMPOSED_COMPILER)?.exitCode, 0);
+  assert.deepEqual(control.commandsSeen[1], [COMPOSED_COMPILER]);
+  assert.equal(accepted.details.processVerdict.accepted, true, 'identical compiler-success stream without the unparseable line must be accepted');
+  assert.equal(accepted.details.operatorStateVerification.status, 'accepted');
+ }
+ assert.notEqual(one.details.processVerdict?.accepted, true);
+});
+
+
+test('compiler continuation retains checks after overlapping preparatory inspection (offline only)', async t => {
+ const f = await composedFixture(t);
+ await f.run('prep-origin', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(f.state().runtimeReceipts.records.length, 4);
+ (f.runKind as any).current = 'compiler-prep';
+ const result: any = await f.run('prep-continuation', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(f.completed[1].runtimeTests[0].exclusive, false);
+ assert.equal(f.state().runtimeReceipts.records.length, 5);
+ assert.equal(result.details.processVerdict.accepted, true);
+});
+
+for (const marker of ['Full-regression marker: all suites passed', 'full regression', 'tests_run: full']) test('review closure accepts regression marker: ' + marker, async () => {
+ const { reviewMayClose } = await import('../orchestration-activation.ts');
+ assert.equal(reviewMayClose({ revision: 'a'.repeat(64), scope: ['a.ts'], output: '**Verdict:** APPROVE\n' + marker, evidenceRef: 'evidence:current', declared: true, wide: true }), true);
+});
+
+test('unrelated clean inspection preserves receipts without borrowing their evidence (offline only)', async t => {
+ const f = await composedFixture(t);
+ await f.run('preserve-origin', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ const original = JSON.parse(JSON.stringify(f.state().runtimeReceipts.records));
+ assert.equal(original.length, 4);
+ const dispatch = f.d.dispatchAgent;
+ f.d.dispatchAgent = async () => ({ output: '**Verdict:** APPROVE\nFull-regression marker: inspection only', exitCode: 0, elapsed: 1, dispatchId: 'unrelated-inspection', lifecycle: nativeCleanLifecycle, runtimeTests: [] });
+ f.ledger[1].text = 'Different inspection contract';
+ const inspection: any = await f.run('preserve-inspection', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(inspection.details.verificationResult.checks.length, 0, 'unrelated contract cannot borrow checks');
+ assert.notEqual(inspection.details.processVerdict.accepted, true);
+ assert.deepEqual(f.reloadFromDisk().runtimeReceipts.records, original, 'unused receipts survive journal reload byte-for-byte');
+ f.ledger[1].text = 'B1 exact producer';
+ f.d.dispatchAgent = dispatch;
+ f.runKind.current = 'compiler';
+ const final: any = await f.run('preserve-finish', f.params, undefined, undefined, { cwd: f.cwd } as any);
+ assert.equal(final.details.verificationResult.checks.length, 5);
+ assert.equal(final.details.processVerdict.accepted, true);
+});
+
+test('regression marker cannot replace evidence or approve a partial regression', async () => {
+ const { reviewMayClose } = await import('../orchestration-activation.ts');
+ const input = { revision: 'a'.repeat(64), scope: ['a.ts'], output: '**Verdict:** APPROVE\nFull-regression marker: passed', declared: true, wide: true };
+ assert.equal(reviewMayClose(input), false);
+ for (const marker of ['partial regression', 'full regressionish', 'tests_run: fullish']) {
+  assert.equal(reviewMayClose({ ...input, output: '**Verdict:** APPROVE\n' + marker, evidenceRef: 'evidence:current' }), false);
+ }
 });

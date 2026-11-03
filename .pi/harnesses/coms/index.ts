@@ -20,7 +20,9 @@ import {
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
 import { registerVersionStatus } from "./version.ts";
-import { handleQuestionEnvelope, registerQuestionPeer } from "../ask-user-remote/questions.ts";
+import { handleQuestionEnvelope, registerQuestionPeer, questionChannel } from "../ask-user-remote/questions.ts";
+import { handleObservationEnvelope } from "../lib/coms-observation.ts";
+import { handleInstructionReceipt } from "../lib/coms-instruction-receipts.ts";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerFlag("name", { description: "Override agent name (otherwise from frontmatter or auto-generated)", type: "string", default: undefined });
@@ -33,9 +35,19 @@ export default function (pi: ExtensionAPI) {
 	const peer = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
+  instructionReceipts: true,
 		onPeersChanged: () => { if (currentCtx?.hasUI) installPoolWidget(currentCtx); },
-		handleCustomEnvelope: handleQuestionEnvelope,
+		handleCustomEnvelope: (socket, envelope) => handleObservationEnvelope(socket, envelope, {
+			owner: observationOwner,
+			session: () => currentCtx?.sessionManager,
+			questions: () => { const owner = observationOwner(); return owner ? questionChannel.list(owner) : { status: 'stale' }; },
+		}) || handleInstructionReceipt(envelope, socket, observationOwner, currentCtx?.sessionManager)
+   || handleQuestionEnvelope(socket, envelope),
 	});
+	function observationOwner() { return peer.ready && peer.identity ? {
+		project: peer.identity.project, peer: peer.identity.name,
+		sessionId: peer.identity.session_id, startedAt: peer.identity.started_at,
+	} : null; }
 	const unregisterQuestions = registerQuestionPeer(() => peer.ready && peer.identity ? {
 		project: peer.identity.project, peer: peer.identity.name,
 		sessionId: peer.identity.session_id, startedAt: peer.identity.started_at,

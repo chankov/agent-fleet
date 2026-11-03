@@ -175,7 +175,7 @@ Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and 
 
 ```mermaid
 flowchart TD
-    You(["You · Hermes inbound relay · Codex outbound conductor on your phone"])
+    You(["You · Hermes relay · Codex native voice or Fleet session client"])
 
     subgraph HUBL["HUB — guarded runtime  (bare just fleet)"]
         Hub["agent-hub harness<br/>operator or orchestrator work mode · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
@@ -592,6 +592,16 @@ flowchart TD
     AF -->|ChatGPT-initiated session client| CODEX["<b>ChatGPT Fleet session client</b><br/>existing Pi session via<br/>opt-in chatgpt-client (experimental)"]
 ```
 
+### Explicit operator current-state verification
+
+`dispatch_agent.review_mode="operator-current-state"` is an explicit native-only verification contract for current Git-visible scoped files, not reconstructed edit authorship. It snapshots the current task/revision, requires complete independent same-state review plus fresh runtime checks for every active automated assertion and AF-MIN-CHANGE, and preserves default changed-task/review/cancellation/action-confirmation gates. Process path/origin distinguishes current-state acceptance; read-only child `changes=unchanged`/`taskAccepted=false` and unsupported manual assertions are not rewritten. Scope mutation, stale input/revision, missing checks or concurrent writers fail closed. No automatic reload, grants, historical records or ledger proof is added. See [contract and manual activation](operator-current-state.md).
+
+### Local Codex observation boundary (experimental)
+
+The separate project-local STDIO MCP adapter uses a validated per-call host conversation namespace and an exact Fleet epoch allowlist (D2-L: trusted cooperative same-user routing, not cryptographic authority). S4 discovery/enrollment/read checks remain registry-only. S5a `fleet_observe` authorizes before and after one bounded read-only local socket snapshot; the receiver projects its current Pi session-manager branch and addressed question channel. It never queues prompts or answers questions. Unknown/partial sources and non-atomic snapshots remain explicit; a turn boundary or registry presence never establishes task completion. No legacy CLI state migration, global fallback, send/answer/cancel, external listener or idle wake is added. S5a fixture verification and native/client-relayed live acceptance are distinct; its smoke grant was subsequently revoked. S5b `fleet_overview` aggregates1–4 explicit unique selectors with at most2 concurrent observations per call, ordered target-local errors/timestamps and summary-only previews; no new receiver protocol or grant is added. S5b native multi-target acceptance remains separate from fixtures. See the [local MCP guide and activation runbook](codex-local-mcp.md).
+
+S5c adds observation-only durable metadata in a separate private `<policyRoot>.observations` namespace, keyed by validated conversation and exact target epoch; it does not alter the allowlist schema or import legacy CLI authority. Stable opaque event/window identities extend the bounded receiver projection. Typed `fleet_resync` and active `fleet_watch` declare local writes (`readOnlyHint=false`), preserve pre/post authorization, and report independent gaps/reset/unsupported continuity and pending/resolved question observations. Cursors are not permission or human-delivery receipts. Watch is bounded by duration, frames, output and concurrency; it does not create background jobs/model wake or cancel Pi work. Source/local verification is not native receiver/MCP activation; any lifecycle/epoch changes remain human-controlled and separate.
+
 ### External dependencies
 
 These are the external systems Agent Fleet assumes or integrates with — not npm packages, but the **runtime stack** the fleet operates on top of.
@@ -906,8 +916,7 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
   docs/                       #   the one doc that installs into a workspace (workflows.md)
 skills/                       # Agent Fleet-native skills (shadow vendored names)
 agents/                       # Personas/subagents; installed to a workspace's .pi/agents/personas/
-codex/                        # Canonical Codex conductor contract (runtime copy lives outside checkout)
-systemd/user/                 # Owned user-unit template for Codex remote control
+codex/                        # Fleet session client skill and compatibility assets
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
 bin/                          # npm CLI: init/update/doctor + the installer engine
 references/                   # Supplementary checklists, installed with the skills that cite them
@@ -981,8 +990,8 @@ packages/hermes-bridge/       # future Hermes integration package
 - **External agents are peers, not plugins.** Claude Code (and future CLI
   agents) join the fleet through bridge adaptors that speak coms envelopes —
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/
-  Telegram route; the experimental Codex conductor is outbound-initiated only,
-  approval-gated, and restricted to listed peers through the validated wrapper.
+  Telegram route. Codex uses the separately documented Fleet session client or
+  local native MCP workflow; the former remote-control conductor is retired.
 - **Hermes monitor presentation is outside the fleet core.** Agent Fleet exposes owner-only
   local monitor operations for Hub-owned state; a consumer owns its UI and lifecycle. The
   worktree contains additive monitor/event/invoke code, but that implementation and its local
@@ -1021,3 +1030,41 @@ longer maintained.
 ## Unified System 1 v2 configuration
 
 The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract](system1-config.md) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.
+
+
+## Local Codex S6a addressed instruction boundary
+
+The local STDIO MCP source adds explicit `grant_send`/`revoke_send` policy previews
+and separate exact instruction prepare/commit/receipt tools (11 tools at the historical S6a checkpoint; the current catalog has 16).
+Validated native conversation identity, existing S2 revision-bound rights and a
+separate private `.instructions` durable intent ledger precede any one-shot
+addressed write. Duplicates return history, unknown never triggers a resend,
+and no exactly-once execution or human-authentication claim is made.
+An optional versioned COMS capability and pre-enqueue exact-owner check protect
+the new sender from legacy receivers. Bounded terminal receipts are projections
+of actual computed responses, correlated by owner/wire ID and recoverable only
+through read-authorized exact lookup; legacy prompts remain unchanged.
+Code/local fixtures do not activate receivers/MCP or authorize live actions.
+See [the local MCP contract](codex-local-mcp.md).
+
+## Local Codex human question actions and voice
+
+The current catalog contains 16 native tools, including answer and journal-upgrade prepare/commit operations. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
+The exact owner/project/peer/sessionId/startedAt, pending questionId/toolCallId,
+full question/effective-flags digest and canonical human response digest bind each action.
+An actual human answer/refusal and a separate exact preview confirmation are required;
+a bare tool call is not independent human attestation. Question refusal is not Pi-turn cancellation.
+An optional question RPC v2 uses the existing QuestionChannel and first-winner latch;
+legacy v1/local behavior remains unchanged. An inherited legacy shared-channel instance
+without the guarded method fails unsupported rather than being silently replaced.
+Bounded volatile proof is owner-bound; missing evidence stays unknown, without retries.
+
+The SAME `.instructions` namespace/file/lock is the common v2 action ledger for
+instruction/answer/refusal IDs. V1 is read-only history until a separately consented
+CAS upgrade, with exact original receipts/timestamps/wire/digest/result preservation
+and an exact raw backup. Explicit journal-upgrade preview and commit tools support a separately confirmed migration after the operator has stopped old writers; there is no automatic migration. Old v1 binaries reject v2;
+rollback retains v2-capable data/reader or fails closed, never restoring old dedup snapshots.
+Shared proposal budgets remain16/context64/process and8 active calls. Sender reservation
+and attempt precede the single mutating write; this is not an atomic filesystem-to-Pi
+transaction, exactly-once execution, strong host/human authentication or hostile-UID isolation.
+No policy/config/lifecycle/native action is implied by source changes. The S6a and S6b bounded native checkpoints are complete; their test grants were revoked.

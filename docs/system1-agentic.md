@@ -50,7 +50,7 @@ The recommendation is injected only when this consumer is in `recommended` mode 
 
 ```json
 {
-  "state": "BG: Защо резултатът е 42? EN: Why is the result 42?",
+  "state": "Why is the result 42?",
   "paths": [{ "path": "src/app.ts", "startLine": 1, "endLine": 30 }],
   "questions": [
     {

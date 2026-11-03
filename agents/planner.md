@@ -30,7 +30,7 @@ subagents:
     thinking: medium
     tools: read,grep,find,ls
   voice-3:
-    model: github-copilot/claude-opus-5
+    model: github-copilot/claude-opus-5.5
     thinking: medium
     tools: read,grep,find,ls
 ---

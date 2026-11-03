@@ -105,14 +105,14 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
  if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool)) return [{ field: 'tool', expected: 'dispatch_agent | spawn_research', actual: type(value?.tool) }];
  if (!value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return [{ field: 'params', expected: 'object', actual: type(value.params) }];
  const params = value.params as unknown as Record<string, unknown>;
- const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','backend','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
+ const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
  const diagnostics: InvocationDiagnostic[] = [];
  const add = (field: string, expected: string, item: unknown, reason?: string) => { if (diagnostics.length < 16) diagnostics.push({ field, expected, actual: type(item), ...(reason ? { reason } : {}) }); };
  for (const key of ['task', ...(value.tool === 'dispatch_agent' ? ['agent'] : [])]) {
   if (typeof params[key] !== 'string') add(key, 'nonblank string', params[key]);
   else if (!(params[key] as string).trim()) add(key, 'nonblank string', params[key], 'blank');
  }
- const enums: Record<string, string[]> = { scope_mode: ['existing','create'], backend: ['auto','native','coms'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] };
+ const enums: Record<string, string[]> = { scope_mode: ['existing','create'], review_mode: ['changes','operator-current-state'], backend: ['auto','native','coms'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] };
  for (const [key, item] of Object.entries(params)) {
   if (!keys.includes(key)) { add('params.<unknown-key>', 'supported field', item, 'unknown key (redacted)'); continue; }
   if (item === undefined || key === 'task' || key === 'agent') continue;
@@ -515,7 +515,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 		const fingerprint = () => canonical({
 			worktree: worktreeRevision(cwd, scope),
 			artifacts: artifactRevision(),
-			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity, scopeMode: (params as DispatchAgentParams).scope_mode ?? "existing" },
+			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity, scopeMode: (params as DispatchAgentParams).scope_mode ?? "existing", ...((params as DispatchAgentParams).review_mode==='operator-current-state'?{reviewMode:'operator-current-state'}:{}) },
 			conditions,
 			// Authoritative prerequisite snapshot: tier/catalog changes unblock not_started.
 			// Task identity is deliberately excluded so reset cannot bypass cancel/unknown-write fences.

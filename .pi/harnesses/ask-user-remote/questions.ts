@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Socket } from 'node:net';
 import { processShared } from '../lib/process-shared.ts';
+import { redactSecrets } from '../lib/fleet-transcript-store.ts';
+import { exact, validHash, validBinding, validSnapshot, questionDigest, answerDigest, normalizeAnswer, validateQuestionAnswer, questionCapability, type QuestionSnapshot } from '../../agent-fleet/scripts/lib/fleet-codex-answer-transport.ts';
+import { validInstructionTarget } from '../../agent-fleet/scripts/lib/fleet-codex-instruction-store.ts';
 
 export interface QuestionOwner { project:string; peer:string; sessionId:string; startedAt:string; }
 export interface QuestionParams {
@@ -28,9 +31,11 @@ export class QuestionChannel {
 	enabled = false;
 	private entries = new Map<string,RecordEntry>();
 	private omitted = false;
+	// Separate volatile proof window, not another arbiter or a human-auth mechanism.
+	private guardedReceipts = new Map<string,Record<string,unknown>>();
 	private owner:() => QuestionOwner|null;
 	constructor(owner:() => QuestionOwner|null) { this.owner = owner; }
-	reset() { for (const entry of this.entries.values()) this.close(entry,'expired'); this.omitted=false; }
+	reset() { for (const entry of this.entries.values()) this.close(entry,'expired'); this.omitted=false; this.guardedReceipts.clear(); }
 	private close(entry:RecordEntry, state:Status) {
 		if (entry.question.state !== 'pending') return;
 		entry.question.state = state; entry.offer = undefined;
@@ -72,6 +77,41 @@ export class QuestionChannel {
 			},
 			expire:() => this.close(entry,'expired'),
 		};
+	}
+	guarded(e:Record<string,unknown>):Record<string,unknown> {
+		const common=['type','version','msg_id','owner','operation','questionId','toolCallId'];
+		const metadata=['sender_session','sender_endpoint','hops','timestamp'];
+		const inspect=e.operation==='inspect';
+		const fields=inspect?common:[...common,'questionDigest','actionDigest','wireId',...(e.operation==='receipt'?[]:['response'])];
+		if(!exact(e,fields,metadata)||e.type!=='question_request'||e.version!==2||!validId(e.msg_id)||!validInstructionTarget(e.owner)||!validId(e.questionId)||typeof e.toolCallId!=='string'||!e.toolCallId||e.toolCallId.length>256||/[\u0000-\u001f\u007f]/u.test(e.toolCallId))return {status:'invalid'};
+		const owner=e.owner, ownerStatus=this.check(owner);if(ownerStatus)return {status:ownerStatus};
+		const base={questionId:e.questionId,toolCallId:e.toolCallId,questionDigest:e.questionDigest??null,actionDigest:e.actionDigest??null,wireId:e.wireId??null};
+		if(!inspect&&!validBinding(e))return {status:'invalid'};
+		if(!inspect){
+			const old=this.guardedReceipts.get(e.wireId as string);
+			if(old){if(!validInstructionTarget(old.owner)||!sameOwner(old.owner,owner)||!Object.entries(base).every(([k,v])=>old[k]===v))return {...base,status:'conflict'};
+				if(e.operation!=='receipt'){try{if(e.operation!=='answer'&&e.operation!=='refusal'||(e.operation==='refusal')!==(e.response===null)||answerDigest(e.operation,owner,e.questionId,e.toolCallId,e.questionDigest as string,e.response)!==e.actionDigest)return {...base,status:'conflict'};}catch{return {...base,status:'invalid'};}}
+				return structuredClone(old);
+			}
+			if(e.operation==='receipt')return {...base,status:'unknown'};
+		}
+		if(!inspect&&e.operation!=='answer'&&e.operation!=='refusal')return {...base,status:'unsupported'};
+		const entry=this.entries.get(e.questionId);
+		if(!entry||!sameOwner(entry.question.owner,owner)||entry.question.toolCallId!==e.toolCallId)return {...base,status:'unknown'};
+		const q=entry.question;
+		if(!validSnapshot(q)||redactSecrets(JSON.stringify(q))!==JSON.stringify(q))return {...base,status:'not_addressable'};
+		const snapshot=q as QuestionSnapshot,digest=questionDigest(snapshot);
+		if(inspect)return q.state==='pending'&&entry.offer&&this.guardedReceipts.size<256?{...base,status:'pending',ready:true,capability:questionCapability,question:structuredClone(q),questionDigest:digest}:{...base,status:'not_ready'};
+		if(digest!==e.questionDigest||!validHash(e.actionDigest)||e.msg_id!==e.wireId)return {...base,status:'changed'};
+		let response;try{response=normalizeAnswer(e.response);}catch{return {...base,status:'invalid'};}
+		if((e.operation==='refusal')!==(response===null)||!validateQuestionAnswer(snapshot,response)||answerDigest(e.operation as 'answer'|'refusal',owner,q.id,q.toolCallId,digest,response)!==e.actionDigest)return {...base,status:'invalid'};
+		// A v1 accepted receipt is deliberately not upgraded into v2 proof.
+		if(entry.receipt?.requestId===e.wireId)return {...base,status:'unknown'};
+		if(this.guardedReceipts.size>=256)return {...base,status:'rejected',outcome:'rejected',decisionAt:new Date().toISOString()};
+		const result=this.submit(owner,q.id,e.wireId as string,response);
+		const status=result.status==='accepted'?'accepted':result.status==='expired'?'expired':result.status==='late'?'late':'rejected';
+		const proof={owner:structuredClone(owner),...base,status,outcome:status==='accepted'?(e.operation==='answer'?'answered':'declined'):status,decisionAt:new Date().toISOString()};
+		this.guardedReceipts.set(e.wireId as string,proof);return structuredClone(proof);
 	}
 	list(owner:QuestionOwner, after?:string) {
 		const status=this.check(owner);
@@ -148,6 +188,10 @@ export function registerQuestionPeer(getOwner:() => QuestionOwner|null) { shared
 export function handleQuestionEnvelope(socket:Pick<Socket,'end'>, envelope:Record<string,unknown>, channel=questionChannel):boolean {
 	if (envelope.type!=='question_request') return false;
 	const owner=envelope.owner as QuestionOwner;
+	if(envelope.version===2){
+		const result=typeof channel.guarded==='function'?channel.guarded(envelope):{status:'unsupported'},response={type:'question_response',version:2,msg_id:validId(envelope.msg_id)?envelope.msg_id:null,owner:validInstructionTarget(owner)?owner:null,...result};
+		const bytes=JSON.stringify(response)+'\n';socket.end(Buffer.byteLength(bytes)<=32768?bytes:JSON.stringify({type:'question_response',version:2,msg_id:response.msg_id,owner:response.owner,status:'oversized'})+'\n');return true;
+	}
 	let result:Record<string,unknown>;
 	if (envelope.version!==1 || !owner || !validId(envelope.msg_id)) result={status:'invalid'};
 	else if (envelope.operation==='list') result=envelope.after!==undefined&&!validId(envelope.after)?{status:'invalid'}:channel.list(owner,envelope.after as string|undefined);
