@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, {after} from "node:test";
 
 function shortTmp(prefix: string): Promise<string> {
 	// Darwin sockaddr_un is 104 bytes; GHA macOS tmpdir is already ~50 chars.
@@ -10,8 +10,13 @@ function shortTmp(prefix: string): Promise<string> {
 	return mkdtemp(join(base, prefix));
 }
 
+// coms-core-io caches its root at module load. Both sequential cases must use
+// the same disposable root even though they import distinct core URL queries.
+const fixtureComsRoot = await shortTmp("afc-");
+after(()=>rm(fixtureComsRoot,{recursive:true,force:true}));
+
 test("coms serializes inbound turns, reports truthful state, and correlates replies", async t => {
-	const root = await shortTmp("afc-");
+	const root = fixtureComsRoot;
 	const previousComsDir = process.env.PI_COMS_DIR;
 	const previousHerdr = process.env.HERDR_ENV;
 	process.env.PI_COMS_DIR = root;
@@ -205,7 +210,7 @@ test("coms serializes inbound turns, reports truthful state, and correlates repl
 });
 
 test('S6a native owner gate precedes enqueue; capability, terminal lookup and legacy coexist', async t => {
- const root=await shortTmp('s6ac-'),old=process.env.PI_COMS_DIR,herdr=process.env.HERDR_ENV;process.env.PI_COMS_DIR=root;process.env.HERDR_ENV='0';
+ const root=fixtureComsRoot,old=process.env.PI_COMS_DIR,herdr=process.env.HERDR_ENV;process.env.PI_COMS_DIR=root;process.env.HERDR_ENV='0';
  const{createComsPeer,sendEnvelope}=await import(`./coms-core.ts?s6a=${Date.now()}`);const{handleInstructionReceipt,ownerOf}=await import('./coms-instruction-receipts.ts');
  const branch:any[]=[],deliveries:string[]=[];const add=(e:any)=>branch.push({...e,id:String(branch.length),parentId:branch.length?String(branch.length-1):null});
  const manager={getBranch:()=>branch,getLeafId:()=>branch.at(-1)?.id??null,getEntry:(id:string)=>branch[Number(id)]};

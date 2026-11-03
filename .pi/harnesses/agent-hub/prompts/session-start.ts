@@ -69,7 +69,7 @@ export function createSessionFooter(deps: SessionFooterDependencies) {
 			const think = deps.thinkingSuffix(deps.getThinkingLevel());
 			const usage = deps.ctx.getContextUsage();
 			const pct = usage?.percent ?? 0;
-			const filled = Math.round(pct / 10);
+			const filled = Number.isFinite(pct) ? Math.max(0, Math.min(10, Math.round(pct / 10))) : 0;
 			const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 			const left = deps.renderLeft(theme, deps.version, model, think);
 			const hint = theme.fg("dim", deps.getHint());

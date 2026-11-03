@@ -6,7 +6,7 @@ const manifest = {
   presets: { default: {}, full: {} },
   features: {
     voice: { stability: "stable" },
-    "chatgpt-client": { stability: "experimental" },
+    "experimental-fixture": { stability: "experimental" },
   },
 };
 const run = (answers, currentDesired = null) => {
@@ -23,7 +23,7 @@ test("TUI offers labelled features and accepts Default, a valid feature, and Ful
   let value = await run(["1", ""]);
   assert.deepEqual(value.result, { cancelled: false, preset: "default", features: [], allFeaturesSnapshot: false, changed: false });
   assert.match(value.text, /voice \(stable\)/);
-  assert.match(value.text, /chatgpt-client \(experimental\)/);
+  assert.match(value.text, /experimental-fixture \(experimental\)/);
 
   value = await run(["1", "voice"]);
   assert.deepEqual(value.result, { cancelled: false, preset: "default", features: ["voice"], allFeaturesSnapshot: false, changed: true });
@@ -34,7 +34,7 @@ test("TUI offers labelled features and accepts Default, a valid feature, and Ful
 });
 
 test("TUI keeps existing desired state for blank input and retries unknown identifiers", async () => {
-  const currentDesired = { preset: "full", features: { voice: true, "chatgpt-client": false } };
+  const currentDesired = { preset: "full", features: { voice: true, "experimental-fixture": false } };
   const value = await run(["", "unknown", ""], currentDesired);
   assert.deepEqual(value.result, { cancelled: false, preset: "full", features: ["voice"], allFeaturesSnapshot: false, changed: false });
   assert.match(value.text, /Unknown feature "unknown".*Try again/i);
@@ -50,9 +50,9 @@ test("third choice snapshots every available feature and shows dependency summar
   const value = await run(["3", ""]);
   assert.equal(value.result.preset, "full");
   assert.equal(value.result.allFeaturesSnapshot, true);
-  assert.deepEqual(value.result.features, ["chatgpt-client", "voice"]);
+  assert.deepEqual(value.result.features, ["experimental-fixture", "voice"]);
   assert.match(value.text, /\[3\] Full \+ all features/);
-  assert.match(value.text, /Selected features: chatgpt-client \(experimental\), voice \(stable\)/);
+  assert.match(value.text, /Selected features: experimental-fixture \(experimental\), voice \(stable\)/);
 });
 
 test("invalid answers retry instead of cancelling", async () => {

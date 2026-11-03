@@ -36,6 +36,7 @@ type Proposal = {
 };
 export type InstructionBridgeOptions = {
     policyRoot: string;
+    assertNewAction?: (context: ConversationKey, requestId: string) => void;
     registryReader: RegistryReader;
     transport: Wire;
     now?: () => number;
@@ -82,6 +83,7 @@ export class InstructionBridge {
                 fail('INTENT_CONFLICT');
             return this.#history(existing);
         }
+        this.#options.assertNewAction?.(c,args.requestId);
         this.#ledger.assertWritable(c);
         const access = await this.#sendAccess(c, args.target);
         await this.#options.transport.capability(args.target);
@@ -117,6 +119,7 @@ export class InstructionBridge {
                 }
                 if (signal?.aborted)
                     fail('REQUEST_CANCELLED');
+                this.#options.assertNewAction?.(c,args.requestId);
                 await this.#sendAccess(c, args.target, p.access);
                 if (signal?.aborted)
                     fail('REQUEST_CANCELLED');
@@ -125,7 +128,7 @@ export class InstructionBridge {
                     return this.#history(reservation.receipt);
                 reserved = reservation.receipt;
                 let result = await this.#options.transport.send(args.target, reserved.wireId, args.instruction, { signal, beforeWrite: async () => { await this.#sendAccess(c, args.target, p.access); if (signal?.aborted)
-                        fail('REQUEST_CANCELLED'); this.#ledger.markAttempt(c, args.requestId); } });
+                        fail('REQUEST_CANCELLED'); this.#options.assertNewAction?.(c,args.requestId); this.#ledger.markAttempt(c, args.requestId); } });
                 try {
                     await this.#read(c, args.target);
                 }

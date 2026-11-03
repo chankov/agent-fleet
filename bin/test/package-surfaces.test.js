@@ -461,10 +461,19 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     assert.equal(historicalAfter.packageVersion, JSON.parse(readFileSync(join(extracted, "package.json"), "utf8")).version);
     assert.equal(JSON.parse(readFileSync(join(historicalWorkspace, ".ai/agent-fleet.json"), "utf8")).preset, "default");
 
+    // Native replacement must start from the packed distribution, not checkout-only imports.
+    for (const old of ['.pi/agent-fleet/scripts/fleet-codex-client.ts','.pi/agent-fleet/scripts/fleet-codex-read.py','.pi/agent-fleet/scripts/lib/fleet-codex-operations.ts','codex/fleet-session-client.zip']) assert.equal(existsSync(join(extracted,old)),false,old);
+    const nativeRoot=join(fixture,'native-protocol');mkdirSync(nativeRoot);
+    const nativeInput=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'package-fixture',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/list',params:{}},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'fleet_diagnostics',arguments:{},_meta:{threadId:'11111111-1111-4111-8111-111111111111'}}}].map(v=>JSON.stringify(v)).join('\n')+'\n';
+    const native=spawnSync(process.execPath,[join(extracted,'.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs'),'--registry-root',join(nativeRoot,'registry'),'--policy-root',join(nativeRoot,'policy'),'--host-profile','package-fixture','--principal','local'],{input:nativeInput,encoding:'utf8',timeout:15000});
+    assert.equal(native.status,0,native.stderr);const nativeReplies=native.stdout.trim().split('\n').map(line=>JSON.parse(line));
+    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.length,21);
+    const diagnosticReply=nativeReplies.find(v=>v.id===3);assert.equal(diagnosticReply?.result.isError,false);assert.equal(JSON.parse(diagnosticReply.result.content[0].text).scope,'local_diagnostics');
+    assert.equal(existsSync(join(nativeRoot,'policy')),false);
     const allPreviewWorkspace = join(fixture, "all-features-preview"); mkdirSync(allPreviewWorkspace);
     const allPreview = JSON.parse(execFileSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", allPreviewWorkspace,
-      "--preset", "full", "--features", "browser, chatgpt-client, claude-bridge, hermes, telegram, voice", "--stt-provider", "openai", "--dry-run", "--json"], { encoding: "utf8" }));
-    assert.equal(allPreview.stage, "preview"); assert.ok(allPreview.selection.desired.features.includes("chatgpt-client"));
+      "--preset", "full", "--features", "browser, claude-bridge, hermes, telegram, voice", "--stt-provider", "openai", "--dry-run", "--json"], { encoding: "utf8" }));
+    assert.equal(allPreview.stage, "preview"); assert.ok(allPreview.selection.desired.features.includes("hermes")); assert.equal(allPreview.selection.desired.features.includes("chatgpt-client"), false);
     const nonTtyWorkspace = join(fixture, "non-tty"); mkdirSync(nonTtyWorkspace);
     const refused = spawnSync(process.execPath, [join(extracted, "bin", "cli.js"), "setup", "--workspace", nonTtyWorkspace, "--preset", "default", "--features", "none"], { encoding: "utf8" });
     assert.equal(refused.status, 1); assert.match(refused.stderr, /requires --yes/);
@@ -509,11 +518,15 @@ test("published package hoists extension runtime dependencies for symlink instal
 
 test("package, snapshot, and harness closure surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["codex/", ".pi/agent-fleet/hermes/README.md", ".pi/agent-fleet/hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
+  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", ".pi/agent-fleet/hermes/README.md", ".pi/agent-fleet/hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
   assert.equal(pkg.files.includes(".pi/agent-fleet/hermes/"), false);
   assert.equal(pkg.files.includes("systemd/"), false);
+  assert.equal(pkg.files.includes("codex/"), false);
+  assert.equal(pkg.files.includes(".pi/agent-fleet/scripts/fleet-codex-read.py"), false);
+  assert.equal(pkg.scripts['test:fleet-client'], undefined);
+  assert.match(pkg.scripts['test:fleet-native'], /fleet-codex\*/);
   assert.equal(pkg.files.includes("docs/codex-remote-conductor.md"), false);
   assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/plugins/"));
   assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/desktop-plugins/"));
@@ -522,10 +535,11 @@ test("package, snapshot, and harness closure surfaces stay aligned", () => {
   assert.match(pkg.scripts["test:full"], /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
   assert.doesNotMatch(pkg.scripts["test:full"], /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["codex", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
+  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
   assert.doesNotMatch(snapshot, /"systemd"/);
+  assert.doesNotMatch(snapshot, /^\s*"codex",$/m);
   assert.doesNotMatch(snapshot, /docs\/codex-remote-conductor\.md/);
   assert.doesNotMatch(snapshot, /^\s*"docs",$/m, "snapshot must not include docs omitted from the package root allowlist");
 });

@@ -37,10 +37,10 @@ automation and do not restore retired prompt or skill surfaces.
 | --- | --- | --- |
 | **First install, any repository** | `npx @chankov/agent-fleet@latest setup` | Interactive in a TTY. A repository without Agent Fleet has no justfile — setup writes it — so `just fleet setup` is not available yet. |
 | Fresh Default automation | `npx @chankov/agent-fleet@<exact-version> setup --preset default --features none --yes` | Reproducible stable Fleet Core, no voice configuration or `.claude/`. |
-| Fresh Full automation | `npx @chankov/agent-fleet@<exact-version> setup --preset full --features none --yes` | All stable, platform-applicable catalogue roots; experimental `chatgpt-client` stays excluded. |
+| Fresh Full automation | `npx @chankov/agent-fleet@<exact-version> setup --preset full --features none --yes` | All stable, platform-applicable catalogue roots; retired CLI integrations are not selectable. |
 | Finish the install | `just fleet deps` (or `setup --allow-exec`) | Setup writes files and runs no commands. The `npm` steps are planned as `skip`; the workspace is not launchable until they run. |
 | **Routine update** | `just fleet setup --dry-run`, then `just fleet setup` | Reconciles to the desired state already in `.ai/agent-fleet.json`; no flags needed. |
-| Stable features | `... setup --preset default --features voice,browser --yes` | `hermes`, `telegram` (requires `hermes`), and `claude-bridge` are stable; `chatgpt-client` is an explicit experimental opt-in. A leftover desired feature `codex-remote` is refused before mutation. |
+| Stable features | `... setup --preset default --features voice,browser --yes` | `hermes`, `telegram` (requires `hermes`), and `claude-bridge` are stable. Leftover desired features `codex-remote` and `chatgpt-client` are refused before mutation and require separate backed-up config repair. Native Codex MCP is configured separately; original CLI journals are preserved — see [native setup](codex-local-mcp.md) and [CLI migration](codex-session-bridge.md). |
 | Existing desired state | `... setup --preset full --features none --yes` | Flags are ephemeral; existing `.ai/agent-fleet.json` is unchanged. Add `--save-desired` to persist. |
 | First legacy migration preview | `... setup --migrate --dry-run` | Lists exact state-owned removals; no consent or writes. |
 | First legacy migration mutation | `... setup --migrate --preset default --features none --yes` | Automation requires all three gates: `--migrate`, explicit preset/features, and `--yes`; only unchanged owned extras are removed. |

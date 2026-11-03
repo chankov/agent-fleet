@@ -36,7 +36,7 @@ async function bind(f: Awaited<ReturnType<typeof fixture>>, m = meta()) {
 }
 
 test('S5c extension preserves honest local-write annotations for all existing policy tools', () => {
- assert.equal(TOOLS.length, 16); assert.equal(TOOLS[0].annotations.readOnlyHint, true);
+ assert.equal(TOOLS.length, 21); assert.equal(TOOLS[0].annotations.readOnlyHint, true);
  assert.ok(TOOLS.slice(1,14).every(t => !t.annotations.readOnlyHint));
 });
 for (const m of [undefined, null, {}, { threadId: B, sessionId: {} }, { threadId: 'not-a-uuid' }, { threadId: A.toUpperCase().replace('1111', 'ABCD') }]) {
@@ -291,7 +291,7 @@ test('actual STDIO simulated A/B enrollment/check/forget pipeline with real temp
 });
 test('dispatcher imports narrow observation leaf, not broad legacy Fleet operations',async()=>{
  const sources=[await readFile(resolve('.pi/agent-fleet/scripts/lib/fleet-codex-local-mcp.ts'),'utf8'),await readFile(resolve('.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts'),'utf8')];
- const allowed=new Set(['node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts']);
+ const allowed=new Set(['node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts','./fleet-codex-native-history.ts']);
  for(const s of sources) {for(const m of s.matchAll(/from ['"]([^'"]+)['"]/g))assert.ok(allowed.has(m[1]),m[1]);assert.equal(/\bimport\s*\(/.test(s),false);}
 });
 
@@ -341,7 +341,7 @@ async function preparedEmpty(f: Awaited<ReturnType<typeof fixture>>, m = meta(B)
 test('initialize_empty advertised as a closed discriminated branch, unchanged alongside S5c tools', async t => {
  const f = await fixture(t), p = await protocol(f);
  const r = await p.handle({jsonrpc:'2.0',id:1,method:'tools/list'}) as {result:{tools:typeof TOOLS}};
- assert.equal(r.result.tools.length,16);
+ assert.equal(r.result.tools.length,21);
  const schema = r.result.tools.find(x=>x.name==='fleet_binding_prepare')!.inputSchema as unknown as {oneOf:{properties:Record<string,unknown>;required:string[];additionalProperties:boolean}[]};
  assert.equal(schema.oneOf.length,2);
  assert.deepEqual(schema.oneOf[0],{type:'object',properties:{intent:{type:'string',enum:['initialize_empty']}},required:['intent'],additionalProperties:false});
@@ -522,3 +522,13 @@ test('S6a protocol error after durable attempted write never claims remote not_c
  const f=await fixture(t,{instructionTransport:{capability:async()=>true,send:async(_t,_w,_body,o)=>{await o.beforeWrite();throw Error('PRIVATE_TRANSPORT_FAILURE');},receipt:async()=>null}});await bind(f);await f.call('fleet_binding_commit',{proposalId:(await f.call('fleet_binding_prepare',{intent:'grant_send',...q})).proposalId});const p=await f.call('fleet_instruction_prepare',s6aArgs),protocol=new McpProtocol(f.service);
  await protocol.handle({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{}}});await protocol.handle({jsonrpc:'2.0',method:'notifications/initialized'});const result:any=await protocol.handle({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'fleet_instruction_commit',arguments:{proposalId:p.proposalId},_meta:meta()}});assert.equal(result.result.isError,true);const body=JSON.parse(result.result.content[0].text);assert.equal(body.remote,'unknown');assert.equal(JSON.stringify(body).includes('PRIVATE_TRANSPORT_FAILURE'),false);const history=await f.call('fleet_instruction_receipt',{requestId:s6aArgs.requestId});assert.equal((history.receipt as any).state,'unknown');assert.equal((history.receipt as any).attempted,true);
 });
+
+test('native snapshot is explicit read-authorized retention; replay is historical after forget and isolated from B',async t=>{
+ let sourceReads=0;const f=await fixture(t,{observationReader:async owner=>{sourceReads++;return {target:owner,observedAt:at,transcript:{status:'available',partial:false,reasons:[],entries:[{at,kind:'assistant',text:'retained public result'}]},questionState:{status:'available',partial:false,reasons:[],questions:[],resolved:[],nextCursor:null}};}});
+ await denied('STATE_MISSING',()=>f.call('fleet_snapshot'));assert.equal(sourceReads,0);
+ await bind(f);assert.equal((await f.call('fleet_snapshot')).status,'saved');assert.equal(sourceReads,1);
+ const p=await f.call('fleet_binding_prepare',{intent:'forget',...q});await f.call('fleet_binding_commit',{proposalId:p.proposalId});
+ const historical=await f.call('fleet_replay');assert.equal(historical.scope,'historical_only');assert.equal(historical.remote,'not_checked');assert.equal(JSON.stringify(historical).includes('retained public result'),true);assert.equal(sourceReads,1);
+ await denied('REPORT_UNAVAILABLE',()=>f.call('fleet_replay',q,meta(B)));
+});
+test('cancelled native snapshot cannot start a source read or write a report',async t=>{let reads=0;const f=await fixture(t,{observationReader:async()=>{reads++;throw Error('not called');}});await bind(f);const controller=new AbortController();controller.abort();await denied('REQUEST_CANCELLED',()=>f.service.call('fleet_snapshot',q,meta(),controller.signal));assert.equal(reads,0);await denied('REPORT_UNAVAILABLE',()=>f.call('fleet_replay'));});

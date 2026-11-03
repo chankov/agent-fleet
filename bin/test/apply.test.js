@@ -19,7 +19,7 @@ import { buildPlan } from "../lib/plan.js";
 import { applyPlan, runTrustedExec } from "../lib/apply.js";
 import { runVerify, hasDrift } from "../lib/verify.js";
 import { loadManifest } from "../lib/manifest.js";
-import { readState, walkTree } from "../lib/state.js";
+import { readState, writeState, hashFile, walkTree } from "../lib/state.js";
 import { extractRegion } from "../lib/merge-forms.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -303,6 +303,26 @@ test("a conflict writes nothing, leaves the original untouched, and exits 3", ()
 });
 
 // ── removal ─────────────────────────────────────────────────────────────────
+
+test("retired CLI ownership cannot remove shared runtime files or unowned journals", t => {
+  const sourceRoot=makeSource(),workspace=tmp('retirement-shared'),manifest=makeManifest();
+  t.after(()=>{rmSync(sourceRoot,{recursive:true,force:true});rmSync(workspace,{recursive:true,force:true});});
+  run({workspace,sourceRoot,manifest,items:['skill:alpha']});
+  const state=readState(workspace),own=write(workspace,'.pi/retired-client.ts','retired entrypoint\n');
+  write(workspace,'private/original.json.runtime','original unknown receipt\n');
+  state.items['companion:fleet-client-runtime']={...structuredClone(state.items['skill:alpha']),kind:'companion',files:[...structuredClone(state.items['skill:alpha'].files),{path:'.pi/retired-client.ts',mode:'copy',sha256:hashFile(own)}]};
+  writeState(workspace,state);
+  const {applied}=run({workspace,sourceRoot,manifest,verb:'upgrade'});
+  assert.equal(applied.exitCode,0);
+  assert.equal(existsSync(own),false);
+  assert.equal(read(workspace,'.pi/skills/alpha/SKILL.md'),'alpha v2\n');
+  assert.equal(read(workspace,'private/original.json.runtime'),'original unknown receipt\n');
+  assert.ok(readState(workspace).items['skill:alpha']);
+  assert.equal(readState(workspace).items['companion:fleet-client-runtime'],undefined);
+  const removed=run({workspace,sourceRoot,manifest,verb:'uninstall',items:['skill:alpha']});
+  assert.equal(removed.applied.exitCode,0);assert.equal(existsSync(join(workspace,'.pi/skills/alpha/SKILL.md')),false);
+  assert.equal(read(workspace,'private/original.json.runtime'),'original unknown receipt\n');
+});
 
 test("removal deletes only what is recorded and unmodified", () => {
   const sourceRoot = makeSource();

@@ -218,14 +218,6 @@
         "skill:peer-coms"
       ]
     },
-    "chatgpt-client": {
-      "title": "ChatGPT Fleet session client",
-      "stability": "experimental",
-      "items": [
-        "companion:fleet-client-runtime",
-        "companion:fleet-client-skill"
-      ]
-    },
     "system1": {
       "title": "System 1 provider foundation",
       "stability": "experimental",
@@ -592,63 +584,6 @@
       "parents": [
         "pi-harness:damage-control-continue"
       ]
-    },
-    {
-      "id": "companion:fleet-client-runtime",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "Lightweight ChatGPT Fleet client",
-      "summary": "Local instruction and read client; no daemon or model calls",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            ".pi/agent-fleet/scripts/fleet-codex-client.ts",
-            ".pi/agent-fleet/scripts/fleet-codex-read.py",
-            ".pi/agent-fleet/scripts/package.json",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-session.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-operations.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-transport.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts",
-            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
-            ".pi/harnesses/lib/herdr-client.ts",
-            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
-            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
-            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
-            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
-          ],
-          "sourceMode": "all",
-          "target": null,
-          "strategy": "copy-tree",
-          "preserveLayout": true
-        }
-      }
-    },
-    {
-      "id": "companion:fleet-client-skill",
-      "kind": "companion",
-      "group": "companions",
-      "subcategory": null,
-      "title": "ChatGPT Fleet client skill",
-      "summary": "Workspace Codex skill for the explicit session client",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "codex/fleet-session-client"
-          ],
-          "sourceMode": "first",
-          "target": ".agents/skills/fleet-session-client",
-          "strategy": "copy-tree"
-        }
-      }
     },
     {
       "id": "companion:harness-runtime-closure",

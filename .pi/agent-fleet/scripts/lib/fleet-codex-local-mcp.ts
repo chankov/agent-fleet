@@ -15,6 +15,15 @@ import { AllowedSessionsPolicy, type ConversationKey, type TargetEpoch } from '.
 import { AllowedSessionsStore, StoreError, type StoreSnapshot, type StoreOptions, type StoreHandle } from './fleet-codex-allowlist-store.ts';
 import { ReadonlyFleetBridge, ReadonlyFleetError, createReadonlyRegistryReader, type RegistryReader } from './fleet-codex-readonly.ts';
 
+import {NativeHistory, HistoryError} from './fleet-codex-native-history.ts';
+
+export function parseLauncher(args:string[]) {
+ const required=['--registry-root','--policy-root','--host-profile','--principal'];
+ const allowed=[...required,'--legacy-state-root'],values=new Map<string,string>();
+ for(let i=0;i<args.length;i+=2){const k=args[i],v=args[i+1];if(!allowed.includes(k)||values.has(k)||!v||v.startsWith('--'))throw new Error('INVALID_LAUNCH');values.set(k,v);}
+ if(!required.every(k=>values.has(k)))throw new Error('INVALID_LAUNCH');
+ return {registryRoot:values.get('--registry-root')!,policyRoot:values.get('--policy-root')!,hostProfile:values.get('--host-profile')!,principal:values.get('--principal')!,...(values.has('--legacy-state-root')?{legacyStateRoot:values.get('--legacy-state-root')!}:{})};
+}
 export class McpFault extends Error {
  readonly code: string;
  constructor(code: string) { super(code); this.name = 'McpFault'; this.code = code; }
@@ -35,7 +44,7 @@ function query(v: Record<string, unknown>, optionalPeer = false): { project: str
  return { project: v.project, ...(has(v,'peer') ? { peer: v.peer as string } : {}) };
 }
 const safeFault = (e: unknown): McpFault => e instanceof McpFault ? e
- : e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
+ : e instanceof HistoryError || e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
 const stringSchema = { type: 'string', minLength: 1, maxLength: 1024 };
 const selectors = { project: stringSchema, peer: { type: 'string', minLength: 1, maxLength: 64 } };
 const bindingPrepareProperties = { ...selectors, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send'] }, bindingAlias: stringSchema };
@@ -71,6 +80,11 @@ export const TOOLS = [
  tool('fleet_answer_receipt','Current-chat local human-action metadata; optional one read-only guarded refresh requires current read authority. No answer body, automatic retry, question creation or Pi cancellation.',{requestId:{type:'string',minLength:1,maxLength:96},refresh:{type:'boolean'}},['requestId']),
  tool('fleet_journal_upgrade_prepare','Preview current-chat v1 to v2 journal upgrade. Require quiescent old writers and fresh human confirmation before commit; no migration or RPC yet.',{},[],true),
  tool('fleet_journal_upgrade_commit','Commit the exact human-reviewed journal upgrade after operator-confirmed writer quiescence. Preserves receipts and raw backup; no downgrade, grants or Pi call.',{proposalId:{type:'string',format:'uuid'}},['proposalId'],false,true),
+ tool('fleet_diagnostics','Local launcher/runtime and tool availability only; no shell execution, registry/source probe, enrollment or permission grant.',{},[],true),
+ tool('fleet_receipts','Paginated historical current-chat native action receipts only; no refresh, grants, delivery or deletion.',{offset:{type:'integer',minimum:0,maximum:256},limit:{type:'integer',minimum:1,maximum:8}},[],true),
+ tool('fleet_legacy_history','Opt-in read-only archive for this exact native UUID chat. Redacted JSON fragments of original CLI selection/runtime, not migration of grants or replay. Offset/limit count string characters; offset>0 requires the first page sourceSha256. Source changes stop pagination; never combine versions. Reconstruct all fragments before interpreting.',{section:{type:'string',enum:['selection','runtime']},offset:{type:'integer',minimum:0,maximum:4194304},limit:{type:'integer',minimum:1,maximum:8192},sourceSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}},['section'],true),
+ tool('fleet_snapshot','Explicitly observe one read-authorized target and save a redacted historical report locally for replay. Local data retention, no peer mutation; not task completion.',selectors,['project','peer']),
+ tool('fleet_replay','Read only the last explicitly saved historical snapshot for this chat and selector; does not check live rights, probe Pi, retarget or claim fresh state.',selectors,['project','peer'],true),
 ];
 type Intent = 'enroll_read' | 'rebind_read' | 'forget' | 'grant_send' | 'revoke_send';
 type Result = Record<string, unknown>;
@@ -79,7 +93,7 @@ type ProposalBase = { context: string; expires: number;
 type Proposal = ProposalBase & ({ intent: Intent; target: TargetEpoch; alias: string; revision: number | null; handle?: StoreHandle; store: AllowedSessionsStore }
  | { intent: 'initialize_empty'; revision: null; store: AllowedSessionsStore }
  | { intent: 'upgrade_journal'; ledger: ActionLedger; expected: UpgradePreview });
-export type LocalMcpOptions = Readonly<{ registryRoot: string; policyRoot: string; hostProfile: string; principal: string;
+export type LocalMcpOptions = Readonly<{ registryRoot: string; policyRoot: string; hostProfile: string; principal: string; legacyStateRoot?: string;
  answerTransport?: Pick<AnswerTransport,'inspect'|'send'|'receipt'>; instructionTransport?: Pick<InstructionTransport,'capability'|'send'|'receipt'>; registryReader?: RegistryReader; observationReader?: ObservationReader; now?: () => number; monotonic?: () => number; storeOptions?: StoreOptions }>;
 
 export class LocalCodexMcp {
@@ -90,6 +104,8 @@ export class LocalCodexMcp {
  readonly #resync: ResyncBridge;
  readonly #instructions: InstructionBridge;
  readonly #answers: AnswerBridge;
+ readonly #history: NativeHistory;
+ readonly #ledger: ActionLedger;
  readonly #mono: () => number;
  #pending = new Map<string, Proposal>();
  #active = 0;
@@ -98,18 +114,23 @@ export class LocalCodexMcp {
   for (const root of [options.registryRoot,options.policyRoot]) if (typeof root !== 'string' || !isAbsolute(root) || resolve(root) !== root) fail('UNSAFE_PATH');
   const overlaps = (a: string,b: string) => { const rel = relative(a,b); return rel === '' || rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel); };
   const observationRoot=options.policyRoot+'.observations';
+  if (overlaps(options.registryRoot,options.policyRoot+'.reports') || overlaps(options.policyRoot+'.reports',options.registryRoot) || options.legacyStateRoot!==undefined && (overlaps(options.registryRoot,options.legacyStateRoot)||overlaps(options.legacyStateRoot,options.registryRoot))) fail('UNSAFE_PATH');
   if (overlaps(options.registryRoot,options.policyRoot) || overlaps(options.policyRoot,options.registryRoot)
    || overlaps(options.registryRoot,observationRoot) || overlaps(observationRoot,options.registryRoot) || overlaps(options.registryRoot,options.policyRoot+'.instructions') || overlaps(options.policyRoot+'.instructions',options.registryRoot)) fail('UNSAFE_PATH');
   new AllowedSessionsPolicy().list({ hostProfile: options.hostProfile, principal: options.principal, threadId: 'validation-only' });
+  this.#history = new NativeHistory(options.policyRoot,options.legacyStateRoot);
+  this.#ledger = new ActionLedger(options.policyRoot+'.instructions',{now:options.now});
   this.#options = { ...options }; this.#mono = options.monotonic ?? (() => performance.now());
   this.#bridge = new ReadonlyFleetBridge({ registryReader: options.registryReader ?? createReadonlyRegistryReader({ registryRoot: options.registryRoot, now: options.now }),
    policyBaseDir: options.policyRoot, now: options.now });
   this.#observation = new ObservationBridge({authorization:this.#bridge,reader:options.observationReader ?? createObservationReader({registryRoot:options.registryRoot,now:options.now}),now:options.now});
-  this.#instructions = new InstructionBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.instructionTransport??new InstructionTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,pendingBudget:context=>this.#budget(context,'instruction')});
-  this.#answers = new AnswerBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.answerTransport??new AnswerTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,pendingBudget:context=>this.#budget(context,'answer')});
+  this.#instructions = new InstructionBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.instructionTransport??new InstructionTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'instruction')});
+  this.#answers = new AnswerBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.answerTransport??new AnswerTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'answer')});
   this.#overview = new OverviewBridge(this.#observation);
   this.#resync = new ResyncBridge({observer:this.#observation,authorization:this.#bridge,store:new ObservationStore(observationRoot)});
  }
+ #receipts(c:ConversationKey,a:Record<string,unknown>){const receipts=this.#ledger.listActions(c),offset=(a.offset??0) as number,limit=(a.limit??8) as number;return {scope:'historical_only',remote:'not_checked',completion:'not_established',receipts:receipts.slice(offset,offset+limit),nextOffset:offset+limit<receipts.length?offset+limit:null};}
+ async #snapshot(c:ConversationKey,a:Record<string,unknown>,signal?:AbortSignal){if(signal?.aborted)fail('REQUEST_CANCELLED');const report=await this.#observation.observe(c,a);if(signal?.aborted)fail('REQUEST_CANCELLED');const current=await this.#bridge.checkAllowedReadTarget(c,a);if(signal?.aborted)fail('REQUEST_CANCELLED');if(!same(report.target,current.target))fail('TARGET_CHANGED');return this.#history.save(c,report.target,report);}
  #context(metadata: unknown): ConversationKey {
   if (!object(metadata) || !has(metadata,'threadId') || !uuid(metadata.threadId)
    || has(metadata,'sessionId') && !text(metadata.sessionId)) fail('IDENTITY_REQUIRED');
@@ -239,7 +260,10 @@ export class LocalCodexMcp {
  async call(name: string, arguments_: unknown, metadata: unknown, signal?: AbortSignal): Promise<Result> {
   try {
    const c = this.#context(metadata); // No registry/store I/O before both identity and args validation.
-   if (name === 'fleet_discover' || name === 'fleet_check_read' || name === 'fleet_observe') { fields(arguments_,['project'],['peer']); query(arguments_,name === 'fleet_discover'); }
+   if (name === 'fleet_diagnostics') fields(arguments_,[]);
+   else if (name === 'fleet_receipts') {fields(arguments_,[],['offset','limit']);if(has(arguments_,'offset')&&(!Number.isInteger(arguments_.offset)||(arguments_.offset as number)<0||(arguments_.offset as number)>256)||has(arguments_,'limit')&&(!Number.isInteger(arguments_.limit)||(arguments_.limit as number)<1||(arguments_.limit as number)>8))fail('INVALID_ARGUMENTS');}
+   else if (name === 'fleet_legacy_history') {fields(arguments_,['section'],['offset','limit','sourceSha256']);if(!['selection','runtime'].includes(arguments_.section as string)||has(arguments_,'offset')&&(!Number.isInteger(arguments_.offset)||(arguments_.offset as number)<0||(arguments_.offset as number)>4194304)||has(arguments_,'limit')&&(!Number.isInteger(arguments_.limit)||(arguments_.limit as number)<1||(arguments_.limit as number)>8192))fail('INVALID_ARGUMENTS');}
+   else if (name === 'fleet_discover' || name === 'fleet_check_read' || name === 'fleet_observe' || name === 'fleet_snapshot' || name === 'fleet_replay') { fields(arguments_,['project'],['peer']); query(arguments_,name === 'fleet_discover'); }
    else if (name === 'fleet_overview' || name === 'fleet_resync') { parseOverviewTargets(arguments_); }
    else if (name === 'fleet_watch') { fields(arguments_,['targets','durationSeconds']);parseOverviewTargets({targets:arguments_.targets});
     if(!Number.isInteger(arguments_.durationSeconds)||(arguments_.durationSeconds as number)<1||(arguments_.durationSeconds as number)>10)fail('INVALID_ARGUMENTS'); }
@@ -263,7 +287,12 @@ export class LocalCodexMcp {
    try {
     if (signal?.aborted) fail('REQUEST_CANCELLED');
     const a = arguments_ as Record<string,unknown>;
-    const result = name === 'fleet_discover' ? await this.#bridge.discoverCandidates(c,a)
+    const result = name === 'fleet_diagnostics' ? {scope:'local_diagnostics',nodeVersion:process.versions.node,protocolVersion:'2025-06-18',tools:TOOLS.map(t=>({name:t.name,annotations:t.annotations})),legacyArchiveConfigured:this.#options.legacyStateRoot!==undefined,identity:'host_context_validated',remote:'not_checked',completion:'not_established'}
+     : name === 'fleet_receipts' ? this.#receipts(c,a)
+     : name === 'fleet_legacy_history' ? this.#history.legacy(c,a)
+     : name === 'fleet_replay' ? this.#history.replay(c,a)
+     : name === 'fleet_snapshot' ? await this.#snapshot(c,a,signal)
+     : name === 'fleet_discover' ? await this.#bridge.discoverCandidates(c,a)
      : name === 'fleet_check_read' ? await this.#bridge.checkAllowedReadTarget(c,a)
      : name === 'fleet_observe' ? await this.#observation.observe(c,a)
      : name === 'fleet_overview' ? await this.#overview.overview(c,a,signal)

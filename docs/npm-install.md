@@ -40,12 +40,12 @@ npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
 **Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
-`claude-bridge`, and the experimental `chatgpt-client`, `system1` and
+`claude-bridge`, and the experimental `system1` and
 `system1-task-triage`), not an
 arbitrary package-entry mode — `setup --help` lists them. Experimental features
 are selected only when named explicitly; automatic **Full** does not include
 `system1` or `system1-task-triage`. Full + all features additionally needs
-separate task-context consent if task triage is selected.
+separate task-context consent if task triage is selected. The retired `chatgpt-client` and `codex-remote` names are rejected; old desired-state entries, including `false`, require a separately approved narrow config repair with backup. This does not install native MCP, grant rights, or remove private journals. See [native setup](codex-local-mcp.md) and [CLI migration](codex-session-bridge.md).
 
 ### Experimental System 1 foundation
 

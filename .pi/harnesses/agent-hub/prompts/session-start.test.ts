@@ -86,3 +86,8 @@ test("production footer retains no-model fallback and existing narrow-width trun
 		for (const line of lines) assert.ok(visibleWidth(line) <= width, `line exceeds ${width} columns`);
 	}
 });
+
+test("footer renders context usage above 100 percent without crashing", () => {
+	const { footer } = productionFooter({ getContextUsage: () => ({ percent: 140 }) });
+	assert.match(footer.render(200)[0], /\[##########\] 140%/);
+});

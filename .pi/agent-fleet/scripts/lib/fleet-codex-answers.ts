@@ -17,7 +17,7 @@ export function parseAnswer(v:unknown){
 type Args=ReturnType<typeof parseAnswer>;
 type Access={store:AllowedSessionsStore;handle:StoreHandle};
 type Proposal={context:string;expires:number;args:Args;access:Access;questionDigest:string;digest:string;promise?:Promise<Record<string,unknown>>;outcome?:{result?:Record<string,unknown>;error?:unknown}};
-export type AnswerBridgeOptions={policyRoot:string;registryReader:RegistryReader;transport:Pick<AnswerTransport,'inspect'|'send'|'receipt'>;now?:()=>number;monotonic?:()=>number;pendingBudget?:(context:string)=>{total:number;context:number}};
+export type AnswerBridgeOptions={policyRoot:string;assertNewAction?:(context:ConversationKey,requestId:string)=>void;registryReader:RegistryReader;transport:Pick<AnswerTransport,'inspect'|'send'|'receipt'>;now?:()=>number;monotonic?:()=>number;pendingBudget?:(context:string)=>{total:number;context:number}};
 export class AnswerBridge {
  readonly #options:AnswerBridgeOptions;readonly #auth:ReadonlyFleetBridge;readonly #ledger:ActionLedger;readonly #pending=new Map<string,Proposal>();
  constructor(options:AnswerBridgeOptions){this.#options=options;this.#auth=new ReadonlyFleetBridge({registryReader:options.registryReader,policyBaseDir:options.policyRoot,now:options.now});this.#ledger=new ActionLedger(options.policyRoot+'.instructions',{now:options.now});}
@@ -38,7 +38,7 @@ export class AnswerBridge {
   if(targetKey(await a.store.authorize(a.handle,'send',current))!==targetKey(t))fail('TARGET_CHANGED');return a;
  }
  async prepare(c:ConversationKey,input:unknown,signal?:AbortSignal):Promise<Record<string,unknown>>{
-  this.#context(c);const args=parseAnswer(input),old=this.#ledger.lookupAction(c,args.requestId);if(old)return this.#history(this.#same(old,args));this.#ledger.assertWritable(c);
+  this.#context(c);const args=parseAnswer(input),old=this.#ledger.lookupAction(c,args.requestId);if(old)return this.#history(this.#same(old,args));this.#options.assertNewAction?.(c,args.requestId);this.#ledger.assertWritable(c);
   if(signal?.aborted)fail('REQUEST_CANCELLED');const access=await this.#access(c,args.target),q=await this.#options.transport.inspect(args.target,args.questionId,args.toolCallId,signal);
   await this.#read(c,args.target);if(signal?.aborted)fail('REQUEST_CANCELLED');
   if(!validSnapshot(q)||redactSecrets(JSON.stringify(q))!==JSON.stringify(q)||q.state!=='pending'||targetKey(q.owner)!==targetKey(args.target)||q.id!==args.questionId||q.toolCallId!==args.toolCallId||!validateQuestionAnswer(q,args.response))fail('QUESTION_CHANGED');
@@ -52,10 +52,10 @@ export class AnswerBridge {
   if(p.outcome){if(p.outcome.error)throw p.outcome.error;return structuredClone(p.outcome.result!);}if(p.promise)return p.promise;
   p.promise=(async()=>{let reserved:QuestionReceipt|undefined;
    try{
-    const a=p.args,old=this.#ledger.lookupAction(c,a.requestId);if(old)return this.#history(this.#same(old,a));if(signal?.aborted)fail('REQUEST_CANCELLED');await this.#access(c,a.target,p.access);if(signal?.aborted)fail('REQUEST_CANCELLED');
+    const a=p.args,old=this.#ledger.lookupAction(c,a.requestId);if(old)return this.#history(this.#same(old,a));if(signal?.aborted)fail('REQUEST_CANCELLED');this.#options.assertNewAction?.(c,a.requestId);await this.#access(c,a.target,p.access);if(signal?.aborted)fail('REQUEST_CANCELLED');
     const reservation=this.#ledger.reserveAction(c,{operation:a.operation,requestId:a.requestId,target:a.target,questionId:a.questionId,toolCallId:a.toolCallId,questionDigest:p.questionDigest,digest:p.digest},{alias:p.access.handle.alias,policyRevision:p.access.handle.revision});
     if(!reservation.created)return this.#history(this.#same(reservation.receipt,a));reserved=reservation.receipt as QuestionReceipt;
-    let result=await this.#options.transport.send(a.target,this.#binding(reserved),a.response,{signal,beforeWrite:async()=>{await this.#access(c,a.target,p.access);if(signal?.aborted)fail('REQUEST_CANCELLED');this.#ledger.markActionAttempt(c,a.requestId);}});
+    let result=await this.#options.transport.send(a.target,this.#binding(reserved),a.response,{signal,beforeWrite:async()=>{await this.#access(c,a.target,p.access);if(signal?.aborted)fail('REQUEST_CANCELLED');this.#options.assertNewAction?.(c,a.requestId);this.#ledger.markActionAttempt(c,a.requestId);}});
     try{await this.#read(c,a.target);}catch{result={state:'unknown',detail:'AUTHORIZATION_CHANGED',result:null};}
     if(signal?.aborted)result={state:'unknown',detail:'TRANSPORT_UNCERTAIN',result:null};
     return {...this.#history(this.#ledger.recordAction(c,a.requestId,result)),status:'recorded',source:'local_action_receipt'};

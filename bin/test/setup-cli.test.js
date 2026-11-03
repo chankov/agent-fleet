@@ -49,7 +49,7 @@ test("A7 fresh non-interactive setup, ephemeral desired flags, dry-run, migratio
   const desiredPath = join(fresh, ".ai", "agent-fleet.json");
   assert.ok(existsSync(desiredPath));
 
-  const original = JSON.stringify({ schemaVersion: 1, preset: "full", features: { telegram: false, "chatgpt-client": false } }, null, 2) + "\n";
+  const original = JSON.stringify({ schemaVersion: 1, preset: "full", features: { telegram: false, browser: false } }, null, 2) + "\n";
   writeFileSync(desiredPath, original);
   result = setup(fresh, "--preset", "default", "--features", "none", "--yes");
   assert.equal(result.status, 0, result.stderr);

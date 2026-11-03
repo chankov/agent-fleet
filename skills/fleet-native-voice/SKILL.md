@@ -1,6 +1,6 @@
 ---
 name: fleet-native-voice
-description: Guides named multi-session Fleet conversations through the local native MCP tools. Use when the user explicitly requests the native Fleet voice workflow, or continues an already authorized native workflow. Applies to the Codex host, not a Pi persona or an ordinary CLI Fleet request.
+description: Guides named multi-session Agent Fleet requests through native Codex MCP tools in text or voice. Use for Fleet discovery, observations, explicit instructions, human questions and local history. Applies to compatible Codex hosts, not Pi personas; the retired Fleet CLI is not a fallback.
 ---
 
 # Fleet Native Voice
@@ -9,7 +9,7 @@ Manage explicitly named existing Fleet connections in one chat. Keep spoken repl
 
 ## Route and host
 
-Honor the host/project communication rules and read the applicable `fleet-session-client` skill. This native workflow requires an explicit user-authorized exception to a CLI-only routing rule. Invoking a skill does not itself override that rule or grant access. Ordinary CLI Fleet requests keep their existing route.
+Honor the host/project communication rules. Use native MCP for both ordinary text Fleet requests and explicitly requested voice workflows. The Fleet CLI and `fleet-session-client` skill are retired, not a fallback. If another project's rules still mandate the retired route, surface the conflict and obtain an explicit routing decision rather than bypassing those rules. Invoking this skill grants no access.
 
 Use the actual `af-local-read` native tools exposed in this chat. Their current schemas and returned capabilities are authoritative. If a required tool or trusted chat context is unavailable, explain the missing native capability and pause that operation. Shell calls, another chat's metadata, a remote endpoint, or another Fleet peer do not substitute for native access.
 
@@ -55,6 +55,16 @@ If the human changes their choice during confirmation, leave the old proposal un
 Resolve one explicit named connection and the actual user-authorized text. Require read+send, then `fleet_instruction_prepare`; present its exact text, target, effect, revision and expiry. Obtain fresh confirmation after this preview before one `fleet_instruction_commit`. A spoken intent to send is not approval of an unseen preview. Multiple destinations need their own addressed previews; overview is not broadcast permission.
 
 Keep the requestId and use `fleet_instruction_receipt` to recover its result. Submitted/queued is not completed. Unknown outcomes never trigger an automatic resend, a new requestId, a guessed target or an approval bypass. A proposal expiry or server restart requires a new preview and confirmation; reuse no expired consent. Already-started actions are not promised rollback.
+
+## Local diagnostics and history
+
+Use `fleet_diagnostics` and the actual exposed tool schemas for local runtime/capability information. Diagnostics do not probe a receiver or grant rights. `fleet_receipts` lists native local historical actions in bounded pages; never turn a stored unknown into another delivery attempt.
+
+A user-requested `fleet_snapshot` saves a redacted, read-authorized report for one explicit selector. Do not save content implicitly during ordinary observations. `fleet_replay` reads that last retained report as historical-only, with its old epoch/time; it does not recheck live permissions or contact Pi. Historical content can remain available after revocation, without restoring rights.
+
+`fleet_legacy_history` is an opt-in, read-only archive reader configured by the operator for this exact UUID chat. Pin every continuation to the first page's `sourceSha256`; reconstruct all returned JSON fragments before interpreting a receipt. If the source changes, discard partial fragments and explicitly restart from zero if still needed; never combine versions. It never imports bindings, answers, grants or mutating intents. Do not choose paths/foreign IDs, edit old journals, restore dedup snapshots or run the retired CLI. A legacy ID reservation is a stop-and-inspect condition, not permission to switch IDs.
+
+For a longer explicitly requested active watch, compose bounded native watch calls of at most 10 seconds within that requested time budget while the chat is active. Report intervening gaps and early limits; do not extend the request, create a background loop or promise idle notifications.
 
 ## Finish the exchange
 

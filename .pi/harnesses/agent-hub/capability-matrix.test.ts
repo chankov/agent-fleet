@@ -47,7 +47,8 @@ test("end-to-end deterministic capability matrix exposes only the intended profi
 
 	const verification = surface({ userText: "Implement this feature with acceptance criteria.", taskTier: "feature" });
 	assert.ok(VERIFICATION_TOOLS.every(tool => verification.tools.includes(tool)));
-	assert.ok(absent(verification.tools, [...FLEET_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
+	assert.ok(verification.tools.includes("set_task_tier"), "classification is available without dispatch");
+	assert.ok(absent(verification.tools, [...FLEET_TOOLS.filter(tool => tool !== "set_task_tier"), ...COMS_TOOLS, ...HERDR_TOOLS]));
 
 	const peer = surface({ userText: "Send this through coms to the existing peer.", comsReady: true });
 	assert.ok(COMS_TOOLS.every(tool => peer.tools.includes(tool)));

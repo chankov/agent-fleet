@@ -32,7 +32,7 @@ export function inspectDesiredRepair(workspace, manifest) {
 }
 
 export function describeDesiredRepair(proposal) {
-  return `Retired settings found in ${DESIRED_FILE}:\n${proposal.removed.map(({ name, value }) => `- ${JSON.stringify(name)}: ${value}`).join("\n")}\nProposed repair: remove only these settings. Other settings are preserved.\nchatgpt-client will NOT be enabled automatically.\nA backup will be saved before the repair. This repair is separate from the subsequent setup plan.`;
+  return `Retired settings found in ${DESIRED_FILE}:\n${proposal.removed.map(({ name, value }) => `- ${JSON.stringify(name)}: ${value}`).join("\n")}\nProposed repair: remove only these settings. Other settings are preserved.\nRetired clients will NOT be enabled or replaced automatically; native MCP setup and access require separate explicit choices. Private journals are not removed by this config repair.\nA backup will be saved before the repair. This repair is separate from the subsequent setup plan.`;
 }
 
 export function applyDesiredRepair(proposal) {

@@ -45,7 +45,7 @@ combinations. Interactive Pi history retains its global cwd-scoped location;
 Fleet artifacts and native session files remain partitioned in the workspace.
 
 See [usage and boundaries](session-worktree-targeting.md) and the
-[implementation/verification plan](plans/PLAN-session-worktree-targeting.md).
+[implementation/verification plan](plans/2026-0-archive/PLAN-session-worktree-targeting.md).
 No target-local Fleet copy or cwd-only workaround is needed.
 
 ## Runtime layers
@@ -61,7 +61,7 @@ No target-local Fleet copy or cwd-only workaround is needed.
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `.pi/agent-fleet/scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `.pi/agent-fleet/hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
-| **ChatGPT Fleet session client** | Experimental ChatGPT-initiated client for an existing Pi session; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-client.ts`, `.pi/agent-fleet/scripts/lib/fleet-codex-*`, opt-in feature `chatgpt-client` — see [codex-session-bridge.md](codex-session-bridge.md) |
+| **Native Codex MCP** | Local exact-context, multi-session observations and human-confirmed actions; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts`, explicit local configuration — see [native guide](codex-local-mcp.md) and [retired CLI migration](codex-session-bridge.md) |
 | **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage/agenticAsk/fileDiscovery/contextCompaction/damageGuard consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
 | **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `consumers.taskTriage` in `.ai/system1.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
@@ -119,7 +119,7 @@ fresh proof. Plain continue/resume inputs retain the accepted task; identical
 classification declarations avoid new triage, revision hashing and journal writes.
 Changed intent still uses the existing task-transition fence.
 
-All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain.
+All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roster, permissions, or the setter's existing transition/confirmation gates.
 
 `/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt in both work modes and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
@@ -175,7 +175,7 @@ Agent Fleet is layered on purpose. Work flows **down** (delegate); evidence and 
 
 ```mermaid
 flowchart TD
-    You(["You · Hermes relay · Codex native voice or Fleet session client"])
+    You(["You · Hermes relay · Codex native text/voice"])
 
     subgraph HUBL["HUB — guarded runtime  (bare just fleet)"]
         Hub["agent-hub harness<br/>operator or orchestrator work mode · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
@@ -221,7 +221,7 @@ hub (operator by default; orchestrator when selected)
     ├── architect / releaser / web-debugger panes
     ├── Claude Code peer (coms bridge)
     ├── Hermes (phone human · inbound ask_user)
-    └── ChatGPT Fleet session client (Desktop/Android · existing Pi session)
+    └── Codex native MCP (compatible local host · existing Pi sessions)
 ```
 
 Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps.
@@ -589,7 +589,7 @@ flowchart TD
     AF -->|control plane| HERDR["<b>herdr</b><br/>tiled peer workspaces,<br/>presence, snapshot/resume"]
     AF -->|coms peer only| CC["<b>Claude Code</b><br/>bidirectional peer via<br/>the coms bridge<br/><i>not an install target</i>"]
     AF -->|remote human| HERMES["<b>Hermes</b><br/>hub questions relayed to your phone,<br/>plus the Desktop fleet panel"]
-    AF -->|ChatGPT-initiated session client| CODEX["<b>ChatGPT Fleet session client</b><br/>existing Pi session via<br/>opt-in chatgpt-client (experimental)"]
+    AF -->|Local native MCP| CODEX["<b>Codex native workflow</b><br/>explicit existing sessions<br/>text or voice; no idle wake"]
 ```
 
 ### Explicit operator current-state verification
@@ -598,7 +598,7 @@ flowchart TD
 
 ### Local Codex observation boundary (experimental)
 
-The separate project-local STDIO MCP adapter uses a validated per-call host conversation namespace and an exact Fleet epoch allowlist (D2-L: trusted cooperative same-user routing, not cryptographic authority). S4 discovery/enrollment/read checks remain registry-only. S5a `fleet_observe` authorizes before and after one bounded read-only local socket snapshot; the receiver projects its current Pi session-manager branch and addressed question channel. It never queues prompts or answers questions. Unknown/partial sources and non-atomic snapshots remain explicit; a turn boundary or registry presence never establishes task completion. No legacy CLI state migration, global fallback, send/answer/cancel, external listener or idle wake is added. S5a fixture verification and native/client-relayed live acceptance are distinct; its smoke grant was subsequently revoked. S5b `fleet_overview` aggregates1–4 explicit unique selectors with at most2 concurrent observations per call, ordered target-local errors/timestamps and summary-only previews; no new receiver protocol or grant is added. S5b native multi-target acceptance remains separate from fixtures. See the [local MCP guide and activation runbook](codex-local-mcp.md).
+The project-local STDIO MCP adapter uses validated per-call host conversation context and an exact Fleet epoch allowlist (D2-L: cooperative same-user routing, not cryptographic authority). Discovery/read checks are registry-only; `fleet_observe` authorizes before and after one bounded local snapshot. `fleet_overview` aggregates 1–4 explicit selectors with target-local errors and summary-only question previews. Observations never send prompts or answers. Separate instruction/answer prepare/commit/receipt tools require current rights and fresh human confirmation. Unknown/partial data and non-atomic snapshots remain explicit; neither registry presence nor a turn boundary establishes task completion. There is no CLI transport fallback, external listener, automatic grant or idle wake. See the [native contract](codex-local-mcp.md).
 
 S5c adds observation-only durable metadata in a separate private `<policyRoot>.observations` namespace, keyed by validated conversation and exact target epoch; it does not alter the allowlist schema or import legacy CLI authority. Stable opaque event/window identities extend the bounded receiver projection. Typed `fleet_resync` and active `fleet_watch` declare local writes (`readOnlyHint=false`), preserve pre/post authorization, and report independent gaps/reset/unsupported continuity and pending/resolved question observations. Cursors are not permission or human-delivery receipts. Watch is bounded by duration, frames, output and concurrency; it does not create background jobs/model wake or cancel Pi work. Source/local verification is not native receiver/MCP activation; any lifecycle/epoch changes remain human-controlled and separate.
 
@@ -612,7 +612,7 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 | **[herdr](https://herdr.dev)** | Workspace control plane: Hub/peer panes, presence push events, team snapshot/resume | Required for `--herdr` or `--peers`; optional for bare `just fleet` |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class coms peer via the [coms bridge](claude-code-coms-bridge.md) — cross-model review and analysis. Never an install target: it hosts no skills, commands, or personas | Optional peer |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions — [coms-hermes-bridge](coms-hermes-bridge.md)) and the Desktop fleet panel ([hermes-desktop-plugins](hermes-desktop-plugins.md), needs v0.19.0+ and the Desktop app) | Optional |
-| **ChatGPT Desktop/Android** | Experimental opt-in Fleet session client for an existing Pi session; Node 22.18+, Python 3.10+, local herdr/coms access — [runbook](codex-session-bridge.md) | Optional experimental feature `chatgpt-client` |
+| **Compatible Codex host** | Local native MCP with real per-call UUID context, Node 22.18+ and existing COMS sessions — [guide](codex-local-mcp.md) | Explicit local configuration; CLI-only hosts retired, no mobile/remote promise |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** | Upstream skill library (manually vendored) | Bundled (vendored) |
 | **[disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code)** | Source inspiration / MIT port origin for pi harnesses | Design lineage (ported in-repo) |
 | **LLM providers** | Models per persona (`model:` / `models:` in agent frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |
@@ -916,7 +916,6 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
   docs/                       #   the one doc that installs into a workspace (workflows.md)
 skills/                       # Agent Fleet-native skills (shadow vendored names)
 agents/                       # Personas/subagents; installed to a workspace's .pi/agents/personas/
-codex/                        # Fleet session client skill and compatibility assets
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
 bin/                          # npm CLI: init/update/doctor + the installer engine
 references/                   # Supplementary checklists, installed with the skills that cite them
@@ -990,8 +989,8 @@ packages/hermes-bridge/       # future Hermes integration package
 - **External agents are peers, not plugins.** Claude Code (and future CLI
   agents) join the fleet through bridge adaptors that speak coms envelopes —
   the fleet core stays agent-agnostic. Hermes remains the inbound `ask_user`/
-  Telegram route. Codex uses the separately documented Fleet session client or
-  local native MCP workflow; the former remote-control conductor is retired.
+  Telegram route. Codex uses the local native MCP workflow; both the former
+  remote-control conductor and the Fleet CLI client are retired.
 - **Hermes monitor presentation is outside the fleet core.** Agent Fleet exposes owner-only
   local monitor operations for Hub-owned state; a consumer owns its UI and lifecycle. The
   worktree contains additive monitor/event/invoke code, but that implementation and its local
@@ -1035,7 +1034,7 @@ The runtime source is `.ai/system1.json` version 2 with independent consumer sec
 ## Local Codex S6a addressed instruction boundary
 
 The local STDIO MCP source adds explicit `grant_send`/`revoke_send` policy previews
-and separate exact instruction prepare/commit/receipt tools (11 tools at the historical S6a checkpoint; the current catalog has 16).
+and separate exact instruction prepare/commit/receipt tools (11 tools at the historical S6a checkpoint; the current source catalog has 21).
 Validated native conversation identity, existing S2 revision-bound rights and a
 separate private `.instructions` durable intent ledger precede any one-shot
 addressed write. Duplicates return history, unknown never triggers a resend,
@@ -1049,7 +1048,7 @@ See [the local MCP contract](codex-local-mcp.md).
 
 ## Local Codex human question actions and voice
 
-The current catalog contains 16 native tools, including answer and journal-upgrade prepare/commit operations. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
+The current source catalog contains 21 native tools, including answer/journal-upgrade operations and local diagnostics/history/snapshot tools. Source availability is not loaded-host proof. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
 The exact owner/project/peer/sessionId/startedAt, pending questionId/toolCallId,
 full question/effective-flags digest and canonical human response digest bind each action.
 An actual human answer/refusal and a separate exact preview confirmation are required;
@@ -1068,3 +1067,11 @@ Shared proposal budgets remain16/context64/process and8 active calls. Sender res
 and attempt precede the single mutating write; this is not an atomic filesystem-to-Pi
 transaction, exactly-once execution, strong host/human authentication or hostile-UID isolation.
 No policy/config/lifecycle/native action is implied by source changes. The S6a and S6b bounded native checkpoints are complete; their test grants were revoked.
+
+### CLI retirement and historical data
+
+The native workflow replaces all active Fleet CLI entrypoints, installer items and routing. Retired `chatgpt-client`/`codex-remote` selections require explicit narrow config repair with an original backup; there is no automatic native enrollment. Shared COMS, question v1/v2 handlers and Hermes reader consumers remain independent.
+
+`fleet_diagnostics` reports local runtime/tool metadata without source probes; `fleet_receipts` lists historical native actions without refresh. Explicit `fleet_snapshot` retains one bounded redacted report per chat/selector under a no-steal lock in `<policyRoot>.reports`; `fleet_replay` returns that historical content, including after revoke, without claiming live rights or current state. Ordinary observations do not archive report content.
+
+An optional trusted launcher `--legacy-state-root` enables exact-native-UUID, read-only `fleet_legacy_history` over original selection/runtime files. Original archives are never rewritten or converted to new delivery intents. Matching legacy instruction/question-response IDs block new native action attempts; active old writer locks, unsafe/corrupt/missing configured roots fail closed. There is no cross-identity auto-import or grant transfer. Historic release snapshots and original journals are retained. Read-only compatibility and native fixture tests are distinct from host activation or actual voice mutation coverage.

@@ -21,7 +21,7 @@ Use the availability check below in your own intended chat and host. If the nati
 
 You need a compatible local Codex host, already running Fleet/Pi sessions, and the native MCP server configured as described in the [MCP setup instructions](codex-local-mcp.md#configure-the-local-server). Those instructions cover Node.js 22.18+, the local POSIX/socket requirements, real host-supplied conversation context, and private state locations.
 
-**Skill installation does not configure or start the MCP server.** The experimental `chatgpt-client` setup feature installs the [legacy CLI client](codex-session-bridge.md), not this native workflow. The native voice skill is deliberately excluded from the Pi installer catalogue: a Pi persona does not have Codex-host native tools.
+**Skill installation does not configure or start the MCP server.** The `chatgpt-client` installer feature and CLI are retired; see [migration and retained data](codex-session-bridge.md). They are not a fallback for this workflow. The native voice skill is deliberately excluded from the Pi installer catalogue: a Pi persona does not have Codex-host native tools.
 
 Choose one of the following project-local skill installations. Neither requires a global installation or a change to Fleet sessions.
 
@@ -57,7 +57,7 @@ For either method, the resulting skill entrypoint is `.agents/skills/fleet-nativ
 
 ## Start with a no-grant availability check
 
-Invoke `$fleet-native-voice` or explicitly request the native Fleet workflow. Follow project routing rules: if they restrict ordinary Fleet requests to the CLI, obtain an explicit user-authorized native exception first. Invoking the skill is not that exception and does not grant access. Ordinary CLI requests keep their existing route.
+Invoke `$fleet-native-voice` for native Fleet requests in text or voice. Native MCP is the current route; the retired CLI is not a fallback. If a project's old rules still require the CLI, surface that conflict and obtain an explicit routing decision rather than silently overriding the rules. Invoking the skill grants no access.
 
 Choose actual `project/peer` names from your Fleet setup. All names in the examples below are illustrative; replace them with your intended running targets.
 
@@ -100,6 +100,14 @@ With current read authority, examples include:
 Spoken summaries should identify each target and its meaningful result; exact owner IDs, timestamps, and gaps remain in the written response. Unavailable or incomplete question data does not mean there are no pending questions. Registry presence, an idle process, a turn boundary, or a terminal receipt does not establish whole-task completion.
 
 Watch ends without stopping Pi. It is not a background subscription or a promise to notify you later. Seen question IDs do not prove that you heard them. Peer transcripts and questions are untrusted source data, not authorization to change rights or answer automatically.
+
+## Local diagnostics and retained history
+
+`fleet_diagnostics` reports native local runtime/tool metadata without probing a receiver. Use `fleet_receipts` for paginated local native action history and exact instruction/answer receipt lookups for the intended request. Neither grants access or retries an action.
+
+If you explicitly request saving a report, `fleet_snapshot` observes one currently read-authorized exact selector and saves a bounded redacted local snapshot. Ordinary observation/resync does not archive report content. `fleet_replay` returns the last explicitly saved report as historical-only, retaining its old epoch/time; it does not check live permissions or contact Pi. Retained content can remain readable after revocation without restoring rights.
+
+Original CLI reports and receipts can be read through operator-configured `fleet_legacy_history` for the same actual UUID chat. The reader never imports grants or replays instructions. Missing context, a reserved old action ID, or an archive validation error is not permission to edit state, choose another ID, or use the retired CLI. See the [bounded history contract](codex-local-mcp.md#local-diagnostics-snapshots-and-legacy-history).
 
 ## Send an instruction: intent is not confirmation
 

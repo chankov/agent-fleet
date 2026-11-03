@@ -348,3 +348,17 @@ test("T9 autonomous-recovery guidance uses the active catalog and read-only rout
 	assert.match(dispatchExecutionSource, /Prompt prose did not change state/);
 	assert.match(dispatchExecutionSource, /Snapshot: tier/);
 });
+
+
+test("verification-only operator can classify risk without activating fleet", () => {
+ const packs=resolveCapabilityPacks({workMode:"operator",userText:"Continue the existing checks",taskTier:"small",taskPacks:["verification"],comsReady:false,herdrReady:false,pendingOperations:[],contextState:"normal"});
+ assert.deepEqual(packs.active,["core","verification"]);
+ const baseline=["read","bash","edit","write"];
+ const tools=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:packs.active});
+ for(const name of ["set_task_tier","set_assertions","update_assertion","get_assertions"])assert.ok(tools.includes(name),name);
+ for(const name of ["dispatch_agent","spawn_research","team_adjust"])assert.ok(!tools.includes(name),name);
+ assert.deepEqual(tools.filter(name=>baseline.includes(name)),baseline);
+ assert.match(processPreEffectGate(createProcessState(),"prove")!.message,/risk/);
+ const both=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:["core","fleet","verification"]});
+ assert.equal(both.filter(name=>name==="set_task_tier").length,1);
+});

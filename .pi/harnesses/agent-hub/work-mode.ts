@@ -172,7 +172,9 @@ export function resolveWorkModeTools(options: {
 		: [];
 
 	if (packs.has("fleet")) tools.push(...(options.triageEnabled ? FLEET_TOOLS : FLEET_TOOLS.filter(name => name !== "dispatch_triage")));
-	if (packs.has("verification")) tools.push(...VERIFICATION_TOOLS);
+	// Verification can require explicit risk classification even for direct
+	// operator work. Expose the trusted setter without leasing fleet dispatch.
+	if (packs.has("verification")) tools.push("set_task_tier", ...VERIFICATION_TOOLS);
 	if (packs.has("peer") && options.comsReady) tools.push(...COMS_TOOLS);
 	if (packs.has("workspace") && options.herdrReady) tools.push(...HERDR_TOOLS);
 	if (packs.has("core") && options.askUserAvailable) tools.push("ask_user");

@@ -8,7 +8,10 @@ export function featureNames(manifest) {
 
 export function retiredFeatureError(name) {
   if (name === "codex-remote") {
-    return 'retired feature "codex-remote": the Codex Remote-Control conductor is no longer packaged. Opt in explicitly with --features chatgpt-client. No mutation was applied.';
+    return 'retired feature "codex-remote": the Codex Remote-Control conductor is no longer packaged. Use the native Codex MCP workflow described in docs/codex-local-mcp.md. No mutation was applied.';
+  }
+  if (name === "chatgpt-client") {
+    return 'retired feature "chatgpt-client": the Fleet CLI client is no longer packaged. Use native Codex MCP; keep original journals and configure read-only legacy history before overlapping new actions. See docs/codex-session-bridge.md. No mutation was applied.';
   }
   return null;
 }

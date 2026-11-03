@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 import {
 	activeRemoteCount,
@@ -641,11 +641,27 @@ test("subprocess smoke: default export registers ask_user into configured and ac
 		["../lib/execution-trace.ts", "lib/execution-trace.ts"],
 		["../lib/approval-wait.ts", "lib/approval-wait.ts"],
 		["../lib/process-shared.ts", "lib/process-shared.ts"],
+        ["../lib/fleet-transcript-store.ts", "lib/fleet-transcript-store.ts"],
 	] as const) {
 		const target = path.join(harnessRoot, destination);
 		fs.mkdirSync(path.dirname(target), { recursive: true });
 		fs.copyFileSync(new URL(source, import.meta.url), target);
 	}
+
+    // The guarded question channel imports native leaf helpers. Stage their
+    // real static relative-import closure rather than a stale copied subset.
+    const sourceRoot=fileURLToPath(new URL('../../../',import.meta.url));
+    const seen=new Set<string>();
+    const stage=(source:string)=>{
+        if(seen.has(source))return;seen.add(source);
+        const relative=path.relative(sourceRoot,source);
+        assert.ok(!relative.startsWith('..')&&!path.isAbsolute(relative));
+        assert.match(relative,/\.(?:ts|js|mjs)$/);
+        const text=fs.readFileSync(source,'utf8'),destination=path.join(packageRoot,relative);
+        fs.mkdirSync(path.dirname(destination),{recursive:true});fs.writeFileSync(destination,text);
+        for(const match of text.matchAll(/(?:from\s*|import\s*)["'](\.[^"']+)["']/g))stage(path.resolve(path.dirname(source),match[1]));
+    };
+    stage(fileURLToPath(new URL('./questions.ts',import.meta.url)));
 
 	const stockJs = path.join(packageRoot, "node_modules", "pi-ask-user", "index.js");
 	fs.mkdirSync(path.dirname(stockJs), { recursive: true });

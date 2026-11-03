@@ -331,6 +331,11 @@ export class InstructionLedger {
     }
     #time() { const now = this.#now(); if (!Number.isFinite(now) || now < 0)
         fail('INTENT_CLOCK_INVALID'); return new Date(now).toISOString(); }
+    /** Historical local enumeration only. Does not refresh, write, grant or deliver. */
+    listActions(c: ConversationKey): ActionReceipt[] {
+        contextKey(c);
+        return structuredClone(this.#load(c)?.records.map(v=>v.receipt)??[]);
+    }
     lookupAction(c: ConversationKey, requestId: string): ActionReceipt | null {
         contextKey(c); if (!id(requestId)) fail('INTENT_INVALID');
         return structuredClone(this.#load(c)?.records.find(v=>v.receipt.requestId===requestId)?.receipt??null);

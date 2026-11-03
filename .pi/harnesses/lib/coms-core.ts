@@ -439,11 +439,16 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		try { server = await bindEndpoint(endpoint, connectionHandler); }
 		catch (error) { throw new ComsConnectError("bind", error); }
 		const startedAt = nowIso();
-		const entry: RegistryEntry = {
-   ...(scopedProject?{targetId:roots!.targetId}:{}),
-			session_id: sessionId, name, purpose, model, color, pid: process.pid,
-			endpoint, cwd, started_at: startedAt, explicit: flags.explicit === true, version: 1,
-		};
+		let contextUsedPct: number | null = null;
+		try { contextUsedPct = options.ctx.getContextUsage()?.percent ?? null; }
+		catch { /* unavailable measurement must not prevent registration */ }
+		// Publish a complete entry atomically on the FIRST write. Native readers
+		// require heartbeat_at; waiting for keepalive otherwise exposes ENTRY_INVALID.
+		const entry: RegistryEntry = buildLiveRegistryEntry({
+			...(scopedProject ? { targetId: roots!.targetId } : {}),
+			session_id: sessionId, name, purpose, model, color,
+			endpoint, cwd, started_at: startedAt, explicit: flags.explicit === true,
+		}, { now: nowIso(), pid: process.pid, contextUsedPct, queueDepth: waitingInboundCount() });
 		let registryFile: string;
 		try { registryFile = writeRegistryAtomic(entry, project); }
 		catch (error) {

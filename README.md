@@ -185,9 +185,9 @@ exist only inside an agent-fleet checkout, where editing an artifact is meant
 to edit the source.
 
 If an older `.ai/agent-fleet.json` contains a retired feature such as
-`codex-remote` (even `false`), setup shows the exact setting removal and asks
+`codex-remote` or `chatgpt-client` (even `false`), setup shows the exact setting removals and asks
 for separate approval before continuing. It preserves other settings, never
-enables `chatgpt-client` automatically, and saves the original beside the
+enables a replacement automatically, and saves the original beside the
 config as `agent-fleet.json.backup-<unique-id>` before an atomic replacement.
 The approved repair remains even if you cancel the subsequent setup plan.
 Unknown features, malformed JSON, and unsupported schemas require manual repair.
@@ -325,11 +325,11 @@ Separately from the panel, the **Hermes relay** pipes an agent's `ask_user` ques
 See [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) and the [screenshots](.pi/agent-fleet/hermes/README.md#integration-in-action).
 
 <details>
-<summary><b>Experimental: ChatGPT Desktop/Android session client</b></summary>
+<summary><b>Codex native Fleet workflow</b></summary>
 
-The experimental `chatgpt-client` feature is a ChatGPT-initiated client for an existing Pi session. Hermes remains the inbound `ask_user` route. There is no systemd conductor, idle wake, or `just fleet conductor codex` path.
+Compatible local Codex hosts use the native MCP tools for explicit multi-session observations, instructions and human question actions. The CLI client and its `chatgpt-client` feature are retired; old journals remain historical data, never implicit grants or retry permission. Hermes and Damage Control retain their independent routes. There is no systemd conductor, idle wake, mobile/remote promise, or `just fleet conductor codex` path.
 
-See **[ChatGPT Fleet session client](docs/codex-session-bridge.md)**.
+See **[native MCP setup](docs/codex-local-mcp.md)**, **[text/voice workflow](docs/fleet-native-voice.md)** and **[CLI migration](docs/codex-session-bridge.md)**.
 
 </details>
 
@@ -454,7 +454,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-persona models, dispatcher language, rules/docs targets |
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
-| [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · experimental ChatGPT Fleet session client |
+| [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · retired CLI migration to native Codex |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |
 | [references/](references/) | 9 checklists skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns. Each installs automatically alongside the skills that cite it |
 
@@ -481,6 +481,6 @@ Skills should be **specific** (actionable steps), **verifiable** (clear exit cri
 
 MIT - use these skills in your projects, teams, and tools.
 
-### ChatGPT Desktop / Android session client (experimental)
+### Codex native text and voice
 
-An optional lightweight client can select an existing Pi session, send instructions, monitor public progress and resynchronize on demand. Pi keeps execution and budgets; the client has no idle-chat wake. See the [client runbook](docs/codex-session-bridge.md) for the `chatgpt-client` feature, requirements and acceptance status.
+Use the [native MCP guide](docs/codex-local-mcp.md) for compatible-host setup, explicit target permissions, observations, human-confirmed instructions/answers, and bounded local history. The [voice workflow](docs/fleet-native-voice.md) keeps full previews in the written chat; its real desktop handoff check does not establish mobile/remote support or every voice mutation. Existing CLI users should preserve their original data and follow the [retirement/migration guide](docs/codex-session-bridge.md).

@@ -9,7 +9,7 @@ import {loadConfig} from '../../extensions/pi-voice-stt/config.ts';
 import {createContextContinuityBroker} from '../agent-hub/context-continuity-broker.ts';
 import {contextChannelCall} from '../agent-hub/context-continuity-client.ts';
 import {openContextOwner,revokeContextOwner} from '../agent-hub/context-continuity-owners.ts';
-import {FleetSessionClient} from '../../agent-fleet/scripts/lib/fleet-codex-session.ts';
+import {LocalCodexMcp} from '../../agent-fleet/scripts/lib/fleet-codex-local-mcp.ts';
 test('optional configuration stays in af; session discovery carries the selected physical target',async()=>{
  const root=mkdtempSync(join(tmpdir(),'af-integrations-')),af=join(root,'af'),repo=join(root,'repo'),target=join(root,'repo.worktree'),saved=process.env.PI_STT_CONFIG;
  const put=(file:string,text:string)=>{mkdirSync(join(file,'..'),{recursive:true});writeFileSync(file,text);};
@@ -23,8 +23,10 @@ test('optional configuration stays in af; session discovery carries the selected
    assert.equal(resolveStockAskUserModule({cwd:target,moduleUrl:pathToFileURL(join(af,'.pi/harnesses/ask-user-remote/index.ts')).href,homeDir:join(root,'no-home')}),pathToFileURL(stock).href);
    assert.equal(loadConfig().config.language,'workspace-language');assert.equal(loadConfig().source,join(af,'.ai/stt.json'));
    const project=targetProject('same',roots),now=Date.now();
-   const client=new FleetSessionClient({stateDir:join(root,'client'),now:()=>now,readRegistry:requested=>requested===project?[{name:'same',project,session_id:'target-session',started_at:new Date(now).toISOString(),heartbeat_at:new Date(now).toISOString(),cwd:target,targetId:roots.targetId} as any]:[]});
-   assert.equal(client.sessions(project).sessions[0].targetId,roots.targetId);assert.equal(client.sessions(project).sessions[0].cwd,target);assert.equal(client.sessions('same').sessions.length,0);
+   const observedAt=new Date(now).toISOString(),meta={threadId:'11111111-1111-4111-8111-111111111111'};
+   const client=new LocalCodexMcp({registryRoot:join(root,'registry'),policyRoot:join(root,'native-policy'),hostProfile:'worktree-test',principal:'local',now:()=>now,registryReader:async requested=>({status:'complete',observedAt,entriesSeen:requested===project?1:0,partial:false,reasons:[],candidates:requested===project?[{target:{project,peer:'same',sessionId:'target-session',startedAt:observedAt},heartbeatAt:observedAt,presence:'fresh'}]:[]})});
+   const scoped=await client.call('fleet_discover',{project},meta),unscoped=await client.call('fleet_discover',{project:'same'},meta);
+   assert.equal((scoped.candidates as any[])[0].target.project,project);assert.equal((scoped.candidates as any[])[0].target.sessionId,'target-session');assert.equal((unscoped.candidates as any[]).length,0);assert.equal(JSON.stringify(scoped).includes(target),false);
    const broker=await createContextContinuityBroker(),owner=openContextOwner('target-owner');
    try{const assignment=broker.assignment(owner);assert.equal(assignment.targetId,roots.targetId);assert.equal((await contextChannelCall(assignment,'context_status',{...owner.status})).status,'ok');
     const other=resolveSessionRoots(af,{worktree:repo});assert.throws(()=>{(owner as any).sessionRoots=other;});

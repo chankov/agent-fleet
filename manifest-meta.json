@@ -581,7 +581,15 @@
     "companion:session-worktree-guide": {
       "title": "Session worktree targeting guide",
       "summary": "Workspace/target roots, consent, resume and integration boundaries",
-      "agents": {"pi": {"source": ["docs/session-worktree-targeting.md"], "target": ".pi/agent-fleet/docs/session-worktree-targeting.md", "strategy": "copy-file"}}
+      "agents": {
+        "pi": {
+          "source": [
+            "docs/session-worktree-targeting.md"
+          ],
+          "target": ".pi/agent-fleet/docs/session-worktree-targeting.md",
+          "strategy": "copy-file"
+        }
+      }
     },
     "companion:skills-internal-grilling": {
       "title": "skills/_internal/grilling.md",
@@ -901,51 +909,6 @@
         ],
         "cwd": "."
       }
-    },
-    "companion:fleet-client-runtime": {
-      "title": "Lightweight ChatGPT Fleet client",
-      "summary": "Local instruction and read client; no daemon or model calls",
-      "stability": "experimental",
-      "agents": {
-        "pi": {
-          "source": [
-            ".pi/agent-fleet/scripts/fleet-codex-client.ts",
-            ".pi/agent-fleet/scripts/fleet-codex-read.py",
-            ".pi/agent-fleet/scripts/package.json",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-session.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-operations.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-transport.ts",
-            ".pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts",
-            ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
-            ".pi/harnesses/lib/herdr-client.ts",
-            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py",
-            ".pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py",
-            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py",
-            ".pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py"
-          ],
-          "sourceMode": "all",
-          "preserveLayout": true,
-          "target": null,
-          "strategy": "copy-tree"
-        }
-      }
-    },
-    "companion:fleet-client-skill": {
-      "title": "ChatGPT Fleet client skill",
-      "summary": "Workspace Codex skill for the explicit session client",
-      "stability": "experimental",
-      "agents": {
-        "pi": {
-          "source": [
-            "codex/fleet-session-client"
-          ],
-          "target": ".agents/skills/fleet-session-client",
-          "strategy": "copy-tree"
-        }
-      },
-      "companions": [
-        "companion:fleet-client-runtime"
-      ]
     }
   },
   "externalPackages": {
@@ -1071,14 +1034,6 @@
         "skill:peer-coms"
       ]
     },
-    "chatgpt-client": {
-      "title": "ChatGPT Fleet session client",
-      "stability": "experimental",
-      "items": [
-        "companion:fleet-client-runtime",
-        "companion:fleet-client-skill"
-      ]
-    },
     "system1": {
       "title": "System 1 provider foundation",
       "stability": "experimental",
@@ -1090,8 +1045,12 @@
     "system1-task-triage": {
       "title": "Active System 1 task triage (separate data consent required)",
       "stability": "experimental",
-      "requiresFeatures": ["system1"],
-      "items": ["pi-harness:agent-hub"]
+      "requiresFeatures": [
+        "system1"
+      ],
+      "items": [
+        "pi-harness:agent-hub"
+      ]
     }
   }
 }

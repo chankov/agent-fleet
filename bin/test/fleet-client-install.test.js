@@ -1,31 +1,31 @@
+// Retirement regression: old feature requests must never install or grant anything.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync,mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {loadManifest} from '../lib/manifest.js';
 import {resolveDesiredFeatures} from '../lib/features.js';
+import {inspectDesiredRepair,applyDesiredRepair} from '../lib/repair-desired.js';
 
-test('ChatGPT client opt-in installs a runnable copied closure and uninstalls only its owned files', t=>{
- const ws=mkdtempSync(join(tmpdir(),'fleet-client-install-'));t.after(()=>rmSync(ws,{recursive:true,force:true}));
- const manifest=loadManifest(process.cwd());
- assert.equal(resolveDesiredFeatures(manifest,{preset:'full'}).features.includes('chatgpt-client'),false);
- const cli=resolve('bin/cli.js');
- const run=(...args)=>spawnSync(process.execPath,[cli,...args,'--workspace',ws],{encoding:'utf8',timeout:30000});
- const setup=()=>run('setup','--preset','default','--features','chatgpt-client','--yes');
- let result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
- assert.ok(existsSync(join(ws,'.agents/skills/fleet-session-client/SKILL.md')));
- const client=join(ws,'.pi/agent-fleet/scripts/fleet-codex-client.ts');
- result=spawnSync(process.execPath,[client,'--help'],{encoding:'utf8',cwd:ws});assert.equal(result.status,0,result.stderr);assert.ok(JSON.parse(result.stdout).usage.includes('status'));
- const catalog=JSON.parse(result.stdout);assert.equal(catalog.schemaVersion,1);assert.equal(catalog.operations.length,16);
- result=spawnSync(process.execPath,[client,'describe','--state-dir',join(ws,'client-state')],{encoding:'utf8',cwd:ws,env:{...process.env,CODEX_THREAD_ID:''}});
- assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).operations.find(o=>o.name==='send').availability.status,'unavailable');
- const python=spawnSync('python3',[join(ws,'.pi/agent-fleet/scripts/fleet-codex-read.py')],{input:JSON.stringify({entry:{name:'missing',cwd:ws,session_id:'missing',pid:-1},project:'missing'}),encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'},timeout:15000});
- assert.equal(python.status,0,python.stdout+python.stderr);assert.equal(JSON.parse(python.stdout).activity.available,false);
- result=setup();assert.equal(result.status,0,result.stdout+result.stderr);
- result=run('uninstall','--items','companion:fleet-client-skill,companion:fleet-client-runtime','--yes');
- assert.equal(result.status,0,result.stdout+result.stderr);
- assert.equal(existsSync(join(ws,'.agents/skills/fleet-session-client/SKILL.md')),false);
- assert.equal(existsSync(client),false);
+test('retired CLI feature is rejected before installation; native setup is not implied',t=>{
+ const ws=mkdtempSync(join(tmpdir(),'fleet-retired-install-'));t.after(()=>rmSync(ws,{recursive:true,force:true}));
+ const manifest=loadManifest(process.cwd());assert.equal(manifest.features['chatgpt-client'],undefined);
+ assert.equal(manifest.items.some(i=>i.id==='companion:fleet-client-runtime'||i.id==='companion:fleet-client-skill'),false);
+ assert.throws(()=>resolveDesiredFeatures(manifest,{features:['chatgpt-client']}),/retired feature "chatgpt-client"/);
+ const r=spawnSync(process.execPath,[resolve('bin/cli.js'),'setup','--workspace',ws,'--features','chatgpt-client','--yes'],{encoding:'utf8'});
+ assert.equal(r.status,1);assert.match(r.stderr,/retired feature "chatgpt-client"/);assert.equal(existsSync(join(ws,'.ai')),false);assert.equal(existsSync(join(ws,'.codex')),false);assert.equal(existsSync(join(ws,'.agents')),false);
+});
+for(const enabled of [false,true])test(`retired desired-state repair preserves original archives and requires separate native setup (${enabled})`,t=>{
+ const ws=mkdtempSync(join(tmpdir(),'fleet-retired-repair-'));t.after(()=>rmSync(ws,{recursive:true,force:true}));mkdirSync(join(ws,'.ai'));mkdirSync(join(ws,'private-history'),{mode:0o700});
+ const history=join(ws,'private-history','original.json.runtime'),raw='{"version":1,"receipts":[{"state":"unknown","wireId":"KEEP_ORIGINAL"}]}';writeFileSync(history,raw,{mode:0o600});
+ const file=join(ws,'.ai/agent-fleet.json'),original=JSON.stringify({schemaVersion:1,preset:'default',features:{'chatgpt-client':enabled,browser:true}});writeFileSync(file,original);
+ const proposal=inspectDesiredRepair(ws,loadManifest(process.cwd()));assert.deepEqual(proposal.removed,[{name:'chatgpt-client',value:enabled}]);assert.equal(readFileSync(file,'utf8'),original);
+ const backup=applyDesiredRepair(proposal);assert.equal(readFileSync(backup,'utf8'),original);assert.deepEqual(JSON.parse(readFileSync(file,'utf8')).features,{browser:true});assert.equal(readFileSync(history,'utf8'),raw);assert.equal(existsSync(join(ws,'.codex')),false);assert.equal(existsSync(join(ws,'.agents')),false);assert.equal(inspectDesiredRepair(ws,loadManifest(process.cwd())),null);
+});
+
+test('active CLI executables, transport dependencies and legacy skill are absent',()=>{
+ for(const path of ['.pi/agent-fleet/scripts/fleet-codex-client.ts','.pi/agent-fleet/scripts/fleet-codex-read.py','.pi/agent-fleet/scripts/lib/fleet-codex-session.ts','.pi/agent-fleet/scripts/lib/fleet-codex-operations.ts','.pi/agent-fleet/scripts/lib/fleet-codex-transport.ts','.pi/agent-fleet/scripts/lib/fleet-codex-catalog.ts','codex/fleet-session-client/SKILL.md','codex/fleet-session-client.zip'])assert.equal(existsSync(resolve(path)),false,path);
+ for(const path of ['.pi/harnesses/lib/coms-core.ts','.pi/harnesses/coms/index.ts','.pi/harnesses/agent-hub/index.ts','.pi/harnesses/ask-user-remote/questions.ts','.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/activity.py','.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/herdr_source.py','.pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_transport.py','.pi/agent-fleet/hermes/skills/hub-watchdog/scripts/watchdog_contract.py'])assert.equal(existsSync(resolve(path)),true,path);
 });

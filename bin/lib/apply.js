@@ -604,9 +604,16 @@ function removeItem({ id, state, workspace, sourceRoot }) {
   if (!recorded) return { status: "skipped", detail: "not recorded as ours — nothing removed" };
 
   const kept = [];
+  const shared = [];
   let removed = 0;
 
   for (const file of recorded.files ?? []) {
+    // Retirement drops this owner's claim, not another installed item's file.
+    // The last owner can still remove the unchanged file on its later removal.
+    if (file.mode !== 'managed-region' && Object.entries(state.items).some(([otherId, other]) => otherId !== id && (other.files ?? []).some(entry => entry.path === file.path))) {
+      shared.push(file.path);
+      continue;
+    }
     const abs = insideWorkspace(workspace, file.path);
     const found = inspectPath(abs);
     if (found.kind === "absent") continue;
@@ -646,7 +653,7 @@ function removeItem({ id, state, workspace, sourceRoot }) {
     status: "removed",
     detail: kept.length > 0
       ? `${removed} removed; kept ${kept.length} user-modified path(s): ${kept.slice(0, 3).join(", ")}`
-      : `${removed} path(s) removed`,
+      : `${removed} path(s) removed${shared.length ? `; retained ${shared.length} shared path(s) for other installed items` : ''}`,
   };
 }
 

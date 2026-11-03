@@ -8,7 +8,7 @@ This guide covers the current native interface. The [legacy CLI client](codex-se
 
 - A local POSIX system with Unix-domain sockets and the same OS user running Codex and the Fleet/Pi sessions. The private policy store does not support Windows.
 - Node.js **22.18 or newer** to run the TypeScript entrypoint directly. The package's general Node.js 18 engine requirement is not sufficient for this server.
-- An Agent Fleet checkout or an unpacked/installed package containing `.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts` and its accompanying runtime files. Keep the distribution intact; copying the entrypoint alone is insufficient. See [Fleet setup](agent-fleet-setup.md) for installing Fleet itself.
+- An Agent Fleet checkout or an unpacked/installed package containing `.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs` and its accompanying TypeScript runtime files. Keep the distribution intact; copying the entrypoint alone is insufficient. See [Fleet setup](agent-fleet-setup.md) for installing Fleet itself.
 - Existing Fleet/Pi sessions publishing a local COMS registry. Observations, instruction receipts, and guarded question actions additionally require compatible receiver capabilities. A registry entry alone does not establish those capabilities.
 - A Codex host that can launch a local STDIO MCP server and supplies its real conversation ID in each tool call's `params._meta.threadId`. This implementation requires a UUID thread ID; optional `sessionId` metadata must also be valid when supplied. Generic MCP support alone is not enough.
 
@@ -18,14 +18,14 @@ The server negotiates MCP protocol `2025-06-18`. Local Codex desktop use has bee
 
 ### 1. Choose the runtime, registry, and private state locations
 
-Use an absolute path to a stable checkout or installed package. A temporary `npx` cache is not a durable runtime location. The experimental `chatgpt-client` installer feature installs the legacy CLI; it does not configure this native MCP server.
+Use an absolute path to a stable checkout or installed package. A temporary `npx` cache is not a durable runtime location. The `chatgpt-client` installer feature is retired and is not a native setup shortcut. See the legacy migration guide above for preserving original data.
 
 Choose these four launcher settings yourself; they are not tool arguments:
 
 | Setting | Meaning |
 | --- | --- |
 | `--registry-root` | The existing COMS root containing `projects/<project>/agents/*.json` and `sockets/<sessionId>.sock`. Point to the root, not a project subdirectory. Do not create fake registrations. |
-| `--policy-root` | A dedicated private state directory for native bindings. Its parent must already exist and be controlled by you. The server also uses sibling directories with `.observations` and `.instructions` suffixes. |
+| `--policy-root` | A dedicated private state directory for native bindings. Its parent must already exist and be controlled by you. The server also uses sibling directories with `.observations`, `.instructions`, and `.reports` suffixes. |
 | `--host-profile` | A stable local profile label that separates this configuration's state from other profiles. |
 | `--principal` | A stable local principal label. It partitions state; it is not a password or proof of OS identity. |
 
@@ -41,7 +41,7 @@ In the project's `.codex/config.toml`, merge the following table without replaci
 [mcp_servers.af-local-read]
 command = "/absolute/path/to/node"
 args = [
-  "/absolute/path/to/agent-fleet/.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts",
+  "/absolute/path/to/agent-fleet/.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs",
   "--registry-root", "/absolute/path/to/coms",
   "--policy-root", "/absolute/path/to/private-state/fleet-native",
   "--host-profile", "desktop",
@@ -49,13 +49,15 @@ args = [
 ]
 ```
 
-The launcher accepts exactly these four flag/value pairs; it does not discover roots or read conversation identity from environment variables. Configure it as **local STDIO**, not an HTTP service. No listener, tunnel, daemon, or Fleet startup is needed or provided.
+Use the `.mjs` bootstrap for both checkout and npm installs. It uses Node's built-in scoped TypeScript loader for this distribution's trusted `.pi` sources; Node's automatic TypeScript stripping refuses files beneath `node_modules`. A direct `.ts` entry can still work in a checkout but is not a portable installed-package command.
+
+The launcher requires these four flag/value pairs and accepts the optional `--legacy-state-root` archive setting described below. It does not discover roots or read conversation identity from environment variables. Configure it as **local STDIO**, not an HTTP service. No listener, tunnel, daemon, or Fleet startup is needed or provided.
 
 If your configuration restricts `enabled_tools`, include the tools you intend to use from the catalogue below. Exposing a tool does not grant access to a Fleet target. Review your host's normal project-trust and MCP approval settings; do not disable protections to make this server load.
 
 ### 3. Verify availability without granting access
 
-Have the user load the configuration through the host's supported lifecycle, then inspect the actual native tools in the intended conversation. The current server advertises 16 tools. Host-specific prefixes may change their displayed names.
+Have the user load the configuration through the host's supported lifecycle, then inspect the actual native tools in the intended conversation. The current source advertises 21 tools, including the local history/diagnostics tools below. An already-running host may still expose an older catalogue; source tests are not proof that the new tools are loaded. Host-specific prefixes may change their displayed names.
 
 Start with `fleet_discover` for an explicit project, then `fleet_check_read` for an explicit project/peer. Discovery reads registry candidates only. A missing policy namespace or an access denial before enrollment is expected; it is not a reason to invent metadata or copy another conversation's state.
 
@@ -117,7 +119,7 @@ Treat `partial`, source timestamps, channel statuses, and gap reasons as part of
 
 ## Send an instruction
 
-Both current read and send permission are required. Sending can trigger a Pi turn; it is not a promise of immediate steering or task completion.
+Both current read and send permission are required. Sending can trigger a Pi turn; it is not a promise of immediate steering or task completion. The receiver's canonical COMS/Herdr instruction route must also be available; a successful observation does not prove send readiness.
 
 1. Use a stable, unique `requestId` for the intended action and the exact current target. Call `fleet_instruction_prepare` with:
    ```json
@@ -149,12 +151,37 @@ The receiver revalidates the exact question and uses first-winner arbitration. C
 
 Question and response JSON are each bounded to 16,000 bytes, with up to 64 options. Guarded receiver receipts are bounded and volatile; missing evidence after a restart or a capacity limit remains unknown, not permission to retry. Receipt metadata is not an archive of answer text.
 
+## Local diagnostics, snapshots, and legacy history
+
+These operations do not launch a shell, contact another host, or deliver a Pi instruction:
+
+| Tool | Behavior |
+| --- | --- |
+| `fleet_diagnostics {}` | Validates native host context and reports the Node runtime, protocol, available tool names/effects, and whether an archive root is configured. It does not probe registry, sockets, or peer capabilities. Use `fleet_check_read` and an authorized observation for those separate checks. |
+| `fleet_receipts {offset?,limit?}` | Local current-chat native action history, including retained unknown results. Offset is zero-based; limit is 1–8 (default 8). Follow `nextOffset` to enumerate. It does not refresh or replay actions. |
+| `fleet_snapshot {project,peer}` | Explicitly observe one currently read-authorized exact target and retain its redacted report locally. Unlike ordinary observation, this requests content retention for later replay. It makes no peer write. |
+| `fleet_replay {project,peer}` | Return the last explicitly saved snapshot, marked `historical_only`, with its original target and observation time. It performs no live permission/source check and remains local historical data after revocation. It is not evidence about the current target or a restored grant. |
+| `fleet_legacy_history {section,offset?,limit?,sourceSha256?}` | Read the configured original CLI archive for this exact native conversation UUID. Section is `selection` or `runtime`; no model-selected paths, IDs, identities, roots, or grants are accepted. |
+
+Snapshots are private files under `<policy-root>.reports`. Each saved report is bounded to 96 KiB; saving a new snapshot for the same chat/selector replaces its prior snapshot under an exclusive lock. There is no automatic snapshot on ordinary observe/resync. Revocation does not erase already retained historical data. Preserve snapshots on a capacity, unsafe-path, or uncertain-write error; do not interpret a replay as fresh progress.
+
+### Preserve existing CLI data without replaying it
+
+If you have legacy data, configure the optional launcher pair `"--legacy-state-root", "/absolute/path/to/original/fleet-client"` after reviewing that archive location yourself. It must be a normalized, private, real directory separate from registry and native state roots. The reader does not discover `$CODEX_HOME` or read environment identity. Do not enable a second writer or mutate the archive during transfer. In-flight legacy writer locks block new native actions when this archive is configured.
+
+The reader selects only `<actual-native-thread-uuid>.json` and its `.runtime` sibling. A detached old selection may be absent while its runtime history remains accessible. Original files, timestamps, digests, wire IDs, and unknown outcomes are not rewritten or imported into native action records. Stored CLI selection never creates native read/send rights. A legacy command or question-response ID reserves that ID against a new native send/answer when the archive is configured; a reserved ID must be inspected as history, not retried under another ID. Configure the archive **before** issuing potentially overlapping new actions. Omitting the option does not establish that legacy delivery history is empty.
+
+Example: `fleet_legacy_history {"section":"runtime","offset":0,"limit":8192}` returns a redacted JSON fragment, `sourceSha256` for the original bytes, and `nextOffset`. For every continuation (`offset > 0`), pass the first page's `sourceSha256` along with `nextOffset`. Missing hashes are rejected; if the original changes or disappears, `HISTORY_STATE_CHANGED` stops pagination. Discard incomplete fragments and, if still needed, explicitly restart from offset zero. Never combine versions. Follow offsets until null and reconstruct the full text before interpreting a record. Offsets count string characters, not bytes. Inputs are bounded to 4 MiB per original file, 131,072 JSON nodes, and 8,192 characters per fragment. Sensitive keys are redacted; individual text values longer than 4,096 characters are wholly withheld rather than incompletely scrubbed. Raw originals remain intact. This is bounded historical access, not an assurance that arbitrary credentials have been identified or an immutable proof of remote delivery.
+
+There is no automatic mapping between different native/legacy conversation IDs, profiles, or hosts. Keep those original archives untouched; cross-identity transfer needs a separate explicit mapping decision. Hosts lacking the required native MCP context are not supported by the replacement workflow. Archive access does not enable such a host, authenticate a human, or grant another conversation access.
+
 ## Persistent state and journal upgrades
 
 Native state is partitioned by configured host profile, principal, and host-supplied thread ID. It is separate from the legacy CLI. Other conversations do not inherit this chat's grants.
 
 - `--policy-root`: bindings and revision-bound permissions.
 - `<policy-root>.observations`: bounded local cursors and question-observation metadata, not a transcript archive or proof that a human saw an event.
+- `<policy-root>.reports`: explicitly retained, redacted historical snapshots; separate from observation cursors and deduplication.
 - `<policy-root>.instructions`: a shared action journal for instruction, answer, and refusal IDs. Historical receipts remain readable after revocation; remote refresh still requires current read rights.
 
 The action journal is bounded to 256 total records and 8 MiB. There is no automatic purge, deduplication eviction, reset, or corrupt-state repair. Instruction bodies and full question/answer text are not archived there, but bounded instruction results can be retained. This is not a promise to remove content from Codex, chat logs, tool logs, or other systems.
@@ -172,6 +199,7 @@ The upgrade preserves original receipts and makes an immutable raw backup before
 | Missing server/tools; `LOCAL_MCP_START_FAILED` | Check Node version, absolute executable/entrypoint paths, all four launcher flags, and the intact runtime distribution. Inspect host MCP diagnostics without dumping private state. Check project trust and any `enabled_tools` filter. Use only the host's supported user-controlled reload/reopen procedure. |
 | `IDENTITY_REQUIRED`, `CONFLICTING_HOST_CONTEXT` | The host did not provide accepted per-call metadata or supplied conflicting context. Stop; do not fabricate a UUID, set `CODEX_THREAD_ID` as a substitute, or borrow another chat's identity. |
 | `REGISTRY_MISSING`, stale/partial discovery, ambiguous candidates | Check the actual registry root and intended running project's COMS registration. Resolve ambiguity before binding; do not invent entries or select by working directory alone. |
+| Partial discovery with `ENTRY_INVALID`, especially immediately after startup | A record is missing or has invalid required metadata; this code alone does not identify the field. Updated COMS publishes `heartbeat_at` on its first atomic registration, avoiding the old pre-heartbeat gap. Finite measured context above 100% is valid metadata, not an admission limit; do not clamp it or fabricate an entry. Preserve safe diagnostics and verify the loaded receiver version. Any user-controlled reload changes the epoch and requires explicit rebind; never reload or restore send rights automatically. |
 | `STATE_MISSING` | This namespace has no usable policy state. For a genuinely new namespace, use reviewed enrollment or optional `initialize_empty`. If state was previously present, investigate missing data rather than resetting it. |
 | `NOT_ALLOWED`, `REBIND_REQUIRED`, stale target | Check this chat's exact target and rights. Read does not imply send. A new epoch requires explicit rebind and a separate send grant if needed. Never grant automatically to clear an error. |
 | Expired/missing proposal; `STATE_CHANGED`, `BUSY` | Discard stale previews. Once conflicting work finishes, prepare a new proposal and ask for a new confirmation. Do not bypass revision checks or delete locks. |

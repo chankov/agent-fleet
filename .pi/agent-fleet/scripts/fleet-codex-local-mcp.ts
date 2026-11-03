@@ -1,22 +1,9 @@
 #!/usr/bin/env node
 // Fixed launcher options only. Never reads env identity or discovers policy roots.
-import { LocalCodexMcp, McpProtocol } from './lib/fleet-codex-local-mcp.ts';
-
-function options(args: string[]) {
- const allowed = ['--registry-root','--policy-root','--host-profile','--principal'];
- const values = new Map<string,string>();
- for (let i=0;i<args.length;i+=2) {
-  const k = args[i], v = args[i+1];
-  if (!allowed.includes(k) || values.has(k) || !v || v.startsWith('--')) throw new Error('INVALID_LAUNCH');
-  values.set(k,v);
- }
- if (values.size !== 4) throw new Error('INVALID_LAUNCH');
- return { registryRoot: values.get('--registry-root')!, policyRoot: values.get('--policy-root')!,
-  hostProfile: values.get('--host-profile')!, principal: values.get('--principal')! };
-}
+import { LocalCodexMcp, McpProtocol, parseLauncher } from './lib/fleet-codex-local-mcp.ts';
 async function main() {
  let protocol: McpProtocol;
- try { protocol = new McpProtocol(new LocalCodexMcp(options(process.argv.slice(2)))); }
+ try { protocol = new McpProtocol(new LocalCodexMcp(parseLauncher(process.argv.slice(2)))); }
  catch { process.stderr.write('LOCAL_MCP_START_FAILED\n'); process.exitCode = 64; return; }
  process.stdout.on('error',() => {});
  const tasks = new Set<Promise<void>>();

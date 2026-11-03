@@ -51,7 +51,8 @@ test("all-features snapshot excludes features introduced by a future catalogue",
   const resolved = resolveDesiredFeatures(future, { preset: "full", features: snapshot, platform: process.platform });
   assert.equal(resolved.preset, "full");
   assert.equal(resolved.features.includes("future-experimental"), false, "stored exact snapshot never auto-enables a future feature");
-  assert.ok(resolved.features.includes("chatgpt-client"), "snapshot remains experimental-inclusive");
+  assert.ok(resolved.features.includes("system1"), "snapshot remains experimental-inclusive");
+  assert.equal(resolved.features.includes("chatgpt-client"), false, "retired CLI is never selected");
 });
 
 test("transitive feature dependency rejects an incompatible platform", () => {
