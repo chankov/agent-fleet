@@ -267,6 +267,10 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   for (const file of ["commands/probe.ts", "diagnostic-probe.ts"]) assert.equal(paths.has(`.pi/harnesses/agent-hub/${file}`), false, file);
   for (const file of ["diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), file);
   assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
+  assert.ok(paths.has("skills/fleet-native-voice.zip"), "the packaged Codex skill archive must ship");
+  assert.ok(paths.has("docs/codex-setup.md"), "the Codex setup guide must ship");
+  assert.equal([...paths].some((path) => path.startsWith("skills/fleet-native-voice/")), false, "the unpacked fleet-native-voice source must not ship (pi would load it)");
+  for (const file of ["set-codex-mcp.js", "skill-zip.js", "mcp-probe.js"]) assert.ok(paths.has(`bin/lib/${file}`), `set-codex-mcp runtime must ship: ${file}`);
   for (const file of readdirSync(join(root, ".pi/harnesses/agent-hub")).filter(name => name.startsWith("proactive-") && !name.includes(".test.") && /\.(ts|mjs)$/.test(name))) {
     assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), `proactive runtime missing ${file}`);
   }
@@ -519,9 +523,13 @@ test("published package hoists extension runtime dependencies for symlink instal
 
 test("package, snapshot, and harness closure surfaces stay aligned", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", ".pi/agent-fleet/hermes/README.md", ".pi/agent-fleet/hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
+  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", "docs/codex-setup.md", ".pi/agent-fleet/hermes/README.md", ".pi/agent-fleet/hermes/skills/", "docs/coms-hermes-bridge.md", "docs/MIGRATION-agent-fleet.md", "docs/codex-session-bridge.md"]) {
     assert.ok(pkg.files.includes(required), `package files missing ${required}`);
   }
+  // The Codex skill ships only as its archive: pi loads every directory under skills/, so the
+  // unpacked source stays excluded while set-codex-mcp extracts skills/fleet-native-voice.zip.
+  assert.ok(pkg.files.includes("skills/"), "package files must publish skills/ (carries fleet-native-voice.zip)");
+  assert.ok(pkg.files.includes("!skills/fleet-native-voice/"), "the unpacked fleet-native-voice source must stay excluded");
   assert.equal(pkg.files.includes(".pi/agent-fleet/hermes/"), false);
   assert.equal(pkg.files.includes("systemd/"), false);
   assert.equal(pkg.files.includes("codex/"), false);
@@ -536,7 +544,7 @@ test("package, snapshot, and harness closure surfaces stay aligned", () => {
   assert.match(pkg.scripts["test:full"], /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
   assert.doesNotMatch(pkg.scripts["test:full"], /scripts\/lib\/codex-remote-control\.test\.ts/);
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
-  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
+  for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", "docs/codex-setup.md", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);
   }
   assert.doesNotMatch(snapshot, /"systemd"/);

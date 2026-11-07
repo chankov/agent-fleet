@@ -2,7 +2,7 @@
 
 Use the `fleet-native-voice` skill to discuss explicitly named Fleet/Pi sessions in one Codex conversation. Codex keeps spoken replies brief while retaining complete action previews and correlation details in the written chat.
 
-The skill is a conversational layer over the existing local `af-local-read` MCP server. It does not add a voice engine, a transport, new tools, or permissions. For server configuration, the full tool catalogue, storage, and error codes, see the [native Codex MCP guide](codex-local-mcp.md).
+The skill is a conversational layer over the existing local `af-local-read` MCP server. It does not add a voice engine, a transport, new tools, or permissions. For installation, see the [Codex MCP setup guide](codex-setup.md); for the full tool catalogue, storage, and error codes, see the [native Codex MCP guide](codex-local-mcp.md).
 
 ## What has actually been verified
 
@@ -19,41 +19,15 @@ Use the availability check below in your own intended chat and host. If the nati
 
 ## Install the skill and configure MCP separately
 
-You need a compatible local Codex host, already running Fleet/Pi sessions, and the native MCP server configured as described in the [MCP setup instructions](codex-local-mcp.md#configure-the-local-server). Those instructions cover Node.js 22.18+, the local POSIX/socket requirements, real host-supplied conversation context, and private state locations.
+You need a compatible local Codex host, already running Fleet/Pi sessions, and the native MCP server registered. The server registration and the skill copy are installed together by one explicit command, described in the [Codex MCP setup guide](codex-setup.md):
 
-**Skill installation does not configure or start the MCP server.** The `chatgpt-client` installer feature and CLI are retired; see [migration and retained data](codex-session-bridge.md). They are not a fallback for this workflow. The native voice skill is deliberately excluded from the Pi installer catalogue: a Pi persona does not have Codex-host native tools.
-
-Choose one of the following project-local skill installations. Neither requires a global installation or a change to Fleet sessions.
-
-### From an Agent Fleet checkout
-
-The canonical source is `skills/fleet-native-voice/`, including `SKILL.md` and `agents/openai.yaml`. From the repository root, expose that directory to Codex through a local symlink:
-
-```sh
-mkdir -p .agents/skills
-test ! -e .agents/skills/fleet-native-voice && \
-  test ! -L .agents/skills/fleet-native-voice && \
-  ln -s ../../skills/fleet-native-voice .agents/skills/fleet-native-voice
+```bash
+agent-fleet set-codex-mcp install
 ```
 
-If the destination already exists, including a dangling symlink, the guarded link command does nothing and returns failure. Inspect the existing installation instead of replacing or nesting another link inside it. Keep this source checkout available while using the link.
+That guide covers Node.js 22.18+, the local POSIX/socket requirements, private state locations, the verification steps, and the manual project-local alternative for the skill. The installed entrypoint is `~/.agents/skills/fleet-native-voice/SKILL.md`, with UI metadata at `agents/openai.yaml`. Check that Codex discovers `$fleet-native-voice` in the intended chat; if discovery or configuration loading needs a host lifecycle action, use the host's supported user-controlled procedure. The skill does not restart the app or activate tools automatically.
 
-### From an installed or unpacked npm package
-
-The package includes `skills/fleet-native-voice.zip`; it intentionally excludes the unpacked `skills/fleet-native-voice/` source directory. Use the archive rather than a symlink to that absent directory.
-
-From the chosen workspace root, extract the ZIP into `.agents/skills/`. The archive already contains a top-level `fleet-native-voice/` directory. For example, if `unzip` is available:
-
-```sh
-mkdir -p .agents/skills
-test ! -e .agents/skills/fleet-native-voice && \
-  test ! -L .agents/skills/fleet-native-voice && \
-  unzip -n /absolute/path/to/agent-fleet/skills/fleet-native-voice.zip -d .agents/skills
-```
-
-Replace `/absolute/path/to/agent-fleet` with your actual stable package location. The path is illustrative, not a location supplied by Fleet. If the destination exists, inspect it before deciding how to update; do not overwrite or silently merge another installation.
-
-For either method, the resulting skill entrypoint is `.agents/skills/fleet-native-voice/SKILL.md`, with UI metadata at `.agents/skills/fleet-native-voice/agents/openai.yaml`. Check that Codex discovers `$fleet-native-voice` in the intended project. If discovery or configuration loading needs a host lifecycle action, use the host's supported user-controlled procedure; the skill does not restart the app or activate tools automatically.
+**Skill installation does not configure or start the MCP server, and neither grants access.** The `chatgpt-client` installer feature and CLI are retired; see [migration and retained data](codex-session-bridge.md). They are not a fallback for this workflow. The native voice skill is deliberately excluded from the Pi installer catalogue: a Pi persona does not have Codex-host native tools.
 
 ## Start with a no-grant availability check
 

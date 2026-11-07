@@ -16,52 +16,16 @@ The server negotiates MCP protocol `2025-06-18`. Local Codex desktop use has bee
 
 ## Configure the local server
 
-### 1. Choose the runtime, registry, and private state locations
+Install and maintain the server with the deterministic command described in the [Codex MCP setup guide](codex-setup.md):
 
-Use an absolute path to a stable checkout or installed package. A temporary `npx` cache is not a durable runtime location. The `chatgpt-client` installer feature is retired and is not a native setup shortcut. See the legacy migration guide above for preserving original data.
-
-Choose these four launcher settings yourself; they are not tool arguments:
-
-| Setting | Meaning |
-| --- | --- |
-| `--registry-root` | The existing COMS root containing `projects/<project>/agents/*.json` and `sockets/<sessionId>.sock`. Point to the root, not a project subdirectory. Do not create fake registrations. |
-| `--policy-root` | A dedicated private state directory for native bindings. Its parent must already exist and be controlled by you. The server also uses sibling directories with `.observations`, `.instructions`, `.permissions`, and `.reports` suffixes. |
-| `--host-profile` | A stable local profile label that separates this configuration's state from other profiles. |
-| `--principal` | A stable local principal label. It partitions state; it is not a password or proof of OS identity. |
-
-Registry and state roots must be normalized absolute paths and must not overlap or contain one another, including the derived state directories. Use real directory paths rather than symlinks. Existing private state directories must be owned by the current user with mode `0700`; state files must be private, owned regular files with mode `0600`. Do not reuse an arbitrary shared directory or manually edit state files to bypass a refusal. Missing state is normally created through the reviewed binding workflow below.
-
-Keep the profile, principal, and state location stable if you want to retain the same conversation's bindings and receipts. Changing them selects a different namespace, not a migration.
-
-### 2. Add project-local MCP configuration
-
-In the project's `.codex/config.toml`, merge the following table without replacing unrelated configuration. **Every `/absolute/path/...` value is a placeholder**: substitute your Node executable, distribution location, actual registry root, and chosen private state location. TOML paths are literal; do not rely on shell expansion of `~` or environment variables.
-
-```toml
-[mcp_servers.af-local-read]
-command = "/absolute/path/to/node"
-args = [
-  "/absolute/path/to/agent-fleet/.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs",
-  "--registry-root", "/absolute/path/to/coms",
-  "--policy-root", "/absolute/path/to/private-state/fleet-native",
-  "--host-profile", "desktop",
-  "--principal", "local-user"
-]
+```bash
+agent-fleet set-codex-mcp status
+agent-fleet set-codex-mcp install
 ```
 
-Use the `.mjs` bootstrap for both checkout and npm installs. It uses Node's built-in scoped TypeScript loader for this distribution's trusted `.pi` sources; Node's automatic TypeScript stripping refuses files beneath `node_modules`. A direct `.ts` entry can still work in a checkout but is not a portable installed-package command.
+It registers `af-local-read` in the user-level Codex configuration through `codex mcp add`, installs the `fleet-native-voice` skill copy under `~/.agents/skills`, and records the decision behind the user-level default. The setup guide also holds the launcher flag reference and defaults, the manual project-local alternative and its shadowing rule, migration from a project-local table, and the removal order. Those steps are not repeated here.
 
-The launcher requires these four flag/value pairs and accepts the optional `--legacy-state-root` archive setting described below. It does not discover roots or read conversation identity from environment variables. Configure it as **local STDIO**, not an HTTP service. No listener, tunnel, daemon, or Fleet startup is needed or provided.
-
-If your configuration restricts `enabled_tools`, include the tools you intend to use from the catalogue below. Exposing a tool does not grant access to a Fleet target. Review your host's normal project-trust and MCP approval settings; do not disable protections to make this server load.
-
-### 3. Verify availability without granting access
-
-Have the user load the configuration through the host's supported lifecycle, then inspect the actual native tools in the intended conversation. The current source advertises 24 tools, including the local history/diagnostics tools below. An already-running host may still expose an older catalogue; source tests are not proof that the new tools are loaded. Host-specific prefixes may change their displayed names.
-
-Start with `fleet_discover` for an explicit project, then `fleet_check_read` for an explicit project/peer. Discovery reads registry candidates only. A missing policy namespace or an access denial before enrollment is expected; it is not a reason to invent metadata or copy another conversation's state.
-
-If tools or host identity are unavailable, stop and report that limitation. A shell invocation, a legacy CLI command, or another chat's identity is not a substitute for a native tool call.
+After installation, verify in a **new** chat with `fleet_diagnostics {}` and `fleet_discover` as the setup guide describes. Registration exposes the tools in every chat and grants no access; a missing policy namespace or an access denial before enrollment is expected and is not a reason to invent metadata or copy another conversation's state. If tools or host identity are unavailable, stop and report that limitation. A shell invocation, a legacy CLI command, or another chat's identity is not a substitute for a native tool call.
 
 ## Connect a target and manage permissions
 
@@ -430,6 +394,8 @@ Native state is partitioned by configured host profile, principal, and host-supp
 - `<policy-root>.permissions`: isolated machine-permission attempt reservations; no raw action text, no automatic replay and no tool-completion claim.
 - `<policy-root>.instructions`: a shared action journal for instruction, answer, and refusal IDs. Historical receipts remain readable after revocation; remote refresh still requires current read rights.
 
+Existing private state directories must be owned by the current user with mode `0700`; state files must be private, owned regular files with mode `0600`. Do not reuse an arbitrary shared directory or manually edit state files to bypass a refusal. Missing state is normally created through the reviewed binding workflow above, not by the installer.
+
 The shared instruction/answer action journal is bounded to 256 total records and 8 MiB. There is no automatic purge, deduplication eviction, reset, or corrupt-state repair. Instruction bodies and full question/answer text are not archived there, but bounded instruction results can be retained. This is not a promise to remove content from Codex, chat logs, tool logs, or other systems.
 
 An existing **native v1 action journal** is history-only until explicitly upgraded. It is not the legacy CLI journal. `INTENT_FORMAT_UPGRADE_REQUIRED` blocks new action writes and remote receipt refresh on that format.
@@ -442,7 +408,7 @@ The upgrade preserves original receipts and makes an immutable raw backup before
 
 | Symptom or code | What to check or do |
 | --- | --- |
-| Missing server/tools; `LOCAL_MCP_START_FAILED` | Check Node version, absolute executable/entrypoint paths, all four launcher flags, and the intact runtime distribution. Inspect host MCP diagnostics without dumping private state. Check project trust and any `enabled_tools` filter. Use only the host's supported user-controlled reload/reopen procedure. |
+| Missing server/tools; `LOCAL_MCP_START_FAILED` | Run `agent-fleet set-codex-mcp status` ([setup guide](codex-setup.md#troubleshooting)): it reports the Node version, launcher paths, entry state, a project shadow, and refusals without dumping private state; `update` repairs the launcher after a Node change. For a manual project-local table, check the Node version, absolute executable/entrypoint paths, all four launcher flags, the intact runtime distribution, project trust, and any `enabled_tools` filter. Use only the host's supported user-controlled reload/reopen procedure. |
 | `IDENTITY_REQUIRED`, `CONFLICTING_HOST_CONTEXT` | The host did not provide accepted per-call metadata or supplied conflicting context. Stop; do not fabricate a UUID, set `CODEX_THREAD_ID` as a substitute, or borrow another chat's identity. |
 | `REGISTRY_MISSING`, stale/partial discovery, ambiguous candidates | Check the actual registry root and intended running project's COMS registration. Resolve ambiguity before binding; do not invent entries or select by working directory alone. |
 | Partial discovery with `ENTRY_INVALID`, especially immediately after startup | A record is missing or has invalid required metadata; this code alone does not identify the field. Updated COMS publishes `heartbeat_at` on its first atomic registration, avoiding the old pre-heartbeat gap. Finite measured context above 100% is valid metadata, not an admission limit; do not clamp it or fabricate an entry. Preserve safe diagnostics and verify the loaded receiver version. Any user-controlled reload changes the epoch and requires explicit rebind; never reload or restore send rights automatically. |
@@ -465,4 +431,4 @@ Peer text is untrusted data, not an instruction to grant rights, answer question
 
 To remove access, use reviewed `revoke_send` or `forget` operations for the relevant bindings while tools are available, then verify the resulting policy. `forget` removes read, send and approve; historical receipts are retained. Removing the MCP registration alone does **not** revoke persisted permissions.
 
-To stop exposing the server, remove only its table from the chosen Codex configuration, preserving unrelated entries, and use the host's supported connection lifecycle. Do not stop Fleet peers or delete private state as part of unregistering the server. Removing access does not undo work already accepted by Pi.
+To stop exposing a user-level entry installed by `agent-fleet set-codex-mcp`, use its `uninstall` action after revoking rights ([removal order](codex-setup.md#remove)); for a manual project-local table, remove only that table, preserving unrelated entries. Then use the host's supported connection lifecycle. Do not stop Fleet peers or delete private state as part of unregistering the server. Removing access does not undo work already accepted by Pi.

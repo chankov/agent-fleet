@@ -52,6 +52,7 @@ const ARTIFACT_PATHS = [
   "docs/codex-session-bridge.md",
   "docs/codex-local-mcp.md",
   "docs/fleet-native-voice.md",
+  "docs/codex-setup.md",
   "docs/pi-extensions.md",
   "docs/npm-install.md",
   "docs/skill-anatomy.md",

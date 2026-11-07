@@ -143,6 +143,7 @@
     "docs/codex-session-bridge.md",
     "docs/codex-local-mcp.md",
     "docs/fleet-native-voice.md",
+    "docs/codex-setup.md",
     ".pi/harnesses/agent-hub/proactive-snapshot-worker.mjs",
     "!**/task-triage*.user-run.mjs",
     "docs/system1-config.md",

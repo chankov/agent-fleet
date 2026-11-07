@@ -61,7 +61,7 @@ No target-local Fleet copy or cwd-only workaround is needed.
 | **Hermes bridge** | Remote human control — relays hub questions to Telegram, races phone vs. local answers, conductor/liaison skills | `.pi/agent-fleet/scripts/coms-hermes-bridge.ts`, `.pi/harnesses/ask-user-remote/`, `.pi/agent-fleet/hermes/skills/` — see [coms-hermes-bridge.md](coms-hermes-bridge.md) |
 | **Hermes local monitor transport** | Local, authenticated monitor contract for Hub-owned task generations; consumers supply their own presentation | `.pi/harnesses/agent-hub/monitor-*.ts`, `.pi/harnesses/lib/hermes-monitor-{model,store,registry,socket}.ts` (with compatibility re-exports under `.pi/agent-fleet/scripts/lib/`) — see [Hermes artifacts](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) and [watchdog limits](hermes-watchdog-supervisor.md) |
 | **Hermes Desktop plugin** (`agent-fleet-herdr`) | Fleet observability surface — read-only panel of every live session joined from the coms registry, herdr presence, agent transcripts, and the monitor transport; `focus` and subagent `cancel` are its only write doors | `.pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr/` (Electron pane), `.pi/agent-fleet/hermes/plugins/agent-fleet-herdr/dashboard/` (FastAPI backend), installed by `.pi/agent-fleet/scripts/install-hermes-plugin.sh` — see [hermes-desktop-plugins.md](hermes-desktop-plugins.md) |
-| **Native Codex MCP** | Local exact-context, multi-session observations and human-confirmed actions; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts`, explicit local configuration — see [native guide](codex-local-mcp.md) and [retired CLI migration](codex-session-bridge.md) |
+| **Native Codex MCP** | Local exact-context, multi-session observations and human-confirmed actions; no daemon or idle wake | `.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts`; user-level registration and the `fleet-native-voice` skill copy through the explicit `agent-fleet set-codex-mcp` command (`bin/lib/set-codex-mcp.js`) — see [setup guide](codex-setup.md), [native guide](codex-local-mcp.md) and [retired CLI migration](codex-session-bridge.md) |
 | **System 1 foundation** | Experimental shared structured-judgment service; TypeSafe Jev only, with independent watchdog/dispatch/proactive/task-triage/agenticAsk/fileDiscovery/contextCompaction/damageGuard consumer opt-ins | `.pi/harnesses/lib/system1/`, feature `system1`, human-owned `.ai/system1.json` |
 | **System 1 dispatch advice / communication** | Optional off-by-default `dispatch_triage` tool; shared-service memory-only Fleet `1` viewer, independently opt-in; live calibration not yet accepted | `.pi/harnesses/agent-hub/dispatch-triage-*.ts`, `system1-communication-store.ts`, `ui/system1-communication.ts` — [guide](system1-dispatch-triage.md) |
 | **System 1 task triage** | Active uncalibrated opt-in: uncertain predicates add process obligations, never spend/permission authority; session Fleet/audit metadata | `.pi/harnesses/agent-hub/task-triage-*.ts`, human-owned `consumers.taskTriage` in `.ai/system1.json` — [config/recovery](agent-fleet-setup.md#task-triage-active-experimental-off-by-default) |
@@ -598,7 +598,7 @@ flowchart TD
 
 ### Local Codex observation boundary (experimental)
 
-The project-local STDIO MCP adapter uses validated per-call host conversation context and an exact Fleet epoch allowlist (D2-L: cooperative same-user routing, not cryptographic authority). Discovery/read checks are registry-only; `fleet_observe` authorizes before and after one bounded local snapshot. `fleet_overview` aggregates 1–4 explicit selectors with target-local errors and summary-only question previews. Observations never send prompts or answers. Separate instruction/answer prepare/commit/receipt tools require current rights and fresh human confirmation. Unknown/partial data and non-atomic snapshots remain explicit; neither registry presence nor a turn boundary establishes task completion. There is no CLI transport fallback, external listener or implicit binding grant. The separately opt-in experimental Desktop queue adapter has limited externally smoke-tested wake evidence, not a general delivery guarantee. See the [native contract](codex-local-mcp.md).
+The STDIO MCP adapter, registered at the user level by `agent-fleet set-codex-mcp` ([setup guide](codex-setup.md)) or through a manual project-local table, uses validated per-call host conversation context and an exact Fleet epoch allowlist (D2-L: cooperative same-user routing, not cryptographic authority). Discovery/read checks are registry-only; `fleet_observe` authorizes before and after one bounded local snapshot. `fleet_overview` aggregates 1–4 explicit selectors with target-local errors and summary-only question previews. Observations never send prompts or answers. Separate instruction/answer prepare/commit/receipt tools require current rights and fresh human confirmation. Unknown/partial data and non-atomic snapshots remain explicit; neither registry presence nor a turn boundary establishes task completion. There is no CLI transport fallback, external listener or implicit binding grant. The separately opt-in experimental Desktop queue adapter has limited externally smoke-tested wake evidence, not a general delivery guarantee. See the [native contract](codex-local-mcp.md).
 
 S5c adds observation-only durable metadata in a separate private `<policyRoot>.observations` namespace, keyed by validated conversation and exact target epoch; it does not alter the allowlist schema or import legacy CLI authority. Stable opaque event/window identities extend the bounded receiver projection. Typed `fleet_resync` and active `fleet_watch` declare local writes (`readOnlyHint=false`), preserve pre/post authorization, and report independent gaps/reset/unsupported continuity and pending/resolved question observations. Cursors are not permission or human-delivery receipts. Watch is bounded by duration, frames, output and concurrency; it does not create background jobs/model wake or cancel Pi work. Source/local verification is not native receiver/MCP activation; any lifecycle/epoch changes remain human-controlled and separate.
 
@@ -917,10 +917,19 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
 skills/                       # Agent Fleet-native skills (shadow vendored names)
 agents/                       # Personas/subagents; installed to a workspace's .pi/agents/personas/
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
-bin/                          # npm CLI: init/update/doctor + the installer engine
+bin/                          # npm CLI: setup/doctor/uninstall, the installer engine, explicit operator controllers (bin/lib/)
 references/                   # Supplementary checklists, installed with the skills that cite them
 docs/                         # This file, setup guides, bridge references, vendoring policy
 ```
+
+`bin/lib/` holds the deterministic installer engine (`manifest.js`, `state.js`, `verify.js`,
+`plan.js`, `apply.js`, `merge-forms.js`), which writes only inside a workspace, and the explicit
+operator controllers, the only modules that write outside one: `set-hermes-watchdog.js` and `set-hermes-telegram.js` for a Hermes profile
+(receipts and atomic installs in `hermes-profile-artifact.js`), and `set-codex-mcp.js` for the
+user-level Codex registration, with `skill-zip.js` (a bounded, dependency-free reader for the
+packaged `skills/*.zip`) and `mcp-probe.js` (one STDIO `initialize` + `tools/list` exchange that
+proves a launcher before any write). Each controller runs only when the operator invokes its
+`agent-fleet set-*` command; `setup` never calls them.
 
 The fleet runtime keeps its *source* layout identical to its *installed* layout.
 That is not cosmetic: `companion:harness-runtime-closure` and its siblings copy
@@ -1002,6 +1011,14 @@ packages/hermes-bridge/       # future Hermes integration package
   makes it available to an operator; installing it into a Hermes profile is always an explicit
   action through `agent-fleet set-hermes-watchdog` (skill) or the consumer's own flow (plugins).
   Nothing is enabled, launched, or configured by installing the package.
+- **Codex registration is an explicit operator command, never part of `setup`.** `bin/lib/set-codex-mcp.js`
+  registers the native `af-local-read` server in the user-level Codex configuration and installs the
+  `fleet-native-voice` skill copy under `~/.agents/skills`; `skill-zip.js` reads the packaged archive and
+  `mcp-probe.js` proves the exact launcher over STDIO before anything is written. Like `set-hermes-watchdog`,
+  these modules write outside a workspace only when the operator invokes them, only through
+  `codex mcp add`/`remove` with a `config.toml` backup, and only with receipts that let `uninstall` remove
+  exactly what they created. `setup`, `apply.js`, and the manifest are untouched; no policy state, event
+  relay, auto policy, or Desktop queue is created. See [codex-setup.md](codex-setup.md).
 - **Watchdog delivery is capability-gated and currently unproven.** No checked-in
   Gate O live artifact proves Hermes origin identity, updates, reconnect, or two-chat isolation,
   so its supported posture is journal-only/dormant: no delivery, steering, or surgical use. It
