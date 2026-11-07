@@ -36,6 +36,7 @@ import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
 import { checkAndNotify } from "./lib/update-notifier.js";
 import { setHermesTelegram, runHermesCommand } from "./lib/set-hermes-telegram.js";
 import { setHermesWatchdog } from "./lib/set-hermes-watchdog.js";
+import { runCodexCommand, setCodexMcp } from "./lib/set-codex-mcp.js";
 import { runtimeDependencyFindings } from "../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -95,6 +96,12 @@ const parsed = (() => {
         force:     { type: "boolean" },
         restart:   { type: "boolean" },
         "dry-run": { type: "boolean" },
+        node:      { type: "string" },
+        "registry-root": { type: "string" },
+        "policy-root": { type: "string" },
+        "host-profile": { type: "string" },
+        principal: { type: "string" },
+        "legacy-state-root": { type: "string" },
         json:      { type: "boolean" },
         "no-doctor": { type: "boolean" },
         items:     { type: "string" },
@@ -162,6 +169,7 @@ switch (sub) {
   case "check-update":      await cmdCheckUpdate();      break;
   case "set-hermes-telegram": await cmdSetHermesTelegram(); break;
   case "set-hermes-watchdog": await cmdSetHermesWatchdog(); break;
+  case "set-codex-mcp":       await cmdSetCodexMcp();      break;
   default:                    fail(`unknown command: ${sub}\n\nRun "agent-fleet --help" for usage.`);
 }
 
@@ -178,6 +186,29 @@ async function cmdSetHermesWatchdog() {
       hermes: runHermesCommand,
     });
     console.log(JSON.stringify(result, null, 2));
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function cmdSetCodexMcp() {
+  try {
+    const result = await setCodexMcp({
+      positionals: parsed.positionals,
+      node: opts.node,
+      registryRoot: opts["registry-root"],
+      policyRoot: opts["policy-root"],
+      hostProfile: opts["host-profile"],
+      principal: opts.principal,
+      legacyStateRoot: opts["legacy-state-root"],
+      force: opts.force,
+      dryRun: opts["dry-run"],
+      packageRoot: pkgRoot,
+      codex: runCodexCommand,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    // A status that lists refusals is a finding, like doctor: exit 2, not 1.
+    if (result.action === "status" && result.errors.length) exit(2);
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
@@ -1451,6 +1482,40 @@ Gate O remains fail-closed: without genuine live origin proof the installed watc
 `);
     return;
   }
+  if (sub === "set-codex-mcp") {
+    console.log(`agent-fleet set-codex-mcp <status|install|update|uninstall> [options]
+
+Register the Agent Fleet native MCP server (af-local-read) in the user-level
+Codex configuration and install the fleet-native-voice skill under
+~/.agents/skills. Codex owns config.toml: the entry is written only through
+\`codex mcp add\` / \`codex mcp remove\`, never by editing TOML, and a backup of
+config.toml is kept under $CODEX_HOME/agent-fleet/backups before every change.
+
+Actions:
+  status                 Read-only: launcher, entry state, project shadow, skill, receipts
+  install | update       Probe the launcher, back up config.toml, register the entry, install the skill
+  uninstall              Remove only the managed entry and skill tree; keep all Fleet state
+
+Options:
+  --node <path>              Node binary for the launcher (default: the running Node)
+  --registry-root <dir>      COMS root (default: $PI_COMS_DIR or ~/.pi/coms)
+  --policy-root <dir>        Private native state (default: $CODEX_HOME/agent-fleet/state/fleet-native)
+  --host-profile <name>      State partition label (default: desktop)
+  --principal <name>         State partition label (default: local-user)
+  --legacy-state-root <dir>  Optional read-only archive of the retired CLI state
+  --force                    Replace a drifted entry or skill tree after backing it up
+  --dry-run                  Report the planned change without writing
+  -h, --help                 Show this help
+
+Registration exposes the tools in every Codex chat but does not grant access:
+each chat still enrolls and confirms per action. Uninstall does not revoke
+persisted bindings; use forget / revoke_send / revoke_approve in chat first.
+A project .codex/config.toml with the same server name shadows the user entry
+inside that project; status reports it and never edits it.
+Exit 0 success, 1 failure, 2 status with refusals. POSIX only; Node >= 22.18.
+`);
+    return;
+  }
   if (sub === "set-hermes-telegram") {
     console.log(`agent-fleet set-hermes-telegram <action> [arguments] [options]
 
@@ -1517,6 +1582,7 @@ Commands:
   check-update        One-line registry check (used by session hooks; safe to script)
   set-hermes-telegram Install/status the liaison and start/stop its Herdr bridge
   set-hermes-watchdog Install/status/update/uninstall the fail-closed watchdog skill
+  set-codex-mcp       Install/status/update/uninstall the user-level Codex MCP server and skill
 
 Options:
   -v, --version    Print the package version
@@ -1534,6 +1600,7 @@ Examples:
   npx agent-fleet update
   npx agent-fleet set-hermes-telegram on 7883056502:1735
   npx agent-fleet set-hermes-watchdog status --profile default
+  npx agent-fleet set-codex-mcp status
 
 Environment:
   AGENT_SKILLS_NO_UPDATE_CHECK=1   Disable the background update check

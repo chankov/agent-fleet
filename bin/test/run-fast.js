@@ -17,6 +17,8 @@ const fastTestFiles = [
   "bin/test/minimal-catalogue.test.js",
   "bin/test/manifest.test.js",
   "bin/test/skill-archives.test.js",
+  "bin/test/skill-zip.test.js",
+  "bin/test/set-codex-mcp.test.js",
   "bin/test/desired.test.js",
   "bin/test/installation-state-lifecycle.test.js",
   ".pi/harnesses/lib/installation-state.test.js",
