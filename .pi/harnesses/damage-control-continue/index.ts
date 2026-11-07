@@ -32,6 +32,7 @@
  * Usage: pi -e .pi/harnesses/damage-control-continue/index.ts
  */
 
+import {permissionRelayFor,raceExactPermission} from '../lib/exact-permission-port.ts';
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createSessionTargetGuard } from '../lib/session-target.ts';
 import { readDamagePolicy } from '../lib/damage-policy.ts';
@@ -53,7 +54,7 @@ import {
 	fileExemptionsFor,
 	readExemptionsFile,
 	removeExemptionFromFile,
-	requestAccessFromHub,
+ requestAccessReceiptFromHub,
 	type AccessRequest,
 	type Exemption,
 	type ExemptionScope,
@@ -63,6 +64,8 @@ import { registerVersionStatus } from "./version.ts";
 import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
 import { deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
 import {sharedApprovalWait} from '../lib/approval-wait.ts';
+import {loadDamageAutoPolicy,evaluateDamageAutoPolicy} from '../lib/damage-auto-policy.ts';
+import {damagePreview, damageInputAudit} from '../lib/damage-control-presentation.ts';
 import {assessDamageCall,takeSpawnedDamageAssignment} from '../lib/damage-guard-port.ts';
 import type {createDamageChild} from './system1-child.ts';
  import {captureDamageResult} from '../lib/damage-result-evidence.ts';
@@ -330,10 +333,10 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 	 let policyAnalysis:'static_operands'|'conservative_text'|undefined;
 	 const evaluate=async()=>{
   // Capture loaded policy before baseline dialogs, not after the user waits.
-  const policySnapshot=JSON.stringify(rules),epoch=baselineEpoch;
+  const policySnapshot=JSON.stringify(rules),epoch=baselineEpoch,autoPolicy=loadDamageAutoPolicy(ctx.cwd);
   const exactCall=JSON.stringify(event),cwd=ctx.cwd;
   const semanticAllow=async()=>{
-   const unchanged=()=>targetPolicyCurrent(ctx.cwd)&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd;
+   const unchanged=()=>loadDamageAutoPolicy(ctx.cwd).digest===autoPolicy.digest&&targetPolicyCurrent(ctx.cwd)&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd;
    const blocked={block:true,reason:'Damage-Control: baseline authority changed; re-authorize the call.'};
    if(!unchanged())return blocked;
    const snapshot=JSON.stringify([rules,activeExemptions()]);
@@ -350,6 +353,20 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		// this null and can never be exempted.
 		let matchedPattern: string | null = null;
 		let matchedCategory: PathRuleCategory | null = null;
+  const raceBaseline=async<T>(local:(signal:AbortSignal)=>Promise<T>,decision:(value:T)=>'allow_once'|'deny'|null,machineValue:T,timeout:number)=>{
+   const relay=permissionRelayFor(pi.events),identity=relay?.actionIdentity?.();
+   if(!relay||!identity||matchedCategory==='zero_access'||!['bash','write','edit'].includes(event.toolName))return {value:ctx.hasUI?await local(new AbortController().signal):undefined,source:'local_human'};
+   const authority=JSON.stringify(activeExemptions()),current=()=>{
+    const next=relay.actionIdentity?.();return !!next&&next.taskId===identity.taskId&&next.inputRevision===identity.inputRevision&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd&&targetPolicyCurrent(cwd)&&authority===JSON.stringify(activeExemptions());
+   };
+   const action={...identity,operation:event.toolName as 'bash'|'write'|'edit',target:crypto.createHash('sha256').update(JSON.stringify(event.input)).digest('hex'),cwd,actionId:String(event.toolCallId),owner:'hub',attempt:String(epoch),requestContext:{source:matchedPattern?'baseline_path' as const:'baseline_bash' as const,category:matchedCategory??'bash_pattern',pattern:matchedPattern??violationReason??'',digest:crypto.createHash('sha256').update(exactCall).digest('hex'),epoch:String(epoch)}};
+   const result=await raceExactPermission(relay,action,event.input,current,Date.now()+timeout,async signal=>{
+    const value=ctx.hasUI?await local(signal):await new Promise<T>(()=>{});const d=decision(value);return d?{decision:d,value}:null;
+   },record=>pi.appendEntry('damage-permission-decision',record));
+   if(!result)return {value:undefined,source:'not_decided'};
+   if(result.decision==='deny')return {value:result.localValue,source:result.source};
+   return {value:result.consume()?(result.source==='codex_machine'?machineValue:result.localValue):undefined,source:result.source};
+  };
 
 		const checkPaths = (pathsToCheck: string[]) => {
 			for (const p of pathsToCheck) {
@@ -494,13 +511,26 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		if (matchedPattern) {
 			const exempted = activeExemptions().find((ex) => exemptionApplies(ex, matchedPattern!, inputPaths, command, ctx.cwd));
 			if (exempted) {
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
 				ctx.ui.notify(`🛡️ Damage-Control: ${event.toolName} allowed by exemption ${exempted.pattern} (${exempted.scope})`, "warning");
 				return semanticAllow();
 			}
 
+   const bashAnalysis=command===null?null:analyzeBashCommand(command);
+   const staticBash=bashAnalysis&&bashAnalysis.commands.length===1&&!bashAnalysis.commands[0].opaque?bashAnalysis.commands[0]:null;
+   const operands=staticBash?[...staticBash.reads.map(p=>({path:resolvePath(p,ctx.cwd),operation:'read' as const})),...staticBash.writes.map(p=>({path:resolvePath(p,ctx.cwd),operation:'write' as const})),...staticBash.deletes.map(p=>({path:resolvePath(p,ctx.cwd),operation:'delete' as const}))]:command===null?inputPaths.map(p=>({path:resolvePath(p,ctx.cwd),operation:event.toolName==='write'||event.toolName==='edit'?'write' as const:'read' as const})):[];
+   const uniqueOperands=[...new Map(operands.map(p=>[JSON.stringify(p),p])).values()];
+   const inputText=JSON.stringify(event.input);
+   const automatic=evaluateDamageAutoPolicy(autoPolicy,{source:'damage_control_path',category:matchedCategory!,tool:event.toolName,pattern:matchedPattern,analysis:command!==null&&!staticBash?'conservative_text':'static_operands',operands:uniqueOperands,cwd:ctx.cwd,presentationSafe:Buffer.byteLength(inputText)<=8192&&damagePreview(inputText,8192)===inputText});
+   if(automatic){
+    if(loadDamageAutoPolicy(ctx.cwd).digest!==automatic.policyDigest)return {block:true,reason:'Damage-Control: auto policy changed; authorize again.'};
+    try{pi.appendEntry('damage-control-log',{action:'auto_decided',policyId:automatic.policyId,policyDigest:automatic.policyDigest,actionDigest:damageInputAudit(event.input).sha256,decision:automatic.decision,decisionSource:'auto_policy'});}catch{return {block:true,reason:'Damage-Control: auto-policy audit failed.'};}
+    ctx.ui.notify(`🛡️ auto_policy ${automatic.decision}: ${automatic.policyId}`,'warning');
+    if(automatic.decision==='deny')return {block:true,reason:`Damage-Control auto_policy deny: ${automatic.reason}`};
+    return semanticAllow(); // D6 semantic holds and policy digest revalidation still run.
+   }
 			if (!deniedThisTurn.has(matchedPattern)) {
-				if (ctx.hasUI) {
+				if (ctx.hasUI||permissionRelayFor(pi.events)) {
 					// Interactive session: ask the user right now. An approved call
 					// proceeds immediately — the agent never sees the block.
 					const KEEP = "Keep blocked";
@@ -511,18 +541,20 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 						? [KEEP, ONCE]
 						: [KEEP, ONCE, TURN, SESSION];
 					const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
-					const choice = await sharedApprovalWait.run(async signal=>{
+					const selected = await raceBaseline(permissionSignal=>sharedApprovalWait.run(async signal=>{
 					 finishQueue({status:'completed'});
 					 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:matchedPattern!});
 					 try{const selected=await ctx.ui.select(
 						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
 						choices,
-						{ timeout: PROMPT_TIMEOUT_MS, signal },
+						{ timeout: PROMPT_TIMEOUT_MS, signal:AbortSignal.any([signal,permissionSignal]) },
 					 );finish({status:selected===KEEP?'denied':selected?'allowed':'cancelled'});return selected;
 					 }catch(error){finish({status:'failed'});throw error;}
-					}).finally(()=>finishQueue({status:'cancelled'}));
+					}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice===KEEP?'deny':choice?'allow_once':null,ONCE,PROMPT_TIMEOUT_MS);
+     const choice=selected.value;
+     if(!choice&&selected.source!=='local_human')return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':'permission cancelled, expired or stale'}; no human denial is inferred.`};
 					if (choice === ONCE) {
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "allowed_once", pattern: matchedPattern });
+						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern,decisionSource:selected.source });
 						return semanticAllow();
 					}
 					if (choice === TURN || choice === SESSION) {
@@ -535,7 +567,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 						: `The user did not answer the approval dialog in time (auto-kept blocked). They can pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
 					if (choice === KEEP) deniedThisTurn.add(matchedPattern);
 					ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
-					pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
+					pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
 					return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
 				}
 
@@ -544,6 +576,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					// Headless child spawned by agent-hub: escalate to the dispatcher
 					// and wait for the user's decision (fail closed on timeout/error).
 					escalationsThisTurn++;
+					const exactAction={tool:event.toolName,cwd:ctx.cwd,input:event.input,category:matchedCategory!,pattern:matchedPattern};
+					const serializedAction=JSON.stringify(exactAction);
 					const req: AccessRequest = {
 						type: "access_request",
 						msg_id: crypto.randomUUID(),
@@ -558,27 +592,33 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 						rule: violationReason,
 						pattern: matchedPattern,
 						category: matchedCategory!,
-						invocation: invocation.slice(0, 500),
+						invocation: damagePreview(invocation),
+						actionDigest: crypto.createHash('sha256').update(serializedAction).digest('hex'),
+						accessEpoch: process.env.AGENT_HUB_ACCESS_EPOCH,
+						...(Buffer.byteLength(serializedAction)<=16000&&damagePreview(serializedAction,16000)===serializedAction?{exactAction}:{}),
 					};
-					const decision = await requestAccessFromHub(endpoint, req);
+					const receipt=await requestAccessReceiptFromHub(endpoint,req);
+     const decision=receipt.status==='decided'?(receipt.decision==='deny'&&receipt.decisionSource==='codex_machine'?'machine_deny':receipt.decision):receipt.status==='expired'?'timeout':receipt.status;
 					if (decision === "allow_once") {
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "allowed_once", pattern: matchedPattern, via: "escalation" });
+						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern, via: "escalation",receipt });
 						return semanticAllow();
 					}
 					if (decision === "allow_agent" || decision === "allow_all") {
 						// The hub persisted the grant to the shared file; keep a memory
 						// copy too so this run doesn't depend on re-reading it.
 						sessionExemptions.push({ pattern: matchedPattern, scope: "session", grantedVia: "escalation", grantedAt: new Date().toISOString() });
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern: matchedPattern, via: "escalation" });
+						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern: matchedPattern, via: "escalation",receipt });
 						return semanticAllow();
 					}
-					deniedThisTurn.add(matchedPattern);
+					if (decision === 'deny') deniedThisTurn.add(matchedPattern);
 					const note = decision === "deny"
-						? `This block was escalated to the user via the dispatcher and the user DENIED access.`
-						: decision === "timeout"
+						? receipt.decisionSource==='local_human'?`DENIED: The local human explicitly denied this request.`:`DENIED: The dispatcher denied this request; legacy origin is not human attestation.`
+						: decision === 'machine_deny'
+       ? 'Codex denied this exact request as a machine decision (not human refusal).'
+       : decision === "timeout"
 							? `This block was escalated to the user via the dispatcher but the approval request timed out (auto-kept blocked). If access to this path is essential, say so explicitly in your final response so the user can grant it and re-dispatch you.`
-							: `Escalating this block to the dispatcher failed (hub unreachable).`;
-					pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: `escalation_${decision}`, pattern: matchedPattern });
+							: `Dispatcher receipt: ${receipt.status}; no authorization and no human denial is inferred.`;
+					pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: `escalation_${decision}`, pattern: matchedPattern,receipt });
 					return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
 				}
 			}
@@ -586,23 +626,21 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 		if (shouldAsk) {
 			const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
-			const confirmed = await sharedApprovalWait.run(async signal=>{
+			const selected = await raceBaseline(permissionSignal=>sharedApprovalWait.run(async signal=>{
 			 finishQueue({status:'completed'});
 			 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:violationReason!});
-			 try{const selected=await ctx.ui.confirm(
-				"🛡️ Damage-Control Confirmation",
-				`Dangerous command detected: ${violationReason}\n\nCommand: ${invocation}\n\nDo you want to proceed?`,
-				{ timeout: 30000, signal },
-			 );finish({status:selected?'allowed':'denied'});return selected;
+			 try{const choice=await ctx.ui.select(
+    `🛡️ Damage-Control Confirmation: ${damagePreview(violationReason,300)} — ${damagePreview(invocation)}`,
+    ['Keep blocked','Allow once'],{timeout:30000,signal:AbortSignal.any([signal,permissionSignal])});finish({status:choice==='Allow once'?'allowed':choice==='Keep blocked'?'denied':'cancelled'});return choice;
 			 }catch(error){finish({status:'failed'});throw error;}
-			}).finally(()=>finishQueue({status:'cancelled'}));
+			}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice==='Allow once'?'allow_once':choice==='Keep blocked'?'deny':null,'Allow once',30000);
 
-			if (!confirmed) {
+			if (selected.value!=='Allow once') {
 				ctx.ui.setStatus("damage-control", `⚠️ Last Violation Blocked: ${violationReason.slice(0, 30)}...`);
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "blocked_by_user" });
-				return { block: true, reason: continueFeedback(event.toolName, `${violationReason} (user denied)`, invocation) };
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: selected.source==='codex_machine'?'blocked_by_machine':selected.value==='Keep blocked'?'blocked_by_user':'approval_not_decided' });
+				return { block: true, reason: continueFeedback(event.toolName, `${violationReason} (${selected.source==='codex_machine'?'machine denied':selected.value==='Keep blocked'?'local human denied':'no permission decision'})`, invocation) };
 			} else {
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "confirmed_by_user" });
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: selected.source==='codex_machine'?'confirmed_by_machine':'confirmed_by_user' });
 				return semanticAllow();
 			}
 		} else {
@@ -611,7 +649,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				: undefined;
 			ctx.ui.notify(`🛑 Damage-Control: Blocked ${event.toolName} (${violationReason}) — agent will adapt and continue.`);
 			ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
-			pi.appendEntry("damage-control-log", { tool: event.toolName, input: event.input, rule: violationReason, action: "blocked" });
+			pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "blocked" });
 			return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
 		}
 	 };

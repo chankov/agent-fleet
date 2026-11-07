@@ -9,8 +9,8 @@ export function registerComsTools(pi: ExtensionAPI, toolCtx: ToolContext): void 
 		label: "Coms List",
 		description: "List peers in the human-scoped pool; this tool cannot widen discovery.",
 		parameters: Type.Object({
-			project: Type.Optional(Type.String({ description: "Narrow to a project WITHIN the current pool scope. Cannot widen beyond what /af-coms displays — a widening request is ignored." })),
-			include_explicit: Type.Optional(Type.Boolean({ description: "Only narrows: pass false to hide explicit peers. Cannot reveal them unless the human ran /af-coms --all." })),
+			project: Type.Optional(Type.String({ description: "Narrow the human pool by project; widening is ignored." })),
+			include_explicit: Type.Optional(Type.Boolean({ description: "False hides explicit peers. Revealing them requires human /af-coms --all." })),
 		}),
 		execute(toolCallId, params, signal, onUpdate, ctx) {
 			return toolCtx.executeComsList(toolCallId, params as ComsListParams, signal, onUpdate, ctx);
@@ -47,9 +47,9 @@ export function registerComsTools(pi: ExtensionAPI, toolCtx: ToolContext): void 
 		label: "Coms Send",
 		description: "Send to an in-pool peer; use its msg_id with coms_get or coms_await.",
 		parameters: Type.Object({
-			target: Type.String({ description: "Peer name (preferred) or session_id — must be a peer currently in your coms pool (shown in the widget). Out-of-pool targets are refused; ask the human to widen scope with /af-coms --project or /af-coms --all." }),
+			target: Type.String({ description: "In-pool peer name or session_id only. Ask the human to widen /af-coms scope; never self-widen." }),
 			prompt: Type.String({ description: "The prompt to send." }),
-			handoff_token: Type.Optional(Type.String({ description: "Internal /af-handoff token. Only include when the /af-handoff follow-up explicitly gives you one; it authorizes the machine-appended ledger/artifact appendix." })),
+			handoff_token: Type.Optional(Type.String({ description: "Only a token explicitly supplied by /af-handoff authorizes its machine-appended ledger/artifact appendix." })),
 			conversation_id: Type.Optional(Type.String()),
 			response_schema: Type.Optional(Type.Any({ description: "Optional JSON Schema describing the expected response shape." })),
 			reply_timeout_ms: Type.Optional(Type.Number({ description: "Receiver-side reply deadline in ms; pass the same budget used for coms_await. Clamped by the receiver." })),

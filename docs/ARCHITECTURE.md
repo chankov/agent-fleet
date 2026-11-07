@@ -598,7 +598,7 @@ flowchart TD
 
 ### Local Codex observation boundary (experimental)
 
-The project-local STDIO MCP adapter uses validated per-call host conversation context and an exact Fleet epoch allowlist (D2-L: cooperative same-user routing, not cryptographic authority). Discovery/read checks are registry-only; `fleet_observe` authorizes before and after one bounded local snapshot. `fleet_overview` aggregates 1–4 explicit selectors with target-local errors and summary-only question previews. Observations never send prompts or answers. Separate instruction/answer prepare/commit/receipt tools require current rights and fresh human confirmation. Unknown/partial data and non-atomic snapshots remain explicit; neither registry presence nor a turn boundary establishes task completion. There is no CLI transport fallback, external listener, automatic grant or idle wake. See the [native contract](codex-local-mcp.md).
+The project-local STDIO MCP adapter uses validated per-call host conversation context and an exact Fleet epoch allowlist (D2-L: cooperative same-user routing, not cryptographic authority). Discovery/read checks are registry-only; `fleet_observe` authorizes before and after one bounded local snapshot. `fleet_overview` aggregates 1–4 explicit selectors with target-local errors and summary-only question previews. Observations never send prompts or answers. Separate instruction/answer prepare/commit/receipt tools require current rights and fresh human confirmation. Unknown/partial data and non-atomic snapshots remain explicit; neither registry presence nor a turn boundary establishes task completion. There is no CLI transport fallback, external listener or implicit binding grant. The separately opt-in experimental Desktop queue adapter has limited externally smoke-tested wake evidence, not a general delivery guarantee. See the [native contract](codex-local-mcp.md).
 
 S5c adds observation-only durable metadata in a separate private `<policyRoot>.observations` namespace, keyed by validated conversation and exact target epoch; it does not alter the allowlist schema or import legacy CLI authority. Stable opaque event/window identities extend the bounded receiver projection. Typed `fleet_resync` and active `fleet_watch` declare local writes (`readOnlyHint=false`), preserve pre/post authorization, and report independent gaps/reset/unsupported continuity and pending/resolved question observations. Cursors are not permission or human-delivery receipts. Watch is bounded by duration, frames, output and concurrency; it does not create background jobs/model wake or cancel Pi work. Source/local verification is not native receiver/MCP activation; any lifecycle/epoch changes remain human-controlled and separate.
 
@@ -1046,9 +1046,72 @@ through read-authorized exact lookup; legacy prompts remain unchanged.
 Code/local fixtures do not activate receivers/MCP or authorize live actions.
 See [the local MCP contract](codex-local-mcp.md).
 
+## Local Codex machine permission boundary (source checkpoint)
+
+`fleet_permissions`, `fleet_permission_decide` and `fleet_permission_receipt`
+are separate from human question
+answers. A new per-binding `approve` right defaults off; `send` never implies it.
+Explicit approve grants upgrade only that allowlist namespace to v2 while
+preserving existing read/send; stale/rebound epochs drop approve. Machine decisions
+carry `codex_machine`, task/revision/action binding, reason and native thread ID,
+with no human or Codex-turn attestation. Pi checks the action again before one-use
+consumption. Baseline path/bash asks, D6, exact triage actions and per-spawn child
+access share the one-winner permission latch; material triage waivers remain
+human-only. Machine decisions do not seed human turn/session or semantic memory. `<policyRoot>.permissions` isolates durable attempt reservations
+from instruction/answer history. Unknown is never replayed, and latch acceptance
+or authority consumption is not tool completion. The local machine boundary is
+cooperative same-UID policy, not malicious-same-user protection.
+
+An optional user-owned `.pi/damage-control-auto-policy.yaml` is outside installer
+ownership. It is disabled when missing/empty/invalid, allows only exact static
+once-only rules, carries `auto_policy` provenance, and cannot bypass D6 holds.
+No policy file/rules or live approve rights are created by this checkpoint.
+
+The independently tested event pump covers explicitly addressed messages,
+questions and permissions, with exact binding/epoch checks and bounded deadlines.
+Production hooks in COMS prompt admission, ready question offers and permission
+holds publish reference/digest-only events into an explicitly enabled exact-owner
+runtime. `/af-codex-events prepare|enable <private-config>` and `disable` are the
+opt-in bootstrap; no configuration discovery or default activation occurs. Startup
+validates all restart state and reconciles before accepting new ingress. Source ACK
+requires a synchronous durable admission result; async/void consumers are refused.
+The separate `<stateRoot>.event-ingress` journal preserves never-attempted events
+and reconciles attempted/unknown ones without replay. Core receipts alone remain
+process-local, not durable evidence. An opt-in `CodexDesktopQueueHost` uses the externally
+smoke-tested experimental shared `thread/queue/add` path via connect-only
+WS-over-Unix. The user-owned private managed socket alias and canonical socket
+are checked and fenced against retargeting. It never starts/resumes a daemon,
+reads authentication, grants rights or forwards raw event payloads. Explicit
+host-supplied mapping/version/schema evidence is required; it is not live or
+cryptographic attestation. Known daemon-loaded targets are refused, but concurrent
+consumer changes cannot be atomically excluded by this shared-queue API.
+`queue_accepted` means ACK only, with `user_input` transport and machine provenance,
+not human consent or model delivery. The separate `<stateRoot>.desktop-events`
+ledger persists attempted-before-write/no-replay across restarts; durable producer
+ingestion is a separate journal, not inferred from this transport receipt. Unknown ACKs are never resent; queue absence does not
+prove consumption. Budgets of 10 seconds or less are refused. The busy smoke
+included an intentional 60s tool sleep, then 55ms dispatch after turn completion;
+the total wait still counts against the original deadline. A separately authorized single temporary adapter probe observed model input at
+1.418s and an exact machine reply at 8.005s inside its original 30s deadline;
+there were no model tool calls or real permission grants. This is not persistent
+production activation, exclusive-process/UI attestation, a model permission-decision
+test, or a 5s SLA. Saved thread reads and active-turn first-party message
+delivery alone still do not establish external idle wake.
+The earlier **21/24** host observation is historical. On 2026-11-04 the user
+reported **24/24** in main after completed receiver reload/rebind, with permission
+state available and zero pending. No repeat restart/reload is required for that
+checkpoint. This does not establish live approve rights, production notification
+activation or model-to-Pi acceptance; those remain separate gates.
+`replyFleetEvent` separately checks actual native thread metadata, re-inspects
+permissions before deciding, and leaves question commit behind its existing human
+confirmation workflow. The latency harness distinguishes local monotonic phases,
+remote clock uncertainty, recorded host input, actual model awareness and Pi
+one-use consumption; fixture timings are never model SLA evidence.
+See [the native contract](codex-local-mcp.md) for API and proof limits.
+
 ## Local Codex human question actions and voice
 
-The current source catalog contains 21 native tools, including answer/journal-upgrade operations and local diagnostics/history/snapshot tools. Source availability is not loaded-host proof. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
+The current source catalog contains 24 native tools, including answer/journal-upgrade operations and local diagnostics/history/snapshot tools. Source availability is not loaded-host proof. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
 The exact owner/project/peer/sessionId/startedAt, pending questionId/toolCallId,
 full question/effective-flags digest and canonical human response digest bind each action.
 An actual human answer/refusal and a separate exact preview confirmation are required;

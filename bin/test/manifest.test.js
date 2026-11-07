@@ -44,6 +44,15 @@ function filesIn(rel) {
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
 }
 
+test('damage-control auto policy remains user-owned, outside every installer target',()=>{
+ const userPath='.pi/damage-control-auto-policy.yaml';
+ for(const item of manifest.items)for(const spec of Object.values(item.agents??{})){
+  assert.notEqual(spec.target,userPath,`${item.id} must not own user policy`);
+  if(spec.strategy==='copy-tree'&&typeof spec.target==='string')assert.ok(!userPath.startsWith(spec.target.replace(/\/$/,'')+'/'),`${item.id} must not own enclosing user policy tree`);
+  assert.ok(!(spec.source??[]).includes(userPath),`${item.id} must not ship user opt-in rules`);
+ }
+});
+
 // ── generation ──────────────────────────────────────────────────────────────
 
 test("committed manifest matches a fresh regeneration", () => {

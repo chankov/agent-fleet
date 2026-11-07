@@ -21,6 +21,7 @@ function summarize(r:Observation) {
   transcript:{status:r.transcript.status,partial:r.transcript.partial,reasons:r.transcript.reasons,observedEventCount:r.transcript.entries.length,latest},
   questionState:{status:r.questionState.status,partial:r.questionState.partial,reasons:r.questionState.reasons,pendingCount:r.questionState.pendingCount,
    questions:r.questionState.questions.slice(0,4).map(q=>({id:q.id,toolCallId:q.toolCallId,question:q.question.slice(0,256),allowMultiple:q.allowMultiple,allowFreeform:q.allowFreeform,allowComment:q.allowComment,detailsRequired:true}))},
+  permissionState:r.permissionState,
   completion:'not_established' as const};
 }
 const safeCodes=new Set(['NOT_ALLOWED','STATE_MISSING','TARGET_CHANGED','TARGET_UNAVAILABLE','AMBIGUOUS_TARGET','REGISTRY_UNAVAILABLE','REGISTRY_PARTIAL','STORE_BUSY','STATE_CORRUPT','NEEDS_REBIND','STALE_HANDLE','UNSAFE_PATH','SOURCE_INVALID','REQUEST_CANCELLED','STATE_CHANGED','STATE_REPLACED','REBIND_REQUIRED','SUMMARY_LIMIT']);

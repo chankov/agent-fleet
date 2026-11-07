@@ -2,6 +2,8 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {sharedApprovalWait} from '../lib/approval-wait.ts';
 import { beginRuntimeTrace, traceAskResult, type TraceStart } from '../lib/execution-trace.ts';
 
+export type RuntimeAskKind = 'question' | 'permission';
+
 export interface RuntimeQuestion {
 	question: string;
 	context: string;
@@ -57,25 +59,30 @@ export function registerRuntimeAsk(bus: RuntimeAskBus, execute: ExecuteAsk): () 
 }
 
 /** Missing wrapper falls back to an explicit local dialog, never to model prose. */
-export async function requestRuntimeAsk(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal, relation?: Pick<TraceStart, 'parentId' | 'parentKind' | 'owner' | 'source' | 'rule'>): Promise<unknown> {
+export async function requestRuntimeAsk(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal, relation?: Pick<TraceStart, 'parentId' | 'parentKind' | 'owner' | 'source' | 'rule'>, kind: RuntimeAskKind = 'question'): Promise<unknown> {
  validateSingleDecision(id,params);
+ if (kind !== 'question' && kind !== 'permission') throw new Error('Invalid runtime ask kind.');
  const finishQueue=beginRuntimeTrace(bus,{kind:'queue',id,...relation,rule:'approval_queue'});
  try{
   const result=await sharedApprovalWait.run(async waitSignal=>{
    finishQueue({status:'completed'});
    const finish=beginRuntimeTrace(bus,{kind:'approval',id,...relation});
-   try{const value=await requestRuntimeAskUnqueued(bus,id,params,ctx,waitSignal);finish(traceAskResult(value,params.options));return value;}
+   try{const value=await requestRuntimeAskUnqueued(bus,id,params,ctx,waitSignal,kind);finish(traceAskResult(value,params.options));return value;}
    catch(error){finish({status:waitSignal.aborted?'cancelled':'failed'});throw error;}
   },signal);
   return result??correlateResult(id,{details:{cancelled:true}});
  }finally{finishQueue({status:'cancelled'});}
 }
-async function requestRuntimeAskUnqueued(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal?: AbortSignal): Promise<unknown> {
+async function requestRuntimeAskUnqueued(bus: RuntimeAskBus, id: string, params: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal | undefined, kind: RuntimeAskKind): Promise<unknown> {
 	validateSingleDecision(id, params);
 	if (signal?.aborted) return correlateResult(id, { details: { cancelled: true } });
-	const request: Request = { id, params, ctx, signal };
-	bus.emit(CHANNEL, request);
-	if (request.result) return request.result;
+	// Permission decisions must not acquire human provenance through the generic
+	// question transport. Until the permission latch is wired, use local UI only.
+	if (kind === 'question') {
+		const request: Request = { id, params, ctx, signal };
+		bus.emit(CHANNEL, request);
+		if (request.result) return request.result;
+	}
 	if (!ctx.hasUI) throw new Error("Budget confirmation unavailable: no ask-user transport or local UI.");
 	const choice = await ctx.ui.select(params.question + "\n" + params.context, params.options, { signal });
 	return correlateResult(id, { details: { cancelled: choice === undefined || signal?.aborted === true,

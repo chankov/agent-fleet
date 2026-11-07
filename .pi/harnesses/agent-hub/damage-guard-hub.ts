@@ -22,10 +22,11 @@ import {createDamageResultScreen,type DamageResultEvent} from '../damage-control
 import {captureDamageResult} from '../lib/damage-result-evidence.ts';
 import {createDamageIdentity,validDamageIdentity} from './damage-guard-identity.ts';
 import {createDamageState,validDamageDecision,damageDenyKey,type DamageAction} from './damage-guard-state.ts';
+import {permissionRelayFor,type PermissionRelay} from './permission-relay.ts';
 import {createDamageApproval} from './damage-guard-approval.ts';
 import {requestRuntimeAsk,type RuntimeQuestion} from '../ask-user-remote/runtime-ask.ts';
 export const DAMAGE_INPUT_ENTRY='damage-guard-input',DAMAGE_DENY_ENTRY='damage-guard-denial';
-interface HubSessionOptions {root:string;snapshot:ReturnType<typeof normalizeSystem1Config>;taskId():string;childAuthority?:{taskToken():unknown;admit(identity:DamageOwnerIdentity):boolean};append(type:string,data:unknown):void;entries():unknown[];canRead(path:string):boolean;selected:boolean;service?:System1Service;traceBus?:TraceBus;ask(id:string,question:RuntimeQuestion,signal:AbortSignal,action?:DamageAction):Promise<unknown>;}
+interface HubSessionOptions {relay?:PermissionRelay;root:string;snapshot:ReturnType<typeof normalizeSystem1Config>;taskId():string;childAuthority?:{taskToken():unknown;admit(identity:DamageOwnerIdentity):boolean};append(type:string,data:unknown):void;entries():unknown[];canRead(path:string):boolean;selected:boolean;service?:System1Service;traceBus?:TraceBus;ask(id:string,question:RuntimeQuestion,signal:AbortSignal,action?:DamageAction):Promise<unknown>;}
 export function createDamageHubSession(options:HubSessionOptions){
  const controller=new AbortController();let revoked=false;
  // A decision must follow its authoritative input hash in the same append-only history.
@@ -78,7 +79,7 @@ export function createDamageHubSession(options:HubSessionOptions){
  const contexts=new Map<string,DamageCallContext>();
  const guard=createDamageGuard({root:options.root,config:{...config,mode:enabled?'active':'off'},state,binding,canRead:options.canRead,service:sharedService,signal,takeOverride:action=>{const key=overrideKey(action);if(!overrides.has(key))return false;overrides.delete(key);return true;},approve:async(action,input)=>{
   const ctx=contexts.get(JSON.stringify(action));
-  const approval=createDamageApproval({state,current:()=>({...action,...binding()}),baseline:()=>!revoked&&current()&&ctx?.revalidateBaseline?.()===true,ask:options.ask,timeoutMs:config.limits.approvalTimeoutMs});
+  const approval=createDamageApproval({state,current:()=>({...action,...binding()}),baseline:()=>!revoked&&current()&&ctx?.revalidateBaseline?.()===true,ask:options.ask,relay:options.relay,audit:record=>options.append('damage-permission-decision',record),timeoutMs:config.limits.approvalTimeoutMs});
   const result=await approval.request(action,input,signal);return result.status==='allowed'?approval.consumeProof(result.grant,action,signal):false;
  }});
  return {
@@ -101,7 +102,7 @@ export function createDamageHubSession(options:HubSessionOptions){
  };
  }
  // Child-local baseline is deliberately absent from this parent assessment port.
- // A grant attests semantic human consent only; the native hook owes baseline revalidation.
+ // A grant carries one-use human or explicit machine decision only; the native hook owes baseline revalidation.
  function remember(action:DamageAction,input:unknown){
   if(!state.needsArm(action)||overrides.has(overrideKey(action))||!actionPresentation(action,{input,cwd:action.cwd}))return;
   try{const copy=structuredClone(input),bytes=Buffer.byteLength(JSON.stringify([action,copy]));
@@ -143,7 +144,7 @@ export function createDamageHubSession(options:HubSessionOptions){
   }
   try{state.hold(action);}catch{return 'blocked';}
   if(!current()||!context.held())return 'blocked';
-  const approval=createDamageApproval({state,current:()=>({...action,taskId:options.taskId(),inputRevision:identity.revision(options.taskId())}),baseline:current,ask:options.ask,timeoutMs:config.limits.approvalTimeoutMs});
+  const approval=createDamageApproval({state,current:()=>({...action,taskId:options.taskId(),inputRevision:identity.revision(options.taskId())}),baseline:current,ask:options.ask,relay:options.relay,audit:record=>options.append('damage-permission-decision',record),timeoutMs:config.limits.approvalTimeoutMs});
   const result=await approval.request(action,event.input,context.signal);
   if(result.status!=='allowed'){remember(action,event.input);return 'blocked';}
   return approval.consumeProof(result.grant,action,context.signal).allowed&&current()?'granted':'blocked';
@@ -249,7 +250,7 @@ export async function configureDamageGuardHub(pi:ExtensionAPI,options:{snapshot:
  const generation={};generations.set(pi,generation);if(sessions.has(pi)||closures.has(pi))await closeSession(pi);if(generations.get(pi)!==generation)return;
  if(process.env.AGENT_HUB_AGENT_ID||process.env.AGENT_FLEET_AGENTIC_CHILD)return;
  registerDamageGuardHub(pi);
- const runtime=createDamageHubSession({root:options.ctx.cwd,snapshot:options.snapshot,taskId:options.taskId,childAuthority:options.childAuthority,append:(type,data)=>pi.appendEntry(type,data),entries:()=>options.ctx.sessionManager.getEntries(),canRead:path=>currentFileAccessAllowed(options.ctx.cwd,path),selected:readSystem1Selected(options.ctx.cwd),service:options.service,traceBus:pi.events,ask:(id,q,signal,action)=>requestRuntimeAsk(pi.events,id,q,options.ctx,signal,{parentId:action?.actionId,parentKind:'policy',owner:action?.owner,source:'damage-guard'})});
+ const runtime=createDamageHubSession({relay:permissionRelayFor(pi),root:options.ctx.cwd,snapshot:options.snapshot,taskId:options.taskId,childAuthority:options.childAuthority,append:(type,data)=>pi.appendEntry(type,data),entries:()=>options.ctx.sessionManager.getEntries(),canRead:path=>currentFileAccessAllowed(options.ctx.cwd,path),selected:readSystem1Selected(options.ctx.cwd),service:options.service,traceBus:pi.events,ask:(id,q,signal,action)=>requestRuntimeAsk(pi.events,id,q,options.ctx,signal,{parentId:action?.actionId,parentKind:'policy',owner:action?.owner,source:'damage-guard'},'permission')});
  const entry={runtime,revoke:registerDamageGuard(runtime)};sessions.set(pi,entry);
  try{await runtime.start();if(generations.get(pi)!==generation||sessions.get(pi)!==entry){await runtime.dispose();return;}}
  catch(error){

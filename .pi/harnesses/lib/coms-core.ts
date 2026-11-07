@@ -1,3 +1,4 @@
+import {publishFleetSourceEvent,fleetSourceDigest} from './fleet-event-source.ts';
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { instructionReceipt, ownerOf, sameOwner, validateInstructionTag } from './coms-instruction-receipts.ts';
 import * as fs from "node:fs";
@@ -239,6 +240,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
    ...(native ? {instruction: structuredClone(envelope.instruction!)} : {}),
 		};
   const admission = currentInbound || turnState !== 'idle' || dispatchPaused ? 'queued' : 'submitted';
+  if(identity)try{publishFleetSourceEvent({kind:'message',owner:ownerOf(identity),sourceId:envelope.msg_id,createdAt:Date.parse(envelope.timestamp),deadline:null,contentDigest:fleetSourceDigest({prompt:envelope.prompt,sender:envelope.sender_session})});}catch{nack(socket,envelope.msg_id,'notification durable ingress unavailable');return;}
 		inboundQueue.set(envelope.msg_id, inbound);
   if (native) { socket.write(JSON.stringify({type:'ack',msg_id:envelope.msg_id,instruction:{...instructionCapability(),admission}})+'\n');socket.end(); }
   else ack(socket, envelope.msg_id);

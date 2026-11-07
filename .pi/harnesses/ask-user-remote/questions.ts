@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import {publishFleetSourceEvent,fleetSourceDigest} from '../lib/fleet-event-source.ts';
 import type { Socket } from 'node:net';
 import { processShared } from '../lib/process-shared.ts';
 import { redactSecrets } from '../lib/fleet-transcript-store.ts';
@@ -68,7 +69,9 @@ export class QuestionChannel {
 		const entry:RecordEntry={question}; this.entries.set(question.id,entry);
 		return {
 			id:question.id,
-			registerAnswer:(offer:(result:unknown)=>boolean) => { if (question.state==='pending') entry.offer=offer; },
+			registerAnswer:(offer:(result:unknown)=>boolean) => { if (question.state==='pending') {entry.offer=offer;
+    try{publishFleetSourceEvent({kind:'question',owner:question.owner,sourceId:question.id,toolCallId:question.toolCallId,createdAt:Date.parse(question.createdAt),deadline:question.expiresAt===null?null:Date.parse(question.expiresAt),contentDigest:fleetSourceDigest(params)});}catch{this.close(entry,'failed');throw Error('question_notification_ingress_unavailable');}
+   } },
 			onSettled:({result}:{result?:{isError?:boolean;details?:{cancelled?:boolean}}}) => this.close(entry,!result||result.isError?'failed':result.details?.cancelled?'cancelled':'answered'),
 			validateRemote:(result:{details?:{response?:unknown;cancelled?:boolean}}) => {
 				const response=result?.details?.response;

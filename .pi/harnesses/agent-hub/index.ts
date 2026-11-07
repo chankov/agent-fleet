@@ -133,6 +133,7 @@ import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmation
 import { confirmRecoverAction, confirmTaskSupersession, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
+import {PermissionRelay,registerPermissionRelay,handlePermissionEnvelope} from './permission-relay.ts';
 import { handleQuestionEnvelope, registerQuestionPeer, questionChannel } from "../ask-user-remote/questions.ts";
 import { handleObservationEnvelope } from "../lib/coms-observation.ts";
 import { handleInstructionReceipt } from "../lib/coms-instruction-receipts.ts";
@@ -270,6 +271,24 @@ export default function (pi: ExtensionAPI) {
 	// ── Embedded coms: shared peer state ──
 	let currentCtx: ExtensionContext | null = null;
 	let refreshFleetUi = () => {};
+ const permissionRelay=new PermissionRelay(()=>observationOwner(),()=>accessTaskIdentity());registerPermissionRelay(pi,permissionRelay);registerPermissionRelay(pi.events,permissionRelay);
+ let codexNotifications:import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts').FleetCodexNotificationRuntime|undefined;
+ // Explicit user command only: no configuration discovery or default host activation.
+ pi.registerCommand('af-codex-events',{description:'prepare|enable <private config.json> or disable; never starts daemon or grants approve',handler:async(args,ctx)=>{
+  let started:typeof codexNotifications;
+  try{
+   const split=args.trim().indexOf(' '),operation=split<0?args.trim():args.trim().slice(0,split),path=split<0?'':args.trim().slice(split+1).trim();
+   if(operation==='disable'){codexNotifications?.stop();codexNotifications=undefined;ctx.ui.notify('Codex event runtime stopped; no grants changed.','info');return;}
+   if(!['prepare','enable'].includes(operation)||!path)throw Error('notification_command_invalid');
+   const {readNotificationConfiguration,notificationConfigurationUnchanged,notificationPreview,FleetCodexNotificationRuntime}=await import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts');
+   const config=readNotificationConfiguration(path),preview=notificationPreview(config,observationOwner());
+   if(operation==='prepare'||!preview.ready){ctx.ui.notify(JSON.stringify(preview),preview.ready?'info':'warning');return;}
+   if(codexNotifications)throw Error('notification_runtime_already_running');
+   const runtime=new FleetCodexNotificationRuntime(config,()=>notificationConfigurationUnchanged(path,config)?observationOwner():null);const startup=runtime.start();started=runtime;codexNotifications=runtime;await startup;
+   ctx.ui.notify('Codex event ingress enabled explicitly; ACK is not model delivery, no approve granted.','info');
+  }catch{if(started){started.stop();if(codexNotifications===started)codexNotifications=undefined;}ctx.ui.notify('Codex event operation refused or uncertain; inspect private journal, do not replay.','error');}
+ }});
+ pi.on('session_shutdown',async()=>{codexNotifications?.stop();codexNotifications=undefined;});
 	const coms = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
@@ -283,9 +302,11 @@ export default function (pi: ExtensionAPI) {
 				owner: observationOwner,
 				session: () => currentCtx?.sessionManager,
 				questions: () => { const owner = observationOwner(); return owner ? questionChannel.list(owner) : { status: 'stale' }; },
+    permissions:()=>permissionRelay.summary(),
 			})) return true;
 			if (handleInstructionReceipt(envelope, socket, observationOwner, currentCtx?.sessionManager)) return true;
-			if (handleQuestionEnvelope(socket, envelope)) return true;
+			if (handlePermissionEnvelope(socket,envelope,permissionRelay,observationOwner())) return true;
+   if (handleQuestionEnvelope(socket, envelope)) return true;
 			if (envelope.type !== "access_request") return false;
 			void accessApprovalRouter.handle(socket, envelope as AccessRequest);
 			return true;
@@ -316,11 +337,14 @@ export default function (pi: ExtensionAPI) {
 	// escalations land here, and spawned children read it through the
 	// AGENT_HUB_EXEMPTIONS_FILE env plumbing.
 	let exemptionsFile: string | null = null;
+ const accessEpochs=new Map<string,string>();
+ const accessTaskIdentity=()=>({taskId:noProgress.taskId(),inputRevision:crypto.createHash('sha256').update(JSON.stringify({task:hubTaskText,revision:taskTriage?.current?.revision??''})).digest('hex')});
 	const accessApprovalRouter = createAccessApprovalRouter({
+  relay:permissionRelay,appendPermissionLog:entry=>pi.appendEntry('damage-permission-decision',entry),taskIdentity:accessTaskIdentity,currentChild:request=>accessEpochs.get(request.agent)===request.accessEpoch&&agentStates.get(request.agent)?.status==='running',
 		traceBus: pi.events,
 		getContext: () => currentCtx,
 		getExemptionsFile: () => exemptionsFile,
-		appendLog: (entry) => { try { pi.appendEntry("damage-control-log", entry); } catch { /* best-effort */ } },
+		appendLog: (entry) => { pi.appendEntry("damage-control-log", entry); },
 		now: nowIso,
 	});
 
@@ -864,7 +888,8 @@ export default function (pi: ExtensionAPI) {
 	// Shared child guardrail environment. Dispatch-native and research use the
 	// same root-owned exemptions and coms escalation endpoint.
 	function guardrailEnv(agentId: string): Record<string, string> {
-		const env: Record<string, string> = { [AGENT_ID_ENV]: agentId };
+  const epoch=crypto.randomUUID();accessEpochs.set(agentId,epoch);
+		const env: Record<string, string> = { [AGENT_ID_ENV]: agentId,AGENT_HUB_ACCESS_EPOCH:epoch };
 		if (sessionOverrides?.policyRoots) env[FILESYSTEM_POLICY_ROOTS_ENV]=JSON.stringify(sessionOverrides.policyRoots);
 		if (exemptionsFile) env[EXEMPTIONS_FILE_ENV] = exemptionsFile;
 		if (comsReady && identity) env[ASK_ENDPOINT_ENV] = identity.endpoint;
@@ -1161,7 +1186,7 @@ export default function (pi: ExtensionAPI) {
 			if (!addition || !words.length || processBlock()) return false;
 			const next = await confirmTaskTriageWaiver(processState, { taskId: addition.taskId, evaluationId: addition.evaluationId, inputRevision: addition.inputRevision, additionId: id, reason: words.join(" ") }, {
 				taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
-				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal),
+				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal, undefined, 'permission'),
 				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
 				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
 			}, ctx);
@@ -2100,9 +2125,10 @@ export default function (pi: ExtensionAPI) {
 		observeAction("requested");
 		let presentationFailure = "";
 		const grant = await confirmTaskTriageAction(action, {
-			presentationRefused: reason => { presentationFailure = `Task-triage approval was not shown: ${reason}. Exact action presentation refused; no authorization issued.`; },
+			relay:permissionRelay,permissionAudit:entry=>pi.appendEntry('task-triage-permission-decision',entry),
+   presentationRefused: reason => { presentationFailure = `Task-triage approval was not shown: ${reason}. Exact action presentation refused; no authorization issued.`; },
 			taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
-			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal, { parentId: action.actionId, source: "task-triage" }),
+			ask: (id, question, askCtx, signal) => requestRuntimeAsk(pi.events, id, question, askCtx, signal, { parentId: action.actionId, source: "task-triage" }, 'permission'),
 			startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
 		}, ctx, contract => { pi.appendEntry("agent-hub-task-triage-action-grant", contract); return true; }, undefined, { input: event.input, cwd: ctx.cwd });
 		if (processBlock() || ctx.cwd !== action.cwd || String(event.toolName) !== action.operation || String(event.toolCallId) !== action.actionId
@@ -2326,7 +2352,7 @@ export default function (pi: ExtensionAPI) {
 		resetSession: async (_ctx) => { await resetDamageGuardHub(pi); resetHubSession(_ctx, {
 			registerVersion: registerVersionStatus, resetPressure: pressureLifecycle.reset,
 			clearRosterRecovery: workModePolicy.clearRosterRecovery, captureBaselineTools: () => { baselineTools = pi.getActiveTools(); },
-			resetAccessApproval: accessApprovalRouter.reset,
+			resetAccessApproval: () => {codexNotifications?.stop();codexNotifications=undefined;accessApprovalRouter.reset();permissionRelay.reset();accessEpochs.clear();},
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);

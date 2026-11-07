@@ -296,14 +296,15 @@ export default function (pi) {
 		// The opt-in triage trace adds two fields; keep the original budget for
 		// the existing schema and bound the new fields independently.
 		const dispatch = selected.find((tool: any) => tool.name === "dispatch_agent");
-		const { triage_id, triage_reason, ...baseProperties } = dispatch.parameters.properties;
+		const { triage_id, triage_reason, review_mode, ...baseProperties } = dispatch.parameters.properties;
 		assert.ok(triage_id && triage_reason, "triage trace fields must be present");
+        assert.ok(review_mode && JSON.stringify(review_mode).length < 400, "explicit current-state review field remains separately bounded");
 		const baseTools = selected.map((tool: any) => tool === dispatch ? {
 			...tool, parameters: { ...tool.parameters, properties: baseProperties },
 		} : tool);
 		assert.ok(JSON.stringify(baseTools).length < 8_000, `compact baseline schemas=${JSON.stringify(baseTools).length}`);
 		assert.ok(JSON.stringify(selected).length < 8_500, `compact serialized schemas=${JSON.stringify(selected).length}`);
-		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "backend"]], ["spawn_research", ["task", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "review_mode", "backend"]], ["spawn_research", ["task", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}

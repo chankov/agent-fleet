@@ -133,7 +133,15 @@ export interface AccessRequest {
 	rule: string;
 	pattern: string;
 	category: PathRuleCategory;
+	/** Bounded display text only; never use a truncated preview as action identity. */
 	invocation: string;
+	/** SHA-256 of complete tool/cwd/input/category/pattern identity; optional for legacy callers. */
+	actionDigest?: string;
+	/** Absolute Unix epoch milliseconds; legacy callers are bounded at receipt. */
+	deadline?: number;
+	/** Per-spawn cooperative epoch; old children cannot inherit a new task's approval. */
+	accessEpoch?: string;
+	exactAction?: {tool:string;cwd:string;input:unknown;category:string;pattern:string};
 }
 
 export type AccessDecisionChoice = "deny" | "allow_once" | "allow_agent" | "allow_all";
@@ -147,16 +155,20 @@ export function accessDecisionChoices(category: PathRuleCategory): AccessDecisio
 
 /** Coalesce identical asks without letting one delete approval cover sibling paths. */
 export function accessRequestCacheKey(
-	request: Pick<AccessRequest, "agent" | "pattern" | "category" | "invocation">,
+	request: Pick<AccessRequest, "agent" | "pattern" | "category" | "invocation" | "actionDigest">,
 ): string {
-	const base = `${request.agent}::${request.pattern}`;
-	return request.category === "no_delete" ? `${base}::${request.invocation}` : base;
+	// Structured tuples avoid delimiter collisions and category confusion.
+	return JSON.stringify([request.agent, request.pattern, request.category,
+		request.category === 'no_delete' ? request.actionDigest ?? request.invocation : null]);
 }
 
 export interface AccessDecision {
 	type: "access_decision";
 	msg_id: string;
 	decision: AccessDecisionChoice;
+	decisionSource?: 'codex_machine' | 'local_human';
+	outcome?: 'expired' | 'cancelled' | 'stale' | 'unsupported' | 'audit_failed';
+	actionDigest?: string;
 }
 
 export const ESCALATION_TIMEOUT_MS = Number(process.env.AGENT_HUB_ASK_TIMEOUT_MS) || 60_000;
@@ -167,50 +179,69 @@ export const ESCALATION_TIMEOUT_MS = Number(process.env.AGENT_HUB_ASK_TIMEOUT_MS
  * and writes the decision line whenever the user answers. Resolves "timeout" /
  * "error" instead of rejecting — callers always fail closed.
  */
-export function requestAccessFromHub(
+export interface AccessReceipt {
+ status:'decided'|'expired'|'cancelled'|'stale'|'unsupported'|'invalid_reply'|'disconnected'|'transport_error'|'audit_failed';
+ msg_id:string; actionDigest?:string; decision?:AccessDecisionChoice; decisionSource?:'codex_machine'|'local_human'|'legacy_unattested';
+}
+export async function requestAccessFromHub(endpoint:string,request:AccessRequest,timeoutMs:number=ESCALATION_TIMEOUT_MS):Promise<AccessDecisionChoice|'machine_deny'|'timeout'|'error'>{
+ const r=await requestAccessReceiptFromHub(endpoint,request,timeoutMs);
+ return r.status==='decided'?(r.decision==='deny'&&r.decisionSource==='codex_machine'?'machine_deny':r.decision!):r.status==='expired'?'timeout':'error';
+}
+export function requestAccessReceiptFromHub(
 	endpoint: string,
 	request: AccessRequest,
 	timeoutMs: number = ESCALATION_TIMEOUT_MS,
-): Promise<AccessDecisionChoice | "timeout" | "error"> {
-	return new Promise((resolve) => {
+): Promise<AccessReceipt> {
+ return new Promise((resolve) => {
+  const failure=(status:AccessReceipt['status']):AccessReceipt=>({status,msg_id:request.msg_id,actionDigest:request.actionDigest});
+		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 ||
+			(request.deadline !== undefined && !Number.isSafeInteger(request.deadline))) { resolve(failure('invalid_reply')); return; }
+		const deadline = Math.min(request.deadline ?? Infinity, Date.now() + timeoutMs);
+		if (deadline <= Date.now()) { resolve(failure('expired')); return; }
 		let settled = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let sock: net.Socket;
-		const settle = (v: AccessDecisionChoice | "timeout" | "error") => {
+		const settle = (v:AccessDecisionChoice|'machine_deny'|'timeout'|'error'|AccessReceipt['status'],source?:AccessReceipt['decisionSource']) => {
 			if (settled) return;
 			settled = true;
 			if (timer) clearTimeout(timer);
 			try { sock.destroy(); } catch { /* ignore */ }
-			resolve(v);
+   resolve(['deny','allow_once','allow_agent','allow_all','machine_deny'].includes(v)?{...failure('decided'),decision:v==='machine_deny'?'deny':v as AccessDecisionChoice,decisionSource:v==='machine_deny'?'codex_machine':source??'legacy_unattested'}:failure(v==='timeout'?'expired':v==='error'?'invalid_reply':v as AccessReceipt['status']));
 		};
 		try {
 			sock = net.createConnection({ path: endpoint });
 		} catch {
-			resolve("error");
+   resolve(failure('transport_error'));
 			return;
 		}
-		timer = setTimeout(() => settle("timeout"), timeoutMs);
+		timer = setTimeout(() => settle("timeout"), Math.max(1, deadline - Date.now()));
 		let buf = "";
 		sock.on("connect", () => {
 			try {
-				sock.write(JSON.stringify(request) + "\n");
+				if (Date.now() >= deadline) { settle('timeout'); return; }
+				sock.write(JSON.stringify({ ...request, deadline }) + "\n");
 			} catch {
 				settle("error");
 			}
 		});
 		sock.on("data", (chunk: Buffer) => {
 			buf += chunk.toString("utf-8");
+            if(Buffer.byteLength(buf)>32768){settle('error');return;}
 			const nl = buf.indexOf("\n");
 			if (nl < 0) return;
 			try {
+				if (Date.now() >= deadline) { settle('timeout'); return; }
 				const parsed = JSON.parse(buf.slice(0, nl));
+                if(parsed?.type==='access_decision'&&parsed.msg_id===request.msg_id&&parsed.outcome!==undefined){settle(['expired','cancelled','stale','unsupported','audit_failed'].includes(parsed.outcome)?parsed.outcome:'invalid_reply');return;}
 				if (
 					parsed &&
-					parsed.type === "access_decision" &&
+					parsed.type === "access_decision" && parsed.msg_id === request.msg_id &&
+                    (parsed.actionDigest === undefined || parsed.actionDigest === request.actionDigest) &&
+                    (parsed.decisionSource !== 'codex_machine' || typeof request.actionDigest==='string' && parsed.actionDigest === request.actionDigest && ['allow_once','deny'].includes(parsed.decision)) &&
 					(parsed.decision === "deny" || parsed.decision === "allow_once" ||
 						parsed.decision === "allow_agent" || parsed.decision === "allow_all")
 				) {
-					settle(parsed.decision);
+					settle(parsed.decision==='deny'&&parsed.decisionSource==='codex_machine'?'machine_deny':parsed.decision,parsed.decisionSource==='local_human'?'local_human':parsed.decisionSource==='codex_machine'?'codex_machine':undefined);
 				} else {
 					// nack or unknown reply (e.g. an older hub without escalation support)
 					settle("error");
@@ -219,8 +250,8 @@ export function requestAccessFromHub(
 				settle("error");
 			}
 		});
-		sock.on("error", () => settle("error"));
-		sock.on("close", () => settle("error"));
+		sock.on("error", () => settle("transport_error"));
+  sock.on("close", () => settle("disconnected"));
 	});
 }
 

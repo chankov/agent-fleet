@@ -43,7 +43,7 @@ export function createObservationReader(options:{registryRoot:string;now?:()=>nu
    const endpoint=join(options.registryRoot,'sockets',target.sessionId+'.sock'),s=await lstat(endpoint);
    if(!s.isSocket()||s.isSymbolicLink()||process.getuid&&s.uid!==process.getuid())throw new SourceError('UNSAFE_PATH');
    const response=await request(endpoint,target);
-   return {target:{...target},observedAt:response.observedAt,transcript:response.transcript,questionState:response.questionState};
+   return {target:{...target},observedAt:response.observedAt,transcript:response.transcript,questionState:response.questionState,permissionState:response.permissionState};
   }catch(e){return gap(target,new Date(now()).toISOString(),e instanceof SourceError?e.code:'RPC_UNAVAILABLE');}
  };
 }

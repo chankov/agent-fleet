@@ -2,11 +2,11 @@
 // Caller supplies context and fresh target snapshots. No discovery, I/O or persistence.
 export type ConversationKey = Readonly<{ hostProfile: string; principal: string; threadId: string }>;
 export type TargetEpoch = Readonly<{ project: string; peer: string; sessionId: string; startedAt: string }>;
-export type Right = 'read' | 'send';
+export type Right = 'read' | 'send' | 'approve';
 export type BindingHandle = Readonly<{ alias: string; generation: number }>;
 export type BindingView = Readonly<{ alias: string; generation: number; target: TargetEpoch; rights: readonly Right[]; stale: boolean }>;
 export type AllowlistCode = 'INVALID_CONTEXT' | 'INVALID_INPUT' | 'NOT_ALLOWED' | 'AMBIGUOUS_TARGET'
-  | 'STALE_HANDLE' | 'STALE_TARGET' | 'TARGET_UNAVAILABLE' | 'SEND_NOT_GRANTED' | 'UNSUPPORTED_RIGHT';
+  | 'STALE_HANDLE' | 'STALE_TARGET' | 'TARGET_UNAVAILABLE' | 'APPROVE_NOT_GRANTED' | 'SEND_NOT_GRANTED' | 'UNSUPPORTED_RIGHT';
 
 export class AllowlistError extends Error {
   readonly code: AllowlistCode;
@@ -17,7 +17,7 @@ export class AllowlistError extends Error {
   }
 }
 
-type Binding = { alias: string; generation: number; target: TargetEpoch; send: boolean; stale: boolean };
+type Binding = { alias: string; generation: number; target: TargetEpoch; send: boolean; approve: boolean; stale: boolean };
 type Issued = { namespace: string; alias: string; generation: number };
 const contextFields = ['hostProfile', 'principal', 'threadId'] as const;
 const targetFields = ['project', 'peer', 'sessionId', 'startedAt'] as const;
@@ -93,7 +93,7 @@ export class AllowedSessionsPolicy {
     const space = this.#spaces.get(key) ?? new Map<string, Binding>();
     // No implicit replacement or duplicate alias for an already-enrolled exact target.
     if (space.has(proposal.alias) || [...space.values()].some(b => sameEpoch(b.target, target))) fail('INVALID_INPUT');
-    const binding: Binding = { alias: proposal.alias, target, generation: ++this.#generation, send: false, stale: false };
+    const binding: Binding = { alias: proposal.alias, target, generation: ++this.#generation, send: false, approve: false, stale: false };
     space.set(binding.alias, binding);
     this.#spaces.set(key, space);
     return this.#handle(key, binding);
@@ -102,7 +102,7 @@ export class AllowedSessionsPolicy {
   list(context: ConversationKey): readonly BindingView[] {
     const space = this.#spaces.get(namespace(context));
     return [...(space?.values() ?? [])].map(b => ({ alias: b.alias, generation: b.generation,
-      target: { ...b.target }, rights: b.send ? ['read', 'send'] : ['read'], stale: b.stale }));
+      target: { ...b.target }, rights: ['read', ...(b.send ? ['send' as const] : []), ...(b.approve ? ['approve' as const] : [])], stale: b.stale }));
   }
 
   /** Selector is an alias OR project name; multiple enrolled peers require clarification. */
@@ -118,9 +118,10 @@ export class AllowedSessionsPolicy {
   }
 
   authorize(context: ConversationKey, handle: BindingHandle, right: Right, current: readonly TargetEpoch[]): TargetEpoch {
-    if (right !== 'read' && right !== 'send') fail('UNSUPPORTED_RIGHT');
+    if (right !== 'read' && right !== 'send' && right !== 'approve') fail('UNSUPPORTED_RIGHT');
     const { binding } = this.#binding(context, handle);
     this.#active(binding, current);
+    if (right === 'approve' && !binding.approve) fail('APPROVE_NOT_GRANTED');
     if (right === 'send' && !binding.send) fail('SEND_NOT_GRANTED');
     return { ...binding.target }; // A decision/snapshot, not a delivery or live freshness guarantee.
   }
@@ -129,6 +130,19 @@ export class AllowedSessionsPolicy {
     const { key, binding } = this.#binding(context, handle);
     this.#active(binding, current);
     if (!binding.send) { binding.send = true; binding.generation = ++this.#generation; }
+    return this.#handle(key, binding);
+  }
+
+  grantApprove(context: ConversationKey, handle: BindingHandle, current: readonly TargetEpoch[]): BindingHandle {
+    const { key, binding } = this.#binding(context, handle);
+    this.#active(binding, current);
+    if (!binding.approve) { binding.approve = true; binding.generation = ++this.#generation; }
+    return this.#handle(key, binding);
+  }
+
+  revokeApprove(context: ConversationKey, handle: BindingHandle): BindingHandle {
+    const { key, binding } = this.#binding(context, handle);
+    if (binding.approve) { binding.approve = false; binding.generation = ++this.#generation; }
     return this.#handle(key, binding);
   }
 
@@ -153,6 +167,7 @@ export class AllowedSessionsPolicy {
     if ([...this.#spaces.get(key)!.values()].some(b => b !== binding && sameEpoch(b.target, replacement))) fail('INVALID_INPUT');
     binding.target = replacement;
     binding.send = false;
+    binding.approve = false;
     binding.stale = false;
     binding.generation = ++this.#generation;
     return this.#handle(key, binding);

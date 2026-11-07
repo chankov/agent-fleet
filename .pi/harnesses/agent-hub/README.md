@@ -13,7 +13,7 @@ peers, and hand the session to a visible coms peer.
 > P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
 > [disler](https://github.com/disler) (MIT). See the
 > [extension catalog](../../../docs/pi-extensions.md) and the
-> [design plan](../../../docs/plans/agent-hub/).
+> [design plan](../../../docs/plans/2026-0-archive/agent-hub/).
 
 **Optional ChatGPT client:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
 

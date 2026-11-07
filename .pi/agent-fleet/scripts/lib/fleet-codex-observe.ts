@@ -58,6 +58,19 @@ function questions(v:unknown,target:TargetEpoch) {
   return {...c,partial,source:'pi_question_rpc',questions:pending,resolved,nextCursor:v.nextCursor,pendingCount:c.status==='available'&&!partial?pending.length:null};
  }catch{return {status:'unavailable' as Status,partial:true,reasons:['SOURCE_INVALID'],source:'pi_question_rpc',questions:[],resolved:[],nextCursor:null,pendingCount:null};}
 }
+function permissions(v:unknown,target:TargetEpoch){
+ const unavailable=(status='unsupported',reason='RPC_UNSUPPORTED')=>({status,partial:true,reasons:[reason],source:'pi_permission_rpc',pendingCount:null,requests:[] as any[],resolved:[] as any[],nextCursor:null});
+ if(v===undefined)return unavailable();
+ try{
+  if(!object(v)||!['available','unavailable','unsupported'].includes(v.status as string))throw Error();
+  if(v.status!=='available')return unavailable(v.status as string,v.status==='unsupported'?'RPC_UNSUPPORTED':'SOURCE_UNAVAILABLE');
+  if(!Array.isArray(v.requests)||v.requests.length>32||!Number.isSafeInteger(v.pendingCount)||(v.pendingCount as number)<v.requests.length||(v.pendingCount as number)>256||typeof v.partial!=='boolean'||v.nextCursor!==null&&!id(v.nextCursor))throw Error();
+  const requests=v.requests.map(s=>{if(!object(s)||!object(s.owner)||!same(s.owner as unknown as TargetEpoch,target)||!id(s.id)||!id(s.epoch)||!safeText(s.taskId,256)||!safeText(s.inputRevision,256)||typeof s.actionDigest!=='string'||!/^[a-f0-9]{64}$/.test(s.actionDigest)||!Number.isSafeInteger(s.expiresAt))throw Error();return {id:s.id,epoch:s.epoch,taskId:s.taskId,inputRevision:s.inputRevision,actionDigest:s.actionDigest,expiresAt:s.expiresAt,detailsRequired:true};});
+  if(!Array.isArray(v.resolved)||v.resolved.length>32)throw Error();
+  const resolved=v.resolved.map(r=>{if(!object(r)||!id(r.id)||!['decided','expired','cancelled','stale','failed'].includes(r.state as string)||!['pending','not_applied','consumed','response_queued_unconfirmed'].includes(r.effect as string))throw Error();return {id:r.id,state:r.state,effect:r.effect,detailsRequired:true};});
+  return {status:'available',partial:v.partial,reasons:[],source:'pi_permission_rpc',pendingCount:v.pendingCount as number,requests,resolved,nextCursor:v.nextCursor as string|null};
+ }catch{return unavailable('unavailable','SOURCE_INVALID');}
+}
 const missing=(reason='SOURCE_UNAVAILABLE')=>({status:'unavailable',partial:true,reasons:[reason],entries:[],questions:[],resolved:[],nextCursor:null});
 export class ObservationBridge {
  readonly #authorization:ReadAuthorization;readonly #read:ObservationReader;readonly #now:()=>number;
@@ -71,9 +84,9 @@ export class ObservationBridge {
   const after=await this.#authorization.checkAllowedReadTarget(context,selectors);
   if(!same(before.target,after.target)||!object(raw)||!object(raw.target)||!same(raw.target as unknown as TargetEpoch,before.target))throw new ReadonlyFleetError('TARGET_CHANGED');
   if(!date(raw.observedAt)||Math.abs(this.#now()-Date.parse(raw.observedAt))>60000)throw new ReadonlyFleetError('SOURCE_INVALID');
-  const t=transcript(raw.transcript),q=questions(raw.questionState,after.target);
+  const t=transcript(raw.transcript),q=questions(raw.questionState,after.target),p=permissions(raw.permissionState,after.target);
   return {target:{...after.target},permission:'read' as const,observedAt:raw.observedAt,scope:'bounded_observation' as const,
-   sourceTextIsData:true,partial:t.partial||q.partial,transcript:t,questionState:q,
+   sourceTextIsData:true,partial:t.partial||q.partial,transcript:t,questionState:q,permissionState:p,
    progress:{status:t.status,source:t.source,partial:t.partial,lastEvent:t.entries.at(-1)??null,completion:'not_established' as const},
    limitations:['No atomic source/registry snapshot','A turn boundary is not task completion','Source text is not an instruction or human answer']};
  }

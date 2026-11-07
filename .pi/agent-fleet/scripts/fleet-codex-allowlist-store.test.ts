@@ -40,6 +40,23 @@ test('explicit initialize, same-epoch read/send persistence and fresh instance h
   await denied('STALE_HANDLE', () => other.authorize(restored, 'read', [target]));
 });
 
+test('approve is explicit v2 authority, preserves send independently, and never migrates across rebind/epoch',async t=>{
+ const root=await fixture(t),store=new AllowedSessionsStore(root,A);await store.initialize();
+ let handle=await store.enroll({alias:'shop',target},[target]);
+ await denied('APPROVE_NOT_GRANTED',()=>store.authorize(handle,'approve',[target]));
+ handle=await store.grantSend(handle,[target]);handle=await store.grantApprove(handle,[target]);
+ const state=JSON.parse(await readFile(join(root,createHash('sha256').update(JSON.stringify([A.hostProfile,A.principal,A.threadId])).digest('hex')+'.json'),'utf8'));
+ assert.equal(state.version,2);assert.deepEqual(state.bindings[0].rights,['read','send','approve']);
+ const fresh=new AllowedSessionsStore(root,A);await fresh.open();let restored=await fresh.resolve('shop',[target]);
+ assert.deepEqual(await fresh.authorize(restored,'approve',[target]),target);
+ let snapshot=await fresh.list([target]);await fresh.revokeSend('shop',snapshot.revision);restored=await fresh.resolve('shop',[target]);
+ assert.deepEqual(await fresh.authorize(restored,'approve',[target]),target);await denied('SEND_NOT_GRANTED',()=>fresh.authorize(restored,'send',[target]));
+ snapshot=await fresh.list([target]);await fresh.rebind('shop',target,[target],snapshot.revision);restored=await fresh.resolve('shop',[target]);
+ await denied('APPROVE_NOT_GRANTED',()=>fresh.authorize(restored,'approve',[target]));
+ restored=await fresh.grantApprove(restored,[target]);await denied('STALE_TARGET',()=>fresh.authorize(restored,'approve',[restarted]));
+ assert.deepEqual((await fresh.list([restarted])).bindings[0].rights,['read']);
+});
+
 test('observed target restart durably removes send; explicit rebind is read-only', async t => {
   const root = await fixture(t), store = new AllowedSessionsStore(root, A);
   await store.initialize();
@@ -164,7 +181,8 @@ test('canonical writer validation rejects corruption without modifying original 
     ['duplicate key', original.toString().replace('"version":1', '"version":1,"version":1'), 'STATE_INVALID'],
     ['pretty', JSON.stringify(valid, null, 2)+'\n', 'STATE_INVALID'], ['BOM', Buffer.concat([Buffer.from([239,187,191]), original]), 'STATE_INVALID'],
     ['invalid UTF8', Buffer.from([0xff]), 'STATE_INVALID'], ['trailing', original.toString()+'{}', 'STATE_INVALID']);
-  variant('version', s => s.version = 2, 'STATE_VERSION_UNSUPPORTED');
+  variant('version', s => s.version = 3, 'STATE_VERSION_UNSUPPORTED');
+  variant('approve forbidden in v1', s => s.bindings[0].rights = ['read', 'approve']);
   variant('namespace', s => s.namespace.threadId = 'fake-B', 'NAMESPACE_MISMATCH');
   variant('extra field', s => s.extra = true);
   variant('invalid UUID', s => s.storeId = 'bad');

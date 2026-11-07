@@ -12,13 +12,16 @@ const lib = (name: string) => JSON.stringify(fileURLToPath(new URL(`./${name}`, 
 const damageControl = fileURLToPath(new URL("../damage-control-continue/index.ts", import.meta.url));
 const portStore = Symbol.for("agent-fleet.damage-guard-port.v1");
 
-async function fixture(t: any, peerSource?: string) {
+async function fixture(t: any, peerSource?: string, autoPolicy?:unknown,customRules?:unknown) {
  const dir = mkdtempSync(join(tmpdir(), "fleet-d6-loader-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
- mkdirSync(join(dir, ".pi"));
+ mkdirSync(join(dir, ".pi"),{mode:0o700});
  writeFileSync(join(dir, ".pi", "damage-control-rules.yaml"), "bashToolPatterns: []\nzeroAccessPaths: []\nreadOnlyPaths: []\nnoDeletePaths: []\n");
+ if(autoPolicy){writeFileSync(join(dir,'.pi','damage-control-rules.yaml'),JSON.stringify({bashToolPatterns:[],zeroAccessPaths:[],readOnlyPaths:['fixture-protected/'],noDeletePaths:[]}));writeFileSync(join(dir,'.pi','damage-control-auto-policy.yaml'),JSON.stringify(autoPolicy),{mode:0o600});}
+ if(customRules)writeFileSync(join(dir,'.pi','damage-control-rules.yaml'),JSON.stringify(customRules));
  const paths = [damageControl];
  if (peerSource) { paths.push(join(dir, "peer.ts")); writeFileSync(paths[1], peerSource); }
  const loaded = await loadExtensions(paths, dir); assert.deepEqual(loaded.errors, []);
+ if(autoPolicy||customRules)(loaded.runtime as any).appendEntry=()=>{};
  const ctx = { cwd: dir, hasUI: false, ui: { notify() {}, setStatus() {} } };
  const emit = async (index: number, name: string, event: any) => {
   let result; for (const handler of loaded.extensions[index].handlers.get(name) ?? []) result = await handler(event, ctx) ?? result; return result;
@@ -26,8 +29,21 @@ async function fixture(t: any, peerSource?: string) {
  const command = (index: number, name: string) => (loaded.extensions[index].commands.get(name)!.handler as any)("", ctx);
  const bash = (id: string) => emit(0, "tool_call", { type: "tool_call", toolCallId: id, toolName: "bash", input: { command: "echo ok" } });
  await emit(0, "session_start", { type: "session_start" }); t.after(() => emit(0, "session_shutdown", { type: "session_shutdown" }));
- return { emit, command, bash };
+ return { emit, command, bash,dir };
 }
+
+for(const surface of ['path','bash'] as const)test(`real Pi baseline ${surface} reaches the common permission latch across separately loaded extensions`,async t=>{
+ const relayModule=JSON.stringify(fileURLToPath(new URL('../agent-hub/permission-relay.ts',import.meta.url)));
+ const rules={zeroAccessPaths:[],readOnlyPaths:['fixture-protected/'],noDeletePaths:[],bashToolPatterns:surface==='bash'?[{pattern:'fixture-danger',reason:'synthetic fixture',ask:true}]:[]};
+ const f=await fixture(t,`import {PermissionRelay,registerPermissionRelay} from ${relayModule};export default function(pi){const relay=new PermissionRelay(()=>({project:'fixture',peer:'hub',sessionId:'session',startedAt:'2026-11-04T00:00:00Z'}),()=>({taskId:'task',inputRevision:'revision'}));registerPermissionRelay(pi.events,relay);pi.registerCommand('relay',{handler:()=>relay});}`,undefined,rules);
+ const relay:any=await f.command(1,'relay'),owner={project:'fixture',peer:'hub',sessionId:'session',startedAt:'2026-11-04T00:00:00Z'};
+ const event={type:'tool_call',toolCallId:'baseline-'+surface,toolName:surface==='path'?'write':'bash',input:surface==='path'?{path:join(f.dir,'fixture-protected/a'),content:'fixture'}:{command:'fixture-danger'}};
+ const pending=f.emit(0,'tool_call',event);let row:any;
+ for(let i=0;i<100&&!row;i++){relay.handle({end(text:string){row=JSON.parse(text).requests?.[0];}},{type:'permission_request',version:1,msg_id:'list',owner,operation:'list',payload:{},sender_session:'fixture',sender_endpoint:'',hops:0,timestamp:new Date().toISOString()});if(!row)await new Promise(r=>setTimeout(r,5));}
+ assert.ok(row,'baseline must publish before any effect');
+ relay.handle({end(){}},{type:'permission_request',version:1,msg_id:'decide',owner,operation:'decide',payload:{snapshot:row.snapshot,decision:'allow_once',reason:'fixture exact action',principal:{actor:'codex_machine',bindingId:'fixture',bindingEpoch:'epoch',threadId:'thread',turnId:null,approve:true}},sender_session:'fixture',sender_endpoint:'',hops:0,timestamp:new Date().toISOString()});
+ assert.equal((await pending)?.block,false);
+});
 
 test("a guard the Hub registers is consulted by the separately loaded Damage-Control", async t => {
  const f = await fixture(t, `import { registerDamageGuard } from ${lib("damage-guard-port.ts")};
@@ -57,6 +73,23 @@ test("independently loaded extensions share one human approval wait", async t =>
  const queued = second.run(async () => { order.push("second"); });
  await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(order, ["first"]);
  release(); await Promise.all([asking, queued]); assert.deepEqual(order, ["first", "second"]);
+});
+
+test('user opt-in static auto-policy still runs the separately loaded D6 guard and cannot bypass its hold',async t=>{
+ const policy={version:1,rules:[{id:'fixture-once',decision:'allow_once',source:'damage_control_path',category:'read_only',tool:'write',pattern:'fixture-protected/',operation:'write',expiresAt:new Date(Date.now()+60000).toISOString(),reason:'Explicit synthetic fixture rule'}]};
+ const f=await fixture(t,`import {registerDamageGuard} from ${lib('damage-guard-port.ts')};export default function(pi){pi.registerCommand('hold',{handler:()=>registerDamageGuard({call:async()=>({block:true,reason:'held by D6 fixture'})})});}`,policy);
+ const unregister=await f.command(1,'hold');t.after(unregister);
+ const event={type:'tool_call',toolCallId:'auto-held',toolName:'write',input:{path:join(f.dir,'fixture-protected/a'),content:'synthetic fixture'}};
+ assert.deepEqual(await f.emit(0,'tool_call',event),{block:true,reason:'held by D6 fixture'});
+ unregister();assert.equal((await f.emit(0,'tool_call',{...event,toolCallId:'auto-unheld'}))?.block,false);
+});
+
+test('auto policy evaluates original shell opacity, never a normalized conservative substitute',async t=>{
+ const policy={version:1,rules:[{id:'fixture-bash-once',decision:'allow_once',source:'damage_control_path',category:'read_only',tool:'bash',pattern:'fixture-protected/',operation:'write',expiresAt:new Date(Date.now()+60000).toISOString(),reason:'Explicit static synthetic fixture rule'}]};
+ const f=await fixture(t,undefined,policy);
+ assert.equal((await f.emit(0,'tool_call',{type:'tool_call',toolCallId:'auto-static-bash',toolName:'bash',input:{command:'echo synthetic > fixture-protected/a'}}))?.block,false);
+ const dynamic=await f.emit(0,'tool_call',{type:'tool_call',toolCallId:'auto-opaque-bash',toolName:'bash',input:{command:'echo synthetic > fixture-protected/$(printf a)'}});
+ assert.equal(dynamic?.block,true);
 });
 
 test("a native child takes its spawned assignment before tools run, and malformed transport fails closed", async t => {

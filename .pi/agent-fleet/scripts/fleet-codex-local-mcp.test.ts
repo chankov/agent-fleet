@@ -36,7 +36,7 @@ async function bind(f: Awaited<ReturnType<typeof fixture>>, m = meta()) {
 }
 
 test('S5c extension preserves honest local-write annotations for all existing policy tools', () => {
- assert.equal(TOOLS.length, 21); assert.equal(TOOLS[0].annotations.readOnlyHint, true);
+ assert.equal(TOOLS.length, 24); assert.equal(TOOLS[0].annotations.readOnlyHint, true);
  assert.ok(TOOLS.slice(1,14).every(t => !t.annotations.readOnlyHint));
 });
 for (const m of [undefined, null, {}, { threadId: B, sessionId: {} }, { threadId: 'not-a-uuid' }, { threadId: A.toUpperCase().replace('1111', 'ABCD') }]) {
@@ -291,7 +291,7 @@ test('actual STDIO simulated A/B enrollment/check/forget pipeline with real temp
 });
 test('dispatcher imports narrow observation leaf, not broad legacy Fleet operations',async()=>{
  const sources=[await readFile(resolve('.pi/agent-fleet/scripts/lib/fleet-codex-local-mcp.ts'),'utf8'),await readFile(resolve('.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts'),'utf8')];
- const allowed=new Set(['node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts','./fleet-codex-native-history.ts']);
+ const allowed=new Set(['./fleet-codex-permissions.ts','./fleet-codex-permission-transport.ts','node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts','./fleet-codex-native-history.ts']);
  for(const s of sources) {for(const m of s.matchAll(/from ['"]([^'"]+)['"]/g))assert.ok(allowed.has(m[1]),m[1]);assert.equal(/\bimport\s*\(/.test(s),false);}
 });
 
@@ -341,7 +341,7 @@ async function preparedEmpty(f: Awaited<ReturnType<typeof fixture>>, m = meta(B)
 test('initialize_empty advertised as a closed discriminated branch, unchanged alongside S5c tools', async t => {
  const f = await fixture(t), p = await protocol(f);
  const r = await p.handle({jsonrpc:'2.0',id:1,method:'tools/list'}) as {result:{tools:typeof TOOLS}};
- assert.equal(r.result.tools.length,21);
+ assert.equal(r.result.tools.length,24);
  const schema = r.result.tools.find(x=>x.name==='fleet_binding_prepare')!.inputSchema as unknown as {oneOf:{properties:Record<string,unknown>;required:string[];additionalProperties:boolean}[]};
  assert.equal(schema.oneOf.length,2);
  assert.deepEqual(schema.oneOf[0],{type:'object',properties:{intent:{type:'string',enum:['initialize_empty']}},required:['intent'],additionalProperties:false});

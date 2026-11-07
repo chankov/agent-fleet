@@ -200,7 +200,9 @@ try:
    fcntl.ioctl(fd,termios.TIOCSWINSZ,struct.pack("HHHH",48,160,0,0));os.kill(pid,signal.SIGWINCH);drain(.4)
   decision_end=len(buf)
   # Test automation is not a human UI sign-off. First 3 Yes, then distinct No.
-  keys(b"2" if i==3 else b"1",.2);keys(b"\\r",1)
+  # Permission asks use Pi's local selector: numeric text is not a choice shortcut.
+  if i==3: keys(b"\\x1b[B",.2)
+  keys(b"\\r",1)
  wait_for("Fixed action sequence finished",decision_end)
  if (root/"action-write.txt").read_text()!="synthetic write line 1\\nsynthetic write line 2\\n": raise RuntimeError("approved write missing")
  if (root/"action-edit.txt").read_text()!="alpha-after\\nbeta-after\\n": raise RuntimeError("approved edit missing")

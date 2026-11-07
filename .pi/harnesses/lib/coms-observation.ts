@@ -3,7 +3,7 @@ import { redactSecrets } from './fleet-transcript-store.ts';
 import { createHash } from 'node:crypto';
 export type ObservationOwner={project:string;peer:string;sessionId:string;startedAt:string};
 export type SessionHistory={getLeafId?:()=>unknown;getEntry?:(id:string)=>unknown};
-type Provider={owner:()=>ObservationOwner|null;session:()=>SessionHistory|null|undefined;questions:()=>unknown;now?:()=>number};
+type Provider={owner:()=>ObservationOwner|null;session:()=>SessionHistory|null|undefined;questions:()=>unknown;permissions?:()=>unknown;now?:()=>number};
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const same=(a:unknown,b:unknown)=>object(a)&&object(b)&&['project','peer','sessionId','startedAt'].every(k=>typeof a[k]==='string'&&a[k]===b[k]);
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(v);
@@ -65,8 +65,10 @@ export function handleObservationEnvelope(socket:{end(data:string):unknown},enve
   let transcript:ReturnType<typeof project>;try{transcript=project(provider.session(),owner!);}catch{transcript=gap('SOURCE_UNAVAILABLE');}
   let q:unknown;try{q=provider.questions();}catch{q={status:'unavailable'};}
   const questionState=object(q)&&q.status==='available'?{...q,reasons:[]}:{status:object(q)&&q.status==='unsupported'?'unsupported':'unavailable',partial:true,reasons:[object(q)&&q.status==='unsupported'?'RPC_UNSUPPORTED':'SOURCE_UNAVAILABLE'],questions:[],resolved:[],nextCursor:null};
+  let permissionState:unknown={status:'unsupported',partial:true,pendingCount:null,requests:[],resolved:[],nextCursor:null};
+  try{if(provider.permissions)permissionState=provider.permissions();}catch{permissionState={status:'unavailable',partial:true,pendingCount:null,requests:[],resolved:[],nextCursor:null};}
   if(!same(owner,provider.owner())){send('stale');return true;}
-  send('available',{observedAt:new Date((provider.now??Date.now)()).toISOString(),transcript,questionState});
+  send('available',{observedAt:new Date((provider.now??Date.now)()).toISOString(),transcript,questionState,permissionState});
  }catch{send('unavailable');}
  return true;
 }

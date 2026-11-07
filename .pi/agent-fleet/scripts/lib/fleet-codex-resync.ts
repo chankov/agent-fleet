@@ -78,6 +78,7 @@ function summary(selector: Selector, s: Snapshot, previous: Cursor | null, reset
             pending: q.questions.slice(0, 4).map(v => ({ id: v.id, toolCallId: v.toolCallId, preview: v.question.slice(0, 256), detailsRequired: true })),
             resolved: q.resolved.slice(0, 8).map(v => ({ ...v })),
             newQuestionIds: newlySeen.slice(0, 8), gap: questionGap, delivery: 'not_established' },
+        permissions:s.permissionState,
         completion: 'not_established' as const };
     const data = { leaf: advance ? w!.leaf : previous?.leaf ?? null, lastEvent: advance ? t.entries.at(-1)?.id ?? null : previous?.lastEvent ?? null,
         questions: allSeen.slice(-256), observedAt: s.observedAt };

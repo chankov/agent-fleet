@@ -422,6 +422,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
       const workflowPackage = JSON.parse(readFileSync(join(workspace, ".pi", "agent-fleet", "scripts", "package.json"), "utf8"));
       assert.deepEqual(workflowPackage.dependencies, {
         "@sinclair/typebox": "^0.34.49",
+        ws: "8.22.0",
         yaml: "^2.9.0",
       });
       assert.ok(existsSync(join(workspace, ".pi", "agent-fleet", "scripts", "package-lock.json")));
@@ -467,7 +468,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     const nativeInput=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'package-fixture',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/list',params:{}},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'fleet_diagnostics',arguments:{},_meta:{threadId:'11111111-1111-4111-8111-111111111111'}}}].map(v=>JSON.stringify(v)).join('\n')+'\n';
     const native=spawnSync(process.execPath,[join(extracted,'.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs'),'--registry-root',join(nativeRoot,'registry'),'--policy-root',join(nativeRoot,'policy'),'--host-profile','package-fixture','--principal','local'],{input:nativeInput,encoding:'utf8',timeout:15000});
     assert.equal(native.status,0,native.stderr);const nativeReplies=native.stdout.trim().split('\n').map(line=>JSON.parse(line));
-    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.length,21);
+    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.length,24);
     const diagnosticReply=nativeReplies.find(v=>v.id===3);assert.equal(diagnosticReply?.result.isError,false);assert.equal(JSON.parse(diagnosticReply.result.content[0].text).scope,'local_diagnostics');
     assert.equal(existsSync(join(nativeRoot,'policy')),false);
     const allPreviewWorkspace = join(fixture, "all-features-preview"); mkdirSync(allPreviewWorkspace);

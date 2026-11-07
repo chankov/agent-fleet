@@ -237,9 +237,11 @@ test('bridge never calls grant-management methods, even with persisted send righ
 
 test('missing/corrupt/busy policy refuses with original data preserved and sanitized errors', async t => {
   const { root, path } = await setup(t);
-  const invalid = '{"version":2,"private":"SECRET"}'; await writeFile(path, invalid);
-  await denied('STATE_VERSION_UNSUPPORTED', () => bridgeFor(root, async () => snapshot()).checkAllowedReadTarget(A, query));
-  assert.equal(await readFile(path, 'utf8'), invalid);
+  for (const [invalid, error] of [['{"version":3,"private":"SECRET"}', 'STATE_VERSION_UNSUPPORTED'], ['{"version":2,"private":"SECRET"}', 'STATE_INVALID']] as const) {
+    await writeFile(path, invalid);
+    await denied(error, () => bridgeFor(root, async () => snapshot()).checkAllowedReadTarget(A, query));
+    assert.equal(await readFile(path, 'utf8'), invalid);
+  }
   await mkdir(path.replace(/\.json$/u, '.lock'), { mode: 0o700 });
   await denied('STORE_BUSY', () => bridgeFor(root, async () => snapshot()).checkAllowedReadTarget(A, query));
 });

@@ -13,6 +13,7 @@ import {
 	readExemptionsFile,
 	removeExemptionFromFile,
 	requestAccessFromHub,
+ requestAccessReceiptFromHub,
 } from "./damage-control-shared.ts";
 
 function tempFile() {
@@ -75,6 +76,12 @@ test("protected deletion requests are coalesced by invocation, not broad rule pa
 	);
 });
 
+test('same truncated preview with different full action digests cannot coalesce', () => {
+ const base={agent:'builder',pattern:'.github/',category:'no_delete',invocation:'x'.repeat(500)};
+ assert.notEqual(accessRequestCacheKey({...base,actionDigest:'a'.repeat(64)}),accessRequestCacheKey({...base,actionDigest:'b'.repeat(64)}));
+ assert.notEqual(accessRequestCacheKey({...base,category:'read_only'}),accessRequestCacheKey({...base,category:'zero_access'}));
+});
+
 // ── escalation client ──
 
 function fakeHub(socketPath, onRequest) {
@@ -113,6 +120,7 @@ test("requestAccessFromHub: receives the hub's decision", async () => {
 	const server = await fakeHub(sock, (req, socket) => {
 		assert.equal(req.type, "access_request");
 		assert.equal(req.pattern, ".env");
+		assert.ok(req.deadline > Date.now() && req.deadline <= Date.now() + 2000);
 		socket.write(JSON.stringify({ type: "access_decision", msg_id: req.msg_id, decision: "allow_once" }) + "\n");
 		socket.end();
 	});
@@ -121,6 +129,42 @@ test("requestAccessFromHub: receives the hub's decision", async () => {
 	} finally {
 		server.close();
 	}
+});
+
+test('requestAccessFromHub: expired or malformed deadlines fail closed before connecting', async () => {
+ const req=request();
+ assert.equal(await requestAccessFromHub('/missing/hub.sock',{...req,deadline:Date.now()-1},100),'timeout');
+ assert.equal(await requestAccessFromHub('/missing/hub.sock',{...req,deadline:NaN},100),'error');
+ assert.equal(await requestAccessFromHub('/missing/hub.sock',req,-1),'error');
+});
+
+test('requestAccessFromHub: original shorter deadline is not extended by transport timeout', async () => {
+ const sock=join(mkdtempSync(join(tmpdir(),'dc-shared-')),'hub.sock');
+ const server=await fakeHub(sock,()=>{});
+ try { assert.equal(await requestAccessFromHub(sock,{...request(),deadline:Date.now()+40},2000),'timeout'); }
+ finally { server.close(); }
+});
+
+test('requestAccessFromHub: wrong message ID cannot authorize the waiting call', async () => {
+ const sock=join(mkdtempSync(join(tmpdir(),'dc-shared-')),'hub.sock');
+ const server=await fakeHub(sock,(_req,socket)=>{
+  socket.end(JSON.stringify({type:'access_decision',msg_id:'wrong',decision:'allow_once'})+'\n');
+ });
+ try { assert.equal(await requestAccessFromHub(sock,request(),2000),'error'); }
+ finally { server.close(); }
+});
+
+for(const [decision,outcome,expected] of [['deny',undefined,'machine_deny'],['allow_all',undefined,'error'],['deny','expired','timeout']] as const)test(`machine reply ${decision}/${outcome??'decided'} retains origin and cannot grant broad scopes`,async()=>{
+ const sock=join(mkdtempSync(join(tmpdir(),'dc-machine-reply-')),'hub.sock');
+ const req={...request(),actionDigest:'a'.repeat(64)};
+ const server=await fakeHub(sock,(_req,socket)=>socket.end(JSON.stringify({type:'access_decision',msg_id:req.msg_id,decision,decisionSource:'codex_machine',actionDigest:req.actionDigest,...(outcome?{outcome}:{})})+'\n'));
+ try{assert.equal(await requestAccessFromHub(sock,req,2000),expected);}finally{server.close();}
+});
+
+for(const outcome of ['cancelled','stale','unsupported','audit_failed'] as const)test(`detailed receipt preserves ${outcome}, not human denial`,async()=>{
+ const sock=join(mkdtempSync(join(tmpdir(),'dc-receipt-')),'hub.sock');const req=request();
+ const server=await fakeHub(sock,(_,socket)=>socket.end(JSON.stringify({type:'access_decision',msg_id:req.msg_id,decision:'deny',outcome})+'\n'));
+ try{const r=await requestAccessReceiptFromHub(sock,req,1000);assert.equal(r.status,outcome);assert.equal(r.decision,undefined);}finally{server.close();}
 });
 
 test("requestAccessFromHub: times out fail-closed when the hub stays silent", async () => {

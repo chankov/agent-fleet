@@ -101,6 +101,9 @@ export function assertPiSkillCatalog({ packageRoot, packageJson, manifest }) {
   const discovered = discoverPiSkills({ packageRoot, packageJson });
   const actual = new Map(discovered.map((entry) => [entry.name, entry.path]));
   const expected = new Map(AUXILIARY_SKILLS);
+  // Optional native workspace guidance is not an install-catalog skill.
+  const voiceSkill = "skills/fleet-native-voice/SKILL.md";
+  if (existsSync(join(packageRoot, voiceSkill))) expected.set("fleet-native-voice", voiceSkill);
 
   for (const item of catalogSkills(manifest)) {
     const source = item.agents.pi.source[0];
@@ -114,7 +117,7 @@ export function assertPiSkillCatalog({ packageRoot, packageJson, manifest }) {
   assert.deepEqual(
     [...actual.entries()].sort(),
     [...expected.entries()].sort(),
-    "Pi skill discovery must match catalog winners plus bowser and bundled ask-user",
+    "Pi skill discovery must match catalog winners plus known auxiliary skills",
   );
 
   return discovered;

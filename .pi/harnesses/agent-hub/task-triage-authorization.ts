@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import {raceExactPermission,type PermissionRelay} from './permission-relay.ts';
 import {createOneUseAuthority,type OneUseAuthority} from './action-authorization.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { RuntimeQuestion } from "../ask-user-remote/runtime-ask.ts";
@@ -23,7 +24,7 @@ export function consumeWaiverGrant(grant: WaiverGrant | undefined, binding: Eval
  if (!grant || typeof grant !== "object" || waiverGrants.get(grant) !== waiverKey(binding)) return false;
  waiverGrants.delete(grant); return true;
 }
-export interface TriageHumanPorts { taskId(): string; inputRevision(): string; ask(id: string, question: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal): Promise<unknown>; startWait(id: string): void; endWait(id: string, sameTask: boolean): void; persist?(state: ProcessObligationState): void; presentationRefused?(reason: ActionPresentationRefusal): void; }
+export interface TriageHumanPorts { relay?:PermissionRelay; permissionAudit?(record:unknown):void; taskId(): string; inputRevision(): string; ask(id: string, question: RuntimeQuestion, ctx: ExtensionContext, signal: AbortSignal): Promise<unknown>; startWait(id: string): void; endWait(id: string, sameTask: boolean): void; persist?(state: ProcessObligationState): void; presentationRefused?(reason: ActionPresentationRefusal): void; }
 const pending = new Set<string>();
 function affirmative(value: unknown, id: string, option: string): boolean {
  const v = value as { isError?: boolean; details?: { cancelled?: boolean; runtimeAsk?: { requestId?: string }; response?: { kind?: string; selections?: unknown[] } } } | null;
@@ -135,6 +136,16 @@ export async function confirmTaskTriageAction(action: ActionContract, ports: Tri
  if (command && inspectionBash(command)) return issueWithoutDialog(contract, persistOneUse, key);
  if (prior === "allow") return issueWithoutDialog(contract, persistOneUse, key);
  if (prior === "deny") return null;
+ if(ports.relay?.available()){
+  const stillCurrent=()=>!signal?.aborted&&contract.taskId===ports.taskId()&&contract.inputRevision===ports.inputRevision()&&actionKey(action)===key&&actionPresentation(contract,presentation)===detail;
+  const result=await raceExactPermission(ports.relay,{...contract,operation:contract.operation as 'bash'|'write'|'edit',cwd:contract.cwd!,owner:'hub',attempt:contract.actionId},presentation!.input,stillCurrent,Date.now()+60000,async localSignal=>{
+   const id=randomUUID(),question:RuntimeQuestion={question:'Authorize this exact task-triage action once?',context:detail,options:['Yes — authorize once','No — deny'],allowMultiple:false,allowFreeform:false,allowComment:false};
+   ports.startWait(id);try{const response=await ports.ask(id,question,ctx,localSignal);return affirmative(response,id,question.options![0])?{decision:'allow_once',value:'once'}:affirmative(response,id,question.options![1])?{decision:'deny',value:'deny'}:null;}finally{ports.endWait(id,contract.taskId===ports.taskId());}
+  },record=>{if(!ports.permissionAudit)throw Error('permission_audit_unavailable');ports.permissionAudit(record);});
+  if(!result||!stillCurrent()||!result.consume())return null;
+  // No identical-dialog or semantic memory for machine action decisions. Waivers remain human-only.
+  if(!stillCurrent())return null;const grant=issueWithoutDialog(contract,persistOneUse,key);return stillCurrent()?grant:null;
+ }
  if (!await authorize(key, `Operation: ${contract.operation}\nTarget: ${contract.target}\n${detail}`, ports, ctx, signal)) return null;
  const stillCurrent = () => !signal?.aborted && contract.taskId === ports.taskId() && contract.inputRevision === ports.inputRevision()
   && actionKey(action) === key && actionPresentation(contract, presentation) === detail;

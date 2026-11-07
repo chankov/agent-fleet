@@ -21,7 +21,7 @@ export type StoreOptions = Readonly<{
 }>;
 export type StoreHandle = Readonly<{ alias: string; revision: number }>;
 type Entry = { alias: string; target: TargetEpoch; rights: Right[]; status: 'active' | 'needsRebind' };
-type State = { format: 'fleet-local-allowlist'; version: 1; storeId: string; namespace: ConversationKey; revision: number; bindings: Entry[] };
+type State = { format: 'fleet-local-allowlist'; version: 1 | 2; storeId: string; namespace: ConversationKey; revision: number; bindings: Entry[] };
 export type StoreSnapshot = Readonly<{ revision: number; bindings: readonly Readonly<Entry>[] }>;
 type Issued = { storeId: string; revision: number; alias: string };
 type Policy = { policy: AllowedSessionsPolicy; handles: Map<string, BindingHandle>; blocked: Map<string, 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET'> };
@@ -50,9 +50,9 @@ function decode(bytes: Buffer, context: ConversationKey): State {
   let v: unknown;
   try { v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { fail('STATE_INVALID'); }
   if (!object(v)) fail('STATE_INVALID');
-  if (Object.hasOwn(v, 'version') && v.version !== 1) fail('STATE_VERSION_UNSUPPORTED');
+  if (Object.hasOwn(v, 'version') && v.version !== 1 && v.version !== 2) fail('STATE_VERSION_UNSUPPORTED');
   if (!keys(v, ['format', 'version', 'storeId', 'namespace', 'revision', 'bindings']) || v.format !== 'fleet-local-allowlist'
-      || v.version !== 1 || typeof v.storeId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(v.storeId)
+      || (v.version !== 1 && v.version !== 2) || typeof v.storeId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(v.storeId)
       || !Number.isSafeInteger(v.revision) || (v.revision as number) < 0 || !Array.isArray(v.bindings)
       || v.bindings.length > MAX_BINDINGS) fail('STATE_INVALID');
   try { new AllowedSessionsPolicy().list(v.namespace as ConversationKey); } catch { fail('STATE_INVALID'); }
@@ -60,14 +60,14 @@ function decode(bytes: Buffer, context: ConversationKey): State {
   const aliases = new Set<string>(), targets = new Set<string>();
   const bindings: Entry[] = v.bindings.map((b: unknown) => {
     if (!keys(b, ['alias', 'target', 'rights', 'status']) || !text(b.alias) || !Array.isArray(b.rights)
-        || !(b.rights.length === 1 && b.rights[0] === 'read' || b.rights.length === 2 && b.rights[0] === 'read' && b.rights[1] === 'send')
+        || !(b.rights[0] === 'read' && JSON.stringify(b.rights) === JSON.stringify(['read', ...(b.rights.includes('send') ? ['send'] : []), ...(v.version === 2 && b.rights.includes('approve') ? ['approve'] : [])]))
         || b.status !== 'active' && b.status !== 'needsRebind' || b.status === 'needsRebind' && b.rights.length !== 1) fail('STATE_INVALID');
     const target = epoch(b.target), id = JSON.stringify(target);
     if (aliases.has(b.alias) || targets.has(id)) fail('STATE_INVALID');
     aliases.add(b.alias); targets.add(id);
     return { alias: b.alias, target, rights: [...b.rights] as Right[], status: b.status };
   });
-  const s: State = { format: 'fleet-local-allowlist', version: 1, storeId: v.storeId,
+  const s: State = { format: 'fleet-local-allowlist', version: v.version, storeId: v.storeId,
     namespace: { ...context }, revision: v.revision as number, bindings };
   // Fixed-depth schema is validated before stringify; rejects duplicate JSON keys/BOM/extra bytes.
   if (!Buffer.from(canonical(s)).equals(bytes)) fail('STATE_INVALID');
@@ -224,6 +224,7 @@ export class AllowedSessionsStore {
       if (matches.length !== 1) { blocked.set(b.alias, matches.length ? 'AMBIGUOUS_TARGET' : 'TARGET_UNAVAILABLE'); continue; }
       let h = policy.enroll(this.#context, { alias: b.alias, target: b.target }, snapshots);
       if (b.rights.includes('send')) h = policy.grantSend(this.#context, h, snapshots);
+      if (b.rights.includes('approve')) h = policy.grantApprove(this.#context, h, snapshots);
       handles.set(b.alias, h);
     }
     return { policy, handles, blocked };
@@ -298,15 +299,33 @@ export class AllowedSessionsStore {
   async grantSend(handle: StoreHandle, current: readonly TargetEpoch[]): Promise<StoreHandle> {
     return this.#run(current, (s, p) => {
       const b = this.#entry(s, handle);
-      p.policy.grantSend(this.#context, this.#active(b, p), current); b.rights = ['read', 'send'];
+      p.policy.grantSend(this.#context, this.#active(b, p), current); b.rights = ['read', 'send', ...(b.rights.includes('approve') ? ['approve' as const] : [])];
       return committed => this.#issue(committed, b.alias);
+    }, true);
+  }
+  /** Explicit upgrade-on-grant: v1 rights are preserved; old writers fail closed on v2. */
+  async grantApprove(handle: StoreHandle, current: readonly TargetEpoch[]): Promise<StoreHandle> {
+    return this.#run(current, (s, p) => {
+      const b = this.#entry(s, handle);
+      p.policy.grantApprove(this.#context, this.#active(b, p), current);
+      s.version = 2;
+      b.rights = ['read', ...(b.rights.includes('send') ? ['send' as const] : []), 'approve'];
+      return committed => this.#issue(committed, b.alias);
+    }, true);
+  }
+  async revokeApprove(alias: string, expectedRevision: number): Promise<StoreSnapshot> {
+    return this.#run(undefined, s => {
+      this.#expected(s, expectedRevision);
+      const b = s.bindings.find(b => b.alias === alias); if (!b) throw new AllowlistError('NOT_ALLOWED');
+      b.rights = b.rights.filter(r => r !== 'approve');
+      return committed => this.#snapshot(committed);
     }, true);
   }
   async revokeSend(alias: string, expectedRevision: number): Promise<StoreSnapshot> {
     return this.#run(undefined, s => {
       this.#expected(s, expectedRevision);
       const b = s.bindings.find(b => b.alias === alias); if (!b) throw new AllowlistError('NOT_ALLOWED');
-      b.rights = ['read']; return committed => this.#snapshot(committed);
+      b.rights = b.rights.filter(r => r !== 'send'); return committed => this.#snapshot(committed);
     }, true);
   }
   async revoke(alias: string, expectedRevision: number): Promise<StoreSnapshot> {

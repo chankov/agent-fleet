@@ -1,13 +1,13 @@
 import {createHash} from 'node:crypto';
 import {isAbsolute} from 'node:path';
-export interface DamageAction {taskId:string;inputRevision:string;operation:'bash'|'write'|'edit';target:string;cwd:string;actionId:string;owner:string;attempt:string;legacyTargets?:readonly string[];}
+export interface DamageAction {taskId:string;inputRevision:string;operation:'bash'|'write'|'edit';target:string;cwd:string;actionId:string;owner:string;attempt:string;legacyTargets?:readonly string[];requestContext?:Readonly<{source:'child_access'|'baseline_path'|'baseline_bash'|'triage_action';category:string;pattern:string;digest:string;epoch:string}>;}
 export interface DamageDecisionRecord {schema:'damage-denial/v1';taskId:string;inputRevision:string;operation:'bash'|'write'|'edit';target:string;cwd:string;decision:'deny'|'allow'|'hold'|'consumed'|'recovery';}
 export function damageDenyKey(action:Pick<DamageAction,'taskId'|'inputRevision'|'operation'|'target'|'cwd'>){return createHash('sha256').update(JSON.stringify([action.taskId,action.inputRevision,action.operation,action.target,action.cwd])).digest('hex');}
 export function validDamageDecision(row:unknown):row is DamageDecisionRecord{
  if(!row||typeof row!=='object'||Array.isArray(row))return false;const v=row as DamageDecisionRecord;
  return Object.keys(v).every(k=>['schema','taskId','inputRevision','operation','target','cwd','decision'].includes(k))&&v.schema==='damage-denial/v1'&&typeof v.taskId==='string'&&!!v.taskId&&v.taskId.length<=256&&typeof v.inputRevision==='string'&&!!v.inputRevision&&v.inputRevision.length<=256&&['bash','write','edit'].includes(v.operation)&&/^[a-f0-9]{64}$/.test(v.target)&&typeof v.cwd==='string'&&isAbsolute(v.cwd)&&['deny','allow','hold','consumed','recovery'].includes(v.decision);
 }
-/** Restore denials and unresolved fences, never grants. Allow records are human intent, not reusable authority. */
+/** Restore denials and unresolved fences, never grants. Allow records are decision intent (human or explicit machine), not reusable authority. */
 export function createDamageState(persist:(row:DamageDecisionRecord)=>void){
  const denied=new Set<string>(),held=new Set<string>(),durableHeld=new Set<string>(),recovered=new Set<string>(),durableRecovery=new Set<string>(),epochs=new Map<string,number>();
  const keys=(action:DamageAction)=>[...new Set([action.target,...(action.legacyTargets??[])])].map(target=>damageDenyKey({...action,target}));

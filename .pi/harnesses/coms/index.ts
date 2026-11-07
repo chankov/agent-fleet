@@ -20,6 +20,7 @@ import {
 	TIMEOUT_MS,
 } from "../lib/coms-core.ts";
 import { registerVersionStatus } from "./version.ts";
+import {handlePermissionEnvelope} from '../agent-hub/permission-relay.ts';
 import { handleQuestionEnvelope, registerQuestionPeer, questionChannel } from "../ask-user-remote/questions.ts";
 import { handleObservationEnvelope } from "../lib/coms-observation.ts";
 import { handleInstructionReceipt } from "../lib/coms-instruction-receipts.ts";
@@ -42,6 +43,7 @@ export default function (pi: ExtensionAPI) {
 			session: () => currentCtx?.sessionManager,
 			questions: () => { const owner = observationOwner(); return owner ? questionChannel.list(owner) : { status: 'stale' }; },
 		}) || handleInstructionReceipt(envelope, socket, observationOwner, currentCtx?.sessionManager)
+   || handlePermissionEnvelope(socket,envelope,undefined,observationOwner())
    || handleQuestionEnvelope(socket, envelope),
 	});
 	function observationOwner() { return peer.ready && peer.identity ? {

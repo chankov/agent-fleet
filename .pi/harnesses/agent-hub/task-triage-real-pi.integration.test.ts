@@ -634,8 +634,10 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   // Empty roster: after binding, dispatch through the real hub refuses with an actionable recovery hint.
   const inbound = inboundText(session);
   assert.ok(session.contexts().length >= 9, "both turns execute their scripted calls");
-  assert.match(inbound, /Unknown agent "planner"/, "empty-roster refusal names the agent");
-  assert.match(inbound, /\/af-agents-add/, "empty-roster refusal points at roster recovery");
+  // Use the actual tool result rather than a 30KB prefix of the whole growing transcript.
+  const rosterRefusal = toolResult(session, 6)?.text ?? "";
+  assert.match(rosterRefusal, /Unknown agent "planner"/, "empty-roster refusal names the agent");
+  assert.match(rosterRefusal, /\/af-agents-add/, "empty-roster refusal points at roster recovery");
 
   // Input transition: a changed follow-up fences direct effects; its fleet lease permits binding.
   const followUp = session.contexts().slice(2);

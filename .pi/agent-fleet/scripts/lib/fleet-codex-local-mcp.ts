@@ -1,4 +1,6 @@
 // Local cooperative-agent routing, NOT attested host origin or human consent.
+import {PermissionBridge,PermissionError} from './fleet-codex-permissions.ts';
+import {PermissionTransport,PermissionTransportError} from './fleet-codex-permission-transport.ts';
 import { randomUUID } from 'node:crypto';
 import { OverviewBridge, parseOverviewTargets } from './fleet-codex-overview.ts';
 import { ObservationStore } from './fleet-codex-observation-store.ts';
@@ -44,10 +46,10 @@ function query(v: Record<string, unknown>, optionalPeer = false): { project: str
  return { project: v.project, ...(has(v,'peer') ? { peer: v.peer as string } : {}) };
 }
 const safeFault = (e: unknown): McpFault => e instanceof McpFault ? e
- : e instanceof HistoryError || e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
+ : e instanceof PermissionError || e instanceof PermissionTransportError || e instanceof HistoryError || e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
 const stringSchema = { type: 'string', minLength: 1, maxLength: 1024 };
 const selectors = { project: stringSchema, peer: { type: 'string', minLength: 1, maxLength: 64 } };
-const bindingPrepareProperties = { ...selectors, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send'] }, bindingAlias: stringSchema };
+const bindingPrepareProperties = { ...selectors, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','grant_approve','revoke_approve'] }, bindingAlias: stringSchema };
 const emptyPrepareProperties = { intent: { type: 'string', enum: ['initialize_empty'] } };
 function tool(name: string, description: string, properties: object, required: string[], readOnlyHint = false, destructiveHint = false) {
  return { name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
@@ -59,8 +61,8 @@ const overviewProperties={targets:{type:'array',minItems:1,maxItems:4,items:{typ
 export const TOOLS = [
  tool('fleet_discover','Local registry candidates only; no enrollment, peer RPC or transcript read.',selectors,['project'],true),
  { ...tool('fleet_binding_prepare','Preview a binding transition or create-only empty namespace in this chat. Present exact effects and wait for explicit user instruction before commit. Not human authentication.',
-  { ...bindingPrepareProperties, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','initialize_empty'] } },['intent']),
-  inputSchema: { type: 'object', properties: { ...bindingPrepareProperties, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','initialize_empty'] } }, required: ['intent'], additionalProperties: false,
+  { ...bindingPrepareProperties, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','grant_approve','revoke_approve','initialize_empty'] } },['intent']),
+  inputSchema: { type: 'object', properties: { ...bindingPrepareProperties, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','grant_approve','revoke_approve','initialize_empty'] } }, required: ['intent'], additionalProperties: false,
    oneOf: [
     { type: 'object', properties: emptyPrepareProperties, required: ['intent'], additionalProperties: false },
     { type: 'object', properties: bindingPrepareProperties, required: ['intent','project','peer'], additionalProperties: false },
@@ -85,8 +87,22 @@ export const TOOLS = [
  tool('fleet_legacy_history','Opt-in read-only archive for this exact native UUID chat. Redacted JSON fragments of original CLI selection/runtime, not migration of grants or replay. Offset/limit count string characters; offset>0 requires the first page sourceSha256. Source changes stop pagination; never combine versions. Reconstruct all fragments before interpreting.',{section:{type:'string',enum:['selection','runtime']},offset:{type:'integer',minimum:0,maximum:4194304},limit:{type:'integer',minimum:1,maximum:8192},sourceSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}},['section'],true),
  tool('fleet_snapshot','Explicitly observe one read-authorized target and save a redacted historical report locally for replay. Local data retention, no peer mutation; not task completion.',selectors,['project','peer']),
  tool('fleet_replay','Read only the last explicitly saved historical snapshot for this chat and selector; does not check live rights, probe Pi, retarget or claim fresh state.',selectors,['project','peer'],true),
+ tool('fleet_permissions','List pending machine-addressable exact actions, inspect their FULL safe action/task, or query volatile receipt at one explicitly enrolled Pi epoch. Read authority only; not Desktop wake or a human question.',{target:answerTarget,operation:{type:'string',enum:['list','inspect','receipt']},snapshot:{type:['object','null']},cursor:{type:['string','null']}},['target','operation','snapshot']),
+ tool('fleet_permission_decide','Codex MACHINE decision on a freshly inspected exact task/action. Requires separate approve (send is insufficient). Independently assess task necessity and include its concrete reason. Allow-once or deny only, never human consent. One durable attempt; unknown NEVER permits replay.',{requestId:{type:'string',minLength:1,maxLength:96},snapshot:{type:'object'},decision:{type:'string',enum:['allow_once','deny']},reason:{type:'string',minLength:1,maxLength:2000}},['requestId','snapshot','decision','reason'],false,true),
+ tool('fleet_permission_receipt','Read this native chat’s durable local permission attempt by requestId, including unknown. Historical only, no replay or remote refresh; does not require restoring revoked rights.',{requestId:{type:'string',minLength:1,maxLength:96}},['requestId']),
 ];
-type Intent = 'enroll_read' | 'rebind_read' | 'forget' | 'grant_send' | 'revoke_send';
+/** Pure assessment of an ACTUAL diagnostics observation; source availability is not host readiness. */
+export function assessLoadedFleetCatalog(observation:unknown){
+ const d=observation as {identity?:unknown;nodeVersion?:unknown;protocolVersion?:unknown;tools?:unknown};
+ const tools=Array.isArray(d?.tools)?d.tools:[];
+ const names=tools.map(t=>t&&typeof t==='object'?(t as {name?:unknown}).name:undefined);
+ const valid=tools.length<=128&&names.every(n=>typeof n==='string'&&/^[a-z_]{1,96}$/.test(n))&&new Set(names).size===names.length;
+ const missing=TOOLS.map(t=>t.name).filter(n=>!names.includes(n));
+ const unexpected=names.filter(n=>typeof n!=='string'||!TOOLS.some(t=>t.name===n)).map(()=> 'unexpected_tool_entry');
+ const ready=valid&&d?.identity==='host_context_validated'&&d?.protocolVersion==='2025-06-18'&&missing.length===0&&unexpected.length===0;
+ return {ready,loadedCount:tools.length,sourceCount:TOOLS.length,missing,unexpected,action:ready?'none':'operator_reload_required_not_performed'};
+}
+type Intent = 'enroll_read' | 'rebind_read' | 'forget' | 'grant_send' | 'revoke_send' | 'grant_approve' | 'revoke_approve';
 type Result = Record<string, unknown>;
 type ProposalBase = { context: string; expires: number;
  promise?: Promise<Result>; outcome?: { result?: Result; error?: McpFault } };
@@ -94,7 +110,7 @@ type Proposal = ProposalBase & ({ intent: Intent; target: TargetEpoch; alias: st
  | { intent: 'initialize_empty'; revision: null; store: AllowedSessionsStore }
  | { intent: 'upgrade_journal'; ledger: ActionLedger; expected: UpgradePreview });
 export type LocalMcpOptions = Readonly<{ registryRoot: string; policyRoot: string; hostProfile: string; principal: string; legacyStateRoot?: string;
- answerTransport?: Pick<AnswerTransport,'inspect'|'send'|'receipt'>; instructionTransport?: Pick<InstructionTransport,'capability'|'send'|'receipt'>; registryReader?: RegistryReader; observationReader?: ObservationReader; now?: () => number; monotonic?: () => number; storeOptions?: StoreOptions }>;
+ permissionTransport?: Pick<PermissionTransport,'rpc'>; answerTransport?: Pick<AnswerTransport,'inspect'|'send'|'receipt'>; instructionTransport?: Pick<InstructionTransport,'capability'|'send'|'receipt'>; registryReader?: RegistryReader; observationReader?: ObservationReader; now?: () => number; monotonic?: () => number; storeOptions?: StoreOptions }>;
 
 export class LocalCodexMcp {
  readonly #options: LocalMcpOptions;
@@ -104,6 +120,7 @@ export class LocalCodexMcp {
  readonly #resync: ResyncBridge;
  readonly #instructions: InstructionBridge;
  readonly #answers: AnswerBridge;
+ readonly #permissions:PermissionBridge;
  readonly #history: NativeHistory;
  readonly #ledger: ActionLedger;
  readonly #mono: () => number;
@@ -114,6 +131,7 @@ export class LocalCodexMcp {
   for (const root of [options.registryRoot,options.policyRoot]) if (typeof root !== 'string' || !isAbsolute(root) || resolve(root) !== root) fail('UNSAFE_PATH');
   const overlaps = (a: string,b: string) => { const rel = relative(a,b); return rel === '' || rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel); };
   const observationRoot=options.policyRoot+'.observations';
+  if(overlaps(options.registryRoot,options.policyRoot+'.permissions')||overlaps(options.policyRoot+'.permissions',options.registryRoot))fail('UNSAFE_PATH');
   if (overlaps(options.registryRoot,options.policyRoot+'.reports') || overlaps(options.policyRoot+'.reports',options.registryRoot) || options.legacyStateRoot!==undefined && (overlaps(options.registryRoot,options.legacyStateRoot)||overlaps(options.legacyStateRoot,options.registryRoot))) fail('UNSAFE_PATH');
   if (overlaps(options.registryRoot,options.policyRoot) || overlaps(options.policyRoot,options.registryRoot)
    || overlaps(options.registryRoot,observationRoot) || overlaps(observationRoot,options.registryRoot) || overlaps(options.registryRoot,options.policyRoot+'.instructions') || overlaps(options.policyRoot+'.instructions',options.registryRoot)) fail('UNSAFE_PATH');
@@ -126,6 +144,7 @@ export class LocalCodexMcp {
   this.#observation = new ObservationBridge({authorization:this.#bridge,reader:options.observationReader ?? createObservationReader({registryRoot:options.registryRoot,now:options.now}),now:options.now});
   this.#instructions = new InstructionBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.instructionTransport??new InstructionTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'instruction')});
   this.#answers = new AnswerBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.answerTransport??new AnswerTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'answer')});
+  this.#permissions=new PermissionBridge({now:options.now,policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.permissionTransport??new PermissionTransport({registryRoot:options.registryRoot})});
   this.#overview = new OverviewBridge(this.#observation);
   this.#resync = new ResyncBridge({observer:this.#observation,authorization:this.#bridge,store:new ObservationStore(observationRoot)});
  }
@@ -188,7 +207,7 @@ export class LocalCodexMcp {
  async #prepare(c: ConversationKey, a: Record<string, unknown>): Promise<Result> {
   if (a.intent === 'initialize_empty') return this.#prepareEmpty(c);
   const q = query(a) as { project: string; peer: string }, intent = a.intent as Intent;
-  const candidate = intent === 'forget' || intent === 'revoke_send' ? undefined : await this.#candidate(c,q);
+  const candidate = intent === 'forget' || intent === 'revoke_send' || intent === 'revoke_approve' ? undefined : await this.#candidate(c,q);
   const store = this.#store(c); let state: StoreSnapshot | undefined;
   try { state = await store.open(); } catch (e) { if (!(e instanceof StoreError) || e.code !== 'STATE_MISSING') throw e; }
   const matches = (state?.bindings ?? []).filter(b => b.target.project === q.project && b.target.peer === q.peer && (!has(a,'bindingAlias') || b.alias === a.bindingAlias));
@@ -203,11 +222,12 @@ export class LocalCodexMcp {
   const alias = existing?.alias ?? q.project+':'+q.peer;
   if (!text(alias) || !existing && state?.bindings.some(b => b.alias === alias)) fail('ALIAS_CONFLICT');
   const p: Proposal = { context: key(c), expires: this.#time()+300000, intent, alias, target: candidate?.target ?? existing!.target, store, revision: state?.revision ?? null };
-  if(intent==='grant_send'){p.handle=await store.resolve(alias,candidate!.current);if(p.handle.revision!==p.revision)fail('STATE_CHANGED');await store.authorize(p.handle,'read',candidate!.current);}
+  if(intent==='grant_send'||intent==='grant_approve'){p.handle=await store.resolve(alias,candidate!.current);if(p.handle.revision!==p.revision)fail('STATE_CHANGED');await store.authorize(p.handle,'read',candidate!.current);}
   const proposalId = this.#remember(p);
   return { status: 'prepared', source: 'local_policy_proposal', proposalId, expiresInSeconds: 300, intent, alias,
    oldTarget: existing?.target ?? null, target: p.target, storedRights: existing?.rights ?? [],
-   proposedRights: intent === 'forget' ? [] : intent==='grant_send'?['read','send']:['read'], expectedRevision: p.revision,
+   proposedRights: intent === 'forget' ? [] : intent === 'rebind_read' ? ['read'] : ['read', ...((intent === 'grant_send' || existing?.rights.includes('send') && intent !== 'revoke_send') ? ['send'] : []), ...((intent === 'grant_approve' || existing?.rights.includes('approve') && intent !== 'revoke_approve') ? ['approve'] : [])], expectedRevision: p.revision,
+   ...(intent === 'grant_approve' ? { policyFormatAfter: 2, requiresQuiescentWriters: true, compatibility: 'v1-only writers refuse v2; no downgrade; existing read/send preserved', requiresHumanConfirmation: true } : {}),
    humanProvenance: 'unknown', remote: 'not_checked' };
  }
  async #commit(c: ConversationKey, id: string, signal?: AbortSignal, upgrade = false): Promise<Result> {
@@ -237,14 +257,16 @@ export class LocalCodexMcp {
       next: 'fleet_check_read', remote: 'not_checked', humanProvenance: 'unknown' };
      p.outcome = { result }; return result;
     }
-    const selected = p.intent === 'forget' || p.intent === 'revoke_send' ? undefined : await this.#candidate(c,{ project: p.target.project, peer: p.target.peer });
+    const selected = p.intent === 'forget' || p.intent === 'revoke_send' || p.intent === 'revoke_approve' ? undefined : await this.#candidate(c,{ project: p.target.project, peer: p.target.peer });
     cancelled(); if (selected && !same(selected.target,p.target)) fail('TARGET_CHANGED');
     let state: StoreSnapshot;
     if (p.revision === null) { cancelled(); state = await p.store.initialize(); }
     else { state = await p.store.open(); if (state.revision !== p.revision) fail('STATE_CHANGED'); }
     cancelled();
     let revision: number;
-    if(p.intent==='grant_send')revision=(await p.store.grantSend(p.handle!,selected!.current)).revision;
+    if(p.intent==='grant_approve')revision=(await p.store.grantApprove(p.handle!,selected!.current)).revision;
+    else if(p.intent==='revoke_approve')revision=(await p.store.revokeApprove(p.alias,state.revision)).revision;
+    else if(p.intent==='grant_send')revision=(await p.store.grantSend(p.handle!,selected!.current)).revision;
     else if(p.intent==='revoke_send')revision=(await p.store.revokeSend(p.alias,state.revision)).revision;
     else if (p.intent === 'forget') revision = (await p.store.revoke(p.alias,state.revision)).revision;
     else if (p.intent === 'rebind_read') revision = (await p.store.rebind(p.alias,p.target,selected!.current,state.revision)).revision;
@@ -271,10 +293,13 @@ export class LocalCodexMcp {
     if (object(arguments_) && arguments_.intent === 'initialize_empty') fields(arguments_,['intent']);
     else {
      fields(arguments_,['intent','project','peer'],['bindingAlias']); query(arguments_);
-     if (!['enroll_read','rebind_read','forget','grant_send','revoke_send'].includes(arguments_.intent as string)
+     if (!['enroll_read','rebind_read','forget','grant_send','revoke_send','grant_approve','revoke_approve'].includes(arguments_.intent as string)
       || has(arguments_,'bindingAlias') && (!text(arguments_.bindingAlias) || arguments_.intent === 'enroll_read')) fail('INVALID_ARGUMENTS');
     }
    } else if(name==='fleet_journal_upgrade_prepare'){fields(arguments_,[]);}
+   else if(name==='fleet_permission_receipt'){fields(arguments_,['requestId']);}
+   else if(name==='fleet_permissions'){fields(arguments_,['target','operation','snapshot'],['cursor']);}
+   else if(name==='fleet_permission_decide'){fields(arguments_,['requestId','snapshot','decision','reason']);}
    else if(name==='fleet_journal_upgrade_commit'){fields(arguments_,['proposalId']);if(!uuid(arguments_.proposalId))fail('INVALID_ARGUMENTS');}
    else if(name==='fleet_instruction_prepare'){parseInstruction(arguments_);}
    else if(name==='fleet_instruction_receipt'||name==='fleet_answer_receipt'){parseReceipt(arguments_);}
@@ -298,6 +323,9 @@ export class LocalCodexMcp {
      : name === 'fleet_overview' ? await this.#overview.overview(c,a,signal)
      : name === 'fleet_resync' ? await this.#resync.resync(c,a,signal)
      : name === 'fleet_watch' ? await this.#resync.watch(c,a,signal)
+     : name === 'fleet_permission_receipt' ? this.#permissions.localReceipt(c,a)
+     : name === 'fleet_permissions' ? await this.#permissions.query(c,a,signal)
+     : name === 'fleet_permission_decide' ? await this.#permissions.decide(c,a,signal)
      : name==='fleet_instruction_prepare'?await this.#instructions.prepare(c,a)
      : name==='fleet_instruction_commit'?await this.#instructions.commit(c,a.proposalId as string,signal)
      : name==='fleet_instruction_receipt'?await this.#instructions.receipt(c,a,signal)

@@ -30,6 +30,22 @@ test("runtime request reaches the installed wrapper and its correlated remote ch
 	assert.notEqual(channel.submit(owner, question.id, "yes-2", { kind: "selection", selections: ["Да"] }).status, "accepted");
 });
 
+test('permission runtime ask bypasses both remote transports but keeps local human UI', async () => {
+ const events=createEventBus();const owner={project:'af',peer:'hub',sessionId:'permission',startedAt:'now'};
+ const channel=new QuestionChannel(()=>owner);channel.enabled=true;
+ let remote=0,stock=0,local=0;
+ installAskUserRemote({events,registerTool(){}},{questionChannel:channel,
+  startRemote:()=>{remote++;return null;},
+  stockFactory:pi=>pi.registerTool({name:'ask_user',execute:()=>{stock++;throw Error('must not use question wrapper');}}),
+ });
+ const result:any=await requestRuntimeAsk(events,'d6-permission',params,{hasUI:true,ui:{select:async()=>{local++;return 'Да';}}} as any,undefined,undefined,'permission');
+ assert.equal(result.details.response.selections[0],'Да');
+ assert.equal(local,1);assert.equal(stock,0);assert.equal(remote,0);
+ assert.deepEqual(channel.list(owner).questions,[]);
+ await assert.rejects(requestRuntimeAsk(events,'d6-headless',params,{hasUI:false} as any,undefined,undefined,'permission'),/no ask-user transport or local UI/);
+ assert.equal(remote,0);
+});
+
 test("missing wrapper uses local dialog; cancellation and absence of all UI fail closed", async () => {
 	const events = createEventBus(); let calls = 0;
 	const ctx: any = { hasUI: true, ui: { select: async (_title: string, options: string[]) => { calls++; return options[0]; } } };
