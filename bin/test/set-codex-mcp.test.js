@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,8 @@ import {
 import { extractSkillZip } from "../lib/skill-zip.js";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+const nodeTooOld = compareNodeVersion(process.version, MINIMUM_NODE) < 0;
+const CONFIG_TOML = `# user config\nmodel = "gpt-5" # inline comment\n\n[mcp_servers.other]\ncommand = "other"\n`;
 const disposables = [];
 
 test.after(() => {
@@ -39,19 +41,44 @@ function fixture() {
   const project = join(root, "project");
   for (const dir of [codexHome, registryRoot, project]) mkdirSync(dir, { recursive: true });
   const calls = [];
+  const probeCalls = [];
   const f = {
-    root, home, codexHome, registryRoot, project, calls,
+    root, home, codexHome, registryRoot, project, calls, probeCalls,
     globalEntries: [],
     cwdEntries: null,
+    addMode: "apply",
+    removeMode: "apply",
+    probeFails: false,
+    tick: 0,
     codex: async (args, { cwd } = {}) => {
       calls.push({ args, cwd });
       if (args.join(" ") === "--version") return "codex-cli 0.166.0\n";
+      if (args[0] === "mcp" && args[1] === "remove") {
+        if (f.removeMode !== "ignore") f.globalEntries = f.globalEntries.filter(entry => entry.name !== args[2]);
+        return `Removed global MCP server '${args[2]}'.\n`;
+      }
+      if (args[0] === "mcp" && args[1] === "add") {
+        assert.equal(args[3], "--", "launcher argv is separated from codex options");
+        if (f.addMode === "ignore") return "";
+        const [command, ...launcherArgs] = args.slice(4);
+        f.globalEntries = [...f.globalEntries.filter(entry => entry.name !== args[2]), { ...entryFor({ command, args: launcherArgs }), name: args[2] }];
+        return `Added global MCP server '${args[2]}'.\n`;
+      }
       if (args.join(" ") !== "mcp list --json") throw new Error(`unexpected codex call: ${args.join(" ")}`);
       const entries = cwd === codexHome ? f.globalEntries : (f.cwdEntries ?? f.globalEntries);
       return JSON.stringify(entries) + "\n";
     },
+    probe: async launcher => {
+      probeCalls.push(launcher);
+      if (f.probeFails) throw new Error("af-local-read probe failed: server exited before replying (code 1, signal null)\nstderr: LOCAL_MCP_START_FAILED");
+      return { serverInfo: { name: SERVER_NAME, version: "0.1.0" }, protocolVersion: "2025-06-18", toolCount: 24, toolNames: ["fleet_discover"], durationMs: 5 };
+    },
   };
   return f;
+}
+
+function seedConfig(f) {
+  writeFileSync(join(f.codexHome, "config.toml"), CONFIG_TOML, { mode: 0o600 });
 }
 
 function options(f, positionals, extra = {}) {
@@ -62,13 +89,15 @@ function options(f, positionals, extra = {}) {
     home: f.home,
     cwd: f.project,
     codex: f.codex,
+    probe: f.probe,
+    now: () => new Date(Date.UTC(2026, 10, 7, 12, 0, 0, f.tick++)),
     nodeVersion: "v25.0.0",
     ...extra,
   };
 }
 
 function layoutOf(f, extra = {}) {
-  const { positionals: _ignored, codex: _codex, nodeVersion: _node, ...rest } = options(f, ["status"], extra);
+  const { positionals: _ignored, codex: _codex, probe: _probe, now: _now, nodeVersion: _node, ...rest } = options(f, ["status"], extra);
   return resolveCodexMcpLayout(rest);
 }
 
@@ -369,13 +398,334 @@ test("unexpected Codex output is refused with the Codex version in the message",
   await assert.rejects(setCodexMcp(options(f, ["status"])), /codex mcp list --json/);
 });
 
-test("install, update, and uninstall are not available at this checkpoint and write nothing", async () => {
+test("full lifecycle: status → install → status → update → uninstall → status", async () => {
   const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  assert.equal((await setCodexMcp(options(f, ["status"]))).mcpState, "missing");
+
+  const installed = await setCodexMcp(options(f, ["install"]));
+  assert.equal(installed.mcpState, "current");
+  assert.equal(installed.skillState, "current");
+
+  const status = await setCodexMcp(options(f, ["status"]));
+  assert.equal(status.mcpState, "current");
+  assert.equal(status.skillState, "current");
+  assert.equal(status.skillReceiptState, "managed");
+
+  const updated = await setCodexMcp(options(f, ["update"]));
+  assert.equal(updated.changed, false);
+
+  f.calls.length = 0;
+  const removed = await setCodexMcp(options(f, ["uninstall"]));
+  assert.equal(removed.action, "uninstall");
+  assert.equal(removed.changed, true);
+  assert.equal(removed.mode, "remove");
+  assert.equal(removed.skillMode, "remove");
+  assert.equal(removed.bindingsRetained, true);
+  assert.match(removed.bindingsHint, /forget, revoke_send or revoke_approve/);
+  assert.equal(removed.mcpState, "missing");
+  assert.equal(removed.skillState, "missing");
+  assert.equal(removed.mcpReceiptState, "unmanaged");
+  assert.equal(removed.skillReceiptState, "unmanaged");
+  assert.deepEqual(f.calls.find(call => call.args[1] === "remove"), { args: ["mcp", "remove", SERVER_NAME], cwd: f.codexHome });
+  assert.deepEqual(f.calls.map(call => call.args.slice(0, 2).join(" ")), ["mcp list", "mcp list", "mcp remove", "mcp list", "mcp list", "mcp list"]);
+  assert.equal(existsSync(layout.skillDir), false);
+  assert.equal(existsSync(layout.receipts.mcp), false);
+  assert.equal(existsSync(layout.receipts.skill), false);
+  assert.ok(removed.skillBackupDir.startsWith(join(layout.backupsDir, `${SKILL_NAME}-uninstall-`)));
+  assert.equal(readFileSync(join(removed.skillBackupDir, "SKILL.md"), "utf8"), readFileSync(join(repoRoot, "skills", SKILL_NAME, "SKILL.md"), "utf8"));
+  assert.ok(removed.backupPath.startsWith(join(layout.backupsDir, "config.toml-")));
+  assert.equal(readFileSync(removed.backupPath, "utf8"), CONFIG_TOML);
+  assert.equal(statSync(removed.backupPath).mode & 0o777, 0o600);
+  assert.equal(existsSync(join(layout.stateDir, "state")), true, "the policy state parent is left alone");
+
+  assert.equal((await setCodexMcp(options(f, ["status"]))).mcpState, "missing");
+});
+
+test("skill install refuses a symlinked target even with --force and applies nothing", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  mkdirSync(layout.skillsDir, { recursive: true });
+  symlinkSync(join(repoRoot, "skills", SKILL_NAME), layout.skillDir);
   const before = snapshot(f.root);
-  for (const action of ["install", "update", "uninstall"]) {
-    await assert.rejects(setCodexMcp(options(f, [action])), /not available/);
-  }
+  await assert.rejects(setCodexMcp(options(f, ["install"], { force: true })), /is a symlink; remove it yourself/);
   assert.deepEqual(snapshot(f.root), before);
+  assert.deepEqual(f.probeCalls, []);
+  assert.equal(f.calls.some(call => call.args[1] === "add"), false);
+});
+
+test("a drifted skill copy refuses without --force and is backed up with it; an identical copy is adopted", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  await setCodexMcp(options(f, ["install"]));
+  writeFileSync(join(layout.skillDir, "SKILL.md"), "edited\n");
+  await assert.rejects(setCodexMcp(options(f, ["update"])), /differs from the packaged skill.*--force/);
+  assert.equal(readFileSync(join(layout.skillDir, "SKILL.md"), "utf8"), "edited\n");
+
+  const forced = await setCodexMcp(options(f, ["update"], { force: true }));
+  assert.equal(forced.skillMode, "install");
+  assert.equal(forced.skillState, "current");
+  assert.equal(forced.mode, "none", "the MCP entry was already current");
+  assert.equal(forced.probe, null);
+  assert.ok(forced.skillBackupDir.startsWith(join(layout.backupsDir, `${SKILL_NAME}-`)));
+  assert.equal(readFileSync(join(forced.skillBackupDir, "SKILL.md"), "utf8"), "edited\n");
+
+  const adopt = fixture();
+  const adoptLayout = layoutOf(adopt);
+  const staged = extractSkillZip(adoptLayout.skillZip, join(adopt.root, "staging"));
+  mkdirSync(adoptLayout.skillsDir, { recursive: true });
+  renameSync(staged.root, adoptLayout.skillDir);
+  const adopted = await setCodexMcp(options(adopt, ["install"]));
+  assert.equal(adopted.skillMode, "adopt");
+  assert.equal(adopted.skillReceiptState, "managed");
+  assert.equal(adopted.skillBackupDir, null);
+  assert.equal(statSync(adoptLayout.receipts.skill).mode & 0o777, 0o600);
+});
+
+test("uninstall refuses unmanaged or drifted pieces without --force and never touches a symlinked skill", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  f.globalEntries = [entryFor(layout.launcher)];
+  await assert.rejects(setCodexMcp(options(f, ["uninstall"])), /not managed by a receipt.*--force/);
+  assert.equal(f.calls.some(call => call.args[1] === "remove"), false);
+  const forced = await setCodexMcp(options(f, ["uninstall"], { force: true }));
+  assert.equal(forced.mode, "remove");
+  assert.equal(forced.mcpState, "missing");
+  assert.equal(readFileSync(forced.backupPath, "utf8"), CONFIG_TOML);
+
+  const drifted = fixture();
+  seedConfig(drifted);
+  const driftedLayout = layoutOf(drifted);
+  await setCodexMcp(options(drifted, ["install"]));
+  writeFileSync(join(driftedLayout.skillDir, "SKILL.md"), "edited\n");
+  await assert.rejects(setCodexMcp(options(drifted, ["uninstall"])), /is drifted\/drifted.*--force/);
+  assert.equal(existsSync(driftedLayout.skillDir), true);
+  assert.equal((await inspectCodexMcp(options(drifted, ["status"]))).mcpState, "current", "a refused uninstall removes nothing, not even the managed entry");
+  const removed = await setCodexMcp(options(drifted, ["uninstall"], { force: true }));
+  assert.equal(removed.skillMode, "remove");
+  assert.equal(readFileSync(join(removed.skillBackupDir, "SKILL.md"), "utf8"), "edited\n");
+  assert.equal(removed.mcpState, "missing");
+  assert.equal(removed.skillState, "missing");
+
+  const linked = fixture();
+  const linkedLayout = layoutOf(linked);
+  mkdirSync(linkedLayout.skillsDir, { recursive: true });
+  symlinkSync(join(repoRoot, "skills", SKILL_NAME), linkedLayout.skillDir);
+  await assert.rejects(setCodexMcp(options(linked, ["uninstall"], { force: true })), /symlink that this command did not create; remove it yourself/);
+  assert.equal(lstatSync(linkedLayout.skillDir).isSymbolicLink(), true);
+});
+
+test("uninstall dry-run reports removals without writing, and a clean host is a no-op", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  const clean = await setCodexMcp(options(f, ["uninstall"]));
+  assert.equal(clean.changed, false);
+  assert.equal(clean.bindingsRetained, true);
+  assert.equal(f.calls.some(call => call.args[1] === "remove"), false);
+
+  await setCodexMcp(options(f, ["install"]));
+  const before = snapshot(f.root);
+  f.calls.length = 0;
+  const dry = await setCodexMcp(options(f, ["uninstall"], { dryRun: true }));
+  assert.equal(dry.dryRun, true);
+  assert.equal(dry.changed, true);
+  assert.equal(dry.mode, "remove");
+  assert.equal(dry.skillMode, "remove");
+  assert.ok(dry.backupPath.startsWith(join(layout.backupsDir, "config.toml-")));
+  assert.ok(dry.skillBackupDir.startsWith(join(layout.backupsDir, `${SKILL_NAME}-uninstall-`)));
+  assert.deepEqual(f.calls.map(call => call.args.slice(0, 2).join(" ")), ["mcp list", "mcp list"]);
+  assert.deepEqual(snapshot(f.root), before);
+
+  f.removeMode = "ignore";
+  await assert.rejects(setCodexMcp(options(f, ["uninstall"])), /still reports an af-local-read entry after remove; receipt kept/);
+  assert.equal(existsSync(layout.receipts.mcp), true);
+  assert.equal(existsSync(layout.skillDir), true, "the skill is removed only after the entry is confirmed gone");
+});
+
+test("install on a missing entry probes, backs up config.toml, adds through codex, re-reads, and writes a receipt", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  const result = await setCodexMcp(options(f, ["install"]));
+  assert.equal(result.action, "install");
+  assert.equal(result.mode, "add");
+  assert.equal(result.changed, true);
+  assert.equal(result.mcpState, "current");
+  assert.equal(result.mcpReceiptState, "managed");
+  assert.equal(result.probe.toolCount, 24);
+  assert.deepEqual(f.probeCalls, [{ command: layout.launcher.command, args: layout.launcher.args, expectedName: SERVER_NAME, timeoutMs: 10000 }]);
+  assert.deepEqual(result.codexArgv, ["mcp", "add", SERVER_NAME, "--", layout.launcher.command, ...layout.launcher.args]);
+  assert.deepEqual(f.calls.find(call => call.args[1] === "add"), { args: result.codexArgv, cwd: f.codexHome });
+  assert.deepEqual(
+    f.calls.map(call => call.args.slice(0, 2).join(" ")),
+    ["mcp list", "mcp list", "mcp add", "mcp list", "mcp list", "mcp list"],
+    "inspect, add, re-read, inspect again",
+  );
+  const receipt = JSON.parse(readFileSync(layout.receipts.mcp, "utf8"));
+  assert.deepEqual(receipt, { schemaVersion: 1, name: SERVER_NAME, fingerprint: launcherFingerprint(layout.launcher), launcher: layout.launcher });
+  assert.equal(statSync(layout.receipts.mcp).mode & 0o777, 0o600);
+  assert.equal(result.backupPath, join(layout.backupsDir, "config.toml-2026-11-07T12-00-00-000Z"));
+  assert.equal(readFileSync(result.backupPath, "utf8"), CONFIG_TOML);
+  assert.equal(statSync(result.backupPath).mode & 0o777, 0o600);
+  for (const dir of [layout.stateDir, layout.backupsDir, join(layout.stateDir, "state")]) assert.equal(statSync(dir).mode & 0o777, 0o700, dir);
+  assert.equal(existsSync(layout.policyRoot), false, "the server, not the installer, creates the policy root on first use");
+  assert.equal(result.skillMode, "install");
+  assert.equal(result.skillState, "current");
+  assert.equal(result.skillReceiptState, "managed");
+  assert.equal(result.skillBackupDir, null);
+  assert.equal(readFileSync(join(layout.skillDir, "SKILL.md"), "utf8"), readFileSync(join(repoRoot, "skills", SKILL_NAME, "SKILL.md"), "utf8"));
+  assert.equal(statSync(join(f.home, ".agents")).mode & 0o777, 0o700);
+  assert.equal(statSync(layout.skillsDir).mode & 0o777, 0o700);
+  assert.equal(statSync(layout.skillDir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(layout.skillDir, "SKILL.md")).mode & 0o777, 0o600);
+  assert.equal(statSync(layout.receipts.skill).mode & 0o777, 0o600);
+  assert.deepEqual(readdirSync(layout.skillsDir), [SKILL_NAME], "no temp entry survives beside the skill");
+});
+
+test("install adopts a matching unmanaged entry by writing only the receipt", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  f.globalEntries = [entryFor(layout.launcher)];
+  const result = await setCodexMcp(options(f, ["install"]));
+  assert.equal(result.mode, "adopt");
+  assert.equal(result.changed, true);
+  assert.equal(result.mcpState, "current");
+  assert.equal(result.backupPath, null);
+  assert.equal(result.codexArgv, null);
+  assert.equal(f.probeCalls.length, 1, "adoption still proves the launcher starts");
+  assert.equal(f.calls.some(call => call.args[1] === "add"), false);
+  assert.equal(existsSync(layout.backupsDir), false);
+  assert.equal(statSync(layout.receipts.mcp).mode & 0o777, 0o600);
+});
+
+test("update on a current entry changes nothing and runs no probe", async () => {
+  const f = fixture();
+  seedConfig(f);
+  await setCodexMcp(options(f, ["install"]));
+  const before = snapshot(f.root);
+  f.calls.length = 0;
+  f.probeCalls.length = 0;
+  const result = await setCodexMcp(options(f, ["update"]));
+  assert.equal(result.mode, "none");
+  assert.equal(result.skillMode, "none");
+  assert.equal(result.changed, false);
+  assert.equal(result.probe, null);
+  assert.deepEqual(f.probeCalls, []);
+  assert.deepEqual(f.calls.map(call => call.args.slice(0, 2).join(" ")), ["mcp list", "mcp list"]);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test("drifted and broken entries refuse without --force and are replaced with it after a backup", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  f.globalEntries = [entryFor({ command: layout.launcher.command, args: layout.launcher.args.map(arg => (arg === "desktop" ? "old-profile" : arg)) })];
+  const before = snapshot(f.root);
+  await assert.rejects(setCodexMcp(options(f, ["update"])), /drifted.*--force/);
+  assert.deepEqual(snapshot(f.root), before);
+  assert.equal(f.calls.some(call => call.args[1] === "add"), false);
+  assert.deepEqual(f.probeCalls, []);
+
+  const forced = await setCodexMcp(options(f, ["update"], { force: true }));
+  assert.equal(forced.mode, "add");
+  assert.equal(forced.mcpState, "current");
+  assert.equal(readFileSync(forced.backupPath, "utf8"), CONFIG_TOML);
+
+  const broken = fixture();
+  broken.globalEntries = [entryFor({ command: join(broken.root, "missing-node"), args: layoutOf(broken).launcher.args })];
+  await assert.rejects(setCodexMcp(options(broken, ["install"])), /broken.*--force/);
+  const repaired = await setCodexMcp(options(broken, ["install"], { force: true }));
+  assert.equal(repaired.mcpState, "current");
+  assert.equal(repaired.backupPath, null, "no config.toml existed to back up");
+});
+
+test("a failed probe or a refusal in status prevents every write", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const before = snapshot(f.root);
+  f.probeFails = true;
+  await assert.rejects(setCodexMcp(options(f, ["install"])), /probe failed[\s\S]*LOCAL_MCP_START_FAILED/);
+  assert.equal(f.calls.some(call => call.args[1] === "add"), false);
+  assert.deepEqual(snapshot(f.root), before, "no directories, backup, or receipt after a failed probe");
+
+  f.probeFails = false;
+  f.probeCalls.length = 0;
+  await assert.rejects(setCodexMcp(options(f, ["install"], { nodeVersion: "v20.0.0" })), /refusing install[\s\S]*Node v20\.0\.0/);
+  await assert.rejects(setCodexMcp(options(f, ["install"], { nodeVersion: "v20.0.0", dryRun: true })), /refusing install/);
+  assert.deepEqual(f.probeCalls, []);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test("a re-read that does not show the exact launcher leaves no receipt and names the backup", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  f.addMode = "ignore";
+  await assert.rejects(setCodexMcp(options(f, ["install"])), /no af-local-read entry after add[\s\S]*receipt not written[\s\S]*config\.toml-2026-11-07T12-00-00-000Z/);
+  assert.equal(existsSync(layout.receipts.mcp), false);
+  assert.equal(readFileSync(join(layout.backupsDir, "config.toml-2026-11-07T12-00-00-000Z"), "utf8"), CONFIG_TOML);
+});
+
+test("dry-run reports the mode and argv without probing or writing", async () => {
+  const f = fixture();
+  seedConfig(f);
+  const layout = layoutOf(f);
+  const before = snapshot(f.root);
+  const result = await setCodexMcp(options(f, ["install"], { dryRun: true }));
+  assert.equal(result.dryRun, true);
+  assert.equal(result.mode, "add");
+  assert.equal(result.changed, true);
+  assert.equal(result.probe, null);
+  assert.deepEqual(result.codexArgv, ["mcp", "add", SERVER_NAME, "--", layout.launcher.command, ...layout.launcher.args]);
+  assert.equal(result.backupPath, join(layout.backupsDir, "config.toml-2026-11-07T12-00-00-000Z"));
+  assert.deepEqual(f.probeCalls, []);
+  assert.equal(f.calls.some(call => call.args[1] === "add"), false);
+  assert.deepEqual(snapshot(f.root), before);
+
+  f.globalEntries = [entryFor(layout.launcher)];
+  const adopt = await setCodexMcp(options(f, ["update"], { dryRun: true }));
+  assert.equal(adopt.mode, "adopt");
+  assert.equal(adopt.codexArgv, null);
+  assert.equal(adopt.backupPath, null);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test("paths with spaces survive the launcher, the codex argv, and the backup", async () => {
+  const f = fixture();
+  const home = join(f.root, "home dir");
+  const codexHome = join(home, ".codex");
+  mkdirSync(codexHome, { recursive: true });
+  writeFileSync(join(codexHome, "config.toml"), CONFIG_TOML);
+  const registryRoot = join(f.root, "coms root");
+  mkdirSync(registryRoot);
+  const spaced = { ...f, home, codexHome };
+  spaced.codex = async (args, { cwd } = {}) => f.codex(args, { cwd: cwd === codexHome ? f.codexHome : cwd });
+  const result = await setCodexMcp(options(spaced, ["install"], { env: { CODEX_HOME: codexHome, PI_COMS_DIR: registryRoot } }));
+  assert.equal(result.mode, "add");
+  assert.equal(result.mcpState, "current");
+  assert.ok(result.codexArgv.includes(registryRoot));
+  assert.ok(result.codexArgv.includes(join(codexHome, "agent-fleet", "state", "fleet-native")));
+  assert.equal(result.registryRoot, registryRoot);
+  assert.equal(readFileSync(result.backupPath, "utf8"), CONFIG_TOML);
+  assert.equal(result.backupPath.startsWith(join(codexHome, "agent-fleet", "backups")), true);
+});
+
+test("install with the real probe starts the packaged runtime and creates no policy state", { skip: nodeTooOld && `needs Node ${MINIMUM_NODE}` }, async () => {
+  const f = fixture();
+  const layout = layoutOf(f);
+  const result = await setCodexMcp(options(f, ["install"], { probe: undefined }));
+  assert.equal(result.mode, "add");
+  assert.equal(result.probe.serverInfo.name, SERVER_NAME);
+  assert.ok(result.probe.toolCount >= 1);
+  assert.equal(result.mcpState, "current");
+  assert.equal(existsSync(layout.policyRoot), false);
+  for (const suffix of [".observations", ".instructions", ".reports", ".permissions"]) assert.equal(existsSync(layout.policyRoot + suffix), false);
 });
 
 test("CLI publishes per-command help, lists the command, and rejects unknown actions", () => {

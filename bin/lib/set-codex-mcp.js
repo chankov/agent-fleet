@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { chmodSync, constants as fsConstants, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-import { SAFE_NAME_RE, directoryFingerprint } from "./hermes-profile-artifact.js";
+import { SAFE_NAME_RE, atomicInstallArtifact, directoryFingerprint, writeReceipt } from "./hermes-profile-artifact.js";
 import { extractSkillZip } from "./skill-zip.js";
+import { probeMcpServer } from "./mcp-probe.js";
 
 /**
  * `agent-fleet set-codex-mcp`: user-level registration of the native Codex MCP
@@ -24,6 +25,7 @@ const DEFAULT_HOST_PROFILE = "desktop";
 const DEFAULT_PRINCIPAL = "local-user";
 /** Sibling namespaces the server derives from `--policy-root`; they must stay disjoint from every other root. */
 const STATE_SUFFIXES = [".observations", ".instructions", ".reports", ".permissions"];
+const PROBE_TIMEOUT_MS = 10000;
 
 function usage() {
   return new Error(
@@ -93,6 +95,7 @@ export function resolveCodexMcpLayout({
     home,
     stateDir,
     backupsDir: join(stateDir, "backups"),
+    configPath: join(codexHome, "config.toml"),
     receipts: {
       mcp: join(stateDir, `${SERVER_NAME}.receipt.json`),
       skill: join(stateDir, `${SKILL_NAME}.receipt.json`),
@@ -394,6 +397,8 @@ export async function inspectCodexMcp(options) {
     nodeVersion,
     codexHome: layout.codexHome,
     stateDir: layout.stateDir,
+    configPath: layout.configPath,
+    backupsDir: layout.backupsDir,
     operatorCwd: layout.operatorCwd,
     codexCwd,
     launcher: layout.launcher,
@@ -420,8 +425,275 @@ export async function inspectCodexMcp(options) {
   };
 }
 
+/** What an explicit install/update would do to the user-level entry, without touching anything. */
+export function planMcpInstall(before, force) {
+  switch (before.mcpState) {
+    case "missing":
+      return { mode: "add", reason: "no user-level entry" };
+    case "adoptable":
+      return { mode: "adopt", reason: "the entry matches the launcher but has no receipt" };
+    case "current":
+      return { mode: "none", reason: "the entry and its receipt already match" };
+    default:
+      if (!force) throw new Error(`${SERVER_NAME} entry is ${before.mcpState}; re-run with --force to back up config.toml and replace it`);
+      return { mode: "add", reason: `${before.mcpState} entry replaced with --force` };
+  }
+}
+
+/** What an explicit install/update would do to the skill copy under ~/.agents/skills. */
+export function planSkillInstall(before, force) {
+  switch (before.skillState) {
+    case "missing":
+      return { mode: "install", reason: "skill not installed" };
+    case "symlink":
+      throw new Error(`${before.skillDir} is a symlink; remove it yourself before installing the packaged skill copy`);
+    case "current":
+      if (before.skillReceiptState === "managed") return { mode: "none", reason: "the skill and its receipt already match" };
+      if (before.skillReceiptState === "unmanaged") return { mode: "adopt", reason: "the skill matches the package but has no receipt" };
+      if (!force) throw new Error(`${SKILL_NAME} has an unreadable or mismatched receipt; re-run with --force to back up the tree and reinstall it`);
+      return { mode: "install", reason: "mismatched receipt replaced with --force" };
+    default:
+      if (!force) throw new Error(`${SKILL_NAME} at ${before.skillDir} differs from the packaged skill; re-run with --force to back it up and replace it`);
+      return { mode: "install", reason: "drifted skill replaced with --force" };
+  }
+}
+
+export const BINDINGS_HINT = "persisted bindings in --policy-root stay until forget, revoke_send or revoke_approve in a Codex chat; the policy state, any legacy archive and project .codex/config.toml files are untouched";
+
+/** What an explicit uninstall would remove: only pieces a receipt proves this command installed, unless forced. */
+export function planUninstall(before, force) {
+  let mcp;
+  if (before.mcpState === "missing") {
+    mcp = before.mcpReceiptState === "unmanaged" ? { mode: "none", reason: "no user-level entry" } : { mode: "receipt", reason: "stale receipt without an entry" };
+  } else if (before.mcpReceiptState === "managed") {
+    mcp = { mode: "remove", reason: "managed entry" };
+  } else if (!force) {
+    throw new Error(`${SERVER_NAME} entry is ${before.mcpState} and not managed by a receipt; re-run with --force to back up config.toml and remove it anyway`);
+  } else {
+    mcp = { mode: "remove", reason: `${before.mcpState} entry removed with --force` };
+  }
+  let skill;
+  if (before.skillState === "missing") {
+    skill = before.skillReceiptState === "unmanaged" ? { mode: "none", reason: "skill not installed" } : { mode: "receipt", reason: "stale receipt without a skill tree" };
+  } else if (before.skillState === "symlink") {
+    throw new Error(`${before.skillDir} is a symlink that this command did not create; remove it yourself`);
+  } else if (before.skillState === "current" && before.skillReceiptState === "managed") {
+    skill = { mode: "remove", reason: "managed skill copy" };
+  } else if (!force) {
+    throw new Error(`${SKILL_NAME} at ${before.skillDir} is ${before.skillState}/${before.skillReceiptState}; re-run with --force to back it up and remove only this tree`);
+  } else {
+    skill = { mode: "remove", reason: `${before.skillState} skill removed with --force` };
+  }
+  return { mcp, skill };
+}
+
+function ensurePrivateDirectory(dir, parent) {
+  if (existsSync(dir)) {
+    const stat = lstatSync(dir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`refusing to use ${dir}: not a plain directory`);
+    return;
+  }
+  if (parent) ensurePrivateDirectory(parent);
+  mkdirSync(dir, { mode: 0o700 });
+}
+
+function stampOf(date) {
+  return date.toISOString().replace(/[:.]/g, "-");
+}
+
+/** Copy config.toml aside (0600): `codex mcp add`/`remove` rewrite the file and drop inline comments. */
+function backupConfig(configPath, backupsDir, stamp) {
+  if (!existsSync(configPath)) return null;
+  const stat = lstatSync(configPath);
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`refusing to back up ${configPath}: not a plain file`);
+  const target = join(backupsDir, `config.toml-${stamp}`);
+  copyFileSync(configPath, target, fsConstants.COPYFILE_EXCL);
+  chmodSync(target, 0o600);
+  return target;
+}
+
+function writeMcpReceipt(path, launcher) {
+  const body = JSON.stringify({ schemaVersion: 1, name: SERVER_NAME, fingerprint: launcherFingerprint(launcher), launcher }, null, 2) + "\n";
+  rmSync(path, { force: true });
+  writeFileSync(path, body, { mode: 0o600 });
+}
+
+/** Move a directory into the backups root, copying when the two live on different filesystems. */
+function moveToBackup(source, target) {
+  try {
+    renameSync(source, target);
+  } catch (error) {
+    if (error?.code !== "EXDEV") throw error;
+    cpSync(source, target, { recursive: true, errorOnExist: true, force: false });
+    rmSync(source, { recursive: true, force: true });
+  }
+}
+
+/** Unpack the packaged skill into a temporary directory; the caller removes it. */
+function stageSkill(layout) {
+  const temp = mkdtempSync(join(tmpdir(), "agent-fleet-skill-"));
+  try {
+    const extracted = extractSkillZip(layout.skillZip, join(temp, "zip"));
+    if (extracted.name !== SKILL_NAME) throw new Error(`packaged archive ${layout.skillZip} contains ${JSON.stringify(extracted.name)}, expected ${SKILL_NAME}`);
+    return { temp, sourceDir: extracted.root };
+  } catch (error) {
+    rmSync(temp, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** cpSync creates directories with the umask default; keep the private copy 0700/0600 like the rest of our state. */
+function tightenTree(root) {
+  const stat = lstatSync(root);
+  if (stat.isSymbolicLink()) return;
+  if (stat.isDirectory()) {
+    chmodSync(root, 0o700);
+    for (const entry of readdirSync(root)) tightenTree(join(root, entry));
+  } else if (stat.isFile()) {
+    chmodSync(root, 0o600);
+  }
+}
+
+function installSkill(mode, before, layout, at) {
+  ensurePrivateDirectory(layout.stateDir, layout.codexHome);
+  if (mode === "adopt") {
+    const fresh = directoryFingerprint(layout.skillDir);
+    if (fresh !== before.skillSourceFingerprint) throw new Error(`${SKILL_NAME} changed while being adopted; re-run status and retry`);
+    writeReceipt(layout.receipts.skill, { name: SKILL_NAME, fingerprint: fresh });
+    return null;
+  }
+  const staged = stageSkill(layout);
+  try {
+    const backupDir = atomicInstallArtifact({
+      sourceDir: staged.sourceDir,
+      installedDir: layout.skillDir,
+      skillsDir: layout.skillsDir,
+      backupRoot: layout.backupsDir,
+      name: SKILL_NAME,
+      receipt: layout.receipts.skill,
+      now: () => at,
+      label: "Codex skills",
+    });
+    tightenTree(layout.skillDir);
+    return backupDir;
+  } finally {
+    rmSync(staged.temp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * install/update: refuse on status errors, plan both pieces, prove the
+ * launcher starts, back up config.toml, register through `codex mcp add`,
+ * re-read, write the receipt, then install the skill copy. A dry run reports
+ * the modes, argv and planned backups and neither probes nor writes.
+ */
+async function installAll(action, before, options) {
+  if (before.errors.length) throw new Error(`refusing ${action}:\n- ${before.errors.join("\n- ")}`);
+  const mcpPlan = planMcpInstall(before, options.force);
+  const skillPlan = planSkillInstall(before, options.force);
+  const layout = resolveCodexMcpLayout(options);
+  const codexArgv = mcpPlan.mode === "add" ? ["mcp", "add", SERVER_NAME, "--", before.launcher.command, ...before.launcher.args] : null;
+  const changed = mcpPlan.mode !== "none" || skillPlan.mode !== "none";
+  const summary = { action, mode: mcpPlan.mode, reason: mcpPlan.reason, skillMode: skillPlan.mode, skillReason: skillPlan.reason, changed, codexArgv };
+  if (!changed) return { ...before, ...summary, probe: null, backupPath: null, skillBackupDir: null };
+  const at = (options.now ?? (() => new Date()))();
+  const stamp = stampOf(at);
+  if (options.dryRun) {
+    return {
+      ...before,
+      ...summary,
+      dryRun: true,
+      probe: null,
+      backupPath: mcpPlan.mode === "add" && existsSync(layout.configPath) ? join(layout.backupsDir, `config.toml-${stamp}`) : null,
+      skillBackupDir: skillPlan.mode === "install" && before.skillState !== "missing" ? join(layout.backupsDir, `${SKILL_NAME}-${stamp}`) : null,
+    };
+  }
+
+  let probed = null;
+  let backupPath = null;
+  if (mcpPlan.mode !== "none") {
+    const probe = options.probe ?? probeMcpServer;
+    probed = await probe({ command: before.launcher.command, args: before.launcher.args, expectedName: SERVER_NAME, timeoutMs: PROBE_TIMEOUT_MS });
+    const codex = options.codex ?? runCodexCommand;
+    ensurePrivateDirectory(layout.stateDir, layout.codexHome);
+    // The server creates --policy-root itself on first use but requires its parent to exist.
+    if (layout.policyRootIsDefault) ensurePrivateDirectory(dirname(layout.policyRoot), layout.stateDir);
+    if (mcpPlan.mode === "add") {
+      ensurePrivateDirectory(layout.backupsDir, layout.stateDir);
+      backupPath = backupConfig(layout.configPath, layout.backupsDir, stamp);
+      await codex(codexArgv, { cwd: before.codexCwd });
+    }
+    const entry = (await listServers(codex, before.codexCwd)).find(candidate => candidate.name === SERVER_NAME);
+    const check = evaluateMcpEntry(entry, before.launcher, "unmanaged");
+    if (check.mcpState !== "adoptable") {
+      const seen = check.mcpState === "missing" ? "no" : `a ${check.mcpState}`;
+      throw new Error(`codex reports ${seen} ${SERVER_NAME} entry after ${mcpPlan.mode}; receipt not written${backupPath ? `; config.toml backup: ${backupPath}` : ""}`);
+    }
+    writeMcpReceipt(layout.receipts.mcp, before.launcher);
+  }
+  let skillBackupDir = null;
+  if (skillPlan.mode !== "none") skillBackupDir = installSkill(skillPlan.mode, before, layout, at);
+  const after = await inspectCodexMcp(options);
+  return { ...after, ...summary, probe: probed, backupPath, skillBackupDir };
+}
+
+/**
+ * uninstall: remove only what a receipt proves this command installed (or
+ * anything, with --force, after backing it up). Policy state, legacy archives
+ * and project config files are never touched, and bindings are not revoked.
+ */
+async function uninstallAll(before, options) {
+  const planned = planUninstall(before, options.force);
+  const layout = resolveCodexMcpLayout(options);
+  const changed = planned.mcp.mode !== "none" || planned.skill.mode !== "none";
+  const summary = {
+    action: "uninstall",
+    mode: planned.mcp.mode,
+    reason: planned.mcp.reason,
+    skillMode: planned.skill.mode,
+    skillReason: planned.skill.reason,
+    changed,
+    bindingsRetained: true,
+    bindingsHint: BINDINGS_HINT,
+  };
+  if (!changed) return { ...before, ...summary, backupPath: null, skillBackupDir: null };
+  const stamp = stampOf((options.now ?? (() => new Date()))());
+  const skillBackupDir = planned.skill.mode === "remove" ? join(layout.backupsDir, `${SKILL_NAME}-uninstall-${stamp}`) : null;
+  if (options.dryRun) {
+    return {
+      ...before,
+      ...summary,
+      dryRun: true,
+      backupPath: planned.mcp.mode === "remove" && existsSync(layout.configPath) ? join(layout.backupsDir, `config.toml-${stamp}`) : null,
+      skillBackupDir,
+    };
+  }
+
+  const codex = options.codex ?? runCodexCommand;
+  let backupPath = null;
+  if (planned.mcp.mode === "remove") {
+    ensurePrivateDirectory(layout.stateDir, layout.codexHome);
+    ensurePrivateDirectory(layout.backupsDir, layout.stateDir);
+    backupPath = backupConfig(layout.configPath, layout.backupsDir, stamp);
+    await codex(["mcp", "remove", SERVER_NAME], { cwd: before.codexCwd });
+    const entry = (await listServers(codex, before.codexCwd)).find(candidate => candidate.name === SERVER_NAME);
+    if (entry) throw new Error(`codex still reports an ${SERVER_NAME} entry after remove; receipt kept${backupPath ? `; config.toml backup: ${backupPath}` : ""}`);
+  }
+  if (planned.mcp.mode !== "none") rmSync(layout.receipts.mcp, { force: true });
+  if (planned.skill.mode === "remove") {
+    ensurePrivateDirectory(layout.stateDir, layout.codexHome);
+    ensurePrivateDirectory(layout.backupsDir, layout.stateDir);
+    moveToBackup(layout.skillDir, skillBackupDir);
+  }
+  if (planned.skill.mode !== "none") rmSync(layout.receipts.skill, { force: true });
+  const after = await inspectCodexMcp(options);
+  return { ...after, ...summary, backupPath, skillBackupDir };
+}
+
 export async function setCodexMcp(options) {
   const { action } = parseSetCodexMcpArgs(options.positionals);
-  if (action !== "status") throw new Error(`${action} is not available at this checkpoint; only status is implemented`);
-  return inspectCodexMcp(options);
+  const before = await inspectCodexMcp(options);
+  if (action === "status") return before;
+  if (action === "uninstall") return uninstallAll(before, options);
+  return installAll(action, before, options);
 }

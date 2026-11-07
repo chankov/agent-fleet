@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const ANSI_RE = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 
@@ -80,13 +80,13 @@ export function directoryFingerprint(root) {
   return hash.digest("hex");
 }
 
-export function ensurePlainDirectory(dir, parent) {
+export function ensurePlainDirectory(dir, parent, label = "Hermes") {
   if (existsSync(dir)) {
     const stat = lstatSync(dir);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`refusing unsafe Hermes directory: ${dir}`);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`refusing unsafe ${label} directory: ${dir}`);
     return;
   }
-  if (parent) ensurePlainDirectory(parent);
+  if (parent) ensurePlainDirectory(parent, undefined, label);
   mkdirSync(dir, { mode: 0o700 });
 }
 
@@ -112,20 +112,31 @@ export function writeReceipt(receipt, { name, fingerprint }) {
  * prior complete tree or the new complete tree plus a valid receipt — never a
  * partial tree, a stray temp entry, or a new tree without its receipt.
  * Returns the backup directory holding the replaced tree, or null.
+ *
+ * The Hermes layout (`<profile>/skills`, `<profile>/backups/agent-fleet`) is
+ * the default; `skillsDir`, `backupRoot` and `label` let another host (the
+ * Codex skill copy under `~/.agents/skills`) reuse the same transaction.
  */
-export function atomicInstallArtifact({ sourceDir, installedDir, profilePath, name, now = () => new Date(), receipt }) {
-  const skillsDir = join(profilePath, "skills");
-  ensurePlainDirectory(skillsDir, profilePath);
+export function atomicInstallArtifact({
+  sourceDir,
+  installedDir,
+  profilePath,
+  name,
+  now = () => new Date(),
+  receipt,
+  skillsDir = join(profilePath, "skills"),
+  backupRoot = join(profilePath, "backups", "agent-fleet"),
+  label = "Hermes",
+}) {
+  ensurePlainDirectory(skillsDir, dirname(skillsDir), label);
   const temp = join(skillsDir, `.${name}.tmp-${process.pid}-${randomUUID()}`);
-  const backupRoot = join(profilePath, "backups", "agent-fleet");
   let backupDir = null;
   let installed = false;
   try {
     cpSync(sourceDir, temp, { recursive: true, errorOnExist: true, force: false });
     directoryFingerprint(temp);
     if (existsSync(installedDir)) {
-      ensurePlainDirectory(join(profilePath, "backups"), profilePath);
-      ensurePlainDirectory(backupRoot, join(profilePath, "backups"));
+      ensurePlainDirectory(backupRoot, dirname(backupRoot), label);
       backupDir = join(backupRoot, `${name}-${now().toISOString().replace(/[:.]/g, "-")}`);
       renameSync(installedDir, backupDir);
     }

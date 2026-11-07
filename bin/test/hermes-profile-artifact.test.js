@@ -323,3 +323,35 @@ test("writeReceipt replaces an existing receipt rather than inheriting its mode"
   assert.equal(statSync(f.receipt).mode & 0o777, 0o600);
   assert.equal(lstatSync(f.receipt).isSymbolicLink(), false);
 });
+
+test("atomicInstallArtifact accepts explicit skills and backup roots outside a Hermes profile", () => {
+  const f = fixture();
+  const skillsDir = join(f.root, "agents", "skills");
+  const backupRoot = join(f.root, "state", "backups");
+  mkdirSync(join(f.root, "state"), { recursive: true });
+  const installedDir = join(skillsDir, "hub-watchdog");
+  const receipt = join(f.root, "state", "hub-watchdog.receipt.json");
+
+  const first = atomicInstallArtifact({ sourceDir: f.sourceDir, installedDir, skillsDir, backupRoot, name: "hub-watchdog", receipt, label: "Codex skills" });
+
+  assert.equal(first, null);
+  assert.equal(statSync(join(f.root, "agents")).mode & 0o777, 0o700, "a missing parent is created private");
+  assert.equal(statSync(skillsDir).mode & 0o777, 0o700);
+  assert.equal(artifactState(f.sourceDir, installedDir).state, "current");
+  assert.equal(statSync(receipt).mode & 0o777, 0o600);
+  assert.equal(existsSync(backupRoot), false, "no backup root until something is replaced");
+  assert.equal(existsSync(join(f.profilePath, "skills")), false, "the Hermes profile layout is untouched");
+
+  writeFileSync(join(installedDir, "SKILL.md"), "edited\n");
+  const backup = atomicInstallArtifact({ sourceDir: f.sourceDir, installedDir, skillsDir, backupRoot, name: "hub-watchdog", receipt, now: () => new Date("2026-11-07T12:00:00.000Z") });
+
+  assert.equal(backup, join(backupRoot, "hub-watchdog-2026-11-07T12-00-00-000Z"));
+  assert.equal(readFileSync(join(backup, "SKILL.md"), "utf8"), "edited\n");
+  assert.equal(artifactState(f.sourceDir, installedDir).state, "current");
+
+  writeFileSync(join(f.root, "agents-file"), "");
+  assert.throws(
+    () => atomicInstallArtifact({ sourceDir: f.sourceDir, installedDir: join(f.root, "agents-file", "x"), skillsDir: join(f.root, "agents-file"), backupRoot, name: "hub-watchdog", label: "Codex skills" }),
+    /refusing unsafe Codex skills directory/,
+  );
+});
