@@ -175,6 +175,11 @@ function readCacheFresh(deps: FleetUpdateCheckDeps): string | null {
 	}
 }
 
+/** The cached latest published version when the cache is fresh; never fetches. */
+export function readCachedLatestVersion(deps: FleetUpdateCheckDeps = {}): string | null {
+	return readCacheFresh(deps);
+}
+
 function writeCache(payload: CachePayload, deps: FleetUpdateCheckDeps): void {
 	try {
 		const mkdir = deps.mkdir ?? mkdirSync;

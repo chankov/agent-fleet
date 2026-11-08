@@ -60,7 +60,8 @@ when you are on the herdr backend.
   exchange messages
 - `/af-config [tab]` or **Alt+,** — the read-only Fleet configuration screen (desired state, install
   record, overrides, AI state, System 1, STT, fleet YAML with LIVE peer marks, safety). A peer shows file
-  facts only; the Hub adds its runtime tab. Nothing is written — see
+  facts only; the Hub adds its runtime tab. `i` runs `agent-fleet inspect`; Setup/Overrides changes run
+  `agent-fleet setup`/`configure` after a dry-run preview and confirmation. The screen itself writes nothing — see
   [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session)
 
 ## External conductors

@@ -29,7 +29,8 @@ import { prepareDesiredRepair } from "./lib/repair-desired.js";
 import { purgeHumanConfig } from "./lib/purge.js";
 import { capturePlanFingerprints, recoverTransaction, journalPath, transactionRecovery } from "./lib/transaction.js";
 import { acquireWorkspaceLock, breakWorkspaceLock } from "./lib/workspace-safety.js";
-import { publicPlan, publicResult } from "./lib/public-plan.js";
+import { publicPlan, publicReport, publicResult } from "./lib/public-plan.js";
+import { runInspect } from "./lib/inspect.js";
 import { assertLocalInstallation, readInstallationState } from '../.pi/harnesses/lib/installation-state.js';
 import { readState, readLegacyRecord, isAgentFleetCheckout, STATE_REL_PATH } from "./lib/state.js";
 import { detectAgent, agentLabel, AGENTS } from "./lib/detect-agent.js";
@@ -162,6 +163,7 @@ switch (sub) {
   case "init":              warnAlias("init"); await cmdSetup(); break;
   case "doctor":            await cmdDoctor();           break;
   case "verify":            await cmdVerify();           break;
+  case "inspect":           await cmdInspect();          break;
   case "install":           warnAlias("install"); await (opts.preset || opts.features ? cmdSetup() : cmdPlanVerb("install")); break;
   case "upgrade":           warnAlias("upgrade"); await cmdPlanVerb("upgrade"); break;
   case "uninstall":         await cmdPlanVerb("uninstall"); break;
@@ -675,6 +677,30 @@ function buildRepairPlan() {
     repairPlanNote = err.message;
     return null;
   }
+}
+
+async function cmdInspect() {
+  // Read-only JSON composition of verify + doctor + desired/features + provenance
+  // for in-session consumers (the harness /af-config screen). Always JSON, never
+  // writes, never prompts. Exit 0 = report produced, 1 = could not run.
+  await mustBeDirectory(workspace, "workspace");
+  let manifest;
+  try { manifest = loadManifest(pkgRoot); }
+  catch (err) { fail(err.message); }
+  if (opts.agent && !AGENTS.includes(opts.agent)) {
+    fail(`--agent must be one of: ${AGENTS.join(", ")} (got "${opts.agent}")`);
+  }
+  const agent = opts.agent
+    ?? readState(workspace)?.agent
+    ?? readLegacyRecord(workspace)?.agent
+    ?? detectAgent({ workspace, env: process.env, preferWorkspaceHints: true })
+    ?? null;
+  const report = await runInspect({
+    workspace, sourceRoot: pkgRoot, packageVersion: pkg.version, manifest,
+    agent: AGENTS.includes(agent) ? agent : null, env: process.env,
+  });
+  writeJson(publicReport(report));
+  exit(0);
 }
 
 async function cmdVerify() {
@@ -1401,6 +1427,26 @@ Exit codes:
 `);
     return;
   }
+  if (sub === "inspect") {
+    console.log(`agent-fleet inspect [options]
+
+  Read-only JSON report that composes verify (item states, drift findings),
+  doctor (scan findings, manifest preflight), the desired state with feature
+  availability, and the project provenance status. Built for in-session
+  consumers such as the /af-config screen. Writes nothing, never prompts,
+  always emits JSON.
+
+Options:
+  --workspace <path>                  Target workspace (default: cwd)
+  --agent pi                          Coding agent (pi is the only target)
+  -h, --help                          Show this help
+
+Exit codes:
+  0   report produced (findings are inside the report, not in the exit code)
+  1   could not run (bad flags, missing manifest, unreadable workspace)
+`);
+    return;
+  }
   if (sub === "verify") {
     console.log(`agent-fleet verify [options]
 
@@ -1573,6 +1619,7 @@ Commands:
   init                Compatibility alias for setup
   doctor              Find and repair breakage (--fix); advisory findings listed
   verify              Read-only report: manifest × install state × disk (--json)
+  inspect             Read-only JSON composition of verify + doctor + desired state for in-session screens
   install             Install from a profile or explicit item ids
   upgrade             Upgrade what is installed, with a three-way merge
   setup               Reconcile Default/Full desired state (interactive in a TTY)

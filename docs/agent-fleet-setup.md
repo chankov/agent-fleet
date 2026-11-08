@@ -636,11 +636,29 @@ their line numbers, plus the values the Hub parsed at session start and its warn
 value comes from, and a file edited after the session started is flagged because the running session
 still uses what it read at start.
 
-The screen only reads files and compares hashes. It does not re-derive installer decisions: item states,
-drift findings, feature availability and three-way conflicts still come from `agent-fleet verify`,
-`agent-fleet doctor` and `agent-fleet setup --dry-run`, which the relevant tabs name. It never shows an
+The screen only reads files and compares hashes. It does not re-derive installer decisions: pressing `i`
+runs the read-only `agent-fleet inspect` verb (verify item states and findings, doctor findings and
+preflight, the desired state with feature availability and dependencies, provenance validity) and shows
+the CLI's own words in the Overview, Setup, State and AI State tabs. The CLI is resolved from the
+recorded `sourceRoot` when its `bin/cli.js` exists, otherwise through `npx` pinned to the recorded package
+version (never `@latest`); three-way conflicts and repairs still belong to `agent-fleet setup`.
+
+Changes from the screen are CLI runs, not file edits. Setup tab: `Space` toggles a feature and `p`
+cycles the preset in an unsaved draft; `a` previews `agent-fleet setup --dry-run --json` for the draft and
+shows the CLI's plan; confirming re-runs the dry run (a different plan digest means the workspace moved
+and nothing is applied) and then runs `agent-fleet setup --yes --save-desired`, which writes
+`.ai/agent-fleet.json` and the installed files under the CLI's lock and transaction journal. Conflicts and
+first-migration blocks are shown with the exact terminal command and cannot be applied from the screen;
+`system1-task-triage` asks the separate data consent before `--task-triage-consent`; a rejected desired
+file is shown as the CLI's repair preview and applies only with `--repair-config` after confirmation.
+Overrides tab: `a` asks for rules/docs roots, previews `agent-fleet configure --dry-run` as a line diff and
+applies with `--yes --expect-hash`; the CLI refuses when the file changed since the preview. The running
+session keeps what it read at start, so every applied change ends with a restart note.
+
+Outside a session, `just fleet config` (or `npx @chankov/agent-fleet inspect`) prints the same read-only
+report as JSON. It never shows an
 environment variable's value — only the variable name and whether it is set in the session's process — and
-it never writes a configuration file; the deterministic CLI remains the only writer. Tabs: Overview, Setup,
+it never writes a configuration file itself; the deterministic CLI remains the only writer. Tabs: Overview, Setup,
 State, Overrides, AI State, System 1, STT, Fleet, Safety and Runtime (Hub only).
 
 ## The overrides file — `.ai/agent-fleet-overrides.md`

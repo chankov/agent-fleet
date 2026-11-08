@@ -6,7 +6,9 @@ import { clampScroll, fitToHeight } from "../fleet-overlay.ts";
 import { reconcileSelection, type Selection } from "../fleet-selection.ts";
 import { safeTerminalText, type TextMetrics } from "../fleet-strip-view.ts";
 import type { ThemeLike } from "../fleet-dashboard-view.ts";
-import { isNewerVersion } from "../update-check.ts";
+import { isNewerVersion, PACKAGE_NAME } from "../update-check.ts";
+import type { InspectReport } from "./cli-bridge.ts";
+import { draftFeatureNames, draftFromSnapshot, sameDraft, type SetupDraft } from "./mutations.ts";
 import { problemCount, SOURCE_IDS, SOURCE_PATHS, type FleetConfigSnapshot, type SourceId } from "./snapshot.ts";
 
 export const FLEET_CONFIG_CHROME_ROWS = 3;
@@ -15,8 +17,9 @@ export type TabId = typeof TAB_IDS[number];
 export const TAB_LABELS: Record<TabId, string> = { overview: "Overview", setup: "Setup", state: "State", overrides: "Overrides", aiState: "AI State", system1: "System 1", stt: "STT", fleet: "Fleet", safety: "Safety", runtime: "Runtime" };
 
 export type RowLevel = "ok" | "info" | "warn" | "error";
-export interface ConfigRow { key: string; label: string; detail: string; origin: string; level?: RowLevel; expandable?: boolean; depth?: number; path?: string }
-export interface FleetConfigViewState { tab: TabId; selection: Selection; expanded: Set<string>; scrollOffset: number }
+export interface ConfigRow { key: string; label: string; detail: string; origin: string; level?: RowLevel; expandable?: boolean; depth?: number; path?: string; feature?: string }
+/** `draft` is the unsaved desired state edited on the Setup tab; undefined means "as the file says". */
+export interface FleetConfigViewState { tab: TabId; selection: Selection; expanded: Set<string>; scrollOffset: number; draft?: SetupDraft; busy?: string }
 
 export function initialViewState(tab: TabId = "overview"): FleetConfigViewState { return { tab, selection: { index: 0 }, expanded: new Set(), scrollOffset: 0 }; }
 
@@ -46,8 +49,46 @@ const sourceDetail = (snapshot: FleetConfigSnapshot, id: SourceId) => {
 	return parts.join(" · ");
 };
 const row = (key: string, label: string, detail: string, origin = "", extra: Partial<ConfigRow> = {}): ConfigRow => ({ key, label: s(label), detail: s(detail), origin: s(origin), ...extra });
+const INSPECT = "agent-fleet inspect";
+const inspectReport = (snapshot: FleetConfigSnapshot): InspectReport | null => snapshot.inspect?.status === "ok" ? snapshot.inspect.report : null;
+const cliWhere = (snapshot: FleetConfigSnapshot): string => {
+	const resolution = snapshot.inspect?.resolution;
+	if (!resolution || resolution.kind === "unavailable") return "unavailable";
+	return resolution.kind === "source" ? `${resolution.root}/bin/cli.js` : `npx ${PACKAGE_NAME}@${resolution.version}`;
+};
 
-function overviewRows(snapshot: FleetConfigSnapshot): ConfigRow[] {
+/** Installer evaluation rows: the CLI's own words, never re-derived. */
+function inspectRows(snapshot: FleetConfigSnapshot, expanded: Set<string>): ConfigRow[] {
+	const state = snapshot.inspect;
+	if (!state) return [];
+	const where = cliWhere(snapshot);
+	if (state.status === "idle") return [row("inspect/idle", "Installer evaluation", state.resolution.kind === "unavailable" ? `unavailable — ${state.resolution.reason}` : `press i to run ${INSPECT} via ${where}`, INSPECT, { level: state.resolution.kind === "unavailable" ? "warn" : "info" })];
+	if (state.status === "running") return [row("inspect/running", "Installer evaluation", `running ${INSPECT} via ${where}…`, INSPECT, { level: "info" })];
+	if (state.status === "failed") return [row("inspect/failed", "Installer evaluation", `${state.reason}: ${state.detail} (${where})`, INSPECT, { level: "error" })];
+	const report = state.report;
+	const verify = report.verify;
+	const doctor = report.doctor;
+	const rows = [row("inspect/ok", "Installer evaluation", `${INSPECT} v${report.packageVersion} via ${where} · ${new Date(state.at).toISOString()}`, INSPECT, { level: "ok" })];
+	if (verify?.error) rows.push(row("inspect/verify-error", "  verify", verify.error, INSPECT, { level: "error" }));
+	else if (verify?.summary) {
+		const sum = verify.summary;
+		rows.push(row("inspect/verify", "  verify", `${sum.total} items · installed ${sum.installed} · broken ${sum.broken} · outdated ${sum.upgradable} · problems ${sum.problems} · advisories ${sum.advisories}${sum.versionDrift ? ` · recorded ${verify.recordedVersion ?? "—"} ≠ running ${report.packageVersion}` : ""}${verify.baseAvailable === false ? " · no base snapshot" : ""}`, INSPECT, { level: sum.broken || sum.problems ? "warn" : "ok" }));
+	}
+	const verifyFindings = verify?.findings ?? [];
+	rows.push(row("inspect/verify-findings", "  verify findings", String(verifyFindings.length), INSPECT, { expandable: verifyFindings.length > 0, level: verifyFindings.some(finding => finding.severity === "problem") ? "warn" : "info" }));
+	if (expanded.has("inspect/verify-findings")) verifyFindings.forEach((finding, index) => rows.push(row(`inspect/verify-findings/${index}`, `    ${finding.type}`, `${finding.path} — ${finding.issue} · fix: ${finding.fix}`, INSPECT, { depth: 2, level: finding.severity === "problem" ? "warn" : "info" })));
+	if (doctor?.error) rows.push(row("inspect/doctor-error", "  doctor", doctor.error, INSPECT, { level: "error" }));
+	else {
+		const findings = doctor?.findings ?? [];
+		const preflight = doctor?.preflight;
+		rows.push(row("inspect/doctor-findings", "  doctor findings", `${findings.length}${preflight ? ` · preflight ${preflight.status}${preflight.missingFiles.length ? ` · ${preflight.missingFiles.length} required file${preflight.missingFiles.length === 1 ? "" : "s"} missing` : ""}` : ""}`, INSPECT, { expandable: findings.length > 0, level: findings.length ? "warn" : "ok" }));
+		if (expanded.has("inspect/doctor-findings")) findings.forEach((finding, index) => rows.push(row(`inspect/doctor-findings/${index}`, `    ${finding.type}`, `${finding.path} — ${finding.issue} · fix: ${finding.fix}`, INSPECT, { depth: 2, level: "warn" })));
+		if (preflight?.remediation.length) rows.push(row("inspect/remediation", "  remediation (not run)", preflight.remediation.join("; "), INSPECT, { level: "info" }));
+	}
+	return rows;
+}
+
+function overviewRows(snapshot: FleetConfigSnapshot, expanded: Set<string>): ConfigRow[] {
 	const o = snapshot.overview;
 	const rows: ConfigRow[] = [
 		row("ov/workspace", "Workspace", snapshot.workspaceRoot, "runtime"),
@@ -58,19 +99,41 @@ function overviewRows(snapshot: FleetConfigSnapshot): ConfigRow[] {
 	rows.push(row("ov/sourceRoot", "Source root", `${o.sourceRoot ?? "—"} · ${presence(o.sourceRootPresent)}`, SOURCE_PATHS.state, { level: o.sourceRootPresent === false ? "warn" : "ok" }));
 	rows.push(row("ov/transaction", "Transaction journal", o.transactionPending ? "present — an installer transaction did not finish; run agent-fleet setup" : "none", SOURCE_PATHS.transaction, { level: o.transactionPending ? "warn" : "ok" }));
 	rows.push(row("ov/problems", "Problems", `${problemCount(snapshot)} · changed since start: ${snapshot.changedSinceStart.length}`, "", { level: problemCount(snapshot) ? "warn" : "ok" }));
+	rows.push(...inspectRows(snapshot, expanded));
 	for (const id of SOURCE_IDS) rows.push(row(`ov/source/${id}`, `  ${SOURCE_PATHS[id]}`, sourceDetail(snapshot, id), "", { level: snapshot.changedSinceStart.includes(id) ? "warn" : sourceLevel(snapshot.sources[id].status), path: snapshot.sources[id].status === "present" ? SOURCE_PATHS[id] : undefined }));
 	return rows;
 }
 
-function setupRows(snapshot: FleetConfigSnapshot): ConfigRow[] {
+function setupRows(snapshot: FleetConfigSnapshot, draftState?: FleetConfigViewState): ConfigRow[] {
 	const path = SOURCE_PATHS.desired;
 	if (!snapshot.setup) return [row("setup/none", "Desired state", sourceDetail(snapshot, "desired"), path, { level: sourceLevel(snapshot.sources.desired.status) })];
+	const report = inspectReport(snapshot);
+	const desired = report?.desired;
+	const catalogue = new Map((desired?.catalogue ?? []).map(feature => [feature.name, feature]));
+	const file = draftFromSnapshot(snapshot);
+	const draft = draftState?.draft ?? file;
+	const dirty = !sameDraft(draft, file);
 	const rows = [
-		row("setup/preset", "Preset", snapshot.setup.preset ?? "—", path, { path }),
+		row("setup/preset", "Preset", `${dirty && draft.preset !== file.preset ? `${file.preset} → ${draft.preset} (draft)` : snapshot.setup.preset ?? "—"}${desired?.presets?.length ? ` · known presets: ${desired.presets.join(", ")}` : ""}`, path, { path, level: dirty && draft.preset !== file.preset ? "warn" : "info" }),
 		row("setup/schema", "Schema version", String(snapshot.setup.schemaVersion ?? "—"), path),
-		...snapshot.setup.features.map(feature => row(`setup/feature/${feature.name}`, `  ${feature.name}`, onOff(feature.enabled), path, { level: feature.enabled ? "ok" : "info", path })),
 	];
-	rows.push(row("setup/note", "Availability, dependencies, retired names", "evaluated by the installer: agent-fleet setup --dry-run --json (not re-derived here)", "", { level: "info" }));
+	if (desired?.status === "invalid" && desired.error) rows.push(row("setup/invalid", "Installer rejects this file", desired.error, INSPECT, { level: "error" }));
+	if (dirty) rows.push(row("setup/draft", "Draft (not saved)", `preset ${draft.preset} · features ${draft.features.join(", ") || "none"} · a previews the CLI plan, u discards`, "draft", { level: "warn" }));
+	const inFile = new Set(snapshot.setup.features.map(feature => feature.name));
+	for (const name of draftFeatureNames(snapshot, draft)) {
+		const info = catalogue.get(name);
+		const fileOn = snapshot.setup.features.find(feature => feature.name === name)?.enabled ?? false;
+		const draftOn = draft.features.includes(name);
+		const base = inFile.has(name) ? onOff(fileOn) : "not in file (off)";
+		const state = draftOn !== fileOn ? `${base} → ${onOff(draftOn)} (draft)` : base;
+		const extra = info
+			? ` · ${info.stability}${info.available ? "" : ` · unavailable on ${report!.platform}`}${info.requiresFeatures.length ? ` · requires ${info.requiresFeatures.join(", ")}` : ""}${info.effective && !fileOn ? " · effective through a dependency" : ""}${info.items.length ? ` · ${info.items.length} item${info.items.length === 1 ? "" : "s"}` : ""}`
+			: report ? " · not in the installed catalogue" : "";
+		rows.push(row(`setup/feature/${name}`, `  ${name}`, state + extra, inFile.has(name) ? path : INSPECT, { level: draftOn !== fileOn ? "warn" : info && !info.available && draftOn ? "error" : draftOn ? "ok" : "info", path: inFile.has(name) ? path : undefined, feature: name }));
+	}
+	if (desired?.featureError) rows.push(row("setup/feature-error", "Effective selection", desired.featureError, INSPECT, { level: "error" }));
+	else if (desired?.effective) rows.push(row("setup/effective", "Effective selection", `${desired.status === "invalid" ? "from the default desired state (file rejected) · " : ""}${desired.effective.features.join(", ") || "no features"} · ${desired.effective.roots} roots → ${desired.effective.selected} items`, INSPECT, { level: desired.status === "invalid" ? "warn" : "ok" }));
+	else rows.push(row("setup/note", "Availability, dependencies, retired names", "press i to evaluate with agent-fleet inspect (not re-derived here)", "", { level: "info" }));
 	return rows;
 }
 
@@ -79,7 +142,11 @@ function stateRows(snapshot: FleetConfigSnapshot, expanded: Set<string>): Config
 	if (!snapshot.state) return [row("state/none", "Install record", sourceDetail(snapshot, "state"), path, { level: sourceLevel(snapshot.sources.state.status) })];
 	const f = snapshot.state.files;
 	const rows = [row("state/files", "Recorded files", `${f.total} · unchanged ${f.unchanged} · modified ${f.modified} · missing ${f.missing}${f.other ? ` · other ${f.other}` : ""}`, path, { level: f.modified || f.missing ? "warn" : "ok", path })];
-	rows.push(row("state/note", "Item states, drift and repair", "agent-fleet verify / agent-fleet setup (installer evaluation, not re-derived here)", "", { level: "info" }));
+	const verify = inspectReport(snapshot)?.verify;
+	const verifyItems = new Map((verify?.items ?? []).map(item => [item.id, item]));
+	if (verify?.summary) rows.push(row("state/installer", "Installer item states", `${Object.entries(verify.summary.byState).map(([state, count]) => `${state} ${count}`).join(" · ")}${verify.summary.broken ? " · repair: agent-fleet setup" : ""}`, INSPECT, { level: verify.summary.broken ? "warn" : "ok" }));
+	else if (verify?.error) rows.push(row("state/installer", "Installer item states", verify.error, INSPECT, { level: "error" }));
+	else rows.push(row("state/note", "Item states, drift and repair", "press i to evaluate with agent-fleet inspect (not re-derived here)", "", { level: "info" }));
 	for (const kind of snapshot.state.byKind) {
 		const kindKey = `state/kind/${kind.kind}`;
 		rows.push(row(kindKey, kind.kind, `${kind.count} item${kind.count === 1 ? "" : "s"}`, path, { expandable: true }));
@@ -89,7 +156,8 @@ function stateRows(snapshot: FleetConfigSnapshot, expanded: Set<string>): Config
 			const counts = { unchanged: 0, modified: 0, missing: 0, other: 0 };
 			for (const file of item.files) counts[file.check === "unchanged" || file.check === "modified" || file.check === "missing" ? file.check : "other"]++;
 			const bad = counts.modified + counts.missing + counts.other;
-			rows.push(row(itemKey, `  ${item.id}`, `${item.version ? `v${item.version} · ` : ""}${item.method ?? ""}${item.method ? " · " : ""}${item.files.length} file${item.files.length === 1 ? "" : "s"}${bad ? ` · ${counts.modified} modified · ${counts.missing} missing${counts.other ? ` · ${counts.other} other` : ""}` : " · unchanged"}`, path, { expandable: item.files.length > 0, level: bad ? "warn" : "ok", depth: 1 }));
+			const installer = verifyItems.get(item.id);
+			rows.push(row(itemKey, `  ${item.id}`, `${installer ? `${installer.state}${installer.detail ? ` (${installer.detail})` : ""} · ` : ""}${item.version ? `v${item.version} · ` : ""}${item.method ?? ""}${item.method ? " · " : ""}${item.files.length} file${item.files.length === 1 ? "" : "s"}${bad ? ` · ${counts.modified} modified · ${counts.missing} missing${counts.other ? ` · ${counts.other} other` : ""}` : " · unchanged"}`, path, { expandable: item.files.length > 0, level: bad ? "warn" : "ok", depth: 1 }));
 			if (expanded.has(itemKey)) for (const file of item.files) rows.push(row(`${itemKey}/${file.path}`, `    ${file.path}`, file.check, file.path, { level: file.check === "unchanged" ? "ok" : "warn", depth: 2, path: file.check === "missing" ? undefined : file.path }));
 		}
 	}
@@ -133,10 +201,12 @@ function overridesRows(snapshot: FleetConfigSnapshot, expanded: Set<string>): Co
 function aiStateRows(snapshot: FleetConfigSnapshot): ConfigRow[] {
 	const path = SOURCE_PATHS.aiState;
 	const rows = [row("ai/file", "AI state (provenance)", sourceDetail(snapshot, "aiState"), path, { level: sourceLevel(snapshot.sources.aiState.status), path: snapshot.sources.aiState.status === "present" ? path : undefined })];
+	const provenance = inspectReport(snapshot)?.provenance;
+	if (provenance?.status) rows.push(row("ai/installer", "Installer provenance check", `${provenance.status}${provenance.error ? ` · ${provenance.error}` : ""} · ${provenance.entries ?? 0} entries`, INSPECT, { level: provenance.status === "corrupt" ? "error" : provenance.status === "valid" ? "ok" : "info" }));
 	if (!snapshot.aiState) return rows;
 	if (!snapshot.aiState.entries.length) rows.push(row("ai/empty", "Accepted project files", "none recorded", path, { level: "info" }));
 	for (const entry of snapshot.aiState.entries) rows.push(row(`ai/entry/${entry.path}`, `  ${entry.path}`, `${entry.origin}${entry.templateId ? ` ${entry.templateId}@${entry.sourceVersion ?? "?"}` : ""} · ${entry.acceptedDecision || "—"} · ${entry.evidenceCount} evidence · ${entry.local}`, path, { level: entry.local === "unchanged" ? "ok" : entry.local === "local-edit" ? "warn" : entry.local === "deleted" ? "error" : "info", path: entry.local === "deleted" ? undefined : entry.path }));
-	rows.push(row("ai/note", "Source updates and conflicts", "agent-fleet setup compares against the package catalogue (not re-derived here)", "", { level: "info" }));
+	rows.push(row("ai/note", "Source updates and conflicts", "only agent-fleet setup compares against the package catalogue; inspect reports the record's validity", "", { level: "info" }));
 	return rows;
 }
 
@@ -190,10 +260,10 @@ function safetyRows(snapshot: FleetConfigSnapshot): ConfigRow[] {
 	return rows;
 }
 
-export function fleetConfigRows(snapshot: FleetConfigSnapshot, tab: TabId, expanded: Set<string> = new Set()): ConfigRow[] {
+export function fleetConfigRows(snapshot: FleetConfigSnapshot, tab: TabId, expanded: Set<string> = new Set(), state?: FleetConfigViewState): ConfigRow[] {
 	switch (tab) {
-		case "overview": return overviewRows(snapshot);
-		case "setup": return setupRows(snapshot);
+		case "overview": return overviewRows(snapshot, expanded);
+		case "setup": return setupRows(snapshot, state);
 		case "state": return stateRows(snapshot, expanded);
 		case "overrides": return overridesRows(snapshot, expanded);
 		case "aiState": return aiStateRows(snapshot);
@@ -237,11 +307,14 @@ export function renderFleetConfig(snapshot: FleetConfigSnapshot, state: FleetCon
 	const fit = (text: string) => metrics.truncateToWidth(text, w);
 	const tabs = fleetConfigTabs(snapshot);
 	if (!tabs.includes(state.tab)) state.tab = "overview";
-	const rows = fleetConfigRows(snapshot, state.tab, state.expanded);
+	const rows = fleetConfigRows(snapshot, state.tab, state.expanded, state);
 	reconcileSelection(state.selection, rows);
 	keepSelectionVisible(state, rows, bodyHeight);
 	const problems = problemCount(snapshot);
-	const title = fit(theme.bold(`FLEET CONFIG  ${s(snapshot.workspaceRoot)} · v${snapshot.overview.recordedVersion ?? "—"} · ${problems} source problem${problems === 1 ? "" : "s"}${snapshot.changedSinceStart.length ? ` · ${snapshot.changedSinceStart.length} changed since start` : ""} · read-only`));
+	const inspectLabel = snapshot.inspect && snapshot.inspect.status !== "idle" ? ` · inspect ${snapshot.inspect.status}` : "";
+	const draftLabel = state.draft && !sameDraft(state.draft, draftFromSnapshot(snapshot)) ? " · draft" : "";
+	const busyLabel = state.busy ? ` · ${s(state.busy)}` : "";
+	const title = fit(theme.bold(`FLEET CONFIG  ${s(snapshot.workspaceRoot)} · v${snapshot.overview.recordedVersion ?? "—"} · ${problems} source problem${problems === 1 ? "" : "s"}${snapshot.changedSinceStart.length ? ` · ${snapshot.changedSinceStart.length} changed since start` : ""}${inspectLabel}${draftLabel}${busyLabel} · writes only via CLI`));
 	const tabBar = fit(tabBarText(tabs, state.tab, w, theme, metrics));
 	const visible = rows.slice(state.scrollOffset, state.scrollOffset + Math.max(0, bodyHeight));
 	const body = visible.map(entry => {
@@ -253,7 +326,8 @@ export function renderFleetConfig(snapshot: FleetConfigSnapshot, state: FleetCon
 		return fit(selected ? theme.bold(line) : line);
 	});
 	const empty = rows.length === 0 ? [fit(theme.fg("muted", "  nothing to show on this tab"))] : [];
-	const footer = fit(theme.fg("dim", `←→/Tab tab · 1-9 jump · ↑↓ PgUp PgDn · Enter expand · o open file · r reload · q close · ${state.scrollOffset + Math.min(rows.length, visible.length)}/${rows.length}`));
+	const tabKeys = state.tab === "setup" ? "Space toggle · p preset · a apply via CLI · u discard · " : state.tab === "overrides" ? "a configure rules/docs via CLI · " : "";
+	const footer = fit(theme.fg("dim", `${tabKeys}←→/Tab · 1-9 · ↑↓ PgUp PgDn · Enter expand · o open · i inspect · r reload · q close · ${state.scrollOffset + Math.min(rows.length, visible.length)}/${rows.length}`));
 	return fitToHeight([title, tabBar, ...fitToHeight([...empty, ...body], Math.max(0, bodyHeight)), footer], bodyHeight + FLEET_CONFIG_CHROME_ROWS);
 }
 

@@ -204,6 +204,8 @@ function parseFleetCommandBase(argv: string[]): FleetInvocation {
 	}
 	if (mode === "deps") return { recipe: "_fleet-deps", args: tail };
 	if (["setup", "doctor"].includes(mode)) return { recipe: "_fleet-lifecycle", args: [mode, ...tail] };
+	// `just fleet config` is the terminal twin of the in-session /af-config screen: the read-only inspect report.
+	if (mode === "config" || mode === "inspect") return { recipe: "_fleet-lifecycle", args: ["inspect", ...tail] };
 	if (mode === "uninstall") return { recipe: "_fleet-lifecycle", args: ["uninstall", ...tail] };
 
 	// One addressable peer, in a pane of its own unless --here. peer-launch.ts

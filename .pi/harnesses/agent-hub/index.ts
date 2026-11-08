@@ -2033,6 +2033,7 @@ export default function (pi: ExtensionAPI) {
 		loadAvailableModels: loadAvailableModelChoices,
 		openDetail: openFleetDetail,
 		openHistory: ctx => openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub")),
+		openConfig: ctx => fleetConfigUi.open(ctx as ExtensionContext),
 		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,

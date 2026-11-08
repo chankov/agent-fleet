@@ -151,6 +151,9 @@ LIFECYCLE
       Install Node dependencies for .pi/extensions, .pi/harnesses, and scripts.
       Does not launch Pi, configure STT, install ffmpeg/Herdr, or pair Codex.
   just fleet doctor [--fix]
+  just fleet config
+      Read-only JSON report (agent-fleet inspect): item states, verify/doctor findings,
+      feature availability, provenance. The same facts as /af-config inside a session.
   just fleet uninstall --all --yes
       Reinstall after self-uninstall with npx @chankov/agent-fleet@latest setup.
 

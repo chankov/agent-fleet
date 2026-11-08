@@ -21,6 +21,7 @@ import { loadDamageAutoPolicy } from "../damage-auto-policy.ts";
 import { loadSystem1Snapshot, readSystem1Selected } from "../system1/config-loader.js";
 import { resolveSystem1Readiness } from "../system1/config.js";
 import { workspaceRoot } from "../workspace-context.ts";
+import type { CliResolution, InspectReport } from "./cli-bridge.ts";
 
 export type SourceStatus = "present" | "missing" | "invalid" | "refused";
 export interface SourceFile { path: string; status: SourceStatus; digest?: string; bytes?: number; problems: string[] }
@@ -85,6 +86,13 @@ export interface SnapshotInput {
 	latestKnownVersion?: string | null;
 }
 
+/** Phase 2: the installer evaluation obtained through the CLI; attached by the UI host, never collected here. */
+export type InspectState =
+	| { status: "idle"; resolution: CliResolution }
+	| { status: "running"; startedAt: number; resolution: CliResolution }
+	| { status: "ok"; report: InspectReport; exitCode: number; resolution: CliResolution; at: number }
+	| { status: "failed"; reason: string; detail: string; resolution: CliResolution; at: number };
+
 export type FileCheck = "unchanged" | "modified" | "missing" | "link" | "unreadable";
 export interface StateItemView { id: string; kind: string; version?: string; method?: string; files: Array<{ path: string; check: FileCheck }> }
 export interface OverrideSection { name: string; canonical: string; alias: boolean; keys: Array<{ key: string; value: string; line: number }> }
@@ -115,6 +123,7 @@ export interface FleetConfigSnapshot {
 	};
 	safety: { rules: Array<{ category: string; count: number }> | null; autoPolicy: { status: string; digest: string; rules: number; expired: number } };
 	runtime: RuntimeRow[] | null;
+	inspect?: InspectState;
 }
 
 const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");

@@ -98,6 +98,7 @@ deliberately skipped — the workspace is not launchable until they run:
 ```bash
 just fleet deps     # npm install in .pi/extensions, .pi/harnesses, and scripts
 just fleet doctor   # exit 0 = nothing to repair
+just fleet config   # read-only JSON report; inside a session: /af-config or Alt+,
 ```
 
 Then start a fleet:

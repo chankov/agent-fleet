@@ -226,6 +226,8 @@ test("fleet lifecycle commands map to deterministic CLI and dependency recipes",
 	assert.throws(() => parseFleetCommand(["install"]), /use `just fleet setup`.*`just fleet deps`/);
 	assert.deepEqual(parseFleetCommand(["setup", "--preset", "default", "--yes"]), { recipe: "_fleet-lifecycle", args: ["setup", "--preset", "default", "--yes"] });
 	assert.deepEqual(parseFleetCommand(["doctor", "--fix"]), { recipe: "_fleet-lifecycle", args: ["doctor", "--fix"] });
+	assert.deepEqual(parseFleetCommand(["config"]), { recipe: "_fleet-lifecycle", args: ["inspect"] }, "just fleet config is the terminal twin of /af-config");
+	assert.deepEqual(parseFleetCommand(["inspect", "--agent", "pi"]), { recipe: "_fleet-lifecycle", args: ["inspect", "--agent", "pi"] });
 	assert.deepEqual(parseFleetCommand(["uninstall", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--yes"] });
 	assert.equal(parseFleetCommand(["uninstall", "--yes"]).args.includes("--all"), false, "dispatcher never injects implicit --all");
 	assert.deepEqual(parseFleetCommand(["uninstall", "--all", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--all", "--yes"] });

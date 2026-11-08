@@ -10,6 +10,8 @@ function safe(value, key = "") {
     const cleaned = safe(item, name); return cleaned === undefined ? [] : [[name, cleaned]];
   }));
 }
+/** Read-only reports cross the same boundary: no write buffers, no non-plain objects. */
+export function publicReport(report) { return { ...safe(report), publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION }; }
 export function publicPlan(plan, stage = "preview") { return { ...safe(plan), publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage }; }
 export function publicResult(result, stage = "apply") { return { ...safe(result), publicSchemaVersion: PUBLIC_PLAN_SCHEMA_VERSION, stage }; }
 export function publicRepairPreview(proposal) {

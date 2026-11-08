@@ -558,10 +558,27 @@ is Terminal.app's Minimize shortcut, not a Fleet shortcut. For details, see the
 
 ### Fleet config screen
 
-Press **`Alt+,`** or run **`/af-config [tab]`** to open the read-only **Fleet config** overlay. Tabs:
+Press **`Alt+,`**, run **`/af-config [tab]`**, or press **`c`** inside the Fleet Dashboard (**`Alt+A`**) to
+open the **Fleet config** overlay (Esc returns to the dashboard). Tabs:
 Overview, Setup, State, Overrides, AI State, System 1, STT, Fleet, Safety and (Hub only) Runtime.
 `←→`/`Tab` and `1`-`9` switch tabs, `↑↓`/`PgUp`/`PgDn` move, `Enter` expands a group, `o` opens the
-selected file in a read-only viewer, `r` re-reads the files, `q`/`Esc` closes. Each row names its
+selected file in a read-only viewer, `i` runs `agent-fleet inspect` (read-only installer evaluation:
+item states, verify and doctor findings, feature availability, provenance validity) and folds its
+answer into the Overview, Setup, State and AI State tabs, `r` re-reads the files, `q`/`Esc` closes.
+The CLI is the recorded `sourceRoot` checkout when it exists, otherwise `npx` pinned to the recorded
+package version; without either the row says the evaluation is unavailable.
+
+Changes go through the same CLI and never through the screen. On the Setup tab `Space` toggles a
+feature and `p` cycles the preset in an unsaved draft; `a` runs `agent-fleet setup --dry-run --json`
+for that draft and shows the CLI's own plan (actions by kind, operator steps, notes, conflicts). `y`
+confirms: a second dry run must produce the same plan digest, otherwise nothing is applied; then
+`agent-fleet setup --yes --save-desired` runs with the CLI's lock and transaction journal. Conflicts
+and first-migration blocks are shown with the terminal command and cannot be applied from the screen.
+Enabling `system1-task-triage` asks the separate data consent before `--task-triage-consent` is
+passed; a desired file the installer rejects is shown as the CLI's repair preview and applies only with
+`--repair-config` after confirmation. On the Overrides tab `a` asks for rules/docs roots, previews
+`agent-fleet configure --dry-run` as a line diff and applies with `--yes --expect-hash`, so a file
+edited in between is refused by the CLI. Headless sessions have no write flows. Each row names its
 origin (`file:line` or `runtime`). Files edited after session start are flagged, because the Hub reads
 overrides, teams and System 1 configuration once at start. Environment variables appear as names with
 present/absent only; values are never read or shown. Headless children get the Overview as a notice.
@@ -581,7 +598,8 @@ running/done/failed rows, overlap-aware wall time, and visible token totals. Fin
 rows are hidden by default.
 
 - **`↑`/`↓`** or **`j`/`k`** selects a row; **`PgUp`/`PgDn`** pages; **Enter** opens its full-screen
-  detail view. **`h`** opens the same history overlay as `/af-agents-history` (Esc/`q` returns to the dashboard).
+  detail view. **`h`** opens the same history overlay as `/af-agents-history` (Esc/`q` returns to the dashboard);
+  **`c`** opens the Fleet config screen (`/af-config`) the same way.
 - **`f`** starts a name/model/recent-work filter; type the query and press **Enter** to apply it, or
   **Esc** to clear it. **`a`** toggles finished rows.
 - **`x`** requests a kill and **`r`** requests a restart; press the same key again within two seconds

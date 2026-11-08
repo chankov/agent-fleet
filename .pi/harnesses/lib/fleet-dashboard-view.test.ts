@@ -18,7 +18,7 @@ test("dashboard has fixed height with hierarchy, columns, bars, and aggregates",
 test("dashboard footer lists supported bindings without continue", () => {
 	const footer = renderFleetDashboard(vm([row("root")]), 200, 3, theme, metrics).at(-1)!;
 	assert.doesNotMatch(footer, /c continue/);
-	assert.equal(footer, "↑↓ select · ←→ thinking · Enter open · h history · m substitute · x kill · r restart · f filter · a all · q close");
+	assert.equal(footer, "↑↓ select · ←→ thinking · Enter open · h history · c config · m substitute · x kill · r restart · f filter · a all · q close");
 });
 
 test("dashboard pins coms lines below chrome", () => {
@@ -138,6 +138,8 @@ test("dashboardTransition moves selection, pages, filters, toggles finished, and
 	assert.equal(dashboardTransition("M", state, rows, 2), "substitute");
 	assert.equal(dashboardTransition("h", state, rows, 2), "history");
 	assert.equal(dashboardTransition("H", state, rows, 2), "history");
+	assert.equal(dashboardTransition("c", state, rows, 2), "config");
+	assert.equal(dashboardTransition("C", state, rows, 2), "config");
 	assert.deepEqual(dashboardTransition("\r", state, rows, 2), { open: "a" });
 	assert.equal(dashboardTransition("q", state, rows, 2), "close");
 });

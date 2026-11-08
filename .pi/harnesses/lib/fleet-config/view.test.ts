@@ -41,7 +41,7 @@ test("render has fixed height, respects width and strips control characters from
 			}
 		}
 		const text = renderFleetConfig(snapshot, initialViewState("overview"), 120, 20, theme, metrics).join("\n");
-		assert.match(text, /FLEET CONFIG/); assert.match(text, /\[1 Overview\]/); assert.match(text, /read-only/); assert.match(text, /newer than recorded/);
+		assert.match(text, /FLEET CONFIG/); assert.match(text, /\[1 Overview\]/); assert.match(text, /writes only via CLI/); assert.match(text, /newer than recorded/);
 		assert.match(renderFleetConfig(snapshot, initialViewState("overview"), 120, 20, theme, metrics)[1], /0 Runtime/, "full labels fit at 120 columns");
 		assert.match(renderFleetConfig(snapshot, initialViewState("safety"), 80, 20, theme, metrics)[1], /1 Ove .*\[9 Safety\] .*0 Run/, "inactive tabs abbreviate at 80 columns while the active one keeps its label");
 		assert.match(renderFleetConfig(snapshot, initialViewState("stt"), 40, 20, theme, metrics)[1], /^1 2 3 .*\[7 STT\] 8 9 0$/, "numbers only at 40 columns");
@@ -108,5 +108,54 @@ test("headless text covers the overview without control characters", () => {
 		const text = fleetConfigHeadlessText(snapshot);
 		assert.match(text, /^Fleet config · Overview/); assert.match(text, /Recorded version: 2\.0\.14/); assert.doesNotMatch(text, CONTROL);
 		assert.match(fleetConfigHeadlessText(snapshot, "overrides"), /## agent-hub/);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+const fakeReport = (overrides: Record<string, unknown> = {}) => ({
+	schemaVersion: 1, verb: "inspect" as const, packageVersion: "2.0.23", platform: "linux", agent: "pi", installation: { status: "local", reason: null },
+	verify: { recordedVersion: "2.0.14", stateSource: "state-file", baseAvailable: false, summary: { total: 3, installed: 1, present: 1, broken: 1, upgradable: 0, findings: 1, problems: 0, advisories: 1, versionDrift: true, byState: { missing: 1, absent: 2 } }, items: [{ id: "skill:a", kind: "skill", state: "missing", owned: true, target: "skills/a", detail: null, retired: false, changedFiles: [], obsoleteFiles: 0 }], findings: [{ type: "base-snapshot-missing", path: ".versions/2.0.14", issue: "no snapshot", fix: "informational", severity: "advisory" }] },
+	doctor: { findings: [{ type: "overrides", path: ".ai/agent-fleet-overrides.md", issue: "unknown key", fix: "remove it" }], preflight: { status: "missing_install", missingFiles: ["skills/a/SKILL.md"], tools: [], remediation: ["agent-fleet doctor --fix"] } },
+	desired: { status: "valid", error: null, preset: "default", enabled: ["system1"], presets: ["default", "full", "minimal"], effective: { preset: "default", features: ["system1"], roots: 25, selected: 45 }, featureError: null, catalogue: [
+		{ name: "system1", title: "System 1", stability: "experimental", platform: "any", requiresFeatures: [], items: ["companion:system1-config"], enabled: true, effective: true, available: true },
+		{ name: "voice", title: "Voice", stability: "stable", platform: "any", requiresFeatures: [], items: ["pi-extension:pi-voice-stt"], enabled: false, effective: false, available: true },
+		{ name: "telegram", title: "Telegram", stability: "stable", platform: "any", requiresFeatures: ["hermes"], items: [], enabled: false, effective: false, available: true },
+	] },
+	provenance: { status: "corrupt", error: "invalid provenance schema", entries: 0 },
+	...overrides,
+});
+const source = { kind: "source" as const, command: "node", args: ["/pkg/bin/cli.js"], root: "/pkg" };
+
+test("inspect states: idle names the CLI, running and failed are shown, ok enriches Overview, Setup, State and AI State with the installer's words", () => {
+	const { root, snapshot } = fixture();
+	try {
+		snapshot.inspect = { status: "idle", resolution: source };
+		assert.match(fleetConfigRows(snapshot, "overview").find(row => row.key === "inspect/idle")!.detail, /press i to run agent-fleet inspect via \/pkg\/bin\/cli\.js/);
+		snapshot.inspect = { status: "idle", resolution: { kind: "unavailable", reason: "no recorded source root or package version" } };
+		assert.equal(fleetConfigRows(snapshot, "overview").find(row => row.key === "inspect/idle")!.level, "warn");
+		snapshot.inspect = { status: "running", startedAt: 1, resolution: source };
+		assert.match(renderFleetConfig(snapshot, initialViewState("overview"), 120, 10, theme, metrics)[0], /inspect running/);
+		snapshot.inspect = { status: "failed", reason: "timeout", detail: "no result within 120s", resolution: source, at: 2 };
+		assert.match(fleetConfigRows(snapshot, "overview").find(row => row.key === "inspect/failed")!.detail, /^timeout: no result within 120s/);
+		snapshot.inspect = { status: "ok", report: fakeReport(), exitCode: 0, resolution: source, at: 3 };
+		const overview = fleetConfigRows(snapshot, "overview", new Set(["inspect/verify-findings", "inspect/doctor-findings"]));
+		assert.match(overview.find(row => row.key === "inspect/verify")!.detail, /3 items · installed 1 · broken 1 .* recorded 2\.0\.14 ≠ running 2\.0\.23 · no base snapshot/);
+		assert.match(overview.find(row => row.key === "inspect/verify-findings/0")!.detail, /\.versions\/2\.0\.14 — no snapshot · fix: informational/);
+		assert.match(overview.find(row => row.key === "inspect/doctor-findings")!.detail, /1 · preflight missing_install · 1 required file missing/);
+		assert.equal(overview.find(row => row.key === "inspect/remediation")!.detail, "agent-fleet doctor --fix");
+		const setup = fleetConfigRows(snapshot, "setup");
+		assert.match(setup.find(row => row.key === "setup/feature/system1")!.detail, /^on · experimental · 1 item$/);
+		assert.match(setup.find(row => row.key === "setup/feature/voice")!.detail, /^off · stable/);
+		assert.match(setup.find(row => row.key === "setup/feature/telegram")!.detail, /^not in file \(off\) · stable · requires hermes$/);
+		assert.match(setup.find(row => row.key === "setup/effective")!.detail, /^system1 · 25 roots → 45 items$/);
+		assert.match(setup.find(row => row.key === "setup/preset")!.detail, /known presets: default, full, minimal/);
+		const invalid = { ...snapshot, inspect: { status: "ok" as const, report: fakeReport({ desired: { status: "invalid", error: 'retired feature "codex-remote"', catalogue: [], presets: [], effective: null, featureError: null } }), exitCode: 0, resolution: source, at: 4 } };
+		assert.match(fleetConfigRows(invalid as any, "setup").find(row => row.key === "setup/invalid")!.detail, /retired feature "codex-remote"/);
+		const state = fleetConfigRows(snapshot, "state", new Set(["state/kind/skill"]));
+		assert.match(state.find(row => row.key === "state/installer")!.detail, /^missing 1 · absent 2 · repair: agent-fleet setup$/);
+		assert.match(state.find(row => row.key === "state/item/skill:a")!.detail, /^missing · v2\.0\.14/);
+		assert.match(fleetConfigRows(snapshot, "aiState").find(row => row.key === "ai/installer")!.detail, /^corrupt · invalid provenance schema · 0 entries$/);
+		assert.equal(fleetConfigRows(snapshot, "aiState").find(row => row.key === "ai/installer")!.level, "error");
+		assert.equal(fleetConfigTransition("i", initialViewState(), snapshot, 10), "inspect");
+		for (const width of [60, 80, 120]) for (const line of renderFleetConfig(snapshot, initialViewState("overview"), width, 14, theme, metrics)) assert.ok(visibleWidth(line) <= width);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
