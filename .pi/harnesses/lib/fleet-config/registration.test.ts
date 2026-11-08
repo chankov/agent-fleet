@@ -83,9 +83,10 @@ test("pressing i runs agent-fleet inspect through the bridge without a shell or 
 			rendered = component.render(120);
 			assert.match(rendered.join("\n"), /press i to run agent-fleet inspect via npx @chankov\/agent-fleet@2\.0\.14/);
 			await component.handleInput("i");
-			assert.match(component.render(120).join("\n"), /inspect running/);
+			// Wide render: a long temp path (CI portability alias) must not truncate the title before the status.
+			assert.match(component.render(400).join("\n"), /inspect running/);
 			await new Promise(resolve => setTimeout(resolve, 20));
-			rendered = component.render(120);
+			rendered = component.render(400);
 		} } } as any);
 		assert.equal(calls.length, 1);
 		assert.deepEqual(calls[0], { command: "npx", args: ["--yes", "@chankov/agent-fleet@2.0.14", "inspect", "--workspace", root] });

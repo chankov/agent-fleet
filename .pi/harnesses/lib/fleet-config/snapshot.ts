@@ -12,7 +12,7 @@
  *   - Symbolic links under .ai/ are refused exactly like installation-state.js.
  */
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { readInstallationState } from "../installation-state.js";
@@ -355,7 +355,11 @@ function collectSafety(root: string, now: number, sources: Record<SourceId, Sour
 export function collectFleetConfigSnapshot(input: SnapshotInput): FleetConfigSnapshot {
 	const env = input.env ?? process.env;
 	const now = input.now ?? Date.now();
-	const root = workspaceRoot(input.cwd, env);
+	// The fenced readers compare against the real path (installation-state.js does the same), so an
+	// aliased cwd (symlinked temp root, macOS /var → /private/var) must be resolved before any read.
+	const nominalRoot = workspaceRoot(input.cwd, env);
+	let root = nominalRoot;
+	try { root = realpathSync(nominalRoot); } catch { /* a missing workspace is reported per source below */ }
 	const sources = {} as Record<SourceId, SourceFile>;
 	const bytes: Partial<Record<SourceId, Buffer>> = {};
 	for (const id of SOURCE_IDS) { const read = readSource(root, id); sources[id] = read.file; if (read.bytes) bytes[id] = read.bytes; }

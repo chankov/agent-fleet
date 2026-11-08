@@ -40,7 +40,7 @@ test("render has fixed height, respects width and strips control characters from
 				for (const line of lines) { assert.ok(visibleWidth(line) <= width, `${tab} ${width}: ${line}`); assert.doesNotMatch(plain(line), CONTROL); }
 			}
 		}
-		const text = renderFleetConfig(snapshot, initialViewState("overview"), 120, 20, theme, metrics).join("\n");
+		const text = renderFleetConfig(snapshot, initialViewState("overview"), 400, 20, theme, metrics).join("\n");
 		assert.match(text, /FLEET CONFIG/); assert.match(text, /\[1 Overview\]/); assert.match(text, /writes only via CLI/); assert.match(text, /newer than recorded/);
 		assert.match(renderFleetConfig(snapshot, initialViewState("overview"), 120, 20, theme, metrics)[1], /0 Runtime/, "full labels fit at 120 columns");
 		assert.match(renderFleetConfig(snapshot, initialViewState("safety"), 80, 20, theme, metrics)[1], /1 Ove .*\[9 Safety\] .*0 Run/, "inactive tabs abbreviate at 80 columns while the active one keeps its label");
@@ -133,7 +133,7 @@ test("inspect states: idle names the CLI, running and failed are shown, ok enric
 		snapshot.inspect = { status: "idle", resolution: { kind: "unavailable", reason: "no recorded source root or package version" } };
 		assert.equal(fleetConfigRows(snapshot, "overview").find(row => row.key === "inspect/idle")!.level, "warn");
 		snapshot.inspect = { status: "running", startedAt: 1, resolution: source };
-		assert.match(renderFleetConfig(snapshot, initialViewState("overview"), 120, 10, theme, metrics)[0], /inspect running/);
+		assert.match(renderFleetConfig(snapshot, initialViewState("overview"), 400, 10, theme, metrics)[0], /inspect running/, "wide render: a long temp path must not truncate the status");
 		snapshot.inspect = { status: "failed", reason: "timeout", detail: "no result within 120s", resolution: source, at: 2 };
 		assert.match(fleetConfigRows(snapshot, "overview").find(row => row.key === "inspect/failed")!.detail, /^timeout: no result within 120s/);
 		snapshot.inspect = { status: "ok", report: fakeReport(), exitCode: 0, resolution: source, at: 3 };

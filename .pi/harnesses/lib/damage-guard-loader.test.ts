@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,9 @@ const damageControl = fileURLToPath(new URL("../damage-control-continue/index.ts
 const portStore = Symbol.for("agent-fleet.damage-guard-port.v1");
 
 async function fixture(t: any, peerSource?: string, autoPolicy?:unknown,customRules?:unknown) {
- const dir = mkdtempSync(join(tmpdir(), "fleet-d6-loader-")); t.after(() => rmSync(dir, { recursive: true, force: true }));
+ // The user-owned auto policy refuses an aliased root by design (realpath must equal the path), so the fixture
+ // resolves the temp directory first; CI runs the fast lane through a symlinked TMPDIR.
+ const dir = realpathSync(mkdtempSync(join(tmpdir(), "fleet-d6-loader-"))); t.after(() => rmSync(dir, { recursive: true, force: true }));
  mkdirSync(join(dir, ".pi"),{mode:0o700});
  writeFileSync(join(dir, ".pi", "damage-control-rules.yaml"), "bashToolPatterns: []\nzeroAccessPaths: []\nreadOnlyPaths: []\nnoDeletePaths: []\n");
  if(autoPolicy){writeFileSync(join(dir,'.pi','damage-control-rules.yaml'),JSON.stringify({bashToolPatterns:[],zeroAccessPaths:[],readOnlyPaths:['fixture-protected/'],noDeletePaths:[]}));writeFileSync(join(dir,'.pi','damage-control-auto-policy.yaml'),JSON.stringify(autoPolicy),{mode:0o600});}
