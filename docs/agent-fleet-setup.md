@@ -624,6 +624,25 @@ the maintainer to accept limitations/evidence and explicitly choose each
 repository's off/shadow/advisory state. No release or deployment follows from
 these docs or C6.
 
+## Viewing configuration from a live session
+
+Inside a running Hub (`just fleet`) or coms peer (`just fleet peer`), `/af-config [tab]` or **Alt+,**
+opens a read-only full-screen view of the files this guide describes: `.ai/agent-fleet.json` (preset and
+feature switches as written), `.ai/agent-fleet-state.json` (recorded items with a sha256 check of every
+recorded file: unchanged / modified / missing), `.ai/agent-fleet-overrides.md` (sections and keys with
+their line numbers, plus the values the Hub parsed at session start and its warnings),
+`.ai/agent-fleet-ai-state.json` (accepted project files with their local hash state), `.ai/system1.json`,
+`.ai/stt.json`, the `.pi/agents/*.yaml` files and the damage-control rule files. Each row shows where the
+value comes from, and a file edited after the session started is flagged because the running session
+still uses what it read at start.
+
+The screen only reads files and compares hashes. It does not re-derive installer decisions: item states,
+drift findings, feature availability and three-way conflicts still come from `agent-fleet verify`,
+`agent-fleet doctor` and `agent-fleet setup --dry-run`, which the relevant tabs name. It never shows an
+environment variable's value — only the variable name and whether it is set in the session's process — and
+it never writes a configuration file; the deterministic CLI remains the only writer. Tabs: Overview, Setup,
+State, Overrides, AI State, System 1, STT, Fleet, Safety and Runtime (Hub only).
+
 ## The overrides file — `.ai/agent-fleet-overrides.md`
 
 Some skills and pi harnesses need facts specific to each project — where specs

@@ -20,8 +20,8 @@ const keybindings: any = { matches() { return false; } };
 test("registered Alt+I/M/A dispatch exactly once through the composed editor host callback", () => {
 	const shortcuts = new Map<string, any>();
 	const pi: any = { registerShortcut(key: string, value: any) { shortcuts.set(key, value); } };
-	const opened = { mode: 0, dashboard: 0, toggle: 0, context: 0 }; const ctx: any = { hasUI: true, ui: { select() {}, notify() {} } };
-	registerInputShortcuts(pi, { setWidgetContext() { opened.context++; }, toggleFleetWidget: () => { opened.toggle++; }, workModeStatusText: () => "mode", openWorkModePicker: async () => { opened.mode++; }, openFleetDashboard: async () => { opened.dashboard++; } });
+	const opened = { mode: 0, dashboard: 0, toggle: 0, context: 0, config: 0 }; const ctx: any = { hasUI: true, ui: { select() {}, notify() {} } };
+	registerInputShortcuts(pi, { setWidgetContext() { opened.context++; }, toggleFleetWidget: () => { opened.toggle++; }, workModeStatusText: () => "mode", openWorkModePicker: async () => { opened.mode++; }, openFleetDashboard: async () => { opened.dashboard++; }, openFleetConfig: async () => { opened.config++; } });
 	let factory: any;
 	const host = { getEditorComponent: () => factory, setEditorComponent: (value: any) => { factory = value; } };
 	const installation = installFleetEditor(host, (et, th, kb) => new CustomEditor(et, th, kb) as any, isKeyRelease, () => false);
@@ -30,12 +30,12 @@ test("registered Alt+I/M/A dispatch exactly once through the composed editor hos
 		for (const [key, registration] of shortcuts) if (matchesKey(data, key as any)) { registration.handler(ctx); return true; }
 		return false;
 	} });
-	assert.deepEqual([...shortcuts.keys()], ["alt+a", "alt+m", "alt+i"]);
-	for (const input of ["\x1bm", "\x1ba", "\x1bi", "\x1bm", "\x1ba", "\x1bi"]) editor.handleInput(input);
-	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 6 });
+	assert.deepEqual([...shortcuts.keys()], ["alt+a", "alt+m", "alt+i", "alt+,"]);
+	for (const input of ["\x1bm", "\x1ba", "\x1bi", "\x1bm", "\x1ba", "\x1bi", "\x1b,"]) editor.handleInput(input);
+	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 7, config: 1 });
 	// If macOS Terminal sends Option+M as its layout character (µ) instead of ESC+m,
 	// it is text input, not an Alt shortcut; do not steal legitimate Unicode input.
 	editor.handleInput("µ");
-	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 6 });
+	assert.deepEqual(opened, { mode: 2, dashboard: 2, toggle: 2, context: 7, config: 1 });
 	installation.dispose();
 });

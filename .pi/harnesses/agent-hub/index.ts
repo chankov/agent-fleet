@@ -94,6 +94,7 @@ import { registerAgentsKill } from "./commands/agents-kill.ts";
 import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
 import { registerAudit } from "./commands/audit.ts";
+import { registerConfig } from "./commands/config.ts";
 import { showSessionAudit } from "./session-audit.ts";
 import { createExecutionTrace, createNativeExecutionTrace, registerExecutionTrace, EXECUTION_TRACE_ENTRY } from "./execution-trace.ts";
 import { beginRuntimeTrace } from "../lib/execution-trace.ts";
@@ -162,6 +163,7 @@ import { createFleetActions } from "./ui/fleet-actions.ts";
 import { createDetailPanel } from "./ui/detail-panel.ts";
 import { createFleetDashboard } from "./ui/fleet-dashboard.ts";
 import { createContextBudgetUi } from "./ui/context-budget.ts";
+import { createFleetConfigUi } from "../lib/fleet-config/ui.ts";
 import { createPoolPresentation } from "./ui/pool.ts";
 import { registerInputShortcuts } from "./input/shortcuts.ts";
 import { createCompletionPresentation } from "./input/completions.ts";
@@ -1161,6 +1163,20 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Commands ─────────────────────────────────
 
+	// /af-config and Alt+, — read-only configuration screen (shared with coms peers via lib/fleet-config).
+	const fleetConfigUi = createFleetConfigUi({
+		readHubOverrides: cwd => parseAgentTeamOverrides(cwd),
+		livePeerNames: () => identity ? readAllRegistryEntries(identity.project).map(entry => entry.name) : [],
+		runtimeRows: () => [
+			{ label: "Work mode", detail: workModeStatusText(), origin: "runtime" },
+			{ label: "Active roster", detail: activeTeamName ? `${activeTeamName} (${agentStates.size} specialists)` : "(none)", origin: ".pi/agents/teams.yaml" },
+			{ label: "Coms identity", detail: identity ? `${identity.name}@${identity.project}${comsReady ? "" : " · not ready"}` : "not connected", origin: "runtime" },
+			{ label: "Node", detail: process.version, origin: "runtime" },
+			{ label: "Related screens", detail: "/af-work-mode · /af-agents-team · /af-dispatch-policy · /af-context · /af-allowed · /af-coms", origin: "runtime" },
+		],
+	});
+	const openFleetConfig = (ctx: ExtensionContext, args = "") => gridUI.withSuspended(() => fleetConfigUi.open(ctx, args));
+
 	const commandCtx: CommandContext = {
 		setWidgetContext: ctx => { widgetCtx = ctx; },
 		applyWorkModeSelection,
@@ -1328,6 +1344,10 @@ export default function (pi: ExtensionAPI) {
 		handleContext: async (_args, ctx) => {
 			widgetCtx = ctx;
 			await openContextBudget(ctx);
+		},
+		handleConfig: async (args, ctx) => {
+			widgetCtx = ctx;
+			await openFleetConfig(ctx, args);
 		},
 		handleHubReport: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -1926,6 +1946,7 @@ export default function (pi: ExtensionAPI) {
 	registerAgentsHistory(pi, commandCtx);
 	registerContextCommand(pi, commandCtx);
 	registerAudit(pi, commandCtx);
+	registerConfig(pi, commandCtx);
 	registerWorkMode(pi, commandCtx);
 	registerWatchdog(pi, commandCtx);
 	registerAgentsAdd(pi, commandCtx);
@@ -2072,6 +2093,7 @@ export default function (pi: ExtensionAPI) {
 		setWidgetContext: ctx => { widgetCtx = ctx; }, openFleetDashboard,
 		toggleFleetWidget: () => gridUI.toggle(),
 		workModeStatusText, openWorkModePicker,
+		openFleetConfig: ctx => openFleetConfig(ctx),
 	});
 
 	// Root owns subscription order; lifecycle modules own handler bodies.
@@ -2402,6 +2424,7 @@ export default function (pi: ExtensionAPI) {
 		loadAgents: (_ctx) => {
 			// Allocate a fresh namespace; shared legacy files belong to prior/live sessions.
 			sessionOverrides = parseAgentTeamOverrides(_ctx.cwd);
+			fleetConfigUi.recordBaseline(_ctx.cwd);
 			try {
 				const config = loadProactiveConfig(_ctx.cwd,system1Snapshot,sessionOverrides.policyRoots);
 				proactiveConfig = isCaptureEnabled(config) ? config : null;

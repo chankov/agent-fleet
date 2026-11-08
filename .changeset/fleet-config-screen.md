@@ -1,0 +1,5 @@
+---
+"@chankov/agent-fleet": minor
+---
+
+Add `/af-config [tab]` and the **Alt+,** shortcut: a read-only full-screen Fleet configuration screen available in the Hub and in every coms peer. It shows the desired state (`.ai/agent-fleet.json`), the install record with a sha256 check of every recorded file, the overrides file by section and key with line numbers plus the values the Hub parsed at session start and its warnings, AI-state provenance with local hash state, System 1 and STT (environment variable names and presence only, never values), the fleet YAML files with LIVE marks for peers in the coms pool, damage-control rule counts and the auto-policy state, and a Hub-only Runtime tab. Rows name their origin, files edited after session start are flagged, `o` opens the selected file in a read-only viewer, and headless children receive the Overview as a notice. The screen reads files and compares hashes only; installer evaluation stays with `agent-fleet verify`/`doctor`/`setup`, and nothing is written.

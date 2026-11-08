@@ -24,6 +24,7 @@ import {handlePermissionEnvelope} from '../agent-hub/permission-relay.ts';
 import { handleQuestionEnvelope, registerQuestionPeer, questionChannel } from "../ask-user-remote/questions.ts";
 import { handleObservationEnvelope } from "../lib/coms-observation.ts";
 import { handleInstructionReceipt } from "../lib/coms-instruction-receipts.ts";
+import { createFleetConfigUi } from "../lib/fleet-config/ui.ts";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerFlag("name", { description: "Override agent name (otherwise from frontmatter or auto-generated)", type: "string", default: undefined });
@@ -268,6 +269,13 @@ export default function (pi: ExtensionAPI) {
 		renderResult(result, _options, theme) { const details = result.details as any; return new Text(theme.fg(details?.status === "pending" ? "warning" : details?.status === "error" ? "error" : "success", details?.status === "pending" ? "⏳ pending" : details?.status === "error" ? `✗ ${details.error}` : "✓ response received"), 0, 0); },
 	});
 
+	// /af-config and Alt+, — the same read-only configuration screen the Hub has; a peer renders file facts only.
+	const fleetConfigUi = createFleetConfigUi({ livePeerNames: () => readAllRegistryEntries(peer.identity?.project ?? "default").map(entry => entry.name) });
+	pi.registerCommand("af-config", {
+		description: "Read-only Fleet configuration screen: desired state, install record, overrides, AI state, System 1, STT, fleet YAML, safety (also Alt+,); /af-config <tab> jumps to a tab",
+		handler: async (args, ctx) => { currentCtx = ctx; await fleetConfigUi.open(ctx, args); },
+	});
+	pi.registerShortcut("alt+,", { description: "Open Fleet config screen (read-only)", handler: ctx => { currentCtx = ctx; void fleetConfigUi.open(ctx); } });
 	pi.registerCommand("af-coms", {
 		description: "Force-refresh the coms pool widget (or filter with --all / --project <name>)",
 		handler: async (args, ctx) => { await peer.updateScope((args ?? "").trim(), ctx); },
@@ -276,6 +284,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		registerVersionStatus(ctx);
 		currentCtx = ctx;
+		fleetConfigUi.recordBaseline(ctx.cwd);
 		let identity: ComsIdentity;
 		try {
 			identity = await peer.connect({ ctx, defaultNamePrefix: "agent", defaultPurpose: "" });

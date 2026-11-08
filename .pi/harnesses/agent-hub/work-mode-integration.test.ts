@@ -52,6 +52,7 @@ const commandModules = [
 	["agents-history", "registerAgentsHistory"],
 	["context-command", "registerContextCommand"],
 	["audit", "registerAudit"],
+	["config", "registerConfig"],
 	["work-mode", "registerWorkMode"],
 	["watchdog", "registerWatchdog"],
 	["agents-add", "registerAgentsAdd"],
@@ -109,8 +110,8 @@ test("operator gets actionable fleet tools only when transition or S1 stage need
  assert.match(pressureLifecycleSource, /ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
 });
 
-test("wiring contract: all 28 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 28);
+test("wiring contract: all 29 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 29);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));

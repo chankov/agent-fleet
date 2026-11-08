@@ -58,6 +58,10 @@ when you are on the herdr backend.
   every project) and `--all` toggles private (`--explicit`) peers into view
 - `coms_list` / `coms_send` / `coms_get` / `coms_await` tools — discover peers and
   exchange messages
+- `/af-config [tab]` or **Alt+,** — the read-only Fleet configuration screen (desired state, install
+  record, overrides, AI state, System 1, STT, fleet YAML with LIVE peer marks, safety). A peer shows file
+  facts only; the Hub adds its runtime tab. Nothing is written — see
+  [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session)
 
 ## External conductors
 

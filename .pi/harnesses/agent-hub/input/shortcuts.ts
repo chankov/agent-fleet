@@ -6,6 +6,7 @@ export interface ShortcutPorts {
 	toggleFleetWidget(ctx: ExtensionContext): void;
 	workModeStatusText(): string;
 	openWorkModePicker(ctx: ExtensionContext): Promise<void>;
+	openFleetConfig(ctx: ExtensionContext): Promise<void>;
 }
 
 export function registerInputShortcuts(pi: ExtensionAPI, ports: ShortcutPorts): void {
@@ -17,4 +18,6 @@ export function registerInputShortcuts(pi: ExtensionAPI, ports: ShortcutPorts): 
 		void ports.openWorkModePicker(ctx);
 	} });
 	pi.registerShortcut("alt+i", { description: "Toggle Fleet widget", handler: ctx => { withContext(ctx); ports.toggleFleetWidget(ctx); } });
+	// Headless sessions degrade inside openFleetConfig (notify with the Overview text).
+	pi.registerShortcut("alt+,", { description: "Open Fleet config screen (read-only)", handler: ctx => { withContext(ctx); void ports.openFleetConfig(ctx); } });
 }

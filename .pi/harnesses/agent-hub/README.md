@@ -301,6 +301,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
 - **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either work mode. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
+- **Fleet config screen** — `/af-config [tab]` or **`Alt+,`** opens a read-only full-screen view of what is configured and what is active: desired state (`.ai/agent-fleet.json`), the install record with recorded-hash vs on-disk checks, overrides sections and the values the Hub parsed at start, AI-state provenance, System 1, STT, fleet YAML (teams, peers with LIVE marks, dispatch policy, voices), damage-control rules, and the session runtime. It reads files and compares hashes only; installer evaluation (item states, feature availability, conflicts) stays with `agent-fleet verify`/`setup`, and the screen writes nothing. See [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session).
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
 - **Research helpers** — the dispatcher invokes `spawn_research` automatically for read-only
   investigation; specialists can trigger the separate automatic `NEEDS_RESEARCH:` pipe described
@@ -554,6 +555,19 @@ the Hub. In Terminal.app, enable **Use Option as Meta key** under **Settings →
 for the profile used by the window. If Option+M inserts `µ`, this setting is not enabled. `Command+M`
 is Terminal.app's Minimize shortcut, not a Fleet shortcut. For details, see the
 [macOS terminal note](../../../docs/pi-extensions.md).
+
+### Fleet config screen
+
+Press **`Alt+,`** or run **`/af-config [tab]`** to open the read-only **Fleet config** overlay. Tabs:
+Overview, Setup, State, Overrides, AI State, System 1, STT, Fleet, Safety and (Hub only) Runtime.
+`←→`/`Tab` and `1`-`9` switch tabs, `↑↓`/`PgUp`/`PgDn` move, `Enter` expands a group, `o` opens the
+selected file in a read-only viewer, `r` re-reads the files, `q`/`Esc` closes. Each row names its
+origin (`file:line` or `runtime`). Files edited after session start are flagged, because the Hub reads
+overrides, teams and System 1 configuration once at start. Environment variables appear as names with
+present/absent only; values are never read or shown. Headless children get the Overview as a notice.
+The same command and shortcut exist in coms peers (without the Runtime tab and the Hub's effective
+override values). The screen never writes a configuration file; changes go through the CLI
+(`agent-fleet setup`, `agent-fleet configure`).
 
 ### Fleet Dashboard and detail
 
