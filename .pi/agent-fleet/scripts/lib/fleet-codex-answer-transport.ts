@@ -1,5 +1,6 @@
 // S6b shared pure wire contract + bounded explicit-root transport. Import has no I/O.
 import { createHash, randomUUID } from 'node:crypto';
+import {validOpaqueToolCallId} from '../../../harnesses/lib/fleet-question-reference.ts';
 import { lstat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { createConnection } from 'node:net';
@@ -12,7 +13,7 @@ export const validId=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9]
 export const validHash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const date=(v:unknown):v is string=>typeof v==='string'&&v.length<=40&&Number.isFinite(Date.parse(v));
 const clean=(v:unknown,max=16000):v is string=>typeof v==='string'&&v.trim().length>0&&Buffer.byteLength(v)<=max&&!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(v);
-export const validToolCall=(v:unknown):v is string=>typeof v==='string'&&v.length>0&&v.length<=256&&!/[\u0000-\u001f\u007f]/u.test(v);
+export const validToolCall=validOpaqueToolCallId;
 export type HumanResponse = {kind:'freeform';text:string}|{kind:'selection';selections:string[];comment?:string}|null;
 export type QuestionSnapshot={id:string;toolCallId:string;owner:TargetEpoch;question:string;context?:string;options:{title:string;description?:string}[];allowMultiple:boolean;allowFreeform:boolean;allowComment:boolean;createdAt:string;expiresAt:null;state:string};
 export function validSnapshot(v:unknown):v is QuestionSnapshot {

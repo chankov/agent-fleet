@@ -5,6 +5,7 @@ import {InstructionLedger,targetKey,validInstructionTarget} from './fleet-codex-
 import {assessLoadedFleetCatalog} from './fleet-codex-local-mcp.ts';
 import {FleetCodexEventBridge,type AddressedFleetEvent,type CodexEventHost,type CodexEventBinding} from '../../../harnesses/lib/fleet-codex-event-bridge.ts';
 import {subscribeFleetSourceEvents,type FleetSourceEvent} from '../../../harnesses/lib/fleet-event-source.ts';
+import {encodeQuestionReference,validOpaqueToolCallId} from '../../../harnesses/lib/fleet-question-reference.ts';
 import {CodexDesktopQueueHost,matchesDesktopQueueTuple,type DesktopQueueApproval} from './codex-desktop-queue-host.ts';
 import {CodexUnixQueueRpc} from './codex-unix-queue-rpc.ts';
 const sha=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -78,9 +79,9 @@ export class FleetCodexNotificationRuntime {
   if(!this.ready||!this.current(this.binding)||!sameOwner(source.owner,this.config.approval.target)||!['message','question','permission'].includes(source.kind)||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(source.sourceId)||!Number.isSafeInteger(source.createdAt)||source.createdAt>Date.now()+1000||!/^[a-f0-9]{64}$/.test(source.contentDigest))throw Error('notification_source_invalid');
   const deadline=source.deadline===null?source.createdAt+this.config.messageBudgetMs:source.deadline;
   if(!Number.isSafeInteger(deadline)||deadline<=source.createdAt)throw Error('notification_deadline_invalid');
-  if(source.kind==='question'&&(typeof source.toolCallId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(source.toolCallId)))throw Error('notification_question_reference_incomplete');
+  if(source.kind==='question'&&!validOpaqueToolCallId(source.toolCallId))throw Error('notification_question_reference_incomplete');
   const id='fe-'+sha([targetKey(source.owner),source.kind,source.sourceId,this.binding.id,this.binding.epoch]);
-  const event:AddressedFleetEvent={id,kind:source.kind,bindingId:this.binding.id,bindingEpoch:this.binding.epoch,fleetOwner:this.binding.fleetOwner,createdAt:source.createdAt,deadline,reference:'fleet:'+source.kind+'/'+source.sourceId+(source.kind==='question'?'/'+source.toolCallId:''),contentDigest:source.contentDigest};
+  const event:AddressedFleetEvent={id,kind:source.kind,bindingId:this.binding.id,bindingEpoch:this.binding.epoch,fleetOwner:this.binding.fleetOwner,createdAt:source.createdAt,deadline,reference:source.kind==='question'?encodeQuestionReference(source.sourceId,source.toolCallId!):'fleet:'+source.kind+'/'+source.sourceId,contentDigest:source.contentDigest};
   const digest=sha(event),prior=this.ledger.lookup(this.context,id);
   if(prior&&prior.digest!==digest)throw Error('notification_intent_conflict');
   const known=prior??this.ledger.reserve(this.context,{requestId:id,target:source.owner,digest},{alias:this.binding.id,policyRevision:this.config.approval.authorityRevision}).receipt;

@@ -20,6 +20,31 @@ test('real question and permission producers plus message ingress feed the produ
  assert.equal(publishFleetSourceEvent(f.source).status,'durably_ingested');await tick();assert.equal(f.sends,3);
  assert.throws(()=>publishFleetSourceEvent({...f.source,contentDigest:fleetSourceDigest('changed')}),/ingress_unavailable/);
 });
+test('opaque question toolCallIds survive real producer admission, including composite and Unicode IDs',async t=>{
+ const ids=['call_x|fc_y','call/x:y%2Fz',' инструмент 🧪 ','\ud800','\udc00','\uffff'.repeat(256)];
+ for(let i=0;i<ids.length;i++)await t.test('opaque case '+i,async t=>{
+  const f=fixture(t),runtime=f.make();await runtime.start();t.after(()=>runtime.stop());
+  const questions=new QuestionChannel(()=>owner);questions.enabled=true;t.after(()=>questions.reset());
+  const q=questions.open(ids[i],{question:'Opaque ID fixture, not a live human question'});assert.ok(q);q.registerAnswer(()=>true);
+  for(let n=0;n<100&&f.sends<1;n++)await tick();assert.equal(f.sends,1);
+  assert.equal(f.delivered[0].reference,'fleet:question:v2/'+q.id+'/'+Buffer.from(ids[i],'utf16le').toString('base64url'));
+  assert.equal(JSON.stringify(f.delivered).includes('Opaque ID fixture'),false);
+ });
+});
+test('invalid opaque toolCallIds still refuse admission before any host delivery',async t=>{
+ const f=fixture(t),runtime=f.make();await runtime.start();t.after(()=>runtime.stop());
+ const invalid=[undefined,null,'','a'.repeat(257),...Array.from({length:32},(_,i)=>'call'+String.fromCharCode(i)), 'call\u007f'];
+ for(const toolCallId of invalid)assert.throws(()=>runtime.ingest({...f.source,kind:'question',toolCallId} as any),/notification_question_reference_incomplete/);
+ await tick();assert.equal(f.sends,0);
+});
+test('versioned question references retain restart recovery and unknown/no-replay semantics',async t=>{
+ const f=fixture(t),source={...f.source,kind:'question' as const,sourceId:'opaque-question',toolCallId:'call_x|fc_y'};
+ const before=f.make();t.after(()=>before.stop());await before.start();before.ingest(source);before.stop();await tick();assert.equal(f.sends,0);
+ f.lose();const recovered=f.make();t.after(()=>recovered.stop());await recovered.start();
+ for(let n=0;n<100&&f.sends<1;n++)await tick();assert.equal(f.sends,1);recovered.stop();
+ const restarted=f.make();await restarted.start();t.after(()=>restarted.stop());await tick();
+ assert.equal(restarted.ingest(source).status,'historical');assert.equal(f.sends,1);assert.ok(f.reconciles>=1);
+});
 test('crash before send recovers committed ingress; lost ACK restart calls reconcile without replay even for empty queue',async t=>{
  const f=fixture(t),before=f.make();await before.start();t.after(()=>before.stop());before.ingest(f.source);before.stop();await tick();assert.equal(f.sends,0);
  const restarted=f.make();await restarted.start();t.after(()=>restarted.stop());for(let i=0;i<100&&f.sends<1;i++)await tick();assert.equal(f.sends,1);restarted.stop();

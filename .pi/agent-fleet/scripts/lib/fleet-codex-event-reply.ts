@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {decodeQuestionReference} from '../../../harnesses/lib/fleet-question-reference.ts';
 import {targetKey,validInstructionTarget} from './fleet-codex-instruction-store.ts';
 import {redactSecrets} from '../../../harnesses/lib/fleet-transcript-store.ts';
 import type {AddressedFleetEvent,CodexEventBinding} from '../../../harnesses/lib/fleet-codex-event-bridge.ts';
@@ -20,14 +21,18 @@ export async function replyFleetEvent(event:AddressedFleetEvent,target:TargetEpo
  const binding=ports.currentBinding();
  const fresh=()=>{const now=ports.currentBinding(),native=typeof ports.nativeIdentity==='function'?ports.nativeIdentity():null;return native?.identityAssurance==='host_context_validated'&&!!binding&&native.threadId===binding.threadId&&!!now&&sha(now)===sha(binding)&&event.bindingId===binding.id&&event.bindingEpoch===binding.epoch&&event.fleetOwner===binding.fleetOwner&&binding.fleetOwner===targetKey(target)&&Date.now()<event.deadline;};
  if(!validInstructionTarget(target)||!fresh()||reply.kind!==event.kind)throw Error('event_reply_stale_or_wrong_kind');
- const prefix='fleet:'+event.kind+'/';if(!event.reference.startsWith(prefix))throw Error('event_reply_reference_invalid');
- const parts=event.reference.slice(prefix.length).split('/');if(parts.some(p=>!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(p)))throw Error('event_reply_reference_invalid');
+ const question=event.kind==='question'?decodeQuestionReference(event.reference):null;
+ if(event.kind==='question'&&!question)throw Error('event_reply_reference_invalid');
+ const prefix='fleet:'+event.kind+'/';
+ if(!question&&!event.reference.startsWith(prefix))throw Error('event_reply_reference_invalid');
+ const parts=question?[]:event.reference.slice(prefix.length).split('/');
+ if(parts.some(p=>!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(p)))throw Error('event_reply_reference_invalid');
  const requestId='reply-'+sha([binding!.id,binding!.epoch,event.id,event.kind]);
  if(reply.kind==='message')return {status:'summary_only',source:'codex_machine',summaryPreview:redactSecrets(reply.summary).slice(0,1024),humanConsent:false,piEffect:'not_established'};
  if(reply.kind==='question'){
-  if(parts.length!==2||parts[0].length>96)throw Error('question_reference_incomplete');
+  if(!question)throw Error('question_reference_incomplete');
   if(redactSecrets(JSON.stringify(reply.response))!==JSON.stringify(reply.response))throw Error('question_response_unaddressable');
-  const proposal=await ports.invoke('fleet_answer_prepare',{requestId,target,questionId:parts[0],toolCallId:parts[1],operation:reply.response===null?'refusal':'answer',response:reply.response});
+  const proposal=await ports.invoke('fleet_answer_prepare',{requestId,target,questionId:question.questionId,toolCallId:question.toolCallId,operation:reply.response===null?'refusal':'answer',response:reply.response});
   if(!fresh())throw Error('event_reply_expired');
   if(!ports.confirmHuman)return {status:'human_confirmation_required',proposal,humanConsent:false};
   if(!await ports.confirmHuman(proposal))return {status:'human_confirmation_not_obtained',humanConsent:false};

@@ -23,13 +23,13 @@ This is read-only compatibility, not automatic transfer of grants or a rewrite i
 | summary / activity / questions | `fleet_observe`; full bounded question data for addressing a question |
 | resync | `fleet_resync`, with explicit local cursor writes and gaps |
 | watch | Explicit bounded `fleet_watch` while the conversation is active; longer requested periods use bounded calls within that time budget, not a daemon |
-| send | `fleet_instruction_prepare`, fresh human confirmation, one commit, exact receipt |
+| send | `fleet_instruction_prepare`, one commit, exact receipt; an explicit user send to one unambiguous selected current session with read+send needs no second confirmation; otherwise clarify or obtain preview confirmation as described in the [native send contract](codex-local-mcp.md#send-an-instruction) |
 | answer / cancel-question | `fleet_answer_prepare`, actual human answer or explicit question-scoped refusal, fresh preview confirmation, one commit and receipt; not Pi-turn cancellation |
 | replay | Explicit `fleet_snapshot` followed by local historical `fleet_replay`; legacy saved reports are available through the configured archive reader |
 | receipts | `fleet_receipts`, exact instruction/answer receipt lookup, and opt-in `fleet_legacy_history` for old records |
 | doctor / describe / help | `fleet_diagnostics`, actual MCP tool schemas, registry/read checks and authorized capability observations; static diagnostics are not receiver readiness proof |
 
-The native interface changes authorization deliberately: legacy selection does not grant read or send, read does not grant send, and an old send grant does not supply a human answer. Prepare and show the exact proposal before a new confirmation. Do not send an old uncertain action again to demonstrate migration.
+The native interface changes authorization deliberately: legacy selection does not grant read or send, read does not grant send, and an old send grant does not supply a human answer. Keep technical prepare/commit for every send. Explicit user sends follow the limited no-second-confirmation path above; binding changes, answers, model-initiated sends and substantively expanded instructions retain their own reviewed confirmation requirements. Do not send an old uncertain action again to demonstrate migration.
 
 ## Repair retired installer selections
 

@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {withinFleetReferenceLimit} from './fleet-question-reference.ts';
 export type CodexEventBinding=Readonly<{id:string;epoch:string;hostInstance:string;threadId:string;fleetOwner:string}>;
 export type AddressedFleetEvent=Readonly<{id:string;kind:'message'|'question'|'permission';bindingId:string;bindingEpoch:string;fleetOwner:string;createdAt:number;deadline:number;reference:string;contentDigest?:string}>;
 export type EventDelivery={status:'host_accepted';turnId:string}|{status:'queue_accepted';submissionId:string;transportOrigin:'user_input';historical?:boolean}|{status:'rejected'|'unsupported'|'unknown'};
@@ -33,7 +34,7 @@ export class FleetCodexEventBridge {
   if(prior)return {status:prior.digest===digest?'duplicate':'conflict',receipt:structuredClone(prior)};
   const binding=this.bindings.get(event.bindingId);
   if(!binding||binding.epoch!==event.bindingEpoch||binding.fleetOwner!==event.fleetOwner)return {status:'stale'};
-  if(!event.id||event.id.length>96||!['message','question','permission'].includes(event.kind)||!Number.isSafeInteger(event.createdAt)||!Number.isSafeInteger(event.deadline)||event.deadline<=event.createdAt||event.reference.length>512)return {status:'invalid'};
+  if(!event.id||event.id.length>96||!['message','question','permission'].includes(event.kind)||!Number.isSafeInteger(event.createdAt)||!Number.isSafeInteger(event.deadline)||event.deadline<=event.createdAt||!withinFleetReferenceLimit(event.kind,event.reference))return {status:'invalid'};
   if(this.receipts.size>=this.limit)return {status:'full'};
   const receipt:Receipt={eventId:event.id,digest,binding:structuredClone(binding),status:event.deadline<=Date.now()?'expired':'queued',emittedAt:event.createdAt,deadline:event.deadline};
   this.receipts.set(event.id,receipt);

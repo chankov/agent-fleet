@@ -9,11 +9,12 @@ import {tmpdir} from 'node:os';
 import {CodexUnixQueueRpc} from './lib/codex-unix-queue-rpc.ts';
 import {CodexDesktopQueueHost,desktopQueuePin,type DesktopQueueApproval} from './lib/codex-desktop-queue-host.ts';
 import {targetKey} from './lib/fleet-codex-instruction-store.ts';
+import {encodeQuestionReference,decodeQuestionReference} from '../../harnesses/lib/fleet-question-reference.ts';
 import {FleetCodexEventBridge,type AddressedFleetEvent} from '../../harnesses/lib/fleet-codex-event-bridge.ts';
 const require=createRequire(import.meta.url),{WebSocketServer}=require('ws');
 const target={project:'fixture',peer:'hub',sessionId:'session',startedAt:'2026-11-04T00:00:00Z'};
 const binding={id:'fixture',epoch:'binding-1',hostInstance:'verified-fixture-desktop',threadId:'11111111-1111-4111-8111-111111111111',fleetOwner:targetKey(target)};
-const event=(id:string,kind:AddressedFleetEvent['kind']='permission'):AddressedFleetEvent=>({id,kind,bindingId:binding.id,bindingEpoch:binding.epoch,fleetOwner:binding.fleetOwner,createdAt:Date.now(),deadline:Date.now()+30000,reference:'fleet:'+kind+'/fixture-reference'});
+const event=(id:string,kind:AddressedFleetEvent['kind']='permission'):AddressedFleetEvent=>({id,kind,bindingId:binding.id,bindingEpoch:binding.epoch,fleetOwner:binding.fleetOwner,createdAt:Date.now(),deadline:Date.now()+30000,reference:'fleet:'+kind+'/fixture-reference'+(kind==='question'?'/tool':'')});
 const signal=()=>new AbortController().signal;
 async function fixture(t:any){
  const root=await mkdtemp(join(tmpdir(),'codex-queue-'));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -65,6 +66,31 @@ test('all addressed kinds carry references only, while an exact delivery probe r
  const p=JSON.parse(f.queued[3].input[0].text.split('\n')[1]);assert.equal(p.deliveryProbe,true);assert.equal(p.expectedReply,'FLEET_PROBE_ACK probe-only');assert.equal(p.humanApproval,false);
 });
 
+test('opaque question references pass bridge and real temp Unix queue packet without loss or duplicate writes',async t=>{
+ const f=await fixture(t),host=f.makeHost(),pump=new FleetCodexEventBridge(host);pump.bind(binding);
+ const ids=['call_x|fc_y','call/x:y%2Fz',' въпрос 🧪 ','\ud800','\uffff'.repeat(256)];
+ for(let i=0;i<ids.length;i++){
+  const reference=encodeQuestionReference('q'.repeat(96),ids[i]),e={...event('opaque-'+i,'question'),reference};
+  assert.equal(pump.accept(e).status,'recorded');
+  for(let n=0;n<200&&pump.receipt(e.id).status!=='queue_accepted';n++)await new Promise(r=>setTimeout(r,5));
+  assert.equal(pump.receipt(e.id).status,'queue_accepted');assert.equal(f.queued.length,i+1);
+  const packet=JSON.parse(f.queued[i].input[0].text.split('\n')[1]);
+  assert.deepEqual(decodeQuestionReference(packet.reference),{questionId:'q'.repeat(96),toolCallId:ids[i]});
+  assert.equal(packet.humanApproval,false);assert.equal(packet.threadId,binding.threadId);
+  assert.equal((await f.makeHost().deliverExternal(binding,e,signal()) as any).historical,true);assert.equal(f.queued.length,i+1);
+ }
+});
+test('malformed encoded question references reject before metadata read or queue reservation',async t=>{
+ const f=await fixture(t),host=f.makeHost();
+ const encoded=(id:string)=>'fleet:question:v2/source/'+Buffer.from(id,'utf16le').toString('base64url');
+ const invalid=['fleet:question/source/call|id','fleet:question/source','fleet:question:v2/source/fA','fleet:question:v2/source/fAB',encoded('|')+'=',encoded('\n'),encoded('a'.repeat(257)),encoded('tool'),encoded('|')+'/extra'];
+ for(let i=0;i<invalid.length;i++)assert.equal((await host.deliverExternal(binding,{...event('bad-opaque-'+i,'question'),reference:invalid[i]},signal())).status,'rejected');
+ assert.equal(f.queued.length,0);assert.equal(f.methods.length,0);
+ const pump=new FleetCodexEventBridge(host);pump.bind(binding);
+ const long=encodeQuestionReference('q'.repeat(96),'\uffff'.repeat(256));
+ assert.equal(pump.accept({...event('over-bound','question'),reference:long+'A'}).status,'invalid');
+ assert.equal(pump.accept({...event('wrong-kind','message'),reference:long}).status,'invalid');
+});
 test('lost ACK persists unknown across adapter restart; empty queue never proves delivery or permits resend',async t=>{
  const f=await fixture(t),e=event('lost');f.dropNext();
  assert.equal((await f.makeHost().deliverExternal(binding,e,signal())).status,'unknown');assert.equal(f.queued.length,1);
