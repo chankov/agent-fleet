@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["node"],
+    "baseUrl": "../../..",
+    "paths": {
+      "@mariozechner/pi-coding-agent": ["node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
+      "@mariozechner/pi-tui": ["node_modules/@earendil-works/pi-tui/dist/index.d.ts"]
+    }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./**/*.test.ts"]
+}

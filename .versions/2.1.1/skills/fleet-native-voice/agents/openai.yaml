@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fleet native voice"
+  short_description: "Manage named Fleet sessions through native tools"
+  default_prompt: "Use $fleet-native-voice to summarize my explicitly named Fleet connections."
