@@ -2,6 +2,8 @@
 
 Use the local `af-local-read` MCP server to work with **already running** Fleet/Pi sessions from one Codex conversation. Despite its historical name, the server supports permission-controlled observations, instructions, and human question answers across multiple explicitly selected targets.
 
+The optional [native chat connection workflow](codex-connections.md) adds exact-target preview/commit, default 12-hour leases for new connections, in-place renewal of an already configured notification mapping, and a Fleet View chat-status panel. First-time notification bootstrap and automatic restart recovery remain explicit blockers.
+
 This guide covers the current native interface. The [legacy CLI client](codex-session-bridge.md) is a separate interface with separate state; its selection and receipts are not imported automatically. The optional [native voice workflow](fleet-native-voice.md) uses the same MCP tools and permissions, not a different transport.
 
 ## Requirements and support boundaries

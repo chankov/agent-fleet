@@ -1,3 +1,4 @@
+import {ConnectionBridge,ConnectionError,parseConnection} from './fleet-codex-connections.ts';
 // Local cooperative-agent routing, NOT attested host origin or human consent.
 import {PermissionBridge,PermissionError} from './fleet-codex-permissions.ts';
 import {PermissionTransport,PermissionTransportError} from './fleet-codex-permission-transport.ts';
@@ -46,7 +47,7 @@ function query(v: Record<string, unknown>, optionalPeer = false): { project: str
  return { project: v.project, ...(has(v,'peer') ? { peer: v.peer as string } : {}) };
 }
 const safeFault = (e: unknown): McpFault => e instanceof McpFault ? e
- : e instanceof PermissionError || e instanceof PermissionTransportError || e instanceof HistoryError || e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
+ : e instanceof ConnectionError || e instanceof PermissionError || e instanceof PermissionTransportError || e instanceof HistoryError || e instanceof StoreError || e instanceof ReadonlyFleetError || e instanceof InstructionError || e instanceof InstructionStoreError || e instanceof InstructionTransportError || e instanceof AnswerError || e instanceof AnswerTransportError ? new McpFault(e.code) : new McpFault('IO_ERROR');
 const stringSchema = { type: 'string', minLength: 1, maxLength: 1024 };
 const selectors = { project: stringSchema, peer: { type: 'string', minLength: 1, maxLength: 64 } };
 const bindingPrepareProperties = { ...selectors, intent: { type: 'string', enum: ['enroll_read','rebind_read','forget','grant_send','revoke_send','grant_approve','revoke_approve'] }, bindingAlias: stringSchema };
@@ -99,6 +100,9 @@ export const TOOLS = [
  tool('fleet_permissions','List pending machine-addressable exact actions, inspect their FULL safe action/task, or query volatile receipt at one explicitly enrolled Pi epoch. Read authority only; not Desktop wake or a human question.',{target:answerTarget,operation:{type:'string',enum:['list','inspect','receipt']},snapshot:{type:['object','null']},cursor:{type:['string','null']}},['target','operation','snapshot']),
  tool('fleet_permission_decide','Codex MACHINE decision on a freshly inspected exact task/action. Requires separate approve (send is insufficient). Independently assess task necessity and include its concrete reason. Allow-once or deny only, never human consent. One durable attempt; unknown NEVER permits replay.',{requestId:{type:'string',minLength:1,maxLength:96},snapshot:{type:'object'},decision:{type:'string',enum:['allow_once','deny']},reason:{type:'string',minLength:1,maxLength:2000}},['requestId','snapshot','decision','reason'],false,true),
  tool('fleet_permission_receipt','Read this native chat’s durable local permission attempt by requestId, including unknown. Historical only, no replay or remote refresh; does not require restoring revoked rights.',{requestId:{type:'string',minLength:1,maxLength:96}},['requestId']),
+ tool('fleet_connect_prepare','Preview exact current-chat connection. Mandatory read; optional send/approve. New rights and notifications default to 12 hours; existing rights unchanged. Notifications require explicitly confirmed loaded Desktop and an already configured exact AF mapping; otherwise blocked, never guessed. Present all effects and obtain explicit confirmation before commit.',{target:answerTarget,rights:{type:'array',minItems:1,maxItems:3,uniqueItems:true,items:{type:'string',enum:['read','send','approve']}},durationHours:{type:'integer',minimum:1,maximum:720,default:12},notifications:{type:'boolean',default:true},desktopConfirmed:{type:'boolean'}},['target']),
+ tool('fleet_connect_commit','Commit one explicitly reviewed connection once. New lease schema needs quiescent old writers. No human attestation, daemon start, automatic retry or model-delivery claim.',{proposalId:{type:'string',format:'uuid'},quiescentWritersConfirmed:{type:'boolean'}},['proposalId'],false,true),
+ tool('fleet_connection_status','Fresh exact target/local rights and receiver notification status. Queue ACK is not model delivery; inactive/expired/unsupported are explicit.',{target:answerTarget},['target'],true),
 ];
 /** Pure assessment of an ACTUAL diagnostics observation; source availability is not host readiness. */
 export function assessLoadedFleetCatalog(observation:unknown){
@@ -119,7 +123,7 @@ type Proposal = ProposalBase & ({ intent: Intent; target: TargetEpoch; alias: st
  | { intent: 'initialize_empty'; revision: null; store: AllowedSessionsStore }
  | { intent: 'upgrade_journal'; ledger: ActionLedger; expected: UpgradePreview });
 export type LocalMcpOptions = Readonly<{ registryRoot: string; policyRoot: string; hostProfile: string; principal: string; legacyStateRoot?: string;
- permissionTransport?: Pick<PermissionTransport,'rpc'>; answerTransport?: Pick<AnswerTransport,'inspect'|'send'|'receipt'>; instructionTransport?: Pick<InstructionTransport,'capability'|'send'|'receipt'>; registryReader?: RegistryReader; observationReader?: ObservationReader; now?: () => number; monotonic?: () => number; storeOptions?: StoreOptions }>;
+ connectionTransport?: Pick<PermissionTransport,'rpc'>; permissionTransport?: Pick<PermissionTransport,'rpc'>; answerTransport?: Pick<AnswerTransport,'inspect'|'send'|'receipt'>; instructionTransport?: Pick<InstructionTransport,'capability'|'send'|'receipt'>; registryReader?: RegistryReader; observationReader?: ObservationReader; now?: () => number; monotonic?: () => number; storeOptions?: StoreOptions }>;
 
 export class LocalCodexMcp {
  readonly #options: LocalMcpOptions;
@@ -130,6 +134,7 @@ export class LocalCodexMcp {
  readonly #instructions: InstructionBridge;
  readonly #answers: AnswerBridge;
  readonly #permissions:PermissionBridge;
+ readonly #connections:ConnectionBridge;
  readonly #history: NativeHistory;
  readonly #ledger: ActionLedger;
  readonly #mono: () => number;
@@ -154,6 +159,7 @@ export class LocalCodexMcp {
   this.#instructions = new InstructionBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.instructionTransport??new InstructionTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'instruction')});
   this.#answers = new AnswerBridge({policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.answerTransport??new AnswerTransport({registryRoot:options.registryRoot}),now:options.now,monotonic:this.#mono,assertNewAction:(c,id)=>this.#history.assertNewAction(c,id),pendingBudget:context=>this.#budget(context,'answer')});
   this.#permissions=new PermissionBridge({now:options.now,policyRoot:options.policyRoot,registryReader:options.registryReader??createReadonlyRegistryReader({registryRoot:options.registryRoot,now:options.now}),transport:options.permissionTransport??new PermissionTransport({registryRoot:options.registryRoot})});
+  this.#connections=new ConnectionBridge({policyRoot:options.policyRoot,now:options.now,monotonic:this.#mono,storeOptions:options.storeOptions,pendingBudget:context=>this.#budget(context,'connection'),transport:options.connectionTransport??new PermissionTransport({registryRoot:options.registryRoot,channel:'connection'}),candidate:(c,t)=>this.#candidate(c,t)});
   this.#overview = new OverviewBridge(this.#observation);
   this.#resync = new ResyncBridge({observer:this.#observation,authorization:this.#bridge,store:new ObservationStore(observationRoot)});
  }
@@ -166,7 +172,7 @@ export class LocalCodexMcp {
  }
  #time(): number { const n = this.#mono(); if (!Number.isFinite(n) || n < 0) fail('CLOCK_INVALID'); return n; }
  #prune(): void { const n = this.#time(); for (const [id,p] of this.#pending) if (!p.promise && p.expires <= n) this.#pending.delete(id); }
- #store(c: ConversationKey) { return new AllowedSessionsStore(this.#options.policyRoot,c,this.#options.storeOptions); }
+ #store(c: ConversationKey) { return new AllowedSessionsStore(this.#options.policyRoot,c,{...this.#options.storeOptions,now:this.#options.now}); }
  async #candidate(c: ConversationKey, q: { project: string; peer: string }) {
   const s = await this.#bridge.discoverCandidates(c,{ project: q.project });
   if (s.status !== 'complete') fail('REGISTRY_UNAVAILABLE'); if (s.partial) fail('REGISTRY_PARTIAL');
@@ -176,10 +182,11 @@ export class LocalCodexMcp {
   const counts = new Map<string,number>(); for (const v of s.candidates) counts.set(v.target.peer,(counts.get(v.target.peer) ?? 0)+1);
   return { target: matches[0].target, current: s.candidates.filter(v => v.presence === 'fresh' && counts.get(v.target.peer) === 1).map(v => v.target) };
  }
- #budget(context:string,except:'instruction'|'answer'|'binding') {
+ #budget(context:string,except:'instruction'|'answer'|'binding'|'connection') {
   this.#prune();let total=except==='binding'?0:this.#pending.size,count=except==='binding'?0:[...this.#pending.values()].filter(p=>p.context===context).length;
   if(except!=='instruction'&&this.#instructions){total+=this.#instructions.pendingCount();count+=this.#instructions.pendingCount(context);}
   if(except!=='answer'&&this.#answers){total+=this.#answers.pendingCount();count+=this.#answers.pendingCount(context);}
+  if(except!=='connection'&&this.#connections){total+=this.#connections.pendingCount();count+=this.#connections.pendingCount(context);}
   return {total,context:count};
  }
  #remember(p: Proposal): string {
@@ -291,7 +298,10 @@ export class LocalCodexMcp {
  async call(name: string, arguments_: unknown, metadata: unknown, signal?: AbortSignal): Promise<Result> {
   try {
    const c = this.#context(metadata); // No registry/store I/O before both identity and args validation.
-   if (name === 'fleet_diagnostics') fields(arguments_,[]);
+   if(name==='fleet_connect_prepare')parseConnection(arguments_,'prepare');
+   else if(name==='fleet_connect_commit')parseConnection(arguments_,'commit');
+   else if(name==='fleet_connection_status')parseConnection(arguments_,'status');
+   else if (name === 'fleet_diagnostics') fields(arguments_,[]);
    else if (name === 'fleet_receipts') {fields(arguments_,[],['offset','limit']);if(has(arguments_,'offset')&&(!Number.isInteger(arguments_.offset)||(arguments_.offset as number)<0||(arguments_.offset as number)>256)||has(arguments_,'limit')&&(!Number.isInteger(arguments_.limit)||(arguments_.limit as number)<1||(arguments_.limit as number)>8))fail('INVALID_ARGUMENTS');}
    else if (name === 'fleet_legacy_history') {fields(arguments_,['section'],['offset','limit','sourceSha256']);if(!['selection','runtime'].includes(arguments_.section as string)||has(arguments_,'offset')&&(!Number.isInteger(arguments_.offset)||(arguments_.offset as number)<0||(arguments_.offset as number)>4194304)||has(arguments_,'limit')&&(!Number.isInteger(arguments_.limit)||(arguments_.limit as number)<1||(arguments_.limit as number)>8192))fail('INVALID_ARGUMENTS');}
    else if (name === 'fleet_discover' || name === 'fleet_check_read' || name === 'fleet_observe' || name === 'fleet_snapshot' || name === 'fleet_replay') { fields(arguments_,['project'],['peer']); query(arguments_,name === 'fleet_discover'); }
@@ -322,6 +332,9 @@ export class LocalCodexMcp {
     if (signal?.aborted) fail('REQUEST_CANCELLED');
     const a = arguments_ as Record<string,unknown>;
     const result = name === 'fleet_diagnostics' ? {scope:'local_diagnostics',nodeVersion:process.versions.node,protocolVersion:'2025-06-18',tools:TOOLS.map(t=>({name:t.name,annotations:t.annotations})),legacyArchiveConfigured:this.#options.legacyStateRoot!==undefined,identity:'host_context_validated',remote:'not_checked',completion:'not_established'}
+     : name==='fleet_connect_prepare'?await this.#connections.prepare(c,a,signal)
+     : name==='fleet_connect_commit'?await this.#connections.commit(c,a.proposalId as string,signal,a.quiescentWritersConfirmed===true)
+     : name==='fleet_connection_status'?await this.#connections.status(c,a,signal)
      : name === 'fleet_receipts' ? this.#receipts(c,a)
      : name === 'fleet_legacy_history' ? this.#history.legacy(c,a)
      : name === 'fleet_replay' ? this.#history.replay(c,a)

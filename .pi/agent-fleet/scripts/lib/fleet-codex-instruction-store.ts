@@ -15,8 +15,8 @@ const id = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A
 const hash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const date = (v: unknown): v is string => typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v));
 const number = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
-export const targetKey = (t: TargetEpoch) => JSON.stringify([t.project, t.peer, t.sessionId, t.startedAt]);
-export function validInstructionTarget(v: unknown): v is TargetEpoch { return object(v) && keys(v, ['project', 'peer', 'sessionId', 'startedAt']) && text(v.project, 128) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v.project) && !v.project.includes('..') && typeof v.peer === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(v.peer) && typeof v.sessionId === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(v.sessionId) && date(v.startedAt); }
+export {targetKey,validInstructionTarget} from '../../../harnesses/lib/fleet-notification-validation.ts';
+import {targetKey,validInstructionTarget} from '../../../harnesses/lib/fleet-notification-validation.ts';
 export function validInstruction(v: unknown): v is string { return typeof v === 'string' && v.trim().length > 0 && Buffer.byteLength(v) <= 16384 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v); }
 export const intentDigest = (target: TargetEpoch, instruction: string) => createHash('sha256').update(JSON.stringify(['instruction', targetKey(target), instruction])).digest('hex');
 export type ReceiptState = 'unknown' | 'not_sent' | 'submitted' | 'queued' | 'result' | 'failed';

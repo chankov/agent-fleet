@@ -90,3 +90,14 @@ test("dashboard arrows change session thinking, clamp endpoints, and respect mod
 	assert.deepEqual(overrides, ["high", "xhigh", "high", "minimal"]);
 	assert.match(notices[0], /session only; applies on next dispatch/);
 });
+
+test('chat panel is bounded, scrollable, sanitized and does not invoke Fleet actions',async()=>{
+ let panel:any,actions=0,filter='';const lines=Array.from({length:80},(_,i)=>`chat line ${i} \u001b[31muntrusted\u001b[0m`);
+ const dashboard=createFleetDashboard({getFleetRows:()=>[],getFilter:()=>filter,setFilter:(v:string)=>{filter=v;},getShowFinished:()=>true,setShowFinished(){},getComsLines:()=>[],getConnectionLines:()=>lines,actions:{execute:()=>{actions++;},open:()=>{actions++;}}} as any);
+ await dashboard.openFleetDashboard({ui:{custom:async(factory:any)=>{panel=factory({requestRender(){},terminal:{rows:10,columns:80}},{},{},()=>{});try{
+  await panel.handleInput('2');const first=panel.render(80);assert.equal(first.length,10);assert.match(first.join('\n'),/chat line 0/);assert.doesNotMatch(first.join('\n'),/\u001b/);
+  await panel.handleInput('\u001b[6~');assert.doesNotMatch(panel.render(80).join('\n'),/chat line 0 /);
+  await panel.handleInput('\u001b[F');assert.match(panel.render(80).join('\n'),/chat line 79/);
+  await panel.handleInput('\u001b');await panel.handleInput('2');assert.match(panel.render(80).join('\n'),/chat line 0/);assert.equal(actions,0);
+ }finally{panel.dispose();}}}} as any);
+});

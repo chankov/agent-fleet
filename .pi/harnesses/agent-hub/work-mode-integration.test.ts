@@ -103,7 +103,7 @@ test("operator gets actionable fleet tools only when transition or S1 stage need
  assert.ok(transition.active.includes("set_task_tier") && transition.active.includes("dispatch_agent"));
  assert.deepEqual(tools([]), ordinary, "no lease when the assessment is unavailable");
  assert.match(indexSource, /pendingTaskTransition[\s\S]*?pack: "fleet", kind: "task-transition"/);
- assert.match(indexSource, /processOpenObligations\(processState\)[\s\S]*?pack: "fleet", kind: "process-stage"/);
+ assert.match(indexSource, /processOpenObligations\(processState, undefined, privateProofUse\(\)\)[\s\S]*?pack: "fleet", kind: "process-stage"/);
  assert.match(indexSource, /adoptTaskTriageState\(\{ runtime: taskTriage, taskId: id, newTask,[\s\S]*?pendingTransition: pendingTaskTransition/);
  assert.match(triageObligationsSource, /if \(needsBinding\) persist\(options\.newTask \? options\.state : base\);[\s\S]*?await runtime!\.bindInput\(taskId\)[\s\S]*?if \(pendingTransition && runtime && !bound\) throw/);
  assert.match(indexSource, /onAcceptedInput: \(text, source, replayed\) => \{[\s\S]*?if \(\(source === "extension" && !replayed\) \|\| !text\.trim\(\)\) return;[\s\S]*?evaluatedTaskTriageInputChanged\(taskTriage\?\.current \?\? null, text\)[\s\S]*?pendingTaskTransition = true;[\s\S]*?taskTriage\?\.input\(text, "interactive"\)/);

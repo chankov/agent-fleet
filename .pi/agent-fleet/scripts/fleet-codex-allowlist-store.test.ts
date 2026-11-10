@@ -181,7 +181,7 @@ test('canonical writer validation rejects corruption without modifying original 
     ['duplicate key', original.toString().replace('"version":1', '"version":1,"version":1'), 'STATE_INVALID'],
     ['pretty', JSON.stringify(valid, null, 2)+'\n', 'STATE_INVALID'], ['BOM', Buffer.concat([Buffer.from([239,187,191]), original]), 'STATE_INVALID'],
     ['invalid UTF8', Buffer.from([0xff]), 'STATE_INVALID'], ['trailing', original.toString()+'{}', 'STATE_INVALID']);
-  variant('version', s => s.version = 3, 'STATE_VERSION_UNSUPPORTED');
+  variant('version', s => s.version = 4, 'STATE_VERSION_UNSUPPORTED');
   variant('approve forbidden in v1', s => s.bindings[0].rights = ['read', 'approve']);
   variant('namespace', s => s.namespace.threadId = 'fake-B', 'NAMESPACE_MISMATCH');
   variant('extra field', s => s.extra = true);

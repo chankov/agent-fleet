@@ -41,13 +41,15 @@ test("shortcut registrar preserves fleet and work-mode routing", async () => {
 	const handlers = new Map<string, (ctx: any) => any>();
 	const calls: string[] = [];
 	registerInputShortcuts({ registerShortcut: (key: string, spec: any) => handlers.set(key, spec.handler) } as any, {
-		setWidgetContext: () => calls.push("context"), openFleetDashboard: async () => { calls.push("dashboard"); }, toggleFleetWidget: () => { calls.push("toggle"); }, workModeStatusText: () => "mode", openWorkModePicker: async () => { calls.push("mode"); },
+		setWidgetContext: () => calls.push("context"), openFleetDashboard: async () => { calls.push("dashboard"); }, toggleFleetWidget: () => { calls.push("toggle"); }, workModeStatusText: () => "mode", openWorkModePicker: async () => { calls.push("mode"); }, openFleetConfig: async () => { calls.push("config"); },
 	});
 	const ctx = { hasUI: true, ui: { select() {}, notify() {} } };
-	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+m", "alt+i"]);
+	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+m", "alt+i", "alt+,"]);
 	await handlers.get("alt+a")!(ctx);
 	handlers.get("alt+i")!(ctx);
-	assert.ok(calls.includes("dashboard")); assert.ok(calls.includes("toggle"));
+	await handlers.get("alt+m")!(ctx);
+	await handlers.get("alt+,")!(ctx);
+	assert.deepEqual(calls, ["context", "dashboard", "context", "toggle", "context", "mode", "context", "config"]);
 });
 
 test("pool presentation renders pending peers without compact gating", () => {

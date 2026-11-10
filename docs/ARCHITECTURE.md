@@ -7,6 +7,8 @@ For the principles governing future plans and design decisions, read the
 [project philosophy](PHILOSOPHY.md). That document states the intended direction;
 this page describes the current architecture.
 
+Native chat connection leases, exact-owner receiver control, notification renewal, Fleet View status, and remaining host-bootstrap limits are described in [Codex connections](codex-connections.md). The new workflow does not auto-start delivery or retarget sessions after restart.
+
 ## Session worktree root contract
 
 The intended external Fleet layout is:
@@ -70,6 +72,33 @@ No target-local Fleet copy or cwd-only workaround is needed.
 | **System 1 damage guard (D6)** | Off-by-default independent commands/edits/results scopes over mandatory Damage-Control baseline; parent-owned durable decisions, approval and native capability transport; production wiring exists, acceptance remains open | `.pi/harnesses/agent-hub/damage-guard-*.ts`, `damage-control-continue/system1-*.ts`, `result-screen.ts` — [contract and limits](system1-damage-guard.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
 | **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
+
+## Private configuration-only verification
+
+The Hub's explicit `private-config-current-state` mode uses
+`private-config-current-state.ts` for bounded canonical notification-config/helper
+fingerprints and `private-config-review.ts` for fresh native evidence and
+independent-review validation. Pure shape/preview, exact-owner, loaded-catalog
+and pinned queue-tuple validators live in
+`.pi/harnesses/lib/fleet-notification-validation.ts`; the notification runtime
+retains its original exports via compatibility re-exports. This keeps the Hub's
+packed runtime import closure inside harnesses without importing script-side
+notification activation or persistence code. A catalog parity regression binds
+the pure expected tool names and assessment results to the public MCP catalog.
+The MCP dispatcher retains its original catalog assessment and narrow dependency
+allowlist; no notification runtime dependency is added there. Configuration
+bodies are not model artifacts or proof output. `process-obligations.ts` retains a separate private proof, not Git
+changed-file attribution or ordinary Git review evidence. It closes only a pure
+configuration task's own acceptance/review stages; actual proof/gate use requires
+live task/session/declaration, revision/fingerprint, receipt/evidence and
+concurrency revalidation. Source obligations exclude private closure. The
+composition root supplies live context to assertion proof and process reporting;
+missing context fails closed. Old Git modes retain their contracts.
+
+This advances deterministic, evidence-owned completion without a fake Git edit or
+a generic waiver. Fixture support is not loaded-runtime/activation evidence;
+independent whole-feature review and separate human activation remain outside
+this implementation. See [verification contracts and limits](operator-current-state.md#private-configuration-only-current-state-separate-opt-in).
 
 ## One Hub runtime, independent axes
 

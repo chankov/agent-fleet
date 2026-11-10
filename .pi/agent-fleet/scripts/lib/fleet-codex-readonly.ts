@@ -116,7 +116,7 @@ export class ReadonlyFleetBridge {
     const context = hostContext(outerHostContext), q = request(arguments_, true);
     const first = await this.#registry(q.project), candidate = choose(first, q.peer!).target;
     try {
-      const store = new AllowedSessionsStore(this.#root, context);
+      const store = new AllowedSessionsStore(this.#root, context, {now:this.#now});
       const current = currentEpochs(first);
       const list = await store.list(current);
       const matches = list.bindings.filter(b => b.target.project === q.project && b.target.peer === q.peer);

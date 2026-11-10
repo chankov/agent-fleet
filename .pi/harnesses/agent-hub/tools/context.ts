@@ -15,7 +15,9 @@ export interface DispatchAgentParams {
 	deliverables?: string[];
 	watchdog?: boolean;
 	review_reason?: string;
- review_mode?: "changes" | "operator-current-state";
+ review_mode?: "changes" | "operator-current-state" | "private-config-current-state";
+ private_config_files?: string[];
+ verifier_sources?: string[];
 	backend?: "auto" | "native" | "coms";
 }
 

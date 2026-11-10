@@ -39,7 +39,7 @@ test("orchestrator work mode cannot be entered or left with an empty roster", ()
 test("Hub resolves explicit or persisted startup roster without falling back to the first YAML team", () => {
 	assert.match(indexSource, /registerFlag\("agent-team"/);
 	assert.match(sessionStartSource, /"restoreRoster"[\s\S]*?"resolveCapabilities"/);
-	assert.match(indexSource, /restoreRoster: \(_ctx\) => \{[\s\S]*?const explicitRoster = pi\.getFlag\("agent-team"\)/);
-	assert.match(indexSource, /restoreRoster: \(_ctx\) => \{[\s\S]*?const startupRoster = resolveSessionRoster\(\{/);
+	assert.match(indexSource, /restoreRoster: async \(_ctx\) => \{[\s\S]*?const explicitRoster = pi\.getFlag\("agent-team"\)/);
+	assert.match(indexSource, /restoreRoster: async \(_ctx\) => \{[\s\S]*?const startupRoster = resolveSessionRoster\(\{/);
 	assert.doesNotMatch(indexSource, /activateTeam\(teamNames\[0\]\)/);
 });

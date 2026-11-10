@@ -151,6 +151,8 @@ test('F12 offline packed artifact contains guide and runtime-only import closure
   writeFileSync(join(fixture,'package.json'),'{"type":"module"}');
   assert.ok(existsSync(join(repo,'node_modules/@earendil-works/pi-coding-agent')),'existing local SDK required; do not install');
   symlinkSync(join(repo,'node_modules'),join(temp,'node_modules'),'dir');
+  // Mirror the installed harness-local third-party dependencies (not project runtime bytes).
+  symlinkSync(join(repo,'.pi/harnesses/node_modules'),join(harness,'node_modules'),'dir');
   const visited=new Set<string>();
   function closure(file:string){
    assert.ok(file.startsWith(harness+'/'));assert.equal(forbidden.test(file),false,`runtime imported test infrastructure: ${file}`);

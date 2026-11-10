@@ -1,7 +1,9 @@
+import type { PrivateConfigBinding } from './private-config-current-state.ts';
 import { validateBoundAssertionIds } from "./return-contract.js";
 import { posix } from "node:path";
 
 export interface TaskResumeInput {
+ privateConfig?: PrivateConfigBinding;
 	taskId: string;
  boundAssertionIds?: readonly string[];
 	instructions: string;
@@ -14,6 +16,7 @@ export interface TaskResumeInput {
 }
 
 export interface TaskResumeContract {
+ privateConfig?: PrivateConfigBinding;
 	taskId: string;
  boundAssertionIds?: readonly string[];
 	instructions: string;
@@ -49,12 +52,14 @@ function identityOf(contract: Omit<TaskResumeContract, "resumeAllowed" | "inheri
 		contract.model,
 		contract.permissions,
   contract.boundAssertionIds,
+  ...(contract.privateConfig ? [contract.privateConfig] : []),
 	]);
 }
 
 /** Bind Pi session reuse to the exact current task and capability contract. */
 export function bindResume(input: TaskResumeInput): TaskResumeContract {
 	const current = {
+  ...(input.privateConfig ? { privateConfig: structuredClone(input.privateConfig) } : {}),
 		taskId: normalizeText(input.taskId),
   boundAssertionIds: validateBoundAssertionIds(input.boundAssertionIds),
 		instructions: normalizeText(input.instructions),

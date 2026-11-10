@@ -17,7 +17,9 @@ export class PermissionBridge {
  private ledger:InstructionLedger;
  private policyRoot:string;
  private wire:Pick<PermissionTransport,'rpc'>;
+ private now:()=>number;
  constructor(options:{now?:()=>number;policyRoot:string;registryReader:RegistryReader;transport:Pick<PermissionTransport,'rpc'>}){
+  this.now=options.now??Date.now;
   this.policyRoot=options.policyRoot;this.auth=new ReadonlyFleetBridge({registryReader:options.registryReader,policyBaseDir:options.policyRoot,now:options.now});
   // Isolated reservation journal using the proven atomic/locking engine. Its internal
   // generic instruction record is never presented as an instruction or permission grant.
@@ -29,7 +31,7 @@ export class PermissionBridge {
   const matches=registry.candidates.filter(v=>v.target.peer===target.peer);
   if(matches.length!==1||matches[0].presence!=='fresh'||targetKey(matches[0].target)!==targetKey(target))fail('TARGET_CHANGED');
   const current=registry.candidates.filter(v=>v.presence==='fresh').map(v=>v.target);
-  const store=new AllowedSessionsStore(this.policyRoot,c),state=await store.list(current);
+  const store=new AllowedSessionsStore(this.policyRoot,c,{now:this.now}),state=await store.list(current);
   const bindings=state.bindings.filter(b=>targetKey(b.target)===targetKey(target));if(bindings.length!==1)fail('NOT_ALLOWED');
   const handle=await store.resolve(bindings[0].alias,current);
   await store.authorize(handle,right,current);

@@ -11,7 +11,7 @@
 Съществуващият `dispatch_agent` получава optional:
 
 ```ts
-review_mode?: "changes" | "operator-current-state"
+review_mode?: "changes" | "operator-current-state" | "private-config-current-state"
 ```
 
 Default/explicit `changes` пази стария fingerprint, recovery, review reuse и acceptance semantics. Няма автоматична миграция или избор на новия режим.
@@ -35,6 +35,61 @@ Native `**Verdict:** APPROVE`/`**Verdict**: APPROVE` вече са разпоз�
 Manual/runtime-ui ledger entries остават open до отделно изрично `update_assertion` с действителното named evidence, след като process gates позволяват това. Не ги маркирайте proven само от reviewer summary. При failure няма нов candidate registration/acceptance/review proof за тази проверка; не се редактира persisted state, не се lowering-ват risk/tier и не се правят празни edits за симулация на промени. Ако child е нарушил read-only contract и е писал, actual delta остава видим; няма automatic rollback или silent acceptance.
 
 Origin се пази при state normalization/restoration; при следващ действително атрибутиран writable acceptance old current-state label се премахва. Revision changes отварят отново review/acceptance. Няма automatic grant, Fleet rebind, command send/answer, desktop/Pi restart или publishing.
+
+## Private configuration-only current state (separate opt-in)
+
+`review_mode=private-config-current-state` supports private Codex notification
+preparations without inventing a Git delta. Supply `private_config_files` (1–4
+exact absolute JSON paths) and `verifier_sources` (1–32 exact repository-relative
+source paths). Explicit native code/security reviewer, read-only tools with Bash,
+all declared automated checks plus AF-MIN-CHANGE, fresh complete native capture,
+validated completed submission and independent affirmative full-scoped review
+are mandatory. No artifacts, Git scope or deliverables are accepted in this mode.
+
+The only private namespace is the canonical, current-user-owned
+`~/.local/state/agent-fleet/codex-events/<thread UUID>/<owner>/notification[-name].json`.
+Namespace directories must be private 0700; their HOME/state ancestors must be
+canonical, owned and not group/world-writable. Files must be nonempty, bounded
+(64 KiB), regular, single-link, owned 0400/0600 valid opted-in notification
+configurations with matching thread UUID and a valid offline preview. Aliases,
+traversal, globs, symlinks and arbitrary roots are rejected. Declared helpers are
+bounded (1 MiB each), canonical single-link owned source files (`js`, `mjs`,
+`cjs`, `ts`, `mts`, `cts`, `sh`, `py`), not group/world-writable. Include every
+verifier dependency, including Git-ignored session helpers; the independent
+reviewer must assess semantic adequacy and dependency completeness. Fingerprints
+prove declared state and execution, not that a verifier is adequate.
+
+Private configuration bodies are never returned or attached by the capture/proof
+modules: evidence contains metadata/digests only. Existing source-access, artifact
+and shell guards still apply; this is not permission to read/export private bodies
+or run activation commands. Verifiers must remain offline and not print private
+payloads. The snapshot checks are not an OS sandbox or hostile same-user attestation.
+
+A successful private review creates `agent-fleet.private-config-verification/v1`
+evidence and a **distinct private process proof**. For a pure configuration-only
+task, this satisfies its own acceptance/review obligations and permits the
+assertion-prove process gate. Git `changedFiles` stays empty, ordinary Git stage
+refs/review-reuse records stay untouched, and the read-only specialist still has
+`taskAccepted=false`/`changes=unchanged`. The process verdict instead reports
+`path=private-config-current-state`. Assertions still require explicit named
+evidence; they are not marked proven by reviewer prose.
+
+Closure is revalidated at actual process/prove use against current private/helper
+fingerprints, repository revision, task/session/declarations, receipt generation,
+epoch/capture and evidence bytes (including the reviewer return and proof),
+classification and writer/overlap state. Missing live context fails closed.
+Changed or failed/replayed captures cannot borrow the prior private proof.
+Registered source paths, Git stage evidence/origin or active source review
+additions exclude this route; private evidence cannot close unrelated source
+obligations. Exact-action confirmations remain independent and are never waived.
+Old `changes` and `operator-current-state` behavior is unchanged.
+
+Implementation/fixture support does not mean this code is loaded in a running
+session, that the feature is independently approved, or that a notification was
+delivered. This feature authorizes no reload, enable, daemon/socket contact,
+protected action, permission decision, grant/exemption/policy change, journal
+replay or expiry renewal. Independent review of the entire feature remains
+required; see the [approved specification](../SPEC-private-config-verification.md).
 
 ## Activation и приемане
 

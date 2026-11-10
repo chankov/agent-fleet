@@ -1,3 +1,4 @@
+import type { PrivateProofUse } from '../private-config-review.ts';
 import { profilePeerGate } from '../policy/profile-runtime.ts';
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { consumeReservedTaskId, reserveActualTaskId } from "../budget-recovery.ts";
@@ -41,6 +42,7 @@ export interface ActionExecutorDeps {
 	setAssertions(value: Assertion[]): void;
 	currentTaskId(): string;
 	currentRevision(ctx: ExtensionContext): string;
+ privateProofUse?(ctx: ExtensionContext): PrivateProofUse;
 	confirmTaskSupersession?(input: { oldTaskId: string; newTaskId: string; reason: string }, ctx: ExtensionContext, signal?: AbortSignal): Promise<boolean>;
 	adoptReservedTaskId?(id: string, resetTaskWindow: () => void): void;
 	getAgentStates(): Map<string, { def: { name: string } }>;
@@ -95,7 +97,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
         try { snapshot.revision=d.currentRevision(ctx); } catch { /* unchanged unavailable revision remains explicit */ }
 		let reservedNewTaskId: string | undefined;
 		if (new_task) reservedNewTaskId = reserveActualTaskId();
-		if (new_task && processOpenObligations(snapshot.process).length) {
+		if (new_task && processOpenObligations(snapshot.process, undefined, d.privateProofUse?.(ctx)).length) {
 			let consumed = false;
 			try {
 				const confirmed = !!d.confirmTaskSupersession && await d.confirmTaskSupersession({ oldTaskId: d.currentTaskId(), newTaskId: reservedNewTaskId!, reason: String(reason).trim() }, ctx, signal);
@@ -160,7 +162,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		const a = assertions.find(x => x.id.toLowerCase() === String(params.id).trim().toLowerCase());
 		if (!a) return { content: [{ type: "text", text: `No assertion "${params.id}" in the ledger. Call set_assertions first, or check the id. Current: ${assertions.map(x => x.id).join(", ") || "(empty)"}.` }], details: { status: "error" } };
 		if (wanted === "proven") {
-			const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "prove", "", d.currentRevision(ctx));
+			const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "prove", "", d.currentRevision(ctx), d.privateProofUse?.(ctx));
 			if (gate) return { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } };
 			const validation = validateEvidence(a.tag, params.evidence || "", { fileExists: d.artifacts.evidencePathExists, evidenceRoot: safePathWithin(d.artifacts.artifactsRoot(), "evidence") });
 			if (!validation.ok) return { content: [{ type: "text", text: `${a.id} stays ${a.status}: ${validation.reason}` }], details: { status: "rejected", reason: validation.reason } };

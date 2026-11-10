@@ -1,5 +1,6 @@
 import { BOUND_ASSERTION_IDS_ENV, validateBoundAssertionIds } from "./return-contract.js";
 import { relative } from "node:path";
+import { PRIVATE_CONFIG_ENV } from './private-config-current-state.ts';
 import { RUNTIME_TEST_SCOPE_ENV } from "./runtime-test-check.ts";
 import { TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
 import { mkdirSync, watch } from "node:fs";
@@ -187,7 +188,8 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		extensions,
 		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId,
    ...(boundAssertionIds === undefined ? {} : { [BOUND_ASSERTION_IDS_ENV]: JSON.stringify(boundAssertionIds) }),
-   [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.scopeGlobs) },
+   [PRIVATE_CONFIG_ENV]: run.resumeContract?.privateConfig ? JSON.stringify(run.resumeContract.privateConfig) : '',
+    [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.scopeGlobs) },
 		attemptLifecycle: {
    ...drift.attemptLifecycle,
    beforePhysicalSpawn: info=>{

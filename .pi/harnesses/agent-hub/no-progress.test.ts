@@ -450,7 +450,18 @@ test('registered tool schemas retain runtime optional fields and provider compat
  const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
  const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
  registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
- assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','triage_id','triage_reason'].sort());
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
+ const schema = tools[0].parameters, fields = schema.properties;
+ assert.deepEqual(schema.required, ['agent', 'task'], 'new private declarations remain opt-in');
+ for (const name of ['private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {
+  assert.equal(fields[name].type, 'array'); assert.equal(fields[name].items.type, 'string');
+ }
+ for (const [name, values] of Object.entries({ review_mode: ['changes','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], scope_mode: ['existing','create'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] })) {
+  assert.deepEqual(fields[name].anyOf.map((v: any) => v.const), values);
+  assert.equal(Object.hasOwn(fields[name], 'default'), false, 'runtime, not schema, owns defaults');
+ }
+ assert.equal(fields.watchdog.type, 'boolean');
+ for (const name of ['agent','task','review_reason','triage_id']) assert.equal(fields[name].type, 'string');
  assert.deepEqual(Object.keys(tools[1].parameters.properties).sort(), ['task','persona','model','artifacts','read_scope','goal','expected_result'].sort());
  assert.doesNotMatch(JSON.stringify(tools.map(t => t.parameters)), /\(\?[=!<]/);
  for (const tool of tools) {

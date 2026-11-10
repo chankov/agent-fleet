@@ -8,7 +8,7 @@ import { AllowedSessionsPolicy, AllowlistError, type BindingHandle, type Convers
 
 export type StoreCode = 'STATE_MISSING' | 'STATE_EXISTS' | 'STATE_INVALID' | 'STATE_VERSION_UNSUPPORTED'
   | 'NAMESPACE_MISMATCH' | 'STATE_CHANGED' | 'STATE_REGRESSED' | 'STORE_BUSY' | 'UNSAFE_PATH'
-  | 'IO_ERROR' | 'COMMIT_UNCERTAIN' | 'REVISION_EXHAUSTED' | 'STALE_HANDLE';
+  | 'IO_ERROR' | 'COMMIT_UNCERTAIN' | 'REVISION_EXHAUSTED' | 'STALE_HANDLE' | 'RIGHTS_EXPIRED';
 export class StoreError extends Error {
   readonly code: StoreCode | AllowlistError['code'];
   constructor(code: StoreCode | AllowlistError['code']) { super(code); this.name = 'StoreError'; this.code = code; }
@@ -18,13 +18,14 @@ export type StoreOptions = Readonly<{
   lockTimeoutMs?: number;
   /** Fault/barrier seam only; receives no filesystem, state or policy capability. */
   checkpoint?: (stage: WriteStage) => void | Promise<void>;
+  now?: () => number;
 }>;
 export type StoreHandle = Readonly<{ alias: string; revision: number }>;
-type Entry = { alias: string; target: TargetEpoch; rights: Right[]; status: 'active' | 'needsRebind' };
-type State = { format: 'fleet-local-allowlist'; version: 1 | 2; storeId: string; namespace: ConversationKey; revision: number; bindings: Entry[] };
+type Entry = { alias: string; target: TargetEpoch; rights: Right[]; status: 'active' | 'needsRebind'; expiresAt?: number };
+type State = { format: 'fleet-local-allowlist'; version: 1 | 2 | 3; storeId: string; namespace: ConversationKey; revision: number; bindings: Entry[] };
 export type StoreSnapshot = Readonly<{ revision: number; bindings: readonly Readonly<Entry>[] }>;
 type Issued = { storeId: string; revision: number; alias: string };
-type Policy = { policy: AllowedSessionsPolicy; handles: Map<string, BindingHandle>; blocked: Map<string, 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET'> };
+type Policy = { policy: AllowedSessionsPolicy; handles: Map<string, BindingHandle>; blocked: Map<string, 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET' | 'RIGHTS_EXPIRED'> };
 const MAX_BYTES = 65536, MAX_BINDINGS = 32;
 const targetKeys = ['project', 'peer', 'sessionId', 'startedAt'] as const;
 function fail(code: StoreCode): never { throw new StoreError(code); }
@@ -43,29 +44,29 @@ function canonical(s: State): string {
   return JSON.stringify({ format: s.format, version: s.version, storeId: s.storeId,
     namespace: { hostProfile: s.namespace.hostProfile, principal: s.namespace.principal, threadId: s.namespace.threadId },
     revision: s.revision, bindings: [...s.bindings].sort((a, b) => a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0)
-      .map(b => ({ alias: b.alias, target: { ...b.target }, rights: [...b.rights], status: b.status })) })+'\n';
+      .map(b => ({ alias: b.alias, target: { ...b.target }, rights: [...b.rights], status: b.status, ...(b.expiresAt === undefined ? {} : { expiresAt: b.expiresAt }) })) })+'\n';
 }
 function decode(bytes: Buffer, context: ConversationKey): State {
   if (bytes.length > MAX_BYTES) fail('STATE_INVALID');
   let v: unknown;
   try { v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { fail('STATE_INVALID'); }
   if (!object(v)) fail('STATE_INVALID');
-  if (Object.hasOwn(v, 'version') && v.version !== 1 && v.version !== 2) fail('STATE_VERSION_UNSUPPORTED');
+  if (Object.hasOwn(v, 'version') && v.version !== 1 && v.version !== 2 && v.version !== 3) fail('STATE_VERSION_UNSUPPORTED');
   if (!keys(v, ['format', 'version', 'storeId', 'namespace', 'revision', 'bindings']) || v.format !== 'fleet-local-allowlist'
-      || (v.version !== 1 && v.version !== 2) || typeof v.storeId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(v.storeId)
+      || (v.version !== 1 && v.version !== 2 && v.version !== 3) || typeof v.storeId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(v.storeId)
       || !Number.isSafeInteger(v.revision) || (v.revision as number) < 0 || !Array.isArray(v.bindings)
       || v.bindings.length > MAX_BINDINGS) fail('STATE_INVALID');
   try { new AllowedSessionsPolicy().list(v.namespace as ConversationKey); } catch { fail('STATE_INVALID'); }
   if (tuple(v.namespace as ConversationKey) !== tuple(context)) fail('NAMESPACE_MISMATCH');
   const aliases = new Set<string>(), targets = new Set<string>();
   const bindings: Entry[] = v.bindings.map((b: unknown) => {
-    if (!keys(b, ['alias', 'target', 'rights', 'status']) || !text(b.alias) || !Array.isArray(b.rights)
-        || !(b.rights[0] === 'read' && JSON.stringify(b.rights) === JSON.stringify(['read', ...(b.rights.includes('send') ? ['send'] : []), ...(v.version === 2 && b.rights.includes('approve') ? ['approve'] : [])]))
+    if (!(keys(b, ['alias', 'target', 'rights', 'status']) || v.version === 3 && keys(b, ['alias', 'target', 'rights', 'status', 'expiresAt']) && Number.isSafeInteger(b.expiresAt) && (b.expiresAt as number) > 0) || !text(b.alias) || !Array.isArray(b.rights)
+        || !(b.rights[0] === 'read' && JSON.stringify(b.rights) === JSON.stringify(['read', ...(b.rights.includes('send') ? ['send'] : []), ...(v.version !== 1 && b.rights.includes('approve') ? ['approve'] : [])]))
         || b.status !== 'active' && b.status !== 'needsRebind' || b.status === 'needsRebind' && b.rights.length !== 1) fail('STATE_INVALID');
     const target = epoch(b.target), id = JSON.stringify(target);
     if (aliases.has(b.alias) || targets.has(id)) fail('STATE_INVALID');
     aliases.add(b.alias); targets.add(id);
-    return { alias: b.alias, target, rights: [...b.rights] as Right[], status: b.status };
+    return { alias: b.alias, target, rights: [...b.rights] as Right[], status: b.status, ...(Object.hasOwn(b, 'expiresAt') ? { expiresAt: b.expiresAt as number } : {}) };
   });
   const s: State = { format: 'fleet-local-allowlist', version: v.version, storeId: v.storeId,
     namespace: { ...context }, revision: v.revision as number, bindings };
@@ -84,6 +85,7 @@ export class AllowedSessionsStore {
   readonly #path: string;
   readonly #lockPath: string;
   readonly #timeout: number;
+  readonly #now: () => number;
   readonly #checkpoint: NonNullable<StoreOptions['checkpoint']>;
   #seen?: { storeId: string; revision: number };
   #issued = new WeakMap<object, Issued>();
@@ -96,6 +98,7 @@ export class AllowedSessionsStore {
     this.#timeout = options.lockTimeoutMs ?? 2000;
     if (!Number.isFinite(this.#timeout) || this.#timeout < 0 || this.#timeout > 2000) fail('STATE_INVALID');
     this.#checkpoint = options.checkpoint ?? (() => {});
+    this.#now = options.now ?? Date.now;
   }
   #safe(stat: Stats, directory: boolean): void {
     if ((directory ? !stat.isDirectory() : !stat.isFile()) || stat.uid !== process.getuid!()
@@ -214,11 +217,13 @@ export class AllowedSessionsStore {
   }
   #hydrate(s: State, current: readonly TargetEpoch[]): Policy {
     if (!Array.isArray(current)) fail('STATE_INVALID');
+    const now=this.#now();if(!Number.isSafeInteger(now)||now<0)fail('STATE_INVALID');
     const snapshots = Array.from(current, v => epoch(v));
     const policy = new AllowedSessionsPolicy(), handles = new Map<string, BindingHandle>();
-    const blocked = new Map<string, 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET'>();
+    const blocked = new Map<string, 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET' | 'RIGHTS_EXPIRED'>();
     for (const b of s.bindings) {
       if (b.status !== 'active') continue;
+      if (b.expiresAt !== undefined && b.expiresAt <= now) { blocked.set(b.alias, 'RIGHTS_EXPIRED'); continue; }
       const matches = snapshots.filter(v => v.project === b.target.project && v.peer === b.target.peer);
       if (matches.length === 1 && !same(matches[0], b.target)) { b.status = 'needsRebind'; b.rights = ['read']; continue; }
       if (matches.length !== 1) { blocked.set(b.alias, matches.length ? 'AMBIGUOUS_TARGET' : 'TARGET_UNAVAILABLE'); continue; }
@@ -232,7 +237,7 @@ export class AllowedSessionsStore {
   #active(b: Entry, p: Policy): BindingHandle {
     if (b.status === 'needsRebind') throw new AllowlistError('STALE_TARGET');
     const h = p.handles.get(b.alias);
-    if (!h) throw new AllowlistError(p.blocked.get(b.alias) ?? 'TARGET_UNAVAILABLE');
+    if (!h) { if (p.blocked.get(b.alias) === 'RIGHTS_EXPIRED') fail('RIGHTS_EXPIRED'); throw new AllowlistError(p.blocked.get(b.alias) as 'TARGET_UNAVAILABLE' | 'AMBIGUOUS_TARGET' ?? 'TARGET_UNAVAILABLE'); }
     return h;
   }
   async #run<T>(current: readonly TargetEpoch[] | undefined,
@@ -279,6 +284,19 @@ export class AllowedSessionsStore {
       return committed => this.#issue(committed, proposal.alias);
     }, true);
   }
+  /** Create-only atomic reviewed lease; existing bindings never change implicitly. */
+  async connect(proposal: { alias: string; target: TargetEpoch; rights: readonly Right[]; expiresAt: number }, current: readonly TargetEpoch[], expectedRevision: number): Promise<StoreSnapshot> {
+    return this.#run(current, (s, p) => {
+      this.#expected(s, expectedRevision);
+      if (!keys(proposal, ['alias','target','rights','expiresAt']) || !text(proposal.alias) || !Number.isSafeInteger(proposal.expiresAt) || proposal.expiresAt <= this.#now()
+        || !Array.isArray(proposal.rights) || JSON.stringify(proposal.rights) !== JSON.stringify(['read', ...(proposal.rights.includes('send') ? ['send'] : []), ...(proposal.rights.includes('approve') ? ['approve'] : [])])) fail('STATE_INVALID');
+      if (s.bindings.length >= MAX_BINDINGS || s.bindings.some(b => b.alias === proposal.alias || same(b.target, proposal.target))) fail('STATE_CHANGED');
+      p.policy.enroll(this.#context, { alias: proposal.alias, target: proposal.target }, current);
+      s.version = 3;
+      s.bindings.push({ alias: proposal.alias, target: epoch(proposal.target), rights: [...proposal.rights], status: 'active', expiresAt: proposal.expiresAt });
+      return committed => this.#snapshot(committed);
+    }, true);
+  }
   async resolve(selector: string, current: readonly TargetEpoch[]): Promise<StoreHandle> {
     return this.#run(current, (s, p) => {
       if (!text(selector)) throw new AllowlistError('INVALID_INPUT');
@@ -308,7 +326,7 @@ export class AllowedSessionsStore {
     return this.#run(current, (s, p) => {
       const b = this.#entry(s, handle);
       p.policy.grantApprove(this.#context, this.#active(b, p), current);
-      s.version = 2;
+      if (s.version < 2) s.version = 2;
       b.rights = ['read', ...(b.rights.includes('send') ? ['send' as const] : []), 'approve'];
       return committed => this.#issue(committed, b.alias);
     }, true);

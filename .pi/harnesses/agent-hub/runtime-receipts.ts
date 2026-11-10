@@ -46,6 +46,9 @@ function evidenceBytes(sessionDir: string, path: string): Buffer {
  if (!rel || rel.startsWith("..") || isAbsolute(rel) || realpathSync(root) !== root || realpathSync(file) !== file || !lstatSync(file).isFile() || lstatSync(file).size > 256 * 1024) throw Error("Runtime receipt evidence outside capture root");
  return readFileSync(file);
 }
+export function runtimeReceiptEvidenceCurrent(receipt: RuntimeReceipt): boolean {
+ try { return hash(evidenceBytes(receipt.sessionDir, receipt.check.evidenceRef)) === receipt.evidenceHash; } catch { return false; }
+}
 export function anchorRuntimeReceipt(capture: ReceiptCapture, check: VerificationCheckInput, originDispatchId: string, serialized: string): RuntimeReceipt {
  const bytes = evidenceBytes(capture.sessionDir, check.evidenceRef);
  if (!bytes.equals(Buffer.from(serialized))) throw Error("Runtime receipt evidence readback mismatch");

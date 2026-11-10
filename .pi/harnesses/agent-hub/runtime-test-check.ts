@@ -1,9 +1,10 @@
+import { PRIVATE_CONFIG_ENV, privateConfigRevision, type PrivateConfigBinding } from './private-config-current-state.ts';
 import { worktreeRevision } from "./scope-gate.js";
 
 /** Set by the native dispatcher, never inferred from a command's shell cwd. */
 export const RUNTIME_TEST_SCOPE_ENV = "AGENT_FLEET_RUNTIME_TEST_SCOPES";
 
-export function runtimeTestRevision(cwd: string, rawScopes: string | undefined): () => string {
+export function runtimeTestRevision(cwd: string, rawScopes: string | undefined, rawPrivateConfig?: string): () => string {
  let scopes: string[];
  try {
   const parsed = rawScopes === undefined ? [] : JSON.parse(rawScopes);
@@ -11,6 +12,11 @@ export function runtimeTestRevision(cwd: string, rawScopes: string | undefined):
   scopes = [...parsed];
  } catch { return () => "unavailable"; }
  // Empty filtering scopes preserve whole-repository single-repo semantics.
+ if (rawPrivateConfig !== undefined && rawPrivateConfig !== '') {
+  let binding: PrivateConfigBinding;
+  try { binding = JSON.parse(rawPrivateConfig); } catch { return () => 'unavailable'; }
+  return () => privateConfigRevision(cwd, worktreeRevision(cwd, [], scopes), binding);
+ }
  return () => worktreeRevision(cwd, [], scopes);
 }
 
@@ -46,7 +52,7 @@ export function instrumentBash(createTool: any, operations: any, cwd: string, re
 }
 
 /** Use Pi's tool_result hook: agent-core ignores isError on resolved execute values. */
-export function registerObservedBash(pi: any, api: any, cwd: string, options: any, revision = runtimeTestRevision(cwd, process.env[RUNTIME_TEST_SCOPE_ENV])) {
+export function registerObservedBash(pi: any, api: any, cwd: string, options: any, revision = runtimeTestRevision(cwd, process.env[RUNTIME_TEST_SCOPE_ENV], process.env[PRIVATE_CONFIG_ENV])) {
  const tool = api.createBashToolDefinition(cwd, options);
  pi.registerTool({ ...tool, execute: instrumentBash(api.createBashToolDefinition, api.createLocalBashOperations({ shellPath: options.shellPath }), cwd, revision, options) });
  pi.on("tool_result", (event: any) => {

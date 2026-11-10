@@ -610,7 +610,8 @@ test("a writable dispatch observes the worktree once before and once after the r
  assert.equal((prepare.match(/snapshotWorktree\(|worktreeRevision\(/g) ?? []).length, 1, "revision baseline and delta base share one snapshot");
  assert.match(source, /tracking\.snapshot = prepared\.beforeSnapshot \?\?/);
  assert.match(source, /compilerInspectedRevision = observation && !observation\.skipped && observation\.snapshot \? snapshotRevision\(observation\.snapshot\)/);
- assert.match(source, /afterRevision = compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "only an awaited compiler run re-observes");
+ assert.match(source, /repositoryAfterRevision = compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "only an awaited compiler run re-observes");
+ assert.match(source, /const afterRevision = p\.privateConfig \? privateConfigRevision\(cwd, repositoryAfterRevision, p\.privateConfig\) : repositoryAfterRevision/, "old modes retain the repository observation unchanged");
 });
 
 test("real native executor finishDispatch times workflows compiler and demotes on changed-file errors", async t => {
@@ -621,6 +622,8 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  // Workflows resolve shared policy roots relative to their installed runtime tree.
  const harnessLibDir = join(repo, ".pi/harnesses/lib"); mkdirSync(harnessLibDir, { recursive: true });
  for(const file of ['policy-roots.ts','policy-roots.js','safe-source-read.js','workspace-context.ts','workspace-context.js'])cpSync(join(sourceRepo,'.pi/harnesses/lib',file),join(harnessLibDir,file));
+ // Mirror the installed scripts-local dependencies as well as the root compiler.
+ symlinkSync(join(sourceRepo, ".pi/agent-fleet/scripts/node_modules"), join(repo, ".pi/agent-fleet/scripts/node_modules"), "dir");
  cpSync(join(sourceRepo, "package.json"), join(repo, "package.json"));
  symlinkSync(join(sourceRepo, "node_modules"), join(repo, "node_modules"), "dir");
  execFileSync("git", ["init", "-q"], { cwd: repo }); execFileSync("git", ["add", "."], { cwd: repo }); execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: repo });

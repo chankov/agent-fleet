@@ -69,7 +69,7 @@ export class InstructionBridge {
     async #read(c: ConversationKey, target: TargetEpoch) { const checked = await this.#auth.checkAllowedReadTarget(c, { project: target.project, peer: target.peer }); if (targetKey(checked.target) !== targetKey(target))
         fail('TARGET_CHANGED'); }
     async #sendAccess(c: ConversationKey, target: TargetEpoch, access?: Access): Promise<Access> { await this.#read(c, target); const current = await this.#selected(c, target); if (!access) {
-        const store = new AllowedSessionsStore(this.#options.policyRoot, c), state = await store.list(current), matches = state.bindings.filter(b => targetKey(b.target) === targetKey(target));
+        const store = new AllowedSessionsStore(this.#options.policyRoot, c, {now:this.#options.now}), state = await store.list(current), matches = state.bindings.filter(b => targetKey(b.target) === targetKey(target));
         if (matches.length !== 1)
             fail('NOT_ALLOWED');
         access = { store, handle: await store.resolve(matches[0].alias, current) };

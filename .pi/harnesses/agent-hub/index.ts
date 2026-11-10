@@ -1,3 +1,6 @@
+import {FleetConnectionControl,connectionLines,connectionNamespaces} from '../lib/fleet-connection-control.ts';
+import {homedir} from 'node:os';
+import { privateDeclarationHash, type PrivateProofUse } from './private-config-review.ts';
 import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discoveryHubEnabled, discoveryManagedReadbackAllowed, prepareDiscoveryNative } from './file-discovery/hub.ts';
 import { registerDamageGuardHub, configureDamageGuardHub, resetDamageGuardHub, acceptDamageGuardInput, prepareDamageGuardNative } from './damage-guard-hub.ts';
 import { bindSemanticScope } from '../lib/semantic-approval.ts';
@@ -275,6 +278,19 @@ export default function (pi: ExtensionAPI) {
 	let refreshFleetUi = () => {};
  const permissionRelay=new PermissionRelay(()=>observationOwner(),()=>accessTaskIdentity());registerPermissionRelay(pi,permissionRelay);registerPermissionRelay(pi.events,permissionRelay);
  let codexNotifications:import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts').FleetCodexNotificationRuntime|undefined;
+ let renewCodexNotifications:((until:number)=>unknown)|undefined;
+ const codexPolicyRoot=process.env.AF_CODEX_POLICY_ROOT??path.join(homedir(),'.codex/agent-fleet/state/fleet-native');
+ const codexNamespace={hostProfile:process.env.AF_CODEX_HOST_PROFILE??'desktop',principal:process.env.AF_CODEX_PRINCIPAL??'local-user'};
+ const connectionControl=new FleetConnectionControl({owner:()=>observationOwner(),session:()=>codexNotifications?{status:()=>codexNotifications!.status(),renewUntil:until=>{if(!renewCodexNotifications)throw Error('renewal_unavailable');return renewCodexNotifications(until);}}:undefined,
+  defaultNamespace:codexNamespace,listNamespaces:async()=>(await connectionNamespaces(codexPolicyRoot)).filter(c=>c.hostProfile===codexNamespace.hostProfile&&c.principal===codexNamespace.principal),
+  readRights:async namespace=>{const owner=observationOwner();if(!owner)return {rights:[],status:'owner_unavailable'};
+   try{const {AllowedSessionsStore}=await import('../../agent-fleet/scripts/lib/fleet-codex-allowlist-store.ts');const state=await new AllowedSessionsStore(codexPolicyRoot,namespace).open();
+    const b=state.bindings.find(b=>b.target.project===owner.project&&b.target.peer===owner.peer);
+    return b?{rights:[...b.rights],expiresAt:b.expiresAt,status:b.target.sessionId===owner.sessionId&&b.target.startedAt===owner.startedAt?b.status:'target_changed',revision:state.revision}:{rights:[],status:'not_connected',revision:state.revision};
+   }catch{return {rights:[],status:'rights_unavailable'};}
+  }});
+ let connectionRefreshAt=0,connectionRefreshBusy=false;
+ const refreshConnections=()=>{if(connectionRefreshBusy||Date.now()-connectionRefreshAt<2000)return;connectionRefreshAt=Date.now();connectionRefreshBusy=true;void connectionControl.refresh().finally(()=>{connectionRefreshBusy=false;refreshFleetUi();});};
  // Explicit user command only: no configuration discovery or default host activation.
  pi.registerCommand('af-codex-events',{description:'prepare|enable <private config.json> or disable; never starts daemon or grants approve',handler:async(args,ctx)=>{
   let started:typeof codexNotifications;
@@ -282,11 +298,12 @@ export default function (pi: ExtensionAPI) {
    const split=args.trim().indexOf(' '),operation=split<0?args.trim():args.trim().slice(0,split),path=split<0?'':args.trim().slice(split+1).trim();
    if(operation==='disable'){codexNotifications?.stop();codexNotifications=undefined;ctx.ui.notify('Codex event runtime stopped; no grants changed.','info');return;}
    if(!['prepare','enable'].includes(operation)||!path)throw Error('notification_command_invalid');
-   const {readNotificationConfiguration,notificationConfigurationUnchanged,notificationPreview,FleetCodexNotificationRuntime}=await import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts');
+   const {readNotificationConfiguration,notificationConfigurationUnchanged,notificationPreview,renewNotificationConfiguration,FleetCodexNotificationRuntime}=await import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts');
    const config=readNotificationConfiguration(path),preview=notificationPreview(config,observationOwner());
    if(operation==='prepare'||!preview.ready){ctx.ui.notify(JSON.stringify(preview),preview.ready?'info':'warning');return;}
    if(codexNotifications)throw Error('notification_runtime_already_running');
    const runtime=new FleetCodexNotificationRuntime(config,()=>notificationConfigurationUnchanged(path,config)?observationOwner():null);const startup=runtime.start();started=runtime;codexNotifications=runtime;await startup;
+   renewCodexNotifications=until=>runtime.renewUntil(until,()=>{const next=renewNotificationConfiguration(path,config,until);config.approval.confirmedUntil=next.approval.confirmedUntil;});refreshConnections();
    ctx.ui.notify('Codex event ingress enabled explicitly; ACK is not model delivery, no approve granted.','info');
   }catch{if(started){started.stop();if(codexNotifications===started)codexNotifications=undefined;}ctx.ui.notify('Codex event operation refused or uncertain; inspect private journal, do not replay.','error');}
  }});
@@ -300,6 +317,7 @@ export default function (pi: ExtensionAPI) {
 			? "orchestrator roster recovery required"
 			: null,
 		handleCustomEnvelope: (socket, envelope) => {
+   if(connectionControl.handle(socket,envelope))return true;
 			if (handleObservationEnvelope(socket, envelope, {
 				owner: observationOwner,
 				session: () => currentCtx?.sessionManager,
@@ -422,6 +440,9 @@ export default function (pi: ExtensionAPI) {
 
 	let activeWritableDispatches = 0;
 	let writableOverlapCounter = 0;
+ function privateProofUse(cwd = currentCtx?.cwd || process.cwd()): PrivateProofUse {
+  return { cwd, taskId: noProgress.taskId(), sessionDir, declarationHash: privateDeclarationHash(assertions as any, hubTaskText), activeWriters: activeWritableDispatches, overlap: writableOverlapCounter };
+ }
 	let pendingHandoff: { target: string; token: string } | null = null;
 	const hubStateCtx = createHubStateContext({
 		getCurrentContext: () => currentCtx, setCurrentContext: value => { currentCtx = value; },
@@ -751,7 +772,7 @@ export default function (pi: ExtensionAPI) {
 		getSystem1: () => watchdogActivity?.live() ?? null,
 		getTaskTriage: () => {
 			if (!taskTriageConfigured && !processState.additions?.length) return null;
-			try { return { ...taskTriageMetadata(), process: { schema: processState.schema, ...evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }) } }; }
+			try { return { ...taskTriageMetadata(), process: { schema: processState.schema, ...evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }) } }; }
 			catch { return { ...taskTriageMetadata(), process: { schema: "invalid" } }; }
 		},
 		getProactive: () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live() } : null,
@@ -958,7 +979,7 @@ export default function (pi: ExtensionAPI) {
 	function pendingCapabilityOperations(): PendingOperation[] {
 		const pending: PendingOperation[] = [];
 		if (pendingTaskTransition) pending.push({ pack: "fleet", kind: "task-transition" });
-		if (processOpenObligations(processState).some(stage => stage === "plan" || stage === "review")) pending.push({ pack: "fleet", kind: "process-stage" });
+		if (processOpenObligations(processState, undefined, privateProofUse()).some(stage => stage === "plan" || stage === "review")) pending.push({ pack: "fleet", kind: "process-stage" });
 		if (Array.from(agentStates.values()).some(state => state.status === "running") || Array.from(researchStates.values()).some(state => state.status === "running")) pending.push({ pack: "fleet", kind: "child" });
 		if (pendingReplies.size > 0 || pendingHandoff) pending.push({ pack: "peer", kind: "message" });
 		if (hubSpawnedPeers.size > 0) pending.push({ pack: "workspace", kind: "pane" });
@@ -1054,10 +1075,11 @@ export default function (pi: ExtensionAPI) {
 				try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: false }); } catch { processPersistenceBlocked = true; }
 				return next;
 			},
-			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })),
+			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
 			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
+   privateProofUse: ctx => privateProofUse(ctx.cwd || process.cwd()),
 			adoptReservedTaskId: (id, resetTaskWindow) => { taskIdentityReset.run(id, resetTaskWindow); bindSemanticScope(id, hubTaskText ? createHash("sha256").update(hubTaskText).digest("hex") : ""); },
 			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); } }, signal),
 			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
@@ -1204,7 +1226,7 @@ export default function (pi: ExtensionAPI) {
 				taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
 				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal, undefined, 'permission'),
 				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
-				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
+				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }))),
 			}, ctx);
 			if (next) processState = next;
 			return !!next;
@@ -2040,6 +2062,7 @@ export default function (pi: ExtensionAPI) {
 		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		abortComs: state => { state.comsAbort?.(); },
 		getComsLines: (width, theme) => poolPresentation.render(width, theme),
+  getConnectionLines: (width) => {refreshConnections();const lines=connectionLines(connectionControl.rows());return ['Bounded private policy inventory; refresh every 2s',...(lines.length?lines:['No connection observed; absence is not proof of no saved grants'])].map(line=>truncateToWidth(line,width));},
 	});
 	const { fleetRows, openFleetDashboard: openFleetDashboardRaw } = fleetDashboard;
 	const openFleetDashboard = (ctx: any, startSubstitution = false) => gridUI.withSuspended(() => openFleetDashboardRaw(ctx, startSubstitution));
@@ -2208,7 +2231,7 @@ export default function (pi: ExtensionAPI) {
 			taskTierAssumed,
 			processRisk: processState.risk,
 			processScope: processState.scope,
-			processOpen: Object.entries(evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }).obligations).filter(([, value]) => value.status === "open").map(([name]) => name),
+			processOpen: Object.entries(evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }).obligations).filter(([, value]) => value.status === "open").map(([name]) => name),
 			turnDispatchCount,
 			turnResearchCount,
 			taskDispatchCount,
@@ -2343,7 +2366,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("session_compact", async (_event, ctx) => {
         noProgress.compact(ctx.sessionManager.getEntries());
-		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }));
+		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }));
 		const result = toolCatalogRuntime.compact({
 			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
 			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),

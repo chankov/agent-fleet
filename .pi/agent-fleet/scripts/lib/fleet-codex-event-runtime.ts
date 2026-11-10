@@ -1,34 +1,34 @@
-import {createHash} from 'node:crypto';
-import {lstatSync,openSync,fstatSync,readFileSync,closeSync,constants,realpathSync} from 'node:fs';
+import {createHash,randomUUID} from 'node:crypto';
+import {lstatSync,openSync,fstatSync,readFileSync,closeSync,constants,realpathSync,writeFileSync,fsyncSync,renameSync,unlinkSync} from 'node:fs';
 import {isAbsolute,resolve,dirname} from 'node:path';
 import {InstructionLedger,targetKey,validInstructionTarget} from './fleet-codex-instruction-store.ts';
-import {assessLoadedFleetCatalog} from './fleet-codex-local-mcp.ts';
+import {notificationPreview,parseNotificationConfiguration,type NotificationConfig} from '../../../harnesses/lib/fleet-notification-validation.ts';
+export {notificationPreview,parseNotificationConfiguration,type NotificationConfig} from '../../../harnesses/lib/fleet-notification-validation.ts';
 import {FleetCodexEventBridge,type AddressedFleetEvent,type CodexEventHost,type CodexEventBinding} from '../../../harnesses/lib/fleet-codex-event-bridge.ts';
 import {subscribeFleetSourceEvents,type FleetSourceEvent} from '../../../harnesses/lib/fleet-event-source.ts';
 import {encodeQuestionReference,validOpaqueToolCallId} from '../../../harnesses/lib/fleet-question-reference.ts';
-import {CodexDesktopQueueHost,matchesDesktopQueueTuple,type DesktopQueueApproval} from './codex-desktop-queue-host.ts';
+import {CodexDesktopQueueHost} from './codex-desktop-queue-host.ts';
 import {CodexUnixQueueRpc} from './codex-unix-queue-rpc.ts';
 const sha=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const sameOwner=(a:unknown,b:unknown)=>validInstructionTarget(a)&&validInstructionTarget(b)&&targetKey(a)===targetKey(b);
 type Stage='ingested'|'attempted'|'terminal'|'unknown';
 type Stored={schema:'fleet-event-outbox/v1';event:AddressedFleetEvent;binding:CodexEventBinding;authorityRevision:number;stage:Stage;result?:unknown};
-export type NotificationConfig={optedIn:true;stateRoot:string;socketPath:string;approval:DesktopQueueApproval;loadedCatalog:unknown;messageBudgetMs:number};
 export function readNotificationConfiguration(path:string):NotificationConfig{
  if(!isAbsolute(path)||resolve(path)!==path||realpathSync(dirname(path))!==dirname(path))throw Error('notification_config_path');
  const s=lstatSync(path);if(!s.isFile()||s.isSymbolicLink()||s.uid!==process.getuid?.()||(s.mode&0o077)!==0||s.nlink!==1||s.size>65536)throw Error('notification_config_unsafe');
- const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);try{const opened=fstatSync(fd);if(opened.ino!==s.ino||opened.dev!==s.dev)throw Error('notification_config_changed');const raw=readFileSync(fd,'utf8'),after=fstatSync(fd);if(after.mtimeMs!==opened.mtimeMs||after.size!==opened.size)throw Error('notification_config_changed');const value=JSON.parse(raw);if(!value||Object.keys(value).sort().join(',')!=='approval,loadedCatalog,messageBudgetMs,optedIn,socketPath,stateRoot')throw Error('notification_config_invalid');return value;}finally{closeSync(fd);}
+ const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);try{const opened=fstatSync(fd);if(opened.ino!==s.ino||opened.dev!==s.dev)throw Error('notification_config_changed');const raw=readFileSync(fd,'utf8'),after=fstatSync(fd);if(after.mtimeMs!==opened.mtimeMs||after.size!==opened.size)throw Error('notification_config_changed');return parseNotificationConfiguration(raw);}finally{closeSync(fd);}
 }
 export function notificationConfigurationUnchanged(path:string,expected:NotificationConfig){try{return sha(readNotificationConfiguration(path))===sha(expected);}catch{return false;}}
-export function notificationPreview(c:NotificationConfig,owner:unknown){
- const catalog=assessLoadedFleetCatalog(c?.loadedCatalog),a=c?.approval,b=a?.binding;
- const approvalKeys=a?Object.keys(a).sort().join(','):'';
- const knownApprovalShape=approvalKeys==='addSchema,authorityRevision,binding,confirmedUntil,daemonVersion,desktopVersion,mappingEvidence,responseSchema,target,transportOrigin'||
-  approvalKeys==='addSchema,authorityRevision,binding,confirmedUntil,daemonVersion,desktopAddSchema,desktopResponseSchema,desktopVersion,mappingEvidence,responseSchema,target,transportOrigin';
- const mapping=!!a&&!!b&&knownApprovalShape&&Object.keys(b).sort().join(',')==='epoch,fleetOwner,hostInstance,id,threadId'&&Object.values(b).every(v=>typeof v==='string'&&v.length>0&&v.length<=512&&/^[\x20-\x7e]+$/.test(v))&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(b.id)&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(b.threadId)&&validInstructionTarget(a.target)&&sameOwner(owner,a.target)&&b.fleetOwner===targetKey(a.target)&&Number.isSafeInteger(a.authorityRevision)&&a.authorityRevision>0&&Number.isSafeInteger(a.confirmedUntil)&&a.confirmedUntil>Date.now()&&a.transportOrigin==='user_input'&&a.mappingEvidence==='externally_confirmed_loaded_desktop'&&matchesDesktopQueueTuple(a);
- const paths=typeof c?.stateRoot==='string'&&isAbsolute(c.stateRoot)&&resolve(c.stateRoot)===c.stateRoot&&typeof c.socketPath==='string'&&isAbsolute(c.socketPath)&&c.socketPath.length<=100&&!/[:?#%\\\u0000-\u0020]/.test(c.socketPath);
- const ready=c?.optedIn===true&&mapping&&paths&&catalog.ready&&Number.isSafeInteger(c.messageBudgetMs)&&c.messageBudgetMs>10000&&c.messageBudgetMs<=60000;
- return {ready,catalog,mappingValid:mapping,activation:'not_performed',requiresExplicitUserEnable:true,startsDaemon:false,grantsApprove:false};
+/** Atomic renewal only: same file, namespace, owner, epoch and authority revision. */
+export function renewNotificationConfiguration(path:string,expected:NotificationConfig,until:number){
+ if(!Number.isSafeInteger(until)||until<=Date.now()||until>Date.now()+30*24*3600000||!notificationConfigurationUnchanged(path,expected))throw Error('notification_renewal_invalid');
+ const next=structuredClone(expected);next.approval.confirmedUntil=until;if(!notificationPreview(next,next.approval.target).ready)throw Error('notification_configuration_not_ready');
+ const temp=path+'.renew-'+randomUUID();let renamed=false;
+ try{const fd=openSync(temp,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);try{writeFileSync(fd,JSON.stringify(next,null,2)+'\n');fsyncSync(fd);}finally{closeSync(fd);}if(!notificationConfigurationUnchanged(path,expected))throw Error('notification_config_changed');renameSync(temp,path);renamed=true;
+ const dir=openSync(dirname(path),constants.O_RDONLY|constants.O_DIRECTORY);try{fsyncSync(dir);}finally{closeSync(dir);}
+ }catch(e){if(!renamed)try{unlinkSync(temp);}catch{}throw e;}
+ return next;
 }
 type Host=CodexEventHost&{reconcile(binding:CodexEventBinding,event:AddressedFleetEvent,signal:AbortSignal):Promise<unknown>};
 /** Explicit foreground/in-process opt-in runtime. Constructor performs no host I/O.
@@ -54,6 +54,10 @@ export class FleetCodexNotificationRuntime {
    catch{this.save(event,'unknown');return {status:'unknown'};}
   }});
  }
+ /** Caller persists the reviewed exact renewal before memory changes. No restart or replay. */
+ renewUntil(until:number,persist:()=>void){if(!Number.isSafeInteger(until)||until<=Date.now()||!this.current(this.binding)||!this.ready)throw Error('notification_renewal_invalid');persist();this.config.approval.confirmedUntil=until;return this.status();}
+ private lastEvidence(){try{const last=this.entries().at(-1),result=last?.stored?.result as {status?:unknown}|undefined;return last?{eventId:last.receipt.requestId,stage:last.stored?.stage??'unknown',queueStatus:typeof result?.status==='string'&&/^[a-z_]{1,64}$/.test(result.status)?result.status:'not_established'}:null;}catch{return {stage:'evidence_unavailable',queueStatus:'unknown'};}}
+ status(){const now=Date.now(),expired=now>=this.config.approval.confirmedUntil,ownerValid=sameOwner(this.owner(),this.config.approval.target);return {threadId:this.binding.threadId,target:this.config.approval.target,bindingId:this.binding.id,enabled:!this.stopped&&this.ready&&!expired&&ownerValid,expiresAt:this.config.approval.confirmedUntil,remainingMs:Math.max(0,this.config.approval.confirmedUntil-now),reason:!ownerValid?'mapping_or_configuration_changed':expired?'notification_expired':this.stopped?'disabled':!this.ready?'recovering':'consumer_active',transportState:'not_probed_by_status',lastNotification:this.lastEvidence(),events:['message','question','permission'],delivery:'queue_ack_is_not_model_delivery'};}
  private readonly config:NotificationConfig;private readonly owner:()=>unknown;
  private current(binding:CodexEventBinding){return !this.stopped&&same(binding,this.binding)&&sameOwner(this.owner(),this.config.approval.target)&&Date.now()<this.config.approval.confirmedUntil;}
  private save(event:AddressedFleetEvent,stage:Stage,result?:unknown){

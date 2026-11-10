@@ -4,32 +4,11 @@ import {InstructionLedger,targetKey,validInstructionTarget} from './fleet-codex-
 import type {ConversationKey,TargetEpoch} from './fleet-codex-allowlist.ts';
 import type {AddressedFleetEvent,CodexEventBinding,CodexEventHost,EventDelivery} from '../../../harnesses/lib/fleet-codex-event-bridge.ts';
 import type {CodexUnixQueueRpc} from './codex-unix-queue-rpc.ts';
-export const desktopQueuePin={daemon:'0.166.0',desktop:'0.166.0-alpha.5.1',addSchema:'60f25b7d3e3357c215bef9d2fe7047200f545e030dca9e00527ac0620cd0c88f',responseSchema:'c11b9772788427b19c9f9decf0765e2b41cbdead1aa9c3d39f42fdd70b339314'} as const;
+export {desktopQueuePin,matchesDesktopQueueTuple,type DesktopQueueApproval} from '../../../harnesses/lib/fleet-notification-validation.ts';
+import {matchesDesktopQueueTuple,type DesktopQueueApproval} from '../../../harnesses/lib/fleet-notification-validation.ts';
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const sha=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const same=(a:unknown,b:unknown)=>sha(a)===sha(b);
-export interface DesktopQueueApproval {
- binding:CodexEventBinding;target:TargetEpoch;authorityRevision:number;confirmedUntil:number;
- transportOrigin:'user_input';mappingEvidence:'externally_confirmed_loaded_desktop';
- daemonVersion:string;desktopVersion:string;addSchema:string;responseSchema:string;
- desktopAddSchema?:string;desktopResponseSchema?:string;
-}
-// The original two schema fields describe the daemon wire. Older Desktop
-// releases share those schemas; a measured asymmetric tuple pins both endpoints.
-const desktopQueueTuples=[
- desktopQueuePin,
- {...desktopQueuePin,desktop:'0.166.0-alpha.6'},
- {...desktopQueuePin,desktop:'0.167.0-alpha.3.2',
-  desktopAddSchema:'f6466a8f06cd4e68ec1999d06a0d70a1ddc339c0cb1baf12ee966a999fead17c',
-  desktopResponseSchema:'896a82716b432a8aa4d190591bcfa86adacdacb91ec5ec2c9c75ff6562561256'},
-] as const;
-type DesktopQueueTupleEvidence=Pick<DesktopQueueApproval,'daemonVersion'|'desktopVersion'|'addSchema'|'responseSchema'|'desktopAddSchema'|'desktopResponseSchema'>;
-export function matchesDesktopQueueTuple(a:DesktopQueueTupleEvidence){
- return desktopQueueTuples.some(p=>
-  a.daemonVersion===p.daemon&&a.desktopVersion===p.desktop&&a.addSchema===p.addSchema&&a.responseSchema===p.responseSchema&&
-  a.desktopAddSchema===('desktopAddSchema' in p?p.desktopAddSchema:undefined)&&
-  a.desktopResponseSchema===('desktopResponseSchema' in p?p.desktopResponseSchema:undefined));
-}
 /** Explicit opt-in adapter for the pinned shared queue protocol, NOT a direct
  * Desktop endpoint, external-tool-output channel, delivery SLA or proof of current UI state.
  * Configuration/version/mapping evidence is supplied by the host; it is not attested by initialize UA.

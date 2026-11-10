@@ -37,6 +37,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	const agentWindow = resolveContextWindow(model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 	const agentSessionFile = safePathWithin(base.evidenceDir, "session.json");
 	const resumeContract = bindResume({
+  privateConfig: requestedContract?.privateConfig,
 		taskId: requestedContract?.taskId ?? task,
 		instructions: requestedContract?.instructions ?? task,
 		scope: requestedContract?.scope ?? scopeGlobs,
@@ -49,6 +50,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	});
  const contractOf=(value: typeof resumeContract)=>Object.freeze({
   taskId:value.taskId,instructions:value.instructions,
+  ...(value.privateConfig ? {privateConfig:structuredClone(value.privateConfig)} : {}),
   boundAssertionIds:value.boundAssertionIds === undefined ? undefined : Object.freeze([...value.boundAssertionIds]),
   scope:Object.freeze([...value.scope]),deliverables:Object.freeze([...value.deliverables]),
   artifacts:Object.freeze([...value.artifacts]),permissions:Object.freeze([...value.permissions]),
@@ -56,6 +58,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  const admittedContract=contractOf(resumeContract);
  const contractSnapshot=JSON.stringify(admittedContract);
  const currentContract=()=>contractOf(bindResume({
+  privateConfig:requestedContract?.privateConfig,
   taskId:requestedContract?.taskId??task,instructions:requestedContract?.instructions??task,
   boundAssertionIds:requestedContract?.boundAssertionIds,
   scope:requestedContract?.scope??scopeGlobs,deliverables:requestedContract?.deliverables,

@@ -1,6 +1,7 @@
+import {notificationToolNames,assessLoadedFleetCatalog as pureCatalogAssessment} from '../../harnesses/lib/fleet-notification-validation.ts';
 import {createComsPeer,sendEnvelope} from '../../harnesses/lib/coms-core.ts';import {ownerOf} from '../../harnesses/lib/coms-instruction-receipts.ts';
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {createHash} from 'node:crypto';
-import {FleetCodexNotificationRuntime,notificationPreview,notificationConfigurationUnchanged} from './lib/fleet-codex-event-runtime.ts';import {desktopQueuePin} from './lib/codex-desktop-queue-host.ts';import {TOOLS} from './lib/fleet-codex-local-mcp.ts';import {targetKey} from './lib/fleet-codex-instruction-store.ts';
+import {FleetCodexNotificationRuntime,notificationPreview,notificationConfigurationUnchanged,parseNotificationConfiguration,readNotificationConfiguration} from './lib/fleet-codex-event-runtime.ts';import {desktopQueuePin} from './lib/codex-desktop-queue-host.ts';import {TOOLS,assessLoadedFleetCatalog} from './lib/fleet-codex-local-mcp.ts';import {targetKey} from './lib/fleet-codex-instruction-store.ts';
 import {publishFleetSourceEvent,subscribeFleetSourceEvents,fleetSourceDigest} from '../../harnesses/lib/fleet-event-source.ts';import {QuestionChannel} from '../../harnesses/ask-user-remote/questions.ts';import {PermissionRelay} from '../../harnesses/agent-hub/permission-relay.ts';
 const owner={project:'fixture',peer:'hub',sessionId:'session',startedAt:'2026-11-04T00:00:00Z'};
 const binding={id:'fixture',epoch:'epoch',hostInstance:'fixture-host',threadId:'11111111-1111-4111-8111-111111111111',fleetOwner:targetKey(owner)};
@@ -11,6 +12,24 @@ function fixture(t:any){const root=mkdtempSync(join(tmpdir(),'event-runtime-'));
  const make=(checkpoint?:(stage:string)=>void)=>new FleetCodexNotificationRuntime(config,()=>owner,host,checkpoint);const source={kind:'message' as const,owner,sourceId:'message',createdAt:Date.now(),deadline:null,contentDigest:fleetSourceDigest('fixture')};
  return {config,host,make,source,delivered,get sends(){return sends;},get reconciles(){return reconciles;},lose(){lost=true;}};
 }
+test('pure catalog validator tracks the exact public runtime catalog and assessment API',()=>{
+ assert.deepEqual(notificationToolNames,TOOLS.map(t=>t.name));
+ const valid={identity:'host_context_validated',protocolVersion:'2025-06-18',tools:TOOLS.map(t=>({name:t.name}))};
+ for(const observation of [null,{},valid,{...valid,identity:'unknown'},{...valid,protocolVersion:'unknown'},
+  {...valid,tools:valid.tools.slice(1)},{...valid,tools:[...valid.tools,valid.tools[0]]},
+  {...valid,tools:[...valid.tools,{name:'unexpected'}]},{...valid,tools:[{name:null}]},
+  {...valid,tools:Array(129).fill({name:'fleet_discover'})}]) {
+  assert.deepEqual(pureCatalogAssessment(observation),assessLoadedFleetCatalog(observation));
+ }
+});
+test('already-opened configuration byte parsing preserves private reader shape validation without activation',t=>{
+ const f=fixture(t),path=f.config.stateRoot+'.json',raw=JSON.stringify(f.config);
+ writeFileSync(path,raw,{mode:0o600});
+ assert.deepEqual(parseNotificationConfiguration(raw),readNotificationConfiguration(path));
+ for(const raw of ['null','[]','{}',JSON.stringify({...f.config,unexpected:true})])assert.throws(()=>parseNotificationConfiguration(raw),/notification_config_invalid/);
+ assert.throws(()=>parseNotificationConfiguration('{'),SyntaxError);
+ assert.equal(f.sends,0);assert.equal(f.reconciles,0);
+});
 test('real question and permission producers plus message ingress feed the production bridge, references only',async t=>{
  const f=fixture(t),runtime=f.make();await runtime.start();t.after(()=>runtime.stop());
  publishFleetSourceEvent(f.source);
