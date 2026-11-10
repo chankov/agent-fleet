@@ -226,7 +226,7 @@ test("external independent Git worktree reviews dirty baseline, session edits an
  assert.ok(result?.units.every(u=>u.sourceRootId===roots.roots[1]!.id));
 });
 
-test("external Git history includes pre-session edits and deletions but never ungranted siblings", async t => {
+test("external Git history includes pre-session edits and deletions but never ungranted siblings", t => {
  const root=fixture(t), docs=temporaryDirectory(t,"external-history-");
  git(docs,"init","-q");git(docs,"config","user.email","snapshot@example.test");git(docs,"config","user.name","Test");
  mkdirSync(join(docs,"allowed"));
@@ -240,8 +240,8 @@ test("external Git history includes pre-session edits and deletions but never un
  const external=relative(root,docs).split(sep).join("/"), include=`${external}/allowed`;
  const roots=resolvePolicyRoots(root,{docsPaths:[include]});
  const cfg=parseProactiveConfig({version:1,mode:"shadow",include:[include]},roots);
- const baseline=await beginTurn({root,config:cfg,context,turnId:"prior-history",policyRoots:roots});
- const result=await finishTurn(baseline);
+ const baseline=beginTurnCore({root,config:cfg,context,turnId:"prior-history",policyRoots:roots});
+ const result=finishTurnCore(baseline);
  assert.equal(result?.status,"complete",JSON.stringify(result?.gaps));
  assert.equal(result?.units.find(u=>u.path===`${include}/edit.md`)?.before?.text,"HEAD before\n");
  assert.equal(result?.units.find(u=>u.path===`${include}/edit.md`)?.after?.text,"prior edit\n");

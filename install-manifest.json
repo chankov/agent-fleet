@@ -1122,6 +1122,7 @@
             ".pi/harnesses/agent-hub/config/agents.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",
+            ".pi/harnesses/agent-hub/private-config-current-state.ts",
             ".pi/harnesses/agent-hub/execution-evidence.ts",
             ".pi/harnesses/agent-hub/context-window.js",
             ".pi/harnesses/agent-hub/spawn.ts",
@@ -2777,6 +2778,28 @@
         "companion:workflow-runtime",
         "reference:workflow-authoring"
       ]
+    },
+    {
+      "id": "skill:fleet-connect",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": null,
+      "title": "fleet-connect",
+      "summary": "Свързване на текущия native Codex чат към точно избрана Fleet сесия с прегледани права, срокове и честен статус на из…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/fleet-connect"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/fleet-connect",
+          "strategy": "copy-tree"
+        }
+      }
     },
     {
       "id": "skill:frontend-ui-engineering",

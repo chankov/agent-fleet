@@ -822,6 +822,7 @@
             ".pi/harnesses/agent-hub/config/agents.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",
+            ".pi/harnesses/agent-hub/private-config-current-state.ts",
             ".pi/harnesses/agent-hub/execution-evidence.ts",
             ".pi/harnesses/agent-hub/context-window.js",
             ".pi/harnesses/agent-hub/spawn.ts",
