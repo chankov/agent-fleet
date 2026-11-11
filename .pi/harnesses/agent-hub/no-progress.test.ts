@@ -450,7 +450,8 @@ test('registered tool schemas retain runtime optional fields and provider compat
  const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
  const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
  registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
- assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','parallel','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
+ assert.equal(tools[0].parameters.properties.parallel.type, 'boolean', 'the parallel writer flag is an optional boolean');
  const schema = tools[0].parameters, fields = schema.properties;
  assert.deepEqual(schema.required, ['agent', 'task'], 'new private declarations remain opt-in');
  for (const name of ['private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {

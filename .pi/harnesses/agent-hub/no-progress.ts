@@ -105,7 +105,7 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
  if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool)) return [{ field: 'tool', expected: 'dispatch_agent | spawn_research', actual: type(value?.tool) }];
  if (!value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return [{ field: 'params', expected: 'object', actual: type(value.params) }];
  const params = value.params as unknown as Record<string, unknown>;
- const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','private_config_files','verifier_sources','backend','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
+ const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','private_config_files','verifier_sources','backend','parallel','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
  const diagnostics: InvocationDiagnostic[] = [];
  const add = (field: string, expected: string, item: unknown, reason?: string) => { if (diagnostics.length < 16) diagnostics.push({ field, expected, actual: type(item), ...(reason ? { reason } : {}) }); };
  for (const key of ['task', ...(value.tool === 'dispatch_agent' ? ['agent'] : [])]) {
@@ -122,7 +122,7 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
     if (typeof entry !== 'string') add(`${key}[${i}]`, 'string', entry);
     else if (key === 'read_scope' && (!entry.length || /^(?:\/|[A-Za-z]:)/.test(entry.trim()) || entry.replace(/\\/g, '/').split('/').includes('..'))) add(`${key}[${i}]`, 'repository-relative nonempty string', entry, 'empty or escaping path');
    });
-  } else if (key === 'watchdog') { if (typeof item !== 'boolean') add(key, 'boolean', item); }
+  } else if (key === 'watchdog' || key === 'parallel') { if (typeof item !== 'boolean') add(key, 'boolean', item); }
   else if (typeof item !== 'string') add(key, enums[key]?.join(' | ') ?? 'string', item);
   else if (enums[key] && !enums[key].includes(item)) add(key, enums[key].join(' | '), item, 'unsupported enum member');
  }
