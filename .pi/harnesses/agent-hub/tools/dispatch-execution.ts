@@ -372,6 +372,14 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 	return { result, billed, out, researchRounds };
 }
 
+/** Writable dispatches running now other than this one (registry when available, else the counter). */
+function otherActiveWriters(d: DispatchExecutorDeps, p: PreparedDispatch, tracking: Tracking): { agent: string }[] {
+	const s = d.state;
+	const writers = s.getActiveWriters?.()
+		?? Array.from({ length: Math.max(0, s.getActiveWritableDispatches() - (tracking.writable ? 1 : 0)) }, () => ({ agent: "a writable dispatch" }));
+	return writers.filter(writer => writer.agent.toLowerCase() !== p.agent.toLowerCase());
+}
+
 function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
 	if (!tracking.snapshot) return null;
 	const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
@@ -634,7 +642,11 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         }
         const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
         const completedReviewInput = candidateReviewInput;
-		const reviewAuthorized = stage !== "review" || ((!p.operatorCandidate || operatorStateVerification?.status==='accepted') && reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
+		// The review that closes the task covers the whole change with no other writer
+		// running (PHILOSOPHY, 2026-11-11): an area review beside a parallel writer is
+		// evidence for its area, never the task's final review.
+		const otherWriters = otherActiveWriters(d, p, tracking);
+		const reviewAuthorized = stage !== "review" || (otherWriters.length === 0 && (!p.operatorCandidate || operatorStateVerification?.status==='accepted') && reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
 		// nonempty plan return. The Hub cannot judge its semantic adequacy.
@@ -722,6 +734,10 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
 	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
+	if (isReviewPersona(p.agent) && !p.privateConfig) {
+		const writing = otherActiveWriters(d, p, tracking);
+		if (writing.length) notices.push(`Area review: ${writing.map(writer => writer.agent).join(", ")} was still writing, so this review is evidence for its own scope only and does not close the task's review. Run one final review of the whole change once no writer is active.`);
+	}
 	if (tracking.isolatedScope) notices.push(`Parallel writer: OS-sandboxed to ${tracking.isolatedScope.join(", ") || "no repository paths"}; only changes inside that scope are attributed to ${p.agent}.${observation?.foreignPaths?.length ? ` Changes outside it during the run (not attributed): ${observation.foreignPaths.slice(0, 12).join(", ")}${observation.foreignPaths.length > 12 ? " …" : ""}.` : ""} Run the full checks once no writer is active.`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
 	if (failurePath) notices.push(`⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching.`);

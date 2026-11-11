@@ -1010,6 +1010,24 @@ test("T11 reviewer APPROVE with partial changed-file overlap cannot satisfy revi
  assert.equal(process().review.evidenceRef, null);
 });
 
+test("an area review beside a running parallel writer never closes the task review; the final one does", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ const writers: any[] = [{ agent: "builder", scope: ["src/other"], isolated: true }];
+ (d.state as any).getActiveWriters = () => writers;
+ (d.state as any).beginWriter = (entry: any) => { writers.push(entry); return () => { writers.splice(writers.indexOf(entry), 1); }; };
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-area" });
+ const area = await createDispatchExecutor(d as any)("rev-a", { agent: "code-reviewer", task: "review the api area", scope: ["src/api.ts"], parallel: true }, undefined, undefined, { cwd } as any) as any;
+ assert.ok(!process().review.evidenceRef, "an area review is not the task's review");
+ assert.match(area.content[0].text, /Area review: builder was still writing/);
+ assert.deepEqual(writers.map(w => w.agent), ["builder"], "the reviewer's own registration was released");
+
+ writers.length = 0;
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-final" });
+ const final = await createDispatchExecutor(d as any)("rev-f", { agent: "code-reviewer", task: "final review of the whole change", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any) as any;
+ assert.ok(process().review.evidenceRef, "the final review with no writer active closes it");
+ assert.doesNotMatch(final.content[0].text, /Area review/);
+});
+
 test("T11 reviewer APPROVE covering current changed files records review at current revision", async t => {
  const { cwd, d, process } = await highRiskChangedFixture(t);
  d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-ok" });

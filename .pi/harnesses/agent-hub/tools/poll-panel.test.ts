@@ -66,7 +66,7 @@ test("poll_panel is a fleet tool described for decisions, not facts", () => {
 	assert.ok((FLEET_TOOLS as readonly string[]).includes("poll_panel"));
 	assert.match(POLL_PANEL_DESCRIPTION, /decisions, not facts/);
 	assert.match(OPERATOR_DELEGATION_GUIDE, /poll_panel/);
-	assert.match(OPERATOR_DELEGATION_GUIDE, /Facts are never polled/);
+	assert.match(OPERATOR_DELEGATION_GUIDE, /Never poll facts/);
 });
 
 test("poll_panel refuses before any work when blocked, and streams progress while running", async () => {

@@ -254,7 +254,7 @@ test("operator prompt lists every installed agent, marks ones outside the team, 
  assert.match(prompt, /^- `security-auditor` \(not in team yet\) — Audits\. · read-only$/m);
  assert.match(prompt, /Members: Builder\n/);
  assert.match(prompt, /dispatching one outside the active team adds it automatically/);
- assert.match(prompt, /## When to delegate[\s\S]*Research: delegate by default[\s\S]*in parallel in the same turn/);
+ assert.match(prompt, /## When to delegate[\s\S]*Research: delegate by default[\s\S]*in parallel in one turn/);
  assert.match(prompt, /`omlx\/` at most 2 parallel runs/);
  assert.match(prompt, /local model slots in use: omlx 1\/2/);
 });

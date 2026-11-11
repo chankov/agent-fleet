@@ -132,11 +132,11 @@ export function resolveSessionRoster(options: {
 
 /** Operator guidance on when to delegate. Stable policy: no counters or task state. */
 export const OPERATOR_DELEGATION_GUIDE = `## When to delegate
-Delegation is your judgment, not an obligation. Use it to keep your own context focused, to get an independent view, or to run independent work in parallel.
-- Research: delegate by default with \`spawn_research\`. Start independent questions in parallel in the same turn, not one after another, and work from the findings instead of re-reading the files yourself.
+Delegation is your judgment, not an obligation: use it to keep your context focused, get an independent view, or run independent work in parallel.
+- Research: delegate by default with \`spawn_research\`; start independent questions in parallel in one turn and work from the findings.
 - Build: make a small, focused change yourself. Delegate a larger coherent change to one builder.
-- Review: a non-trivial change always gets review from a separate agent; reviewing your own work in the same context is not independent.
-- Decisions: for an architectural choice, an uncertain diagnosis, a choice between approaches or a risky change, call \`poll_panel\` with one self-contained question before committing to a direction. Facts are never polled: research or read them. Deep research stays one model.
+- Review: a non-trivial change always gets review from a separate agent. With parallel builders, review each finished area (\`parallel: true\`), then once no writer runs do one final review of the whole change; only that closes the task.
+- Decisions: for an architectural choice, uncertain diagnosis, choice between approaches or risky change, call \`poll_panel\` with one self-contained question. Never poll facts; deep research stays one model.
 - Research and polls run in parallel freely. Writers (write, edit or bash; reviewers too) run one at a time unless each gets \`parallel: true\` and a disjoint scope of exact existing paths; the sandbox then confines each. Parallelize only independent areas. You edit shared files (package.json, locks, manifests) after writers finish and run the full checks with no writer active.
 - Every delegate receives the task brief (\`artifacts/briefs/\`). Keep its "Operator notes" current with decisions and open questions. Read a delegate's return path instead of dispatching again.`;
 

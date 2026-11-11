@@ -205,6 +205,14 @@ Writes run one at a time by default. A writer is any dispatch whose agent has `w
 Shared files outside every scope (package.json, lock files, generated manifests, shared indexes) are
 the operator's to edit after the writers finish. Writers never commit.
 
+**Area and final review.** An area review runs as soon as its builder finishes, with
+`parallel: true` and that area as scope, beside builders still at work. It is evidence for its area
+only: a review closes the task's review stage solely when no other writer is running, and its result
+says so (`Area review: …`). The task's review must also cover every changed file at the current
+revision, so any later change reopens it. The operator therefore ends with one final review of the
+whole change once no writer runs, passing the area returns as artifacts. With a single builder that
+one review is both.
+
 ### Task brief
 
 Agents share facts through files, not through prompts. Each task has one brief,
