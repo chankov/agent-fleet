@@ -67,6 +67,7 @@ import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "./run-namespace.js";
+import { refreshTaskBrief } from "./task-brief.ts";
 import { validateAssertionBatch } from "./assertion-ledger.js";
 import { DEFAULT_PROVIDER_LIMITS, createProviderSemaphore, parseProviderLimits } from "./provider-semaphore.js";
 import {
@@ -646,7 +647,37 @@ export default function (pi: ExtensionAPI) {
 		getSessionDir: () => sessionDir,
 		getRunHistoryKeep: () => runHistoryKeep,
 		setStatus: (key, value) => { widgetCtx?.ui?.setStatus(key, value); },
+		getTaskBriefPath: () => currentTaskBrief(),
 	});
+
+	// ── Task brief: the shared record every delegated agent reads (plan B, phase 3) ──
+	type BriefEntry = { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number };
+	let briefLog: { taskId: string; entries: BriefEntry[] } = { taskId: "", entries: [] };
+	const briefEntries = (): BriefEntry[] => {
+		const id = noProgress.taskId();
+		if (briefLog.taskId !== id) briefLog = { taskId: id, entries: [] };
+		return briefLog.entries;
+	};
+	function recordDelegation(entry: BriefEntry): void {
+		const entries = briefEntries();
+		entries.push({ ...entry, task: entry.task.slice(0, 1000), scope: entry.scope.slice(0, 32) });
+		if (entries.length > 40) entries.splice(0, entries.length - 40);
+	}
+	function currentTaskBrief(): string | null {
+		if (!sessionDir) return null;
+		try {
+			return refreshTaskBrief(artifactsRoot(), {
+				taskId: noProgress.taskId(), tier: taskTier ?? DEFAULT_TASK_TIER, risk: processState.risk, scope: processState.scope,
+				requirements: assertions.map(a => ({ id: a.id, status: a.status, text: a.text, source: a.source })),
+				delegations: briefEntries().map(entry => ({
+					...entry,
+					status: entry.kind === "research"
+						? (researchStates.get(entry.researchId ?? -1)?.status ?? "finished")
+						: (agentStates.get(entry.agent.toLowerCase())?.status ?? "finished"),
+				})),
+			});
+		} catch { return null; }
+	}
 	const {
 		persistAssertions, assertionStatusLine, renderAssertionLedgerLines, renderAssertionLedgerText,
 		updateAssertionStatus, artifactsRoot, ensureArtifactsLayout, archivePreviousRun,
@@ -1049,6 +1080,7 @@ export default function (pi: ExtensionAPI) {
 				isAskUserAvailable: () => askUserAvailable, getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
+				recordDelegation,
 				addInstalledAgent: name => {
 					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === String(name).trim().toLowerCase());
 					return def ? rosterAdd(def.name) : null;

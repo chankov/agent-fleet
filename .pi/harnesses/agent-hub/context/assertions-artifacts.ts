@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { safePathWithin } from "../helpers.ts";
 import { artifactPreviewFromText, formatInputArtifactsSection, resolveArtifactPaths, ARTIFACT_KINDS } from "../artifacts.js";
 import { appendRunIndex, buildRunMeta, makeRunId, pruneRunDirs, RUN_INDEX_FILENAME, RUNS_DIRNAME } from "../run-namespace.js";
+import { BRIEF_KIND } from "../task-brief.ts";
 
 export type AssertionStatus = "open" | "proven" | "unproven" | "failed";
 
@@ -34,6 +35,8 @@ export interface AssertionsArtifactsStatePorts {
 	getSessionDir(): string;
 	getRunHistoryKeep(): number | null;
 	setStatus(key: string, value: string): void;
+	/** Refreshes the current task brief and returns its path; null when there is none. */
+	getTaskBriefPath?(): string | null;
 }
 
 export interface AssertionsArtifactsContext {
@@ -126,6 +129,8 @@ export function createAssertionsArtifactsContext(state: AssertionsArtifactsState
 		archivePreviousRun() {
 			const root = artifactsRoot();
 			if (!existsSync(root)) return null;
+			// Task briefs are working files, not evidence: they are not archived.
+			try { rmSync(safePathWithin(root, BRIEF_KIND), { recursive: true, force: true }); } catch {}
 			const counts: Record<string, number> = {};
 			let total = 0;
 			try {
@@ -183,7 +188,15 @@ export function createAssertionsArtifactsContext(state: AssertionsArtifactsState
 				return { ...item, preview: artifactPreviewFromText(readFileSync(item.path, "utf-8")) };
 			});
 		},
-		appendInputArtifacts(task, artifacts) { return artifacts.length ? task + formatInputArtifactsSection(artifacts) : task; },
+		appendInputArtifacts(task, artifacts) {
+			// Every delegated agent also receives the current task brief, unless it was passed explicitly.
+			let brief: string | null = null;
+			try { brief = state.getTaskBriefPath?.() ?? null; } catch { brief = null; }
+			const items = brief && !artifacts.some(item => path.resolve(item.path) === path.resolve(brief!))
+				? [...artifacts, { input: brief, path: brief, displayPath: brief, preview: "Task brief: shared requirements, decisions and delegations for this task. Read it first; do not edit it." }]
+				: artifacts;
+			return items.length ? task + formatInputArtifactsSection(items) : task;
+		},
 		writeRunArtifact(agentKey, runCount, output, kind = "returns", dispatchId = randomUUID(), sessionDir) {
 			if (dispatchId && !/^[a-zA-Z0-9-]+$/.test(dispatchId)) throw new Error("Invalid dispatch identity");
 			const dir = safePathWithin(sessionDir ? safePathWithin(sessionDir, "artifacts") : ensureArtifactsLayout(), kind);

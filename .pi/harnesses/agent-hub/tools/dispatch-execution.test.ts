@@ -96,6 +96,17 @@ test("unknown agent does not increment dispatch budget and lists available agent
 	assert.equal(d._task(), 0);
 });
 
+test("an admitted dispatch is recorded in the task brief with its scope; a refused one is not", () => {
+	const d = prepareDeps({ agents: ["builder"] });
+	const recorded: any[] = [];
+	(d.state as any).recordDelegation = (entry: any) => recorded.push(entry);
+	prepareDispatch(d as any, { agent: "not-a-real-agent", task: "do work" } as any, {} as any);
+	assert.deepEqual(recorded, [], "refusals never reach the brief");
+	const prepared = prepareDispatch(d as any, { agent: "builder", task: "Implement the parser", scope: ["package.json"] } as any, { cwd: process.cwd() } as any) as any;
+	assert.equal(prepared.agent, "builder", JSON.stringify(prepared.content ?? prepared.details ?? {}));
+	assert.deepEqual(recorded, [{ agent: "builder", kind: "specialist", task: "Implement the parser", scope: ["package.json"] }]);
+});
+
 test("dispatch_agent researcher redirects to spawn_research without consuming budget", () => {
 	const d = prepareDeps({ agents: ["builder"], research: ["researcher", "deep-researcher"] });
 	const result = prepareDispatch(d as any, { agent: "researcher", task: "look around" } as any, {} as any);

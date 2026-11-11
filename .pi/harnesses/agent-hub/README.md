@@ -182,6 +182,22 @@ to get non-trivial changes reviewed by a separate agent, and to poll the panel f
 Capped model providers (by default `omlx/` and `custom/`, overridable with
 `AGENT_HUB_PROVIDER_LIMITS`) appear with their limits; slots in use appear in the task state.
 
+### Task brief
+
+Agents share facts through files, not through prompts. Each task has one brief,
+`artifacts/briefs/task-<taskId>.md` under the session artifact root, and every `dispatch_agent`,
+`spawn_research` and coms dispatch receives it as an input artifact. Before each delegation the Hub
+regenerates its runtime part: tier, risk and scope, the assertion ledger with sources, and the
+delegations admitted in this task with their scope and current status (refused dispatches are not
+recorded). The operator keeps the **Operator notes** section, below a marker line, current with
+decisions, constraints and open questions; regeneration preserves it, and delegated agents only read
+the file. The brief is a record, never a gate: a failure to write it does not block delegation.
+
+Briefs are working files. A new task's brief replaces the previous task's, and session start removes
+`briefs/` before archiving the rest of the artifact root into `runs/<runId>/` as before. Returns,
+reviews and evidence keep their existing retention. Every dispatch result already names the full
+output path, so the operator reads it instead of dispatching again.
+
 Ambiguous peer or workspace intent provisionally exposes the smallest relevant pack
 and records its reason in the state capsule and `/af-context`. Before that pack's first side effect,
 the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or

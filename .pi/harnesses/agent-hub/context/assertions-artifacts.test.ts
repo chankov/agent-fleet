@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAssertionsArtifactsContext, type Assertion } from "./assertions-artifacts.ts";
@@ -46,4 +46,28 @@ test("artifact context archives non-empty prior layouts without deleting recover
 	assert.equal(existsSync(root), false);
 	assert.equal(existsSync(join(sessionDir, "runs", runId!, "artifacts", "returns", "builder-run1.md")), true);
 	assert.equal(existsSync(join(sessionDir, "runs", runId!, "meta.json")), true);
+});
+
+test("every delegated prompt carries the task brief once; briefs are working files and are not archived", () => {
+	const sessionDir = mkdtempSync(join(tmpdir(), "hub-context-brief-"));
+	let brief: string | null = null;
+	const context = createAssertionsArtifactsContext({
+		getAssertions: () => [], getSessionDir: () => sessionDir, getRunHistoryKeep: () => 2, setStatus() {},
+		getTaskBriefPath: () => brief,
+	});
+	assert.equal(context.appendInputArtifacts("Do X", []), "Do X", "no brief, no section");
+	const root = context.ensureArtifactsLayout();
+	mkdirSync(join(root, "briefs"), { recursive: true });
+	brief = join(root, "briefs", "task-1.md");
+	writeFileSync(brief, "# Task brief\n");
+	const prompt = context.appendInputArtifacts("Do X", []);
+	assert.match(prompt, /## Input artifacts[\s\S]*briefs\/task-1\.md — Task brief: shared requirements/);
+	const explicit = context.appendInputArtifacts("Do X", [{ input: brief, path: brief, displayPath: brief, preview: "given" }]);
+	assert.equal(explicit.split("task-1.md").length - 1, 1, "an explicitly passed brief is not repeated");
+
+	writeFileSync(join(root, "returns", "builder-run1.md"), "# Return\n");
+	const runId = context.archivePreviousRun();
+	assert.ok(runId);
+	assert.equal(existsSync(join(sessionDir, "runs", runId!, "artifacts", "returns", "builder-run1.md")), true);
+	assert.equal(existsSync(join(sessionDir, "runs", runId!, "artifacts", "briefs")), false);
 });
