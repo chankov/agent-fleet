@@ -20,6 +20,7 @@ import { countReviewFindings, findingBudgetNotice } from "../review-findings.js"
 import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
 import { checkScope, diffAgainst, reviewableChangedPaths, snapshotRevision, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
+import { findScopeOverlap } from "../scope-overlap.ts";
 import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
 import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
 import { shouldExtractReturn } from "../return-extract.js";
@@ -37,6 +38,8 @@ import { authorizePlanStatusUpdate } from "../orchestration-route.ts";
 
 type Gate = { reason: string; message: string } | null;
 type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
+
+export interface WriterEntry { agent: string; scope: string[]; isolated: boolean }
 
 export interface DispatchExecutionState {
 	getTurnDispatchCount(): number; setTurnDispatchCount(value: number): void;
@@ -62,6 +65,10 @@ export interface DispatchExecutionState {
 	addInstalledAgent?(agent: string): { ok: boolean; message: string } | null;
 	/** Installed personas dispatch_agent may target (research and catalog-only personas excluded). */
 	getInstalledAgentNames?(): string[];
+	/** Writable dispatches running now, with their declared scope and whether they are OS-isolated. */
+	getActiveWriters?(): WriterEntry[];
+	/** Registers a writable dispatch; an isolated one makes its native launch sandboxed. Returns its release. */
+	beginWriter?(entry: WriterEntry): () => void;
 	/** Records an admitted delegation in the current task brief. */
 	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
@@ -92,10 +99,10 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; }
+interface PreparedDispatch { privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
-interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; }
-interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
+interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; release?: () => void; isolatedScope?: string[]; }
+interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; foreignPaths?: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -207,6 +214,39 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance.\n${lines.join("\n")}`;
 }
 
+const SCOPE_GLOB = /[*?[\]{}!]/;
+
+/**
+ * Writes run one at a time unless every concurrent writer is OS-isolated to a
+ * disjoint exact scope (PHILOSOPHY, 2026-11-11). "Writable" follows the existing
+ * rule (write, edit or bash), so a bash-capable reviewer is also a writer; an
+ * isolated writer with an empty scope cannot write to the repository at all.
+ */
+export function parallelWriterGate(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams): ToolExecutionResult | null {
+	const s = d.state; const def = s.getAgentStates().get(agent)?.def;
+	if (!def || !hasWriteCapability(def.tools)) return null;
+	const parallel = params.parallel === true;
+	const scope = (params.scope || []).map(String).map(entry => entry.trim()).filter(Boolean);
+	if (parallel) {
+		if (params.backend === "coms") return refusal(d, agent, params.task, "parallel_requires_native", "parallel: true needs the native OS write sandbox; a coms peer cannot be isolated. Use backend auto or native.");
+		const glob = scope.find(entry => SCOPE_GLOB.test(entry));
+		if (glob) return refusal(d, agent, params.task, "parallel_scope_invalid", `parallel: true needs exact existing files or directories as scope; globs cannot be enforced by the sandbox (${glob}).`);
+		if (params.scope_mode === "create") return refusal(d, agent, params.task, "parallel_scope_invalid", "parallel: true needs existing scope paths; create new files inside an existing directory that is in scope.");
+	}
+	const active = s.getActiveWriters?.()
+		?? Array.from({ length: s.getActiveWritableDispatches() }, () => ({ agent: "a writable dispatch", scope: [], isolated: false }));
+	if (!active.length) return null;
+	const names = active.map(writer => writer.agent).join(", ");
+	if (!parallel) return refusal(d, agent, params.task, "writer_active", `${names} is running as a writable dispatch, so writes stay sequential; nothing started or charged. Wait for it to finish, or run writers together by dispatching each with parallel: true and disjoint exact scopes.`);
+	const open = active.find(writer => !writer.isolated);
+	if (open) return refusal(d, agent, params.task, "writer_active_unisolated", `${open.agent} is running without write isolation, so no other writer may start; nothing started or charged. Wait for it to finish.`);
+	for (const writer of active) {
+		const overlap = scope.length && writer.scope.length ? findScopeOverlap(scope, writer.scope) : null;
+		if (overlap) return refusal(d, agent, params.task, "scope_overlap", `Scope overlaps ${writer.agent}'s running write scope (${overlap.left} ↔ ${overlap.right}); nothing started or charged. Give parallel writers disjoint scopes or wait.`);
+	}
+	return null;
+}
+
 export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): PreparedDispatch | ToolExecutionResult {
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
  const privateMode = params.review_mode === 'private-config-current-state';
@@ -226,6 +266,8 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
   return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native code/security reviewer, existing exact files and no deliverables.');
 	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx);
 	if (rosterRefusal) return rosterRefusal;
+	const writerRefusal = parallelWriterGate(d, agent, params);
+	if (writerRefusal) return writerRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
 	const processGate = s.processBlock?.() ?? (s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
@@ -272,7 +314,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	};
 	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
 	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();
- return { privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint };
+ return { privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -282,8 +324,14 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
+		// Registering an isolated writer is what makes its native launch sandboxed to its scope.
+		tracking.release = s.beginWriter?.({ agent: prepared.agent, scope: prepared.scopeGlobs, isolated: prepared.parallel === true });
+		if (prepared.parallel) tracking.isolatedScope = prepared.scopeGlobs;
 		tracking.snapshot = prepared.beforeSnapshot ?? snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
 	}
+ try { anchorReceipts(); } catch (error) { tracking.release?.(); throw error; }
+	return tracking;
+ function anchorReceipts(): void {
  if (canWrite && s.getProcessState && s.setProcessState && s.persistProcessVerdict) {
   const processState = s.getProcessState();
   const started = beginReceiptCapture(processState.runtimeReceipts, { taskId: prepared.taskId, sessionDir: prepared.sessionDir, scope: prepared.scopeGlobs, declarationHash: receiptDeclarationHash(prepared.requirements, prepared.scopeGlobs, s.getAcceptedUserInput?.(), prepared.inputArtifacts) }, !tracking.concurrentAtStart);
@@ -299,7 +347,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
    if (prepared.beforeRevision === 'unavailable') throw Error('Private capture unavailable');
   }
  }
-	return tracking;
+ }
 }
 
 async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<RunData> {
@@ -327,6 +375,13 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
 	if (!tracking.snapshot) return null;
 	const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
+	if (tracking.isolatedScope && !diff.skipped) {
+		// The OS sandbox confined this writer to its scope, and the admission gate let
+		// only isolated writers with disjoint scopes run beside it. Changes outside
+		// its scope cannot be its own; they are reported, never attributed to it.
+		const own = tracking.isolatedScope.length ? checkScope(diff.paths, tracking.isolatedScope).inScope : [];
+		return { ...diff, paths: own, foreignPaths: diff.paths.filter(path => !own.includes(path)), concurrentWritableOverlap: false };
+	}
 	const concurrentWritableOverlap = tracking.concurrentAtStart || d.state.getWritableOverlapCounter() !== tracking.overlapBaseline;
 	return { ...diff, concurrentWritableOverlap };
 }
@@ -414,7 +469,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 			compilerDiagnostics = incompleteObservation(`compiler diagnostics failed safely: ${String(error)}`, observation.concurrentWritableOverlap);
 		}
 	}
-	if (observation) {
+	if (observation && !tracking.isolatedScope) {
 		observation.concurrentWritableOverlap = observation.concurrentWritableOverlap || tracking.concurrentAtStart || s.getWritableOverlapCounter() !== tracking.overlapBaseline;
 		if (compilerDiagnostics && observation.concurrentWritableOverlap) compilerDiagnostics = { ...compilerDiagnostics, attribution: "uncertain" };
 	}
@@ -667,6 +722,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
 	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
+	if (tracking.isolatedScope) notices.push(`Parallel writer: OS-sandboxed to ${tracking.isolatedScope.join(", ") || "no repository paths"}; only changes inside that scope are attributed to ${p.agent}.${observation?.foreignPaths?.length ? ` Changes outside it during the run (not attributed): ${observation.foreignPaths.slice(0, 12).join(", ")}${observation.foreignPaths.length > 12 ? " …" : ""}.` : ""} Run the full checks once no writer is active.`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
 	if (failurePath) notices.push(`⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching.`);
 	if (compilerDiagnostics && compilerDiagnostics.status !== "skipped") {
@@ -762,7 +818,7 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
         catch { d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); return refusal(d, agent, params.task, "receipt_capture_failed", "Runtime receipt capture could not be durably anchored; no child launched."); }
 		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }
 		catch (err: any) { return { content: [{ type: "text", text: `Error dispatching to ${prepared.agent}: ${err?.message || err}` }], details: { agent: prepared.agent, task: prepared.task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
-		finally { if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }
+		finally { tracking.release?.(); if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }
 	}, (params, ctx) => dispatchExecutionConditions(d, params, ctx));
 }
 

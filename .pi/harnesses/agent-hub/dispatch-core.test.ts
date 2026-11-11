@@ -305,6 +305,36 @@ test("T6c effective profile reaches real native preparation/spawn, composes with
 	assert.equal(refused.exitCode, 1); assert.match(refused.output, /native-only|coms dispatch refused/i); assert.equal(comsCalls, 0);
 });
 
+test("an isolated parallel writer is sandboxed and kept native without any profile isolation flag", { skip: process.platform === "linux" && !linuxUserNamespaceSandboxAvailable() }, async t => {
+	const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "native-parallel-")); t.after(() => rmSync(root, { recursive: true, force: true }));
+	const oldProfile = process.env[PROFILE_ENV]; delete process.env[PROFILE_ENV];
+	t.after(() => { if (oldProfile !== undefined) process.env[PROFILE_ENV] = oldProfile; });
+	writeFileSync(join(root, "mine.ts"), "mine");
+	const state = nativeState(); state.def.tools = "read,write,bash";
+	const isolated = new Set<string>(); const launches: any[] = []; let comsCalls = 0;
+	const native = createDispatchNative(nativeDeps(state, {
+		getSessionDir: () => join(root, ".session"),
+		isolationRequested: (name: string) => isolated.has(name.toLowerCase()),
+		getDispatchPolicy: () => ({ default: "coms", grace_s: 0, substitutions: { builder: { prefer: "coms", fallback: "native" } } }),
+		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => [{ name: "builder", model: "provider/model" }],
+		dispatchViaComs: async () => { comsCalls++; return { output: "remote", exitCode: 0, elapsed: 0 }; },
+		spawnPiAgentWithModelFallback: async (opts: any) => { launches.push(opts); writeFileSync(opts.sessionFile, "session"); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: "provider/model" }; },
+	} as any));
+	const ctx = { ...extensionContext, cwd: root } as any;
+	const contract = { taskId: "p", instructions: "p", scope: ["mine.ts"], deliverables: [], artifacts: [], model: "provider/model", permissions: ["read", "write", "bash"] };
+	isolated.add("builder");
+	const result = await (native.dispatchAgent as any)("builder", "p", ctx, [], contract.scope, undefined, "auto", false, contract);
+	assert.equal(result.exitCode, 0, result.output);
+	assert.equal(comsCalls, 0, "isolation forces native even when policy prefers coms");
+	assert.equal(launches[0].writeIsolation?.enabled, true);
+	assert.deepEqual(launches[0].writeIsolation.allowlist, ["mine.ts"]);
+	isolated.clear();
+	await (native.dispatchAgent as any)("builder", "p2", ctx, [], contract.scope, undefined, "native", false, { ...contract, taskId: "p2" });
+	assert.equal(launches[1].writeIsolation, undefined, "a sequential writer keeps today's unsandboxed launch");
+});
+
 test("native dispatch factory preserves coms routing and native completion", async () => {
 	const comsState = nativeState();
 	const coms = createDispatchNative(nativeDeps(comsState, {

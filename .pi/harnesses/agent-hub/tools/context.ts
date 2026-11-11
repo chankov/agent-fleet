@@ -19,6 +19,8 @@ export interface DispatchAgentParams {
  private_config_files?: string[];
  verifier_sources?: string[];
 	backend?: "auto" | "native" | "coms";
+	/** Run alongside other parallel writers: OS-sandboxed to its exact scope, refused on overlap. */
+	parallel?: boolean;
 }
 
 export interface SpawnResearchParams {

@@ -137,8 +137,8 @@ Delegation is your judgment, not an obligation. Use it to keep your own context 
 - Build: make a small, focused change yourself. Delegate a larger coherent change to one builder.
 - Review: a non-trivial change always gets review from a separate agent; reviewing your own work in the same context is not independent.
 - Decisions: for an architectural choice, an uncertain diagnosis, a choice between approaches or a risky change, call \`poll_panel\` with one self-contained question before committing to a direction. Facts are never polled: research or read them. Deep research stays one model.
-- Read-only work (research, review, polls) may run in parallel freely. Writable dispatches run one at a time.
-- Shared record: every delegated agent receives the task brief (\`artifacts/briefs/\` under the session artifact root). The Hub keeps its task state, requirements and delegations current; you keep its "Operator notes" section current with decisions, constraints and open questions, so agents work from the same facts instead of re-deriving them. Read a delegate's full output from its return path rather than dispatching again.`;
+- Research and polls run in parallel freely. Writers (write, edit or bash; reviewers too) run one at a time unless each gets \`parallel: true\` and a disjoint scope of exact existing paths; the sandbox then confines each. Parallelize only independent areas. You edit shared files (package.json, locks, manifests) after writers finish and run the full checks with no writer active.
+- Every delegate receives the task brief (\`artifacts/briefs/\`). Keep its "Operator notes" current with decisions and open questions. Read a delegate's return path instead of dispatching again.`;
 
 export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: string; delegationGuide: string } {
 	if (workMode === "operator") {

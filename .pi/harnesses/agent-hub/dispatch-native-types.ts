@@ -152,6 +152,8 @@ export interface NativeDispatchDeps {
  prepareDiscovery?:import('./file-discovery/native-context.ts').PrepareNativeDiscovery;
  launchIdentity?():unknown;
  nativeAdmission?(personaKey:string):boolean;
+	/** True while this agent runs as an isolated parallel writer: its launch must be OS-sandboxed. */
+	isolationRequested?(agentName: string): boolean;
 	getAgentState(key: string): NativeDispatchState | undefined;
 	getProcessState?(): import("./process-obligations.ts").ProcessObligationState;
 	listAgentStates(): NativeDispatchState[];

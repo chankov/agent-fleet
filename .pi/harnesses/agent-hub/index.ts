@@ -650,6 +650,11 @@ export default function (pi: ExtensionAPI) {
 		getTaskBriefPath: () => currentTaskBrief(),
 	});
 
+	// ── Parallel writers (plan B, phase 4): who writes where, and who is sandboxed ──
+	const activeWriters = new Map<number, { agent: string; scope: string[]; isolated: boolean }>();
+	const isolatedWriterAgents = new Set<string>();
+	let writerSequence = 0;
+
 	// ── Task brief: the shared record every delegated agent reads (plan B, phase 3) ──
 	type BriefEntry = { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number };
 	let briefLog: { taskId: string; entries: BriefEntry[] } = { taskId: "", entries: [] };
@@ -879,6 +884,7 @@ export default function (pi: ExtensionAPI) {
   prepareDiscovery:input=>prepareDiscoveryNative(pi,input),
   launchIdentity:()=>noProgress.taskToken(),
   nativeAdmission:persona=>!processBlock()&&!provisionalCapabilityRefusal('fleet')&&!processPreEffectGate(processState,'child',persona),
+		isolationRequested: name => isolatedWriterAgents.has(String(name).trim().toLowerCase()),
 		getAgentState: key => agentStates.get(key),
 		getProcessState: () => processState,
 		listAgentStates: () => Array.from(agentStates.values()),
@@ -1081,6 +1087,19 @@ export default function (pi: ExtensionAPI) {
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
+				getActiveWriters: () => Array.from(activeWriters.values()),
+				beginWriter: entry => {
+					const id = ++writerSequence;
+					activeWriters.set(id, entry);
+					if (entry.isolated) isolatedWriterAgents.add(entry.agent.toLowerCase());
+					let released = false;
+					return () => {
+						if (released) return;
+						released = true;
+						activeWriters.delete(id);
+						if (entry.isolated) isolatedWriterAgents.delete(entry.agent.toLowerCase());
+					};
+				},
 				addInstalledAgent: name => {
 					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === String(name).trim().toLowerCase());
 					return def ? rosterAdd(def.name) : null;

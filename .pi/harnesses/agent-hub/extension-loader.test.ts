@@ -296,15 +296,17 @@ export default function (pi) {
 		// The opt-in triage trace adds two fields; keep the original budget for
 		// the existing schema and bound the new fields independently.
 		const dispatch = selected.find((tool: any) => tool.name === "dispatch_agent");
-		const { triage_id, triage_reason, review_mode, ...baseProperties } = dispatch.parameters.properties;
+		const { triage_id, triage_reason, review_mode, parallel, ...baseProperties } = dispatch.parameters.properties;
 		assert.ok(triage_id && triage_reason, "triage trace fields must be present");
         assert.ok(review_mode && JSON.stringify(review_mode).length < 400, "explicit current-state review field remains separately bounded");
+		assert.ok(parallel && JSON.stringify(parallel).length < 120, "parallel writer flag (2026-11-11) is separately bounded");
 		const baseTools = selected.map((tool: any) => tool === dispatch ? {
 			...tool, parameters: { ...tool.parameters, properties: baseProperties },
 		} : tool);
 		assert.ok(JSON.stringify(baseTools).length < 8_000, `compact baseline schemas=${JSON.stringify(baseTools).length}`);
-		assert.ok(JSON.stringify(selected).length < 8_500, `compact serialized schemas=${JSON.stringify(selected).length}`);
-		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "private_config_files", "verifier_sources", "review_mode", "backend"]], ["spawn_research", ["task", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+		// +100 over the earlier 8,500 for the separately bounded parallel flag (2026-11-11).
+		assert.ok(JSON.stringify(selected).length < 8_600, `compact serialized schemas=${JSON.stringify(selected).length}`);
+		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "private_config_files", "verifier_sources", "review_mode", "parallel", "backend"]], ["spawn_research", ["task", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}

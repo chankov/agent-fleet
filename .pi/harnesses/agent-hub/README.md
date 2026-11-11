@@ -182,6 +182,29 @@ to get non-trivial changes reviewed by a separate agent, and to poll the panel f
 Capped model providers (by default `omlx/` and `custom/`, overridable with
 `AGENT_HUB_PROVIDER_LIMITS`) appear with their limits; slots in use appear in the task state.
 
+### Parallel writers
+
+Writes run one at a time by default. A writer is any dispatch whose agent has `write`, `edit` or
+`bash`, so a bash-capable reviewer is a writer too. While a writer runs, another one starts only when
+**both** were dispatched with `parallel: true`:
+
+- `parallel: true` requires a scope of exact existing files or directories (no globs, no
+  `scope_mode: create`) and the native backend; `auto` is forced native and `coms` is refused.
+- The Hub registers each parallel writer and its native launch runs under the OS write sandbox
+  (bubblewrap on Linux, Seatbelt on macOS) confined to its scope plus its runtime, artifact and temp
+  roots, whatever the model profile says. No sandbox means a fail-closed refusal, never an
+  unsandboxed parallel child. An isolated writer with an empty scope cannot write to the repository.
+- A new writer is refused before anything starts or is charged when a running writer is not
+  isolated (`writer_active_unisolated`), when the new one is not parallel (`writer_active`), or when
+  the scopes overlap (`scope_overlap`). Overlap is conservative: a glob anchor or a containing
+  directory counts as overlap.
+- For an isolated writer, only observed changes inside its own scope are attributed to it; changes
+  elsewhere during its run are listed in the result and not attributed. Its runtime test evidence
+  stays non-exclusive, so the operator runs the full checks once no writer is active.
+
+Shared files outside every scope (package.json, lock files, generated manifests, shared indexes) are
+the operator's to edit after the writers finish. Writers never commit.
+
 ### Task brief
 
 Agents share facts through files, not through prompts. Each task has one brief,

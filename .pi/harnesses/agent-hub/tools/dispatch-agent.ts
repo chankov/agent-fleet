@@ -23,6 +23,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
    verifier_sources: Type.Optional(Type.Array(Type.String(), {description:"Private: 1–32 repo-relative sources, all ignored helpers."})),
    review_mode: Type.Optional(Type.Union([Type.Literal("changes"),Type.Literal("operator-current-state"),Type.Literal("private-config-current-state")],{description:"Default changes. Current-state native only; no authorship, activation, manual proof."})),
 
+			parallel: Type.Optional(Type.Boolean({ description: "Writer beside others; sandboxed to exact scope paths." })),
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),

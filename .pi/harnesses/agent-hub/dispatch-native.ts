@@ -199,7 +199,10 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 
 async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatchArgs, "assistSnapshot" | "activeProfileSnapshot">): Promise<NativeDispatchResult> {
 	const activeProfileSnapshot = readActiveProfile();
-	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot: resolveAssist(activeProfileSnapshot?.profile.assist) };
+	const assist = resolveAssist(activeProfileSnapshot?.profile.assist);
+	// A parallel writer is sandboxed whatever the profile says; isolation forces native and refuses coms.
+	const assistSnapshot = deps.isolationRequested?.(args.agentName) === true ? { ...assist, "write-isolation": true } : assist;
+	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot };
 	const found = missingOrRunning(deps, args.agentName);
 	if (!("def" in found)) return found;
 	const run = beginNativeRun(deps, found, effectiveArgs);
