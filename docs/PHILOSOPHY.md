@@ -2,7 +2,9 @@
 
 Status: project direction agreed with the maintainer on 2026-09-17. Optional
 Planner assistance and supervised execution without continuation quotas were
-approved by the maintainer on 2026-10-15.
+approved by the maintainer on 2026-10-15. A single Hub operator replacing the
+separate orchestrator work mode, with runtime-isolated parallel writes, was
+approved on 2026-11-11.
 This is the canonical statement of intent for Agent Fleet's development. It
 records the methodology discussed with the maintainer; it is not a claim that
 every existing runtime path already enforces these principles.
@@ -41,7 +43,7 @@ review are optional assistance, never prerequisites triggered by size or risk.
 An existing plan can be executed directly; factual gaps call for focused research,
 and unresolved material decisions call for separate grilling with `ask_user`.
 Routine technical choices within approved scope belong to the implementing model,
-which records its reasoning. Specialist questions go to the orchestrator first:
+which records its reasoning. Specialist questions go to the operator first:
 it reuses approved decisions, researches facts and resolves routine choices before
 escalating what it cannot answer. This decision boundary is model guidance; runtime
 clarification grants permit a scoped retry, never new action permissions or an
@@ -109,6 +111,15 @@ bounded outputs must not conceal truncation or make original evidence inaccessib
 Use deterministic operations for mechanical work and models for work requiring
 judgment. Use multiple agents when independence, specialization, or useful review
 justifies their cost; agent count is not a measure of success.
+
+The Hub has one operator. It may work directly and decides when to delegate;
+delegation is a means of keeping its context focused, getting independent review,
+or running independent work in parallel, not an obligation. Read-only work such as
+research and review may run in parallel freely. Parallel writes are permitted only
+when the runtime enforces non-overlapping write scopes, so every change remains
+attributable to one owner; without that isolation, writes stay sequential. Work
+split across several writers still ends with one independent review of the whole
+change. This direction was approved on 2026-11-11.
 
 ## Applying this philosophy to future work
 
