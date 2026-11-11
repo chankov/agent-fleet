@@ -18,7 +18,7 @@ install-manifest.json → GENERATED catalogue of every installable artifact — 
 manifest-meta.json    → the hand-edited half: groups, profiles, recommendations, consent classes, companion/requires/pinnedBy wiring, operator steps
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
-agents/       → 15 reusable agent personas, canonical pi frontmatter; installed as verbatim copies into a workspace's `.pi/agents/personas/` (no per-agent translation — pi is the only install target)
+agents/       → 14 reusable agent personas, canonical pi frontmatter; installed as verbatim copies into a workspace's `.pi/agents/personas/` (no per-agent translation — pi is the only install target)
 .pi/agent-fleet/ → THE FLEET RUNTIME, mirrored verbatim into a workspace. Source layout == installed layout, which is what lets the installer copy it with `preserveLayout`. Sub-trees:
 .pi/agent-fleet/scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; .pi/agent-fleet/scripts/lib/ pure fleet modules under node --test)
 .pi/agent-fleet/scripts/workflows/ → Headless `just flow` graphs and their code-owned phase, envelope, gate, permission, quality, change-capture, trace, and scoped TypeScript runtime
@@ -32,7 +32,7 @@ justfile      → Recipes to launch pi with each harness plus the single public 
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op. The package update check is a Fleet Core helper (`.pi/harnesses/lib/update-check.ts`) scheduled by damage-control-continue, not an auto-discovered extension.
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just fleet hub` loads Fleet Core before agent-hub; every native child gets damage-control-continue)
-.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses, plus `personas/` where the installer writes the 15 personas; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the `runner: claude-code` reviewers) with native fallback
+.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses, plus `personas/` where the installer writes the 14 personas; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the `runner: claude-code` reviewers) with native fallback
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability); each installs as a companion of the skills that cite it
@@ -47,7 +47,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
-**Orchestrate:** orchestration-verification (the Verification Contract enforced by the `orchestrator` persona + agent-hub harness), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
+**Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching `documenter`)
 **Meta:** drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
 

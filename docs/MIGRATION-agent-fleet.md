@@ -1,7 +1,6 @@
 # Major-release migration guide
 
-This is a large major release. Four independent changes land together, and each
-one breaks something different:
+This guide covers the major releases. Each change breaks something different:
 
 | # | Change | Who it breaks | Section |
 |---|---|---|---|
@@ -9,6 +8,7 @@ one breaks something different:
 | 2 | Claude Code removed as a coding-agent install target | Workspaces installed with `--agent claude-code` | [Claude Code](#2-claude-code-is-a-coms-peer-only) |
 | 3 | OpenCode support removed entirely | Workspaces installed with `--agent opencode` | [OpenCode](#3-opencode-is-gone) |
 | 4 | Pi Fleet startup unified behind one guarded Agent Hub runtime | Scripts and habits built on `just fleet hub` / `just fleet team` | [Fleet runtime](#4-one-unified-just-fleet-runtime) |
+| 5 | The orchestrator work mode removed; one operator | Scripts using `--work-mode`, habits built on `/af-work-mode` or Alt+M | [One operator](#5-one-operator-the-orchestrator-work-mode-is-removed) |
 
 If you read only one thing: **update with `just fleet setup --dry-run` first.**
 The plan names every file it will overwrite, and this release changes enough
@@ -191,14 +191,13 @@ independently:
 
 ```bash
 just fleet                                       # operator, empty native roster
-just fleet --agents frontend                     # native roster; orchestrator inferred
-just fleet --work-mode operator --agents frontend  # direct work plus the same roster
+just fleet --agents frontend                     # operator with a native roster
 just fleet --no-coms                             # direct/native work, no peer messaging
 just fleet --herdr --project af                  # one Hub pane, no standing peers
 just fleet --agents frontend --peers frontend --project af
 ```
 
-New in the same change: live `/af-work-mode` switching, on-demand native roster
+New in the same change: on-demand native roster
 growth (`/af-agents-add`), deterministic `dispatch_agent` routing through
 `backend: auto|native|coms`, and same-project dynamic Pi or Claude Code peer
 spawning through Herdr.
@@ -215,6 +214,28 @@ spawning through Herdr.
 Each old form still runs and prints its canonical replacement. Legacy peer-only
 presets (`full`, `web`, `docs`) retain the default native roster. Update scripts
 during this release — the aliases are removed in the next one.
+
+---
+
+## 5. One operator: the orchestrator work mode is removed
+
+The Hub has one work mode. The operator keeps its direct tools and delegates on its own judgment;
+the delegate-only **orchestrator** mode, the `/af-work-mode` command, the **Alt+M** picker and the
+`orchestrator` catalog persona are gone (PHILOSOPHY, 2026-11-11).
+
+| Before | Now |
+|---|---|
+| `just fleet --agents frontend` started the orchestrator | it starts the operator with that roster |
+| `just fleet --work-mode operator\|orchestrator` | accepted for one release, ignored with a warning; remove it from scripts |
+| `/af-work-mode`, **Alt+M** | removed |
+| a resumed orchestrator session with no valid roster blocked model input | the session continues as the operator, with a one-time notice |
+| `agents/orchestrator.md` / `.pi/agents/personas/orchestrator.md` | retired; `doctor` reports a leftover copy as retired upstream and the compatibility `upgrade` command proposes removing it. A leftover copy is harmless: the Hub never dispatches it |
+| `orchestrator:` under a model profile's `agents:` | ignored instead of invalidating the profile; delete it |
+| a writable dispatch beside another writer ran with uncertain attribution | it is refused unless both use `parallel: true` with disjoint exact scopes |
+
+`teams.yaml`, `/af-agents-*`, `dispatch-policy.yaml` and `peers.yaml` are unchanged. If you relied on
+the orchestrator to keep a weaker main model away from direct edits, choose a stronger model for the
+Hub session; local models remain fully supported as delegated agents.
 
 ---
 

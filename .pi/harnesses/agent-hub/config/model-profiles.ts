@@ -217,6 +217,9 @@ export function validateProfile(p: ModelProfile, defs: readonly ProfileAgentDef[
     const errors: string[] = [];
     const entries = isCompleteProfile(p) ? Object.entries(p.agents ?? {}).map(([n, v]) => [n, v.model]) : Object.entries(p);
     for (const [name, model] of entries) {
+        // The orchestrator catalog persona was retired with its work mode (2026-11-11).
+        // An older profile that still maps it stays valid; the entry has nothing to apply to.
+        if (name === "orchestrator") continue;
         const def = defs.find(d => d.name.toLowerCase() === name);
         if (!def)
             errors.push(`unknown persona "${name}"`);

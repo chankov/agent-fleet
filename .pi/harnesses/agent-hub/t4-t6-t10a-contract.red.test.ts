@@ -112,7 +112,7 @@ test("A1 T4: real assistant tool-call events count refusals without executing pr
 	const counterMod = await loadHub("./unknown-tool-counter.ts");
 	assert.ok(counterMod?.observeUnknownToolCalls, "missing real message event observer");
 	const counter = counterMod.createUnknownToolCounter({ limit: UNKNOWN_N });
-	const catalog = catalogMod.catalogSnapshot("orchestrator", ["dispatch_agent", "spawn_research"]);
+	const catalog = catalogMod.catalogSnapshot("operator", ["dispatch_agent", "spawn_research"]);
 	const seen = new Set<string>();
 	const message = { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "git status" } }, { type: "text", text: "<tool_call><function=bash>rm -rf .</function></tool_call>" }] };
 	const diagnostics = counterMod.observeUnknownToolCalls({ message, catalog, taskId: "task", counter, seenCallIds: seen });
@@ -175,7 +175,7 @@ test("A1 T4: effective-turn catalog and compaction lifecycle use real event boun
 test("A1 T4: persisted catalog and refusal state round-trip through production readers", async () => {
 	const catalogMod = await loadHub("./tool-catalog-state.ts");
 	const counterMod = await loadHub("./unknown-tool-counter.ts");
-	const catalog = catalogMod.catalogSnapshot("orchestrator", ["dispatch_agent", "spawn_research"]);
+	const catalog = catalogMod.catalogSnapshot("operator", ["dispatch_agent", "spawn_research"]);
 	const counter = counterMod.createUnknownToolCounter({ limit: UNKNOWN_N });
 	counter.recordRefusal({ taskId: "task", tool: "bash", normalizedArgs: { command: "pwd" }, catalogVersion: catalog.catalogVersion });
 	const entries = [
@@ -184,6 +184,9 @@ test("A1 T4: persisted catalog and refusal state round-trip through production r
 	];
 	assert.deepEqual(catalogMod.latestPersistedToolCatalog(entries), catalog);
 	assert.deepEqual(counterMod.latestPersistedUnknownToolCounter(entries), counter.snapshot());
+	// A snapshot saved in the removed orchestrator mode restores as the operator.
+	const legacy = { ...catalog, mode: "orchestrator" };
+	assert.equal(catalogMod.latestPersistedToolCatalog([{ type: "custom", customType: catalogMod.TOOL_CATALOG_ENTRY_TYPE, data: { snapshot: legacy } }])?.mode, "operator");
 });
 
 test("A2 T10a: omitted assist keys default off; unknown extra assist keys remain rejected", () => {

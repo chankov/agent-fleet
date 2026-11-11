@@ -14,10 +14,8 @@ test("hub footer places the linked version before model and thinking suffix", ()
 	);
 });
 
-test("fleet footer identifies the dashboard shortcut and work mode", () => {
+test("fleet footer identifies the dashboard and inspect shortcuts; no work-mode picker remains", () => {
 	assert.equal(composeFleetFooterHint(), "Alt+A fleet · Alt+I inspect");
-	assert.equal(composeFleetFooterHint("Operator"), "Alt+A fleet · Alt+I inspect · Alt+M Operator");
-	assert.equal(composeFleetFooterHint("Orchestrator"), "Alt+A fleet · Alt+I inspect · Alt+M Orchestrator");
 });
 
 test("hub footer has no dangling version separator when adjacent metadata is unavailable", () => {

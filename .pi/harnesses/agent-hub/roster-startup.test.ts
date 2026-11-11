@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { orchestratorNeedsRoster, resolveStartupRoster } from "./helpers.ts";
+import { resolveStartupRoster } from "./helpers.ts";
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const sessionStartSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
@@ -27,13 +27,6 @@ test("unknown startup roster refuses with available team names", () => {
 		() => resolveStartupRoster({ default: ["builder"], security: ["security-auditor"] }, "missing"),
 		/Unknown native roster "missing".*default, security/,
 	);
-});
-
-test("orchestrator work mode cannot be entered or left with an empty roster", () => {
-	assert.equal(orchestratorNeedsRoster("operator", 0), false);
-	assert.equal(orchestratorNeedsRoster("operator", 1), false);
-	assert.equal(orchestratorNeedsRoster("orchestrator", 0), true);
-	assert.equal(orchestratorNeedsRoster("orchestrator", 1), false);
 });
 
 test("Hub resolves explicit or persisted startup roster without falling back to the first YAML team", () => {

@@ -37,7 +37,7 @@ large.
 ## Unified Fleet runtime configuration
 
 A Pi workspace has one public runtime entry point. Bare Fleet loads Fleet Core
-plus Agent Hub in **operator** work mode, in the current terminal, with no native
+plus Agent Hub with its one **operator**, in the current terminal, with no native
 specialists active:
 
 ```bash
@@ -45,13 +45,10 @@ just fleet
 just fleet --project af
 ```
 
-Work mode, native roster, and peer topology are separate controls:
+The native roster and the peer topology are separate controls:
 
 ```bash
-# Direct tools plus an available native roster.
-just fleet --work-mode operator --agents frontend --project af
-
-# A roster implies orchestrator when work mode is not explicit.
+# The operator starting with a native roster.
 just fleet --agents frontend --project af
 
 # Herdr Hub-only and Hub-plus-peer topologies.
@@ -59,9 +56,9 @@ just fleet --herdr --project af
 just fleet --agents frontend --peers frontend --project af
 ```
 
-Startup precedence is deterministic: explicit `--work-mode` wins; otherwise an
-explicit `--agents` roster implies `orchestrator`; otherwise work mode is
-`operator`. An orchestrator startup must name a roster. `--herdr` affects only
+`--agents` only picks the starting roster; the operator can dispatch any other
+installed agent, which adds it. `--work-mode` is deprecated and ignored with a
+warning. `--herdr` affects only
 placement, while `--peers <preset>` implies Herdr and starts the selected peer
 preset. Neither topology option selects a native roster.
 
@@ -96,7 +93,7 @@ Capability flags and runtime gates fail closed:
 - `--browser` adds the browser extension surface and `--all-extensions` opts
   into the complete approved extension set. Missing optional dependencies do
   not grant tools merely because a flag was supplied.
-- Hub-owned slash commands remain registered in both work modes. A missing coms
+- Hub-owned slash commands are always registered. A missing coms
   runtime, Herdr connection, target peer, or native roster produces a
   capability refusal rather than a missing command.
 
@@ -129,13 +126,11 @@ The JSONL shown by `/session` under `~/.pi/agent/sessions/` is Pi's authoritativ
 resume with `/resume`, `pi -c`, or `pi --session <path|id>`. Never edit, truncate, reorder, or add
 synthetic entries to recover from context pressure.
 
-A resumed orchestrator session may instead be blocked because its persisted team name no longer
-resolves against the current `.pi/agents/teams.yaml` and persona files. This is a fail-closed roster
-recovery gate: orchestrator work mode and its direct-tool restrictions remain in force. Choose a valid
-team with `/af-agents-team`, restart publicly with `just fleet --agents <name>`, or explicitly choose
-operator work mode with `/af-work-mode operator` / `just fleet --work-mode operator`. Direct Pi launches
-use `--agent-team <name>` or `--work-mode operator`. Explicit startup flags win over persisted state;
-fix missing or renamed team/persona declarations before selecting them.
+A resumed session whose persisted team name no longer resolves against the current
+`.pi/agents/teams.yaml` and persona files reports it and continues without that roster. A session
+saved in the removed orchestrator work mode continues as the operator with a one-time notice. Choose a
+team with `/af-agents-team` or restart with `just fleet --agents <name>` (`--agent-team <name>` for a
+direct Pi launch); fix missing or renamed team/persona declarations before selecting them.
 
 ## System 1 configuration
 
@@ -743,7 +738,7 @@ targets an end-of-session compound pass writes lessons to.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
-| `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable. Use `/af-work-mode` for operator vs orchestrator. Delete the key. |
+| `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable and the Hub has one operator work mode. Delete the key. |
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
 | `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
@@ -1071,15 +1066,15 @@ local-full:
 
 - `defaults` supplies **every persona and every declared child**, including future
   personas, research helpers and team changes. `agents` and `subagents` contain
-  exceptions. To preserve a persona's existing selection, omit it from `agents`;
-  for example, `local-workers` leaves `orchestrator` out. Each selection accepts a
+  exceptions. To preserve a persona's existing selection, omit it from `agents`.
+  Each selection accepts a
   model string or `{model, thinking}`.
   Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
-  depth remain unchanged. Unknown persona/child names are rejected.
+  depth remain unchanged. Unknown persona/child names are rejected, except a
+  leftover `orchestrator` entry from before that persona was retired, which is ignored.
 - `dispatcher` changes the current Pi session's model and thinking. When omitted,
   the live dispatcher keeps its current selection and may use any Pi model, even
-  outside `allowed-models`; that list still applies to workers and peers. An
-  `orchestrator` persona entry alone is not the live dispatcher.
+  outside `allowed-models`; that list still applies to workers and peers.
 - `services` sets the watchdog and structured-return extractor independently;
   unspecified services use defaults. `panel` supplies 2–5 poll/debate voices and
   an optional single integrator. `/af-poll` and `/af-debate` select the active
@@ -1116,15 +1111,15 @@ Separately started fleet sessions/standing peers retain their own configuration.
 The bundled `local-full` profile explicitly covers all shipped child roles and needs
 no project model overrides. Every role, service and panel entry uses the single
 `omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` model. The `local-workers` profile uses that same local
-model for agents, subagents, services and panel voices, while leaving `orchestrator`
-to inherit its current selection; its peer allowlist refuses non-local coms models.
+model for agents, subagents, services and panel voices, while the live operator keeps its
+current selection; its peer allowlist refuses non-local coms models.
 The model must be registered in Pi and served by the incoai provider. Selecting a profile
 does not download or register models.
 
 ## System 1 dispatch advice and communication
 
 Fleet `1` opens the session-only System 1 communication viewer; capture requires
-explicit opt-in. The orchestrator may call `dispatch_triage` when its separate
+explicit opt-in. The operator may call `dispatch_triage` when its separate
 human-owned configuration permits it. Both remain off by default; installation
 does not authorize live requests or calibrate the policy. See the
 [configuration, keys, privacy and evaluation guide](system1-dispatch-triage.md).

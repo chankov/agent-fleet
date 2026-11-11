@@ -53,7 +53,6 @@
     "af-task-triage-recover",
     "af-task-triage-waive",
     "af-watchdog",
-    "af-work-mode",
     "af-zoom"
   ],
   "flags": [

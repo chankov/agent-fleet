@@ -19,17 +19,12 @@ export function normalizeWatchdogSetting(value) {
 
 /**
  * Is the watchdog armed for one dispatch?
- * Operator (or omitted work mode): dispatch param > per-agent /af-watchdog
- * override ("on"/"off") > hub-wide setting ("on"/"auto" arm, "off" disarms).
- * Orchestrator: hub `off` or per-agent `off` still disarms; otherwise armed.
- * A specialist cannot pass `watchdog: false` to sneak around orchestrator.
+ * Dispatch param > per-agent /af-watchdog override ("on"/"off") > hub-wide
+ * setting ("on"/"auto" arm, "off" disarms). The former orchestrator rule that
+ * ignored `watchdog: false` went with that mode (2026-11-11); the trailing
+ * work-mode argument is accepted for callers and ignored.
  */
-export function resolveWatchdogActive(dispatchParam, agentOverride, hubSetting, workMode) {
-	if (workMode === "orchestrator") {
-		if (normalizeWatchdogSetting(hubSetting) === "off") return false;
-		if (agentOverride === "off") return false;
-		return true;
-	}
+export function resolveWatchdogActive(dispatchParam, agentOverride, hubSetting, _workMode) {
 	if (dispatchParam === true) return true;
 	if (dispatchParam === false) return false;
 	if (agentOverride === "on") return true;

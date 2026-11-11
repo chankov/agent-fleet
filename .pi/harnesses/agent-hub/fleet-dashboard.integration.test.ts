@@ -321,14 +321,14 @@ test("shortcuts, command, footer, and pool use the separate fleet flow", () => {
 	assert.match(source, /registerAgentModelsSubstitute\(pi, commandCtx\)/);
 	assert.match(agentModelsSubstituteCommandSource, /registerCommand\("af-agent-models-substitute"[\s\S]*?getSubstituteCompletions[\s\S]*?handleAgentModelsSubstitute/);
 	assert.match(source, /handleAgentModelsSubstitute: async \(args, ctx\) => \{[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
-	assert.match(shortcutSource, /registerShortcut\("alt\+m"[\s\S]*?ports\.openWorkModePicker\(ctx\)/);
+	assert.doesNotMatch(shortcutSource, /alt\+m|openWorkModePicker/);
 	assert.doesNotMatch(shortcutSource, /alt\+shift\+a/);
 	assert.doesNotMatch(shortcutSource, /openMarkedAgent/);
 	assert.match(source, /registerZoom\(pi, commandCtx\)/);
 	assert.match(zoomCommandSource, /registerCommand\("af-zoom"[\s\S]*?getZoomCompletions[\s\S]*?handleZoom/);
 	assert.match(source, /handleZoom: async \(args, ctx\) => \{[\s\S]*?const rowKey = \(rid != null \? `r\$\{rid\}` : arg\)\.toLowerCase\(\)[\s\S]*?r\.key\.toLowerCase\(\) === rowKey/);
 	assert.match(source, /function findDelegationChild[\s\S]*?candidate\.id\.toLowerCase\(\) === lower/);
-	assert.match(source, /getHint: \(\) => composeFleetFooterHint\(compactWorkMode\(getWorkMode\(\)\)\)/);
+	assert.match(source, /getHint: \(\) => composeFleetFooterHint\(\)/);
 	assert.match(sessionStartPromptSource, /const hint = theme\.fg\("dim", deps\.getHint\(\)\);/);
 	assert.doesNotMatch(source + sessionStartPromptSource, /theme\.fg\("muted", "Alt\+A "\) \+ theme\.fg\("dim", composeFleetFooterHint/);
 	assert.match(poolSource, /const peerInputs[\s\S]*?pending: true/);

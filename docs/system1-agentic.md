@@ -1,6 +1,6 @@
 # Agentic System 1 — `ask_system1`
 
-Opt-in provider-neutral advisory tool for the **parent Agent Hub** in operator and orchestrator modes. It batches model-authored `choice`, `predicate`, and `ordinal` questions through the existing System 1 service. It does not execute commands, grant permissions, change task tiers or close acceptance, assertion, plan or review gates. Advice never replaces reading before editing or independent review.
+Opt-in provider-neutral advisory tool for the **parent Agent Hub** operator. It batches model-authored `choice`, `predicate`, and `ordinal` questions through the existing System 1 service. It does not execute commands, grant permissions, change task tiers or close acceptance, assertion, plan or review gates. Advice never replaces reading before editing or independent review.
 
 ## Enable deliberately
 

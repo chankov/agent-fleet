@@ -1,5 +1,12 @@
-export const WORK_MODES = ["operator", "orchestrator"] as const;
+/**
+ * The Hub has one work mode: the operator (PHILOSOPHY, 2026-11-11). The former
+ * delegate-only "orchestrator" mode was removed; sessions saved in it, and the
+ * deprecated --work-mode flag, continue as the operator.
+ */
+export const WORK_MODES = ["operator"] as const;
 export type WorkMode = (typeof WORK_MODES)[number];
+/** The removed delegate-only mode, recognised only to migrate old sessions and flags. */
+export const RETIRED_WORK_MODE = "orchestrator";
 
 export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
 const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
@@ -34,20 +41,13 @@ export function parseWorkMode(value: unknown): WorkMode | null {
 	return WORK_MODES.includes(normalized as WorkMode) ? normalized as WorkMode : null;
 }
 
-export function resolveStartupWorkMode(options: {
-	explicitWorkMode?: unknown;
-	hasExplicitRoster?: boolean;
-}): WorkMode {
-	if (options.explicitWorkMode !== undefined) {
-		const explicit = parseWorkMode(options.explicitWorkMode);
-		if (!explicit) throw new Error(`Unknown work mode "${String(options.explicitWorkMode)}"; expected operator|orchestrator.`);
-		return explicit;
-	}
-	return options.hasExplicitRoster ? "orchestrator" : "operator";
+/** True for the removed mode's name, so callers can tell a migration from a typo. */
+export function isRetiredWorkMode(value: unknown): boolean {
+	return typeof value === "string" && value.trim() === RETIRED_WORK_MODE;
 }
 
-/** Restores canonical work-mode entries and legacy posture entries from older sessions. */
-export function latestPersistedWorkMode(entries: readonly unknown[]): WorkMode | null {
+/** The latest persisted work-mode value (canonical or legacy posture entry), raw. */
+function latestPersistedWorkModeValue(entries: readonly unknown[]): unknown {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i] as { type?: unknown; customType?: unknown; data?: { workMode?: unknown; posture?: unknown } } | null;
 		if (entry?.type !== "custom") continue;
@@ -56,23 +56,18 @@ export function latestPersistedWorkMode(entries: readonly unknown[]): WorkMode |
 			: entry.customType === LEGACY_POSTURE_ENTRY_TYPE
 				? entry.data?.posture
 				: undefined;
-		const persisted = parseWorkMode(value);
-		if (persisted) return persisted;
+		if (parseWorkMode(value) || isRetiredWorkMode(value)) return value;
 	}
-	return null;
+	return undefined;
 }
 
-export function resolveSessionWorkMode(options: {
-	entries: readonly unknown[];
-	explicitWorkMode?: unknown;
-	hasExplicitRoster?: boolean;
-}): WorkMode {
-	if (options.explicitWorkMode !== undefined) {
-		return resolveStartupWorkMode({ explicitWorkMode: options.explicitWorkMode });
-	}
-	return latestPersistedWorkMode(options.entries)
-		?? resolveStartupWorkMode({ hasExplicitRoster: options.hasExplicitRoster });
+/** True when an older session was last saved in the removed orchestrator mode. */
+export function sessionSavedInRetiredWorkMode(entries: readonly unknown[]): boolean {
+	return isRetiredWorkMode(latestPersistedWorkModeValue(entries));
 }
+
+export const RETIRED_WORK_MODE_NOTICE =
+	"Orchestrator work mode was removed: the Hub has one operator that works directly and delegates on its own judgment. This session continues as the operator; --work-mode and /af-work-mode no longer exist.";
 
 export const NATIVE_ROSTER_STATE_VERSION = 1 as const;
 export const NATIVE_ROSTER_ENTRY_TYPE = "agent-hub-native-roster";
@@ -140,31 +135,20 @@ Delegation is your judgment, not an obligation: use it to keep your context focu
 - Research and polls run in parallel freely. Writers (write, edit or bash; reviewers too) run one at a time unless each gets \`parallel: true\` and a disjoint scope of exact existing paths; the sandbox then confines each. Parallelize only independent areas. You edit shared files (package.json, locks, manifests) after writers finish and run the full checks with no writer active.
 - Every delegate receives the task brief (\`artifacts/briefs/\`). Keep its "Operator notes" current with decisions and open questions. Read a delegate's return path instead of dispatching again.`;
 
-export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: string; delegationGuide: string } {
-	if (workMode === "operator") {
-		return {
-			delegationGuide: OPERATOR_DELEGATION_GUIDE,
-			intro: "You are the Fleet operator. You work on the codebase directly and delegate to specialist and research agents whenever that keeps your context focused, adds an independent view, or lets independent work run in parallel.",
-			hardRules: `- You MAY read, execute, edit, and write directly in operator work mode.
-- Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
-- Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.
-- For inspection, use the active catalog's read/grep/find/ls with an explicit target path (or the filesystem tool when enabled). A refused shell string needs no planner and no slash reset; preflight refusals carry their authoritative tier/catalog/revision snapshot.`,
-		};
-	}
+/** The operator prompt. The removed orchestrator variant had no direct tools. */
+export function workModePrompt(): { intro: string; hardRules: string; delegationGuide: string } {
 	return {
-		delegationGuide: "",
-		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
-		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
-- \`filesystem\` is a narrow direct inspection exception: always available in orchestrator for read-only stat, inventory, excerpt, and readback. Use stat and bounded excerpts with offset/max_bytes even for large files. The 64 KiB whole-turn output ceiling includes inventory. On too_large, reduce the page or continue next turn; use a helper when useful. Never retry an unchanged refusal. Snapshot stays profile-gated. It grants no arbitrary write or shell authority.
-- Tool availability is never gate admission: a visible tool can still refuse under tier, process, budget, or safety gates. Read the refusal's snapshot and correct the prerequisite; routine slash resets are not the recovery path.
-- Optionally use \`dispatch_triage\` for System 1 persona/risk advice before dispatch when it is listed in the active tools. It is not a gate or permission; low predicted risk never removes checks. Do not call it when it is absent.
-- When listed, \`ask_system1\` provides bounded semantic judgments over explicitly selected evidence. Follow its configured usage policy; recommended mode offers it for concrete unresolved judgments; direct reasoning and reads need no preliminary helper call. It never executes shell, grants permission, closes gates or replaces required reading/review. Do not call it when absent.
-- ALWAYS use \`dispatch_agent\` to get implementation work done; use \`spawn_research\` for recon that \`filesystem\` cannot answer.`,
+		delegationGuide: OPERATOR_DELEGATION_GUIDE,
+		intro: "You are the Fleet operator. You work on the codebase directly and delegate to specialist and research agents whenever that keeps your context focused, adds an independent view, or lets independent work run in parallel.",
+		hardRules: `- You MAY read, execute, edit, and write directly.
+- Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
+- For inspection, use the active catalog's read/grep/find/ls with an explicit target path (or the filesystem tool when enabled). A refused shell string needs no planner and no slash reset; preflight refusals carry their authoritative tier/catalog/revision snapshot.
+- Tool availability is never gate admission: a listed tool can still refuse; read the refusal's snapshot and fix the prerequisite.
+- \`dispatch_triage\`, when listed, is optional advice; never a gate or permission.`,
 	};
 }
 
 export function resolveWorkModeTools(options: {
-	workMode: WorkMode;
 	baselineTools: readonly string[];
 	comsReady: boolean;
 	herdrReady: boolean;
@@ -179,7 +163,7 @@ export function resolveWorkModeTools(options: {
 	capabilityPacks?: readonly ("core" | "fleet" | "verification" | "peer" | "workspace" | "compaction")[];
 }): string[] {
 	const packs = new Set(options.capabilityPacks ?? ["core", "fleet", "verification", "peer", "workspace"]);
-	const tools = options.workMode === "operator" && packs.has("core")
+	const tools = packs.has("core")
 		? options.baselineTools.filter(name => !HUB_OWNED_TOOLS.has(name))
 		: [];
 
@@ -193,8 +177,7 @@ export function resolveWorkModeTools(options: {
 	if (packs.has("core") && options.agenticAskEnabled === true) tools.push("ask_system1");
  if (packs.has("core") && options.fileDiscoveryEnabled === true) tools.push("ask_system1_files");
 	if (packs.has("compaction")) tools.push("request_compaction");
-	// Operator inspection stays profile-gated. Orchestrator always gets the same
-	// tool, but snapshot remains refused unless deterministic-tools is on.
-	if (options.deterministicTools === true || options.workMode === "orchestrator") tools.push("filesystem");
+	// The filesystem inspection tool stays profile-gated (deterministic-tools).
+	if (options.deterministicTools === true) tools.push("filesystem");
 	return [...new Set(tools)];
 }

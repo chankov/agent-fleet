@@ -64,8 +64,8 @@ tool call. The unified `just fleet` entry point composes them with a determinist
 Fleet Core: `damage-control-continue` (which also runs the shared package update
 check once per session), `ask-user-remote`, Compact & Continue, and BTW. Voice is an optional feature, not Default Fleet Core.
 Every public Pi launch through bare `just fleet` also loads
-`agent-hub`; operator/orchestrator work mode changes its direct tool surface without changing
-process or session. `just fleet peer` starts a standalone coms peer. Harnesses live in
+`agent-hub` with its one operator, which keeps direct tools and delegates on its own judgment.
+ `just fleet peer` starts a standalone coms peer. Harnesses live in
 **`.pi/harnesses/`** — a directory pi does
 *not* auto-discover — so a plain `pi` run still loads no safety/orchestration harness.
 
@@ -175,10 +175,9 @@ make a harness self-contained: copied target harnesses still require the existin
 `agent-team` recipe and absorbs the day-to-day pieces that previously required separate
 harnesses:
 
-- **Two live Work Modes** — bare `just fleet` starts as an operator with direct coding tools and an
-  empty native roster; `/af-work-mode operator|orchestrator` switches prompt and tool surface without
-  restarting or losing session state, while `/af-work-mode` without an argument and **Alt+M** open
-  the picker. Orchestrator removes `bash`/`edit`/`write`, keeps read-only `filesystem` inspection, refuses self-read above 64 KiB per file or per turn. Dispatch and research counts are usage, never a per-turn allowance. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
+- **One operator** — bare `just fleet` starts the operator with direct coding tools, delegation to
+  every installed agent, and an empty native roster. The former orchestrator work mode,
+  `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height
@@ -209,7 +208,7 @@ harnesses:
   skill, which the `orchestrator` persona drives. Advisory in this phase (surfaced, not a hard
   dispatch refusal).
 - **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 60%/70% thresholds and 80% ceiling, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
-- **Automatic capability packs** — no activation command is needed. Intent, work mode, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
+- **Automatic capability packs** — no activation command is needed. Intent, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
 - **Usage without continuation quotas** — dispatch, research and review counts and active time stay visible per turn and task, but authorized work never stops for a budget renewal. The watchdog supervises repeated work; genuinely different work uses `set_task_tier(new_task: true)`. Active-time clocks exclude human wait time.
 - **Damage-control + ask_user by default** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` safety harness and `ask-user-remote` before `agent-hub`, so the
@@ -251,21 +250,18 @@ session JSONL under `~/.pi/agent/sessions/` remains the authoritative append-onl
 overflow does not imply corruption: inspect with `/session`, resume with `/resume` or Pi's session
 flags, and **never edit, truncate, reorder, or synthesize JSONL entries to recover**.
 
-If resume instead reports that orchestrator work mode has no valid native roster, direct tools and
-model input intentionally remain blocked. Select a current team with `/af-agents-team`; restart via
-`just fleet --agents <name>` (direct Pi: `--agent-team <name>`); or explicitly choose operator with
-`/af-work-mode operator` / `just fleet --work-mode operator`. Repair stale team/persona definitions
-before selecting them. The Hub never invents a roster or silently downgrades persisted work mode, and
-explicit startup flags retain precedence.
+If resume reports that a persisted native roster no longer resolves, the session continues without
+it. Select a current team with `/af-agents-team` or restart via `just fleet --agents <name>` (direct
+Pi: `--agent-team <name>`), after repairing stale team/persona definitions. A session saved in the
+removed orchestrator work mode continues as the operator with a one-time notice.
 
 ### Runtime axes and explicit routing
 
-Work mode, native roster, and peer topology are independent:
+The native roster and the peer topology are independent:
 
 ```bash
 just fleet                                      # operator, empty native roster
-just fleet --agents frontend                    # orchestrator inferred
-just fleet --work-mode operator --agents frontend # direct tools + native roster
+just fleet --agents frontend                    # operator starting with a native roster
 just fleet --herdr --project af                 # one Hub pane in Herdr
 just fleet --agents frontend --peers frontend --project af
 ```
@@ -282,8 +278,7 @@ Inside a Herdr-backed Hub, `herdr_spawn_peer({ name: "code-reviewer" })` uses th
 and waits for coms readiness. Then use `coms_send` + `coms_await`, or `/af-handoff
 code-reviewer`. These actions need a running Herdr server and/or ready coms as appropriate; the
 commands stay registered and explain missing capability. Arbitrary pane commands use the separate
-`herdr_spawn_pane` tool. In orchestrator work mode that tool is limited by policy to auxiliary
-processes such as watchers or servers; it must not be used to bypass delegation for code work.
+`herdr_spawn_pane` tool, meant for auxiliary processes such as watchers or servers.
 
 ---
 

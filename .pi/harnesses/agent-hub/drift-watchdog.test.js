@@ -34,13 +34,11 @@ test("resolveWatchdogActive precedence: dispatch param > agent override > hub se
 	assert.equal(resolveWatchdogActive(undefined, undefined, "junk"), true);
 });
 
-test("orchestrator auto-arms the watchdog and ignores dispatch watchdog:false", () => {
-	assert.equal(resolveWatchdogActive(undefined, undefined, "auto", "orchestrator"), true);
-	assert.equal(resolveWatchdogActive(undefined, undefined, "on", "orchestrator"), true);
-	assert.equal(resolveWatchdogActive(false, undefined, "auto", "orchestrator"), true);
-	assert.equal(resolveWatchdogActive(false, undefined, "off", "orchestrator"), false);
-	assert.equal(resolveWatchdogActive(undefined, "off", "auto", "orchestrator"), false);
-	assert.equal(resolveWatchdogActive(false, undefined, "auto", "operator"), false);
+test("the removed orchestrator rule no longer overrides an explicit dispatch watchdog:false", () => {
+	assert.equal(resolveWatchdogActive(false, undefined, "auto", "orchestrator"), false, "a stale work-mode argument is ignored");
+	assert.equal(resolveWatchdogActive(undefined, undefined, "auto"), true);
+	assert.equal(resolveWatchdogActive(false, undefined, "auto"), false);
+	assert.equal(resolveWatchdogActive(undefined, "off", "on"), false);
 });
 
 test("scope rule fires only for write tools outside the declared scope", () => {

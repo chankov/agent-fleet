@@ -16,7 +16,7 @@ test("resetHubSession invokes UI cleanup once in deterministic lifecycle order",
 	const call = (name: string) => () => { calls.push(name); };
 	const ctx: any = { cwd: "/tmp", ui: { notify() {} } };
 	resetHubSession(ctx, {
-		registerVersion: call("version"), resetPressure: call("pressure"), clearRosterRecovery: call("roster"), captureBaselineTools: call("tools"), resetAccessApproval: call("approval"), terminateResearch: call("terminate"), resetResearch: call("research"), resetHistory: call("history"), resetBudgets: call("budgets"), clearWidgets: call("widgets"), closeDelegationWatchers: call("watchers"), resetSessionState: call("session"), resolveSafety: () => true, resolveDelegate: call("delegate"),
+		registerVersion: call("version"), resetPressure: call("pressure"), captureBaselineTools: call("tools"), resetAccessApproval: call("approval"), terminateResearch: call("terminate"), resetResearch: call("research"), resetHistory: call("history"), resetBudgets: call("budgets"), clearWidgets: call("widgets"), closeDelegationWatchers: call("watchers"), resetSessionState: call("session"), resolveSafety: () => true, resolveDelegate: call("delegate"),
 	});
-	assert.deepEqual(calls, ["version", "pressure", "roster", "tools", "approval", "terminate", "research", "history", "budgets", "widgets", "watchers", "session", "delegate"]);
+	assert.deepEqual(calls, ["version", "pressure", "tools", "approval", "terminate", "research", "history", "budgets", "widgets", "watchers", "session", "delegate"]);
 });

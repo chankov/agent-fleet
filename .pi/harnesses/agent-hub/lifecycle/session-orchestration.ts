@@ -12,7 +12,6 @@ import { registerSessionStart, type SessionStartDependencies } from "../session-
 export interface SessionResetPorts {
 	registerVersion(ctx: ExtensionContext): void;
 	resetPressure(ctx: ExtensionContext): void;
-	clearRosterRecovery(): void;
 	captureBaselineTools(): void;
 	resetAccessApproval(): void;
 	terminateResearch(): void;
@@ -29,7 +28,6 @@ export interface SessionResetPorts {
 export function resetHubSession(ctx: ExtensionContext, ports: SessionResetPorts): void {
 	ports.registerVersion(ctx);
 	ports.resetPressure(ctx);
-	ports.clearRosterRecovery();
 	ports.captureBaselineTools();
 	ports.resetAccessApproval();
 	ports.terminateResearch();

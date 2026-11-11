@@ -258,7 +258,7 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
         ],
         { cwd: workspace, encoding: "utf8" },
       );
-      assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime, two work modes, independent topology/, `${method}: installed fleet entrypoint must load`);
+      assert.match(fleetHelp, /Agent Fleet — one guarded Hub runtime with one operator, independent topology/, `${method}: installed fleet entrypoint must load`);
 
       if (method === "copy") writeFileSync(join(workspace, ".pi", "agent-fleet", "scripts", "user-owned.ts"), "// keep\n");
       removeClosure(root, workspace, owned);
@@ -741,7 +741,8 @@ for (const [method, modified] of [["copy", false], ["symlink", false], ["copy", 
         const extension = loaded.extensions[0];
         assert.equal(extension.commands.has("af-probe"), false);
         assert.equal(extension.tools.has("af_probe_value"), false);
-        for (const command of ["af-audit", "af-retry", "af-work-mode"]) assert.ok(extension.commands.has(command), command);
+        for (const command of ["af-audit", "af-retry"]) assert.ok(extension.commands.has(command), command);
+        assert.equal(extension.commands.has("af-work-mode"), false, "the work-mode command was removed");
       } finally {
         for (const [signal, listeners] of before) for (const listener of process.listeners(signal)) {
           if (!listeners.has(listener)) process.removeListener(signal, listener);

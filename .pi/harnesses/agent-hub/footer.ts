@@ -14,9 +14,8 @@ export function composeHubFooterLeft(
 		.join(" · ");
 }
 
-export function composeFleetFooterHint(executionPair?: string): string {
-	const work = executionPair ? ` · Alt+M ${executionPair}` : "";
-	return `Alt+A fleet · Alt+I inspect${work}`;
+export function composeFleetFooterHint(): string {
+	return "Alt+A fleet · Alt+I inspect";
 }
 
 export function renderHubFooterLeft(

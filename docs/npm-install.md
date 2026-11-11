@@ -525,7 +525,7 @@ No release verification should target a real application workspace.
 ## System 1 dispatch advice and communication
 
 Fleet `1` opens the session-only System 1 communication viewer; capture requires
-explicit opt-in. The orchestrator may call `dispatch_triage` when its separate
+explicit opt-in. The operator may call `dispatch_triage` when its separate
 human-owned configuration permits it. Both remain off by default; installation
 does not authorize live requests or calibrate the policy. See the
 [configuration, keys, privacy and evaluation guide](system1-dispatch-triage.md).

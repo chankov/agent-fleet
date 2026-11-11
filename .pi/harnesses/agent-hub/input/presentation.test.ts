@@ -37,19 +37,18 @@ test("complete model-profile completion shows its default without formatting obj
  assert.equal(completion.modelProfiles("full")?.[0].label, "full — complete profile (default p/default)");
 });
 
-test("shortcut registrar preserves fleet and work-mode routing", async () => {
+test("shortcut registrar preserves fleet routing without a work-mode picker", async () => {
 	const handlers = new Map<string, (ctx: any) => any>();
 	const calls: string[] = [];
 	registerInputShortcuts({ registerShortcut: (key: string, spec: any) => handlers.set(key, spec.handler) } as any, {
-		setWidgetContext: () => calls.push("context"), openFleetDashboard: async () => { calls.push("dashboard"); }, toggleFleetWidget: () => { calls.push("toggle"); }, workModeStatusText: () => "mode", openWorkModePicker: async () => { calls.push("mode"); }, openFleetConfig: async () => { calls.push("config"); },
+		setWidgetContext: () => calls.push("context"), openFleetDashboard: async () => { calls.push("dashboard"); }, toggleFleetWidget: () => { calls.push("toggle"); }, openFleetConfig: async () => { calls.push("config"); },
 	});
 	const ctx = { hasUI: true, ui: { select() {}, notify() {} } };
-	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+m", "alt+i", "alt+,"]);
+	assert.deepEqual(Array.from(handlers.keys()), ["alt+a", "alt+i", "alt+,"]);
 	await handlers.get("alt+a")!(ctx);
 	handlers.get("alt+i")!(ctx);
-	await handlers.get("alt+m")!(ctx);
 	await handlers.get("alt+,")!(ctx);
-	assert.deepEqual(calls, ["context", "dashboard", "context", "toggle", "context", "mode", "context", "config"]);
+	assert.deepEqual(calls, ["context", "dashboard", "context", "toggle", "context", "config"]);
 });
 
 test("pool presentation renders pending peers without compact gating", () => {

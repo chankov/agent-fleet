@@ -50,12 +50,11 @@ default:
 
 # ---------------------------------------------------------------- unified Fleet interface
 
-# Agent Fleet — one guarded Hub runtime, two work modes, independent topology.
+# Agent Fleet — one guarded Hub runtime with one operator, independent topology.
 #
 # UNIFIED HUB (recommended default)
 #   just fleet                              # operator + empty native roster
-#   just fleet --agents frontend            # orchestrator + native roster
-#   just fleet --work-mode operator --agents frontend
+#   just fleet --agents frontend            # operator starting with a native roster
 #   just fleet --no-coms                    # direct/native work, no peer messaging
 #   just fleet --browser                    # add live Chrome DevTools tools
 #   just fleet --voice                      # load installed push-to-talk STT
@@ -138,7 +137,7 @@ _fleet-peer name browser="false" all_extensions="false" *args:
 # specialist, researcher, and nested delegate even though children use
 # --no-extensions. `solo=true` disables only the embedded coms layer.
 _fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *args:
-    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; persona=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/orchestrator.md" ]; then persona="--append-system-prompt $pd/orchestrator.md"; break; fi; done; {{node_ts}} .pi/agent-fleet/scripts/pi-session.ts $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag $persona {{args}}
+    discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; {{node_ts}} .pi/agent-fleet/scripts/pi-session.ts $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag {{args}}
 
 # Hidden dependency installer used by `just fleet deps`.
 # It installs only Node runtime dependencies. It does NOT launch Pi, activate a

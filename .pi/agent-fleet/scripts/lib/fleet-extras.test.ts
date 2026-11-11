@@ -130,7 +130,7 @@ test("dry run: unified Hub topology threads work mode, native roster, capabiliti
 	assert.equal(explicitOperator.status, 0, explicitOperator.stderr);
 	const parsed = parseDryLayout(explicitOperator.stdout);
 	assert.deepEqual(parsed.layout.first.command, [
-		"just", "fleet", "--work-mode", "operator", "--agents", "frontend", "--no-coms",
+		"just", "fleet", "--agents", "frontend", "--no-coms",
 		"--browser", "--all-extensions", "--project", "af",
 	]);
 	for (const command of paneCommands(parsed.layout)) {

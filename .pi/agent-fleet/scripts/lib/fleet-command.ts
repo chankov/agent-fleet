@@ -51,10 +51,9 @@ interface HubParseDefaults {
 
 function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): FleetInvocation {
 	if (args.some(arg => arg === "--posture" || arg.startsWith("--posture="))) {
-		throw new Error("--posture was removed; use --work-mode operator|orchestrator.");
+		throw new Error("--posture was removed; the Hub has one operator work mode.");
 	}
 
-	let workMode: "operator" | "orchestrator" | undefined;
 	let agents = defaults.defaultAgents;
 	let peers = defaults.forcedPeers;
 	let herdr = defaults.forceHerdr ?? false;
@@ -86,9 +85,9 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 			case "--work-mode": {
 				if (workModeSeen) throw new Error("--work-mode may only be provided once");
 				workModeSeen = true;
-				const value = requireValue(args[++i], "--work-mode requires operator or orchestrator");
-				if (value !== "operator" && value !== "orchestrator") throw new Error("--work-mode requires operator or orchestrator");
-				workMode = value;
+				// Deprecated (2026-11-11): one release of tolerance, then the flag goes.
+				const value = requireValue(args[++i], "--work-mode requires a value");
+				warnings.push(`\`--work-mode ${value}\` is deprecated and ignored: the Hub has one operator work mode.`);
 				break;
 			}
 			case "--agents":
@@ -148,14 +147,12 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 		}
 	}
 
-	if (workMode === "orchestrator" && !agents) throw new Error("--work-mode orchestrator requires --agents <roster>");
 	const topology = herdr || peers !== undefined;
 	if (dryRun && !topology) throw new Error("--dry-run requires --herdr or --peers");
 
 	let invocation: FleetInvocation;
 	if (topology) {
 		const forwarded = [
-			...(workMode ? ["--work-mode", workMode] : []),
 			...(agents ? [defaults.legacyAgents ? "--legacy-agents" : "--agents", agents] : []),
 			...(noComs ? ["--no-coms"] : []),
 			...(browser ? ["--browser"] : []),
@@ -172,7 +169,6 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 				bool(browser),
 				bool(voice),
 				bool(allExtensions),
-				...(workMode ? ["--work-mode", workMode] : []),
 				...(agents ? ["--agent-team", agents] : []),
 				...rest,
 			],

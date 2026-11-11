@@ -14,7 +14,6 @@ const budgetSource = readFileSync(new URL("./context/budgets.ts", import.meta.ur
 const researchRuntimeSource = readFileSync(new URL("./research/runtime.ts", import.meta.url), "utf8");
 const researchSpawnSource = readFileSync(new URL("./research/spawn-run.ts", import.meta.url), "utf8");
 const sessionStartSource = readFileSync(new URL("./session-start.ts", import.meta.url), "utf8");
-const workModeCommandSource = readFileSync(new URL("./commands/work-mode.ts", import.meta.url), "utf8");
 const rosterPolicySource = readFileSync(new URL("./policy/roster.ts", import.meta.url), "utf8");
 const modelPolicySource = readFileSync(new URL("./policy/models.ts", import.meta.url), "utf8");
 const workModePolicySource = readFileSync(new URL("./policy/work-mode.ts", import.meta.url), "utf8");
@@ -53,7 +52,6 @@ const commandModules = [
 	["context-command", "registerContextCommand"],
 	["audit", "registerAudit"],
 	["config", "registerConfig"],
-	["work-mode", "registerWorkMode"],
 	["watchdog", "registerWatchdog"],
 	["agents-add", "registerAgentsAdd"],
 	["agents-drop", "registerAgentsDrop"],
@@ -78,7 +76,6 @@ const commandModules = [
 	["task-triage-waive", "registerTaskTriageWaiver"],
 ] as const;
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
-const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
 test("operator always holds fleet tools; transitions and S1 stages lease them with a specific reason", () => {
  const bind = { taskId: "task-1", evaluationId: "eval-1", inputRevision: "input-1" };
@@ -111,8 +108,8 @@ test("operator always holds fleet tools; transitions and S1 stages lease them wi
  assert.match(pressureLifecycleSource, /ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
 });
 
-test("wiring contract: all 29 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 29);
+test("wiring contract: all 28 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 28);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -123,14 +120,13 @@ test("wiring contract: all 29 Hub commands use typed modules and one flat regist
 	assert.match(indexSource, new RegExp(flatCalls));
 });
 
-test("wiring contract: Hub registers one work-mode command without conditional commands", () => {
-	assert.match(indexSource, /registerFlag\("work-mode"/);
-	assert.match(indexSource, /registerWorkMode\(pi, commandCtx\)/);
-	assert.equal((workModeCommandSource.match(/registerCommand\("af-work-mode"/g) ?? []).length, 1);
-	assert.match(workModeCommandSource, /registerWorkMode\(pi: ExtensionAPI, commandCtx: CommandContext\)/);
+test("wiring contract: the single work mode has no switching command, shortcut or flag behaviour", () => {
+	assert.match(indexSource, /registerFlag\("work-mode", \{ description: "Deprecated and ignored/);
+	assert.doesNotMatch(indexSource, /registerWorkMode|registerCommand\("af-work-mode"/);
+	assert.doesNotMatch(shortcutSource, /alt\+m|openWorkModePicker/);
+	assert.doesNotMatch(commandContextSource, /getWorkModeStatusText|openWorkModePicker|applyWorkModeSelection/);
 	assert.match(commandContextSource, /setWidgetContext\(ctx: ExtensionContext\)/);
-	assert.match(commandContextSource, /getWorkModeStatusText\(\): string/);
-	for (const removed of ["af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+	for (const removed of ["af-work-mode", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
 		assert.doesNotMatch(indexSource, new RegExp(`registerCommand\\("${removed}"`));
 	}
 	for (const retained of ["af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
@@ -147,28 +143,26 @@ test("wiring contract: Hub registers one work-mode command without conditional c
 	assert.doesNotMatch(indexSource, /if \(workMode === [^)]+\)\s*\{\s*pi\.registerCommand/);
 });
 
-test("wiring contract: work-mode policy persists while root restores session order", () => {
-	assert.match(workModePolicySource, /ports\.persist\(WORK_MODE_ENTRY_TYPE/);
+test("wiring contract: an old orchestrator session is told once and continues as the operator", () => {
+	assert.doesNotMatch(workModePolicySource, /WORK_MODE_ENTRY_TYPE|setRestoredWorkMode|commit\(/);
 	assert.match(indexSource, /createWorkModePolicy\(\{/);
 	assert.match(indexSource, /const sessionEntries = _ctx\.sessionManager\.getEntries\(\)/);
-	assert.match(indexSource, /setRestoredWorkMode\(resolveSessionWorkMode\(\{[\s\S]*?entries: sessionEntries/);
+	assert.match(indexSource, /if \(legacyFlag \|\| sessionSavedInRetiredWorkMode\(sessionEntries\)\)[\s\S]*?RETIRED_WORK_MODE_NOTICE[\s\S]*?pi\.appendEntry\(WORK_MODE_ENTRY_TYPE, \{ workMode: "operator" \}\)/);
 });
-test("wiring contract: Hub restores named rosters and gates stale orchestrator sessions", () => {
+test("wiring contract: Hub restores named rosters without an orchestrator recovery gate", () => {
 	assert.match(indexSource, /resolveSessionRoster\(\{/);
-	assert.match(indexSource, /hasExplicitRoster: startupRoster\.source === "explicit"/);
 	assert.match(indexSource, /persist: team => pi\.appendEntry\(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState\(team\)\)/);
 	assert.match(rosterPolicySource, /ports\.persist\(team\)/);
 	assert.match(indexSource, /registerAgentsSave\(pi, commandCtx\)/);
 	assert.match(agentsSaveCommandSource, /registerCommand\("af-agents-save"[\s\S]*?handleAgentsSave/);
 	assert.match(indexSource, /handleAgentsSave: async \(args, ctx\) => \{[\s\S]*?activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
-	assert.match(workModePolicySource, /rosterRecoveryRequired[\s\S]*?modelWorkBlockedByRosterRecovery/);
-	assert.match(indexSource, /modelWorkBlocked: modelWorkBlockedByRosterRecovery/);
+	assert.doesNotMatch(workModePolicySource + indexSource, /rosterRecoveryRequired|modelWorkBlockedByRosterRecovery/);
 	assert.match(pressureLifecycleSource, /ports\.modelWorkBlocked\(ctx\)[\s\S]*?return \{ action: "handled" \}/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-persona"/);
 	assert.doesNotMatch(indexSource, /personaGateEnabled|pickDispatcherPersona/);
 	assert.match(indexSource, /registerAgentsTeam\(pi, commandCtx\)/);
 	assert.match(agentsTeamCommandSource, /registerCommand\("af-agents-team"[\s\S]*?handleAgentsTeam/);
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?clearRosterRecovery\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?persistActiveRoster\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
 });
 
@@ -231,15 +225,12 @@ test("wiring contract: every fleet action assumes a tier before its persona gate
 	assert.match(dispatchExecutionSource, /createResearchExecutor[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, params\.persona \|\| ""\)/);
 });
 
-test("wiring contract: Hub applies extracted work mode tools at startup and live switches", () => {
+test("wiring contract: Hub applies extracted work mode tools at startup and on refresh", () => {
 	const applications = (indexSource + pressureLifecycleSource + turnLifecycleSource).match(/applyWorkMode(?:Tools)?\(\)/g) ?? [];
 	assert.ok(applications.length >= 3, `expected startup, command, and lifecycle applications, got ${applications.length}`);
 	assert.match(workModePolicySource, /resolveWorkModeTools\(\{/);
-	assert.match(workModePolicySource, /async function applySelection\(/);
-	assert.match(workModePolicySource, /async function openPicker\(/);
-	assert.match(workModeCommandSource, /registerCommand\("af-work-mode"[\s\S]*?openWorkModePicker/);
+	assert.doesNotMatch(workModePolicySource, /async function (applySelection|openPicker)\(/);
 	assert.match(indexSource, /registerInputShortcuts\(pi,/);
-	assert.match(shortcutSource, /registerShortcut\("alt\+m"[\s\S]*?openWorkModePicker/);
 });
 
 test("wiring contract: policy maps and mutations have one typed owner", () => {
@@ -260,12 +251,6 @@ test("T11 production wiring gates operator bash edit write before execution", ()
  assert.match(indexSource, /terminate: decision\.terminate/);
  assert.match(indexSource, /if \(decision\.terminate\) ctx\?\.abort\?\.\(\)/);
  assert.match(indexSource, /latestPendingTaskTransition\(sessionEntries\)/);
-});
-
-test("wiring contract: orchestrator persona defers authority to active work mode", () => {
-	assert.match(personaSource, /active Hub work mode/i);
-	assert.match(personaSource, /operator work mode/i);
-	assert.match(personaSource, /orchestrator work mode/i);
 });
 
 test("same-turn pressure aborts after a large tool result and compacts only after the run settles", () => {
@@ -307,24 +292,15 @@ test("high-context startup and input defer prompts until compaction completes", 
 	assert.match(pressureLifecycleSource, /const replayDeferred[\s\S]*?ports\.sendUserMessage\(/);
 	assert.match(pressureLifecycleSource, /const markSucceeded[\s\S]*?automaticPending = false/, "any observed compaction success clears a stale pending request");
 	assert.match(pressureLifecycleSource, /if \(replaying && ports\.modelWorkBlocked\(ctx\)\)[\s\S]*?deferredInputs\.push/, "recovery replay is retained again when a roster gate is still active");
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?clearRosterRecovery\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
-		"team recovery clears the roster gate before replaying retained input");
+	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?persistActiveRoster\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
+		"selecting a team replays retained input");
 });
 
-test("stale-roster gate covers every command and dashboard path that can start model work", () => {
-	assert.match(comsCoreSource, /function handlePrompt\([\s\S]*?deps\.acceptInbound/);
-	assert.match(indexSource, /acceptInbound: \(\) => currentCtx && modelWorkBlockedByRosterRecovery\(currentCtx\)/);
-	const guardedBlocks = [
-		/function restartRow\([\s\S]*?deps\.modelWorkBlocked\(ctx\)/,
-		/async handleRestart\(args, ctx\) \{[\s\S]*?ports\.modelWorkBlocked\(ctx\)/,
-		/handleHandoff: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/handleCompound: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/handlePoll: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-		/handleDebate: async \(args, ctx\) => \{[\s\S]*?modelWorkBlockedByRosterRecovery\(ctx\)/,
-	];
-	assert.match(fleetDashboardSource, guardedBlocks[0]);
-	assert.match(researchControlsSource, guardedBlocks[1]);
-	for (const pattern of guardedBlocks.slice(2)) assert.match(indexSource, pattern);
+test("the orchestrator-only roster gate is gone; modules keep their own model-work ports", () => {
+	assert.doesNotMatch(indexSource, /acceptInbound: \(\) =>|modelWorkBlockedByRosterRecovery/);
+	assert.match(fleetDashboardSource, /function restartRow\([\s\S]*?deps\.modelWorkBlocked\(ctx\)/);
+	assert.match(researchControlsSource, /async handleRestart\(args, ctx\) \{[\s\S]*?ports\.modelWorkBlocked\(ctx\)/);
+	assert.ok((indexSource.match(/modelWorkBlocked: \(\) => false/g) ?? []).length >= 3, "the Hub no longer blocks model work for a missing roster");
 	assert.match(agentsRestartCommandSource, /registerCommand\("af-agents-restart"[\s\S]*?handleAgentsRestart/);
 });
 

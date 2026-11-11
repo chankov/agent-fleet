@@ -69,13 +69,12 @@ test("workspace labels embed the worktree tag + mode and distinguish projects", 
 	assert.deepEqual(hubCommand(), ["just", "fleet"]);
 	assert.deepEqual(hubCommand("acme"), ["just", "fleet", "--project", "acme"]);
 	assert.deepEqual(hubCommand("acme", {
-		workMode: "operator",
 		agentTeam: "frontend",
 		noComs: true,
 		browser: true,
 		allExtensions: true,
 	}), [
-		"just", "fleet", "--work-mode", "operator", "--agents", "frontend", "--no-coms",
+		"just", "fleet", "--agents", "frontend", "--no-coms",
 		"--browser", "--all-extensions", "--project", "acme",
 	]);
 	assert.deepEqual(conductorCommand(), ["hermes", "-p", "dev"]);

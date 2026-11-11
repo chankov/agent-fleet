@@ -76,7 +76,7 @@ test("real Pi persists task additions, bound cache and call budget across RPC co
    ...(sessionFile ? ["--session", sessionFile] : []),
    "-e", join(root, ".pi/harnesses/damage-control-continue/index.ts"), "-e", join(root, ".pi/harnesses/ask-user-remote/index.ts"),
    "-e", join(root, ".pi/harnesses/agent-hub/index.ts"), "-e", join(dir, "probe.ts"),
-   "--solo", "--work-mode", "operator", "--model", "triage-persisted/m"], { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+   "--solo", "--model", "triage-persisted/m"], { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
   let buffer = "", stderr = "", settled = 0, ended = false;
   const pending = new Map<string, (value: any) => void>();
   const turnWaiters = new Set<() => void>();

@@ -45,7 +45,7 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 		getAgents: () => [{ name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write" }],
 		getResearchPersonas: () => [{ name: "recon", displayName: "Recon", description: "Maps code.", model: "fast/model", thinking: "low" }],
 		getPromptState: () => promptState,
-		getWorkMode: () => "orchestrator",
+		getWorkMode: () => "operator",
 		getActiveTeamName: () => "Delivery",
 		getUserLanguage: () => overrides.language ?? "English",
 		isAskUserAvailable: () => overrides.askUser ?? true,
@@ -62,7 +62,7 @@ function digest(text: string): string {
 }
 
 test("System 1 assistance is optional across modes and tiers, with bounded fallback", () => {
-	for (const mode of ["operator", "orchestrator"] as const) {
+	for (const mode of ["operator"] as const) {
 		for (const tier of ["trivial", "small", "feature", "project"]) {
 			const ctx = fixture({ active: ["core"] });
 			const state = ctx.getPromptState();
@@ -105,7 +105,7 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	const built = buildHubSystemPrompt(fixture());
 	// Intentional prose compaction; semantic guards below remain independently asserted.
 	assert.ok(built.systemPrompt.indexOf("## Language") < built.systemPrompt.indexOf("## Hard Rules"));
-	assert.match(built.systemPrompt, /Optionally use `dispatch_triage`/);
+	assert.match(built.systemPrompt, /`dispatch_triage`, when listed, is optional advice; never a gate or permission/);
 	assert.match(built.systemPrompt, /For actual human answers use USER_ANSWER: <dispatchId> :: <question>/);
 	assert.match(built.systemPrompt, /bounded excerpts of large files/);
 	assert.match(built.systemPrompt, /Never repeat an unchanged refusal/);
@@ -145,7 +145,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 
 test("language and unavailable ask_user branch preserve exact prompt text", () => {
 	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "e45c8276593d4fa932703a75608fbbac23480aad8b83a6e209684991b920604b");
+	assert.equal(digest(built.systemPrompt), "1d090b4a0c6776f9105b650325ae96b3010e1f2b7534c7f5511e3897f1bbf63d");
 	assert.match(built.systemPrompt, /ask_user tool is unavailable/);
 	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
 	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);
@@ -204,7 +204,7 @@ test("missing rules and docs paths warn and continue during session override app
 	} finally { project.cleanup(); }
 });
 
-test("enabled orchestrator advice precedes dispatch without granting execution authority",()=>{
+test("enabled pre-dispatch advice reaches the operator without granting execution authority",()=>{
  const ctx=fixture();ctx.getTriageBeforeDispatch=()=>true;ctx.getActiveTools=()=>["dispatch_agent","dispatch_triage","ask_user"];
  const built=buildHubSystemPrompt(ctx);
  assert.match(built.systemPrompt,/Enabled System 1 pre-dispatch advice/);
@@ -213,8 +213,7 @@ test("enabled orchestrator advice precedes dispatch without granting execution a
  assert.match(built.systemPrompt,/without automatic retries/);
  assert.equal(built.ledger.reduce((sum,e)=>sum+e.chars,0),built.systemPrompt.length);
  ctx.getTriageBeforeDispatch=()=>false;assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
- ctx.getTriageBeforeDispatch=()=>true;ctx.getWorkMode=()=>"operator";assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
- ctx.getWorkMode=()=>"orchestrator";ctx.getActiveTools=()=>["dispatch_agent"];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/);
+ ctx.getTriageBeforeDispatch=()=>true;ctx.getActiveTools=()=>["dispatch_agent"];assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt,/Enabled System 1 pre-dispatch advice/,"no advice without the triage tool");
 });
 test('D8 delivered orientation is reused without replacing exact evidence, explicit claim/risk or off/unavailable fallback',()=>{
  const ctx=fixture({active:['core']});ctx.getActiveTools=()=>['ask_system1_files'];
@@ -225,7 +224,7 @@ test('D8 delivered orientation is reused without replacing exact evidence, expli
 
 
 test("decision routing retains material questions but triages specialists first in both modes", () => {
- for (const askUser of [true, false]) for (const mode of ["operator", "orchestrator"] as const) {
+ for (const askUser of [true, false]) for (const mode of ["operator"] as const) {
   const ctx = fixture({ askUser }); ctx.getWorkMode = () => mode;
   const prompt = buildHubSystemPrompt(ctx).systemPrompt;
   assert.match(prompt, /Resolve routine technical choices independently within the approved scope/);
@@ -259,12 +258,13 @@ test("operator prompt lists every installed agent, marks ones outside the team, 
  assert.match(prompt, /local model slots in use: omlx 1\/2/);
 });
 
-test("delegation guidance stays out of the orchestrator prompt; idle caps add no slot line", () => {
+test("the one operator prompt carries the delegation guide; idle caps add no slot line", () => {
  const ctx = fixture();
- const orchestrator = buildHubSystemPrompt({ ...ctx, getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 0, queued: 0 }] }).systemPrompt;
- assert.doesNotMatch(orchestrator, /## When to delegate/);
- assert.match(orchestrator, /`omlx\/` at most 2 parallel runs/);
- assert.doesNotMatch(orchestrator, /local model slots in use/);
- const uncapped = buildHubSystemPrompt({ ...ctx, getWorkMode: () => "operator", getProviderLimits: () => [] }).systemPrompt;
+ const prompt = buildHubSystemPrompt({ ...ctx, getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 0, queued: 0 }] }).systemPrompt;
+ assert.match(prompt, /## When to delegate/);
+ assert.match(prompt, /`omlx\/` at most 2 parallel runs/);
+ assert.doesNotMatch(prompt, /local model slots in use/);
+ assert.doesNotMatch(prompt, /dispatcher agent — an orchestrator|NEVER try to execute, edit, or write/);
+ const uncapped = buildHubSystemPrompt({ ...ctx, getProviderLimits: () => [] }).systemPrompt;
  assert.doesNotMatch(uncapped, /Local model concurrency/);
 });

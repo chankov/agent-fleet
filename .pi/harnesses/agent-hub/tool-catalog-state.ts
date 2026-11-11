@@ -40,7 +40,7 @@ export function substituteForUnavailableTool(tool: string, availableTools: reado
 	const available = normalizedTools(availableTools);
 	const has = (candidate: string) => available.includes(candidate);
 	if (["write", "edit", "bash"].includes(tool) && has("dispatch_agent")) {
-		return { tool: "dispatch_agent", limitation: "delegate the requested effect; the orchestrator gains no direct filesystem or shell permission" };
+		return { tool: "dispatch_agent", limitation: "delegate the requested effect; no direct filesystem or shell permission is restored" };
 	}
 	if (["read", "grep", "find", "ls"].includes(tool) && has("spawn_research")) {
 		return { tool: "spawn_research", limitation: "delegate read-only inspection; no direct tool permission is restored" };
@@ -96,9 +96,11 @@ export function emitToolCatalogDelta(input: {
 
 export function restoreToolCatalogAfterCompaction(snapshot: ToolCatalogSnapshot): ToolCatalogSnapshot {
 	if (!snapshot || typeof snapshot.catalogVersion !== "string" || !snapshot.catalogVersion.trim()) throw new Error("tool catalog snapshot requires catalogVersion");
-	if (snapshot.mode !== "operator" && snapshot.mode !== "orchestrator") throw new Error("tool catalog snapshot requires a valid work mode");
+	// Snapshots saved in the removed orchestrator mode restore as the operator.
+	const savedMode = snapshot.mode as string;
+	if (savedMode !== "operator" && savedMode !== "orchestrator") throw new Error("tool catalog snapshot requires a valid work mode");
 	if (!Array.isArray(snapshot.tools) || snapshot.tools.some(tool => typeof tool !== "string" || !tool.trim())) throw new Error("tool catalog snapshot requires tool names");
-	return { schema: TOOL_CATALOG_STATE_SCHEMA, catalogVersion: snapshot.catalogVersion, tools: normalizedTools(snapshot.tools), mode: snapshot.mode };
+	return { schema: TOOL_CATALOG_STATE_SCHEMA, catalogVersion: snapshot.catalogVersion, tools: normalizedTools(snapshot.tools), mode: "operator" };
 }
 
 export function latestPersistedToolCatalog(entries: readonly unknown[]): ToolCatalogSnapshot | null {

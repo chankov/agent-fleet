@@ -1,13 +1,9 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import type { WorkMode } from "../work-mode.ts";
 
 /** Dependencies command registrars receive from the hub composition root. */
 export interface CommandContext {
 	setWidgetContext(ctx: ExtensionContext): void;
-	applyWorkModeSelection(next: WorkMode, ctx: ExtensionContext): Promise<void>;
-	getWorkModeStatusText(): string;
-	openWorkModePicker(ctx: ExtensionContext): Promise<void>;
 	handleAgentsTeam(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsList(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsHistory(args: string, ctx: ExtensionContext): Promise<void>;

@@ -1,18 +1,15 @@
 import { CAPABILITY_PACKS, persistedCapabilityState, resolveCapabilityPacks, type CapabilityPack, type CapabilityResolution, type ContextState, type PendingOperation } from "../capability-packs.ts";
 import { confirmationGate, type CapabilityConfirmationState, type ConfirmableCapabilityPack } from "../capability-confirmation.ts";
-import { orchestratorNeedsRoster } from "../helpers.ts";
-import { WORK_MODE_ENTRY_TYPE, resolveWorkModeTools, type WorkMode } from "../work-mode.ts";
-import { selectedPickerValue, workModeChangeBlockedByRoster, workModePickerOptions } from "../work-mode-controls.ts";
+import { resolveWorkModeTools, type WorkMode } from "../work-mode.ts";
 
 export interface WorkModeUiPort {
 	hasUI?: boolean;
-	ui: { notify(message: string, level: "error" | "warning" | "info"): void; setStatus(key: string, value: string | undefined): void; select(title: string, options: string[]): Promise<string | undefined> };
+	ui: { notify(message: string, level: "error" | "warning" | "info"): void; setStatus(key: string, value: string | undefined): void };
 }
 export interface PersistedCapabilityRestore { taskPacks: CapabilityPack[]; provisional: CapabilityPack[]; confirmation: CapabilityConfirmationState }
 export interface WorkModePolicyPorts {
 	getBaselineTools(): readonly string[];
 	getRosterSize(): number;
-	activateFallbackRoster(ctx: WorkModeUiPort): void;
 	getActiveTeamName(): string;
 	getComsReady(): boolean;
 	getHerdrReady(): boolean;
@@ -29,12 +26,10 @@ export interface WorkModePolicyPorts {
 	setActiveTools(tools: string[]): void;
 	recordToolCatalog?(change: { fromMode: WorkMode; toMode: WorkMode; previous: readonly string[]; next: readonly string[]; reason: "refresh" | "mode_switch" }): void;
 	persist(type: string, data: unknown): void;
-	replayDeferredInputs(): void;
-	watchdogArmed(workMode: WorkMode): boolean;
 }
 export interface WorkModePolicy {
+	/** Always the operator: the Hub has one work mode (2026-11-11). */
 	getWorkMode(): WorkMode;
-	setRestoredWorkMode(mode: WorkMode): void;
 	getCapabilityResolution(): CapabilityResolution;
 	getCapabilityConfirmation(): CapabilityConfirmationState;
 	setCapabilityConfirmation(pack: ConfirmableCapabilityPack, status: CapabilityConfirmationState[ConfirmableCapabilityPack]): void;
@@ -47,28 +42,20 @@ export interface WorkModePolicy {
 	applyWorkModeTools(): void;
 	updateStatus(ctx: WorkModeUiPort): void;
 	statusText(): string;
-	modelWorkBlockedByRosterRecovery(ctx: WorkModeUiPort): boolean;
-	setRosterRecovery(required: boolean, diagnostic?: string): void;
-	clearRosterRecovery(): void;
-	commit(next: WorkMode, ctx: WorkModeUiPort): Promise<"ok" | "unchanged" | "roster">;
-	applySelection(next: WorkMode, ctx: WorkModeUiPort): Promise<void>;
-	openPicker(ctx: WorkModeUiPort): Promise<void>;
 }
 
-export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMode = "operator"): WorkModePolicy {
-	let workMode = initial;
-	let rosterRecoveryRequired = false;
-	let rosterRecoveryDiagnostic = "";
+export function createWorkModePolicy(ports: WorkModePolicyPorts): WorkModePolicy {
+	const workMode: WorkMode = "operator";
 	let taskPacks: CapabilityPack[] = [];
 	let provisionalPacks: CapabilityPack[] = [];
 	let confirmation: CapabilityConfirmationState = {};
 	let currentExplicitCompaction = false;
  let persistedState: string | null = null;
-	let resolution = resolveCapabilityPacks({ workMode, userText: "", taskPacks: [], comsReady: false, herdrReady: false, pendingOperations: [], contextState: "normal" });
+	let resolution = resolveCapabilityPacks({ userText: "", taskPacks: [], comsReady: false, herdrReady: false, pendingOperations: [], contextState: "normal" });
 
 	function resolveIncomingCapabilities(userText: string, newTask = false, refresh = false): void {
 		resolution = resolveCapabilityPacks({
-			workMode, userText,
+			userText,
 			taskTier: (["trivial", "small", "feature", "project"] as const).find(tier => tier === ports.getTaskTier()),
 			taskPacks, provisionalPacks,
 			comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(),
@@ -96,38 +83,15 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 	}
 	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
 		const previous = [...(ports.getActiveTools?.() ?? [])];
-		const requested = resolveWorkModeTools({ workMode, baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, fileDiscoveryEnabled: ports.getFileDiscoveryEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
+		const requested = resolveWorkModeTools({ baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, fileDiscoveryEnabled: ports.getFileDiscoveryEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
 		ports.setActiveTools(requested);
 		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}
 	function statusText(): string {
-		return [`Work Mode: ${workMode}`, `Direct tools: ${workMode === "operator" ? "enabled" : "disabled"}`, `Native roster: ${ports.getActiveTeamName() || "(none)"} (${ports.getRosterSize()})`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
-	}
-	function refusalMessage(): string { return "Orchestrator work mode requires at least one native specialist. No valid configured team is available. Add one with /af-agents-add or fix .pi/agents/teams.yaml and select /af-agents-team."; }
-	function watchdogNote(next: WorkMode): string { return next === "orchestrator" ? ports.watchdogArmed(next) ? "\nDrift watchdog: armed (orchestrator auto). /af-watchdog off to disarm." : "\nDrift watchdog: off (explicit hub setting)." : ""; }
-	async function commit(next: WorkMode, ctx: WorkModeUiPort): Promise<"ok" | "unchanged" | "roster"> {
-		if (workModeChangeBlockedByRoster(workMode, next, ports.getRosterSize())) ports.activateFallbackRoster(ctx);
-		if (orchestratorNeedsRoster(next, ports.getRosterSize())) return "roster";
-		if (next === workMode) return "unchanged";
-		const previousMode = workMode;
-		workMode = next;
-		if (workMode === "operator") { rosterRecoveryRequired = false; rosterRecoveryDiagnostic = ""; setTimeout(ports.replayDeferredInputs, 0); }
-		resolveIncomingCapabilities(""); applyWorkModeTools(previousMode, "mode_switch"); ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`); ports.persist(WORK_MODE_ENTRY_TYPE, { workMode });
-		return "ok";
-	}
-	async function applySelection(next: WorkMode, ctx: WorkModeUiPort): Promise<void> {
-		const result = await commit(next, ctx);
-		if (result === "roster") { ctx.ui.notify(refusalMessage(), "warning"); return; }
-		ctx.ui.notify(`${statusText()}\nPrompt and tools update on the next model call.${watchdogNote(next)}`, "info");
-	}
-	async function openPicker(ctx: WorkModeUiPort): Promise<void> {
-		const picker = workModePickerOptions(workMode);
-		const choice = await ctx.ui.select(picker.title, [...picker.options]);
-		const next = selectedPickerValue(picker.options, choice, picker.workModes);
-		if (next) await applySelection(next, ctx);
+		return [`Work Mode: ${workMode}`, "Direct tools: enabled", `Native roster: ${ports.getActiveTeamName() || "(none)"} (${ports.getRosterSize()})`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
 	}
 	return {
-		getWorkMode: () => workMode, setRestoredWorkMode: mode => { workMode = mode; },
+		getWorkMode: () => workMode,
 		getCapabilityResolution: () => resolution, getCapabilityConfirmation: () => confirmation,
 		setCapabilityConfirmation: (pack, status) => { if (status) confirmation[pack] = status; else delete confirmation[pack]; },
 		restoreCapabilities: state => { persistedState = null; taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; currentExplicitCompaction = false; },
@@ -135,8 +99,5 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts, initial: WorkMo
 		resolveIncomingCapabilities, refreshCapabilities: () => resolveIncomingCapabilities("", false, true),
 		provisionalCapabilityRefusal: pack => { const gate = confirmationGate(confirmation, pack, resolution.provisional.includes(pack)); return gate.allowed ? null : { content: [{ type: "text", text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } }; },
 		applyWorkModeTools, updateStatus: ctx => ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`), statusText,
-		modelWorkBlockedByRosterRecovery: ctx => { if (workMode !== "orchestrator" || !rosterRecoveryRequired) return false; const message = `${rosterRecoveryDiagnostic || "No valid native roster is active."} Select one with /af-agents-team, restart with --agent-team <name>, or switch explicitly with /af-work-mode operator.`; ctx.ui.notify(message, "error"); if (!ctx.hasUI) console.error(`[agent-hub] ${message}`); return true; },
-		setRosterRecovery: (required, diagnostic = "") => { rosterRecoveryRequired = required; rosterRecoveryDiagnostic = required ? diagnostic : ""; }, clearRosterRecovery: () => { rosterRecoveryRequired = false; rosterRecoveryDiagnostic = ""; },
-		commit, applySelection, openPicker,
 	};
 }

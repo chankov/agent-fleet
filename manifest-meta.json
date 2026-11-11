@@ -252,7 +252,6 @@
     "persona:web-performance-auditor": "ro",
     "persona:bowser": "pi-only",
     "persona:web-debugger": "pi-only",
-    "persona:orchestrator": "pi-only",
     "pi-extension:mcp-bridge": "extension",
     "pi-extension:chrome-devtools-mcp": "extension",
     "pi-extension:compact-and-continue": "extension",
@@ -372,7 +371,6 @@
         "reference:fleet-coordination-patterns"
       ],
       "recommendsWith": [
-        "persona:orchestrator",
         "persona:builder",
         "persona:test-engineer",
         "persona:code-reviewer"

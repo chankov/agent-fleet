@@ -41,7 +41,7 @@ Candidate limits bound matched candidates, **not visited filesystem entries**.
 ## Automatic surfaces and explicit A/B/C
 
 With a known task and at least two unambiguous files, production `tool_result`
-hooks rank before delivery to the next model step in both Hub work modes and
+hooks rank before delivery to the next model step in the Hub operator and
 all task tiers:
 
 - Parent `filesystem` inventory, typed `find`, `ls`, and parseable `grep`.
@@ -125,7 +125,7 @@ approved export/read policy is unchanged.
 
 Large results use separately bounded managed pages with result identity, total,
 offset, next locator and hash. Follow every `next` via already permitted read or
-`filesystem` readback; an exhausted 64 KiB orchestrator turn needs the next turn.
+`filesystem` readback; an exhausted 64 KiB read-only turn needs the next turn.
 No self-read budget or child tool cap is increased. A denied page path is an
 explicit limitation, not delivery of all rows. A full list describes the actual
 requested/discovered scope, not unseen files beyond a partial scan.

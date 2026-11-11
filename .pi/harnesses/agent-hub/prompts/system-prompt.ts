@@ -71,7 +71,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const askUserAvailable = ctx.isAskUserAvailable();
 	const userLanguage = ctx.getUserLanguage();
 	const askUserBlock = askUserFragment(askUserAvailable, userLanguage);
-	const triageBeforeDispatch = fleetActive && ctx.getWorkMode() === "orchestrator" && ctx.getActiveTools().includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
+	const triageBeforeDispatch = fleetActive && ctx.getActiveTools().includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
 	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage) + providerLimitLine + (triageBeforeDispatch ? `
 
 ## Enabled System 1 pre-dispatch advice
@@ -91,7 +91,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		(artifactRoot && (verificationActive || fleetActive) ? `\n\nSession artifact root: ${artifactRoot}. Use this absolute root for read/write tools. Handoff paths artifacts/<kind>/... are relative to this root, not the repository. Legacy shared .pi/agent-sessions/artifacts paths belong to other sessions; do not overwrite them.` : "");
 	const projectPolicySection = ctx.getRulesProtocol() + ctx.getDocsProtocol();
 	const comsSection = comsFragment(peerActive, ctx.isComsReady(), ctx.getIdentity());
-	const workModeText = workModePrompt(ctx.getWorkMode());
+	const workModeText = workModePrompt();
 	const herdrSection = workspaceActive && ctx.isHerdrFleetReady() ? HUB_HERDR_SECTION : "";
 	const compactionSection = compactionActive ? COMPACTION_FRAGMENT : "";
 	const systemPrompt = assembleHubSystemPrompt({

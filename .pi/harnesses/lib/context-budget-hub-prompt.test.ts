@@ -4,11 +4,11 @@ import { readFileSync } from "node:fs";
 import { workModePrompt } from "../agent-hub/work-mode.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger, type HubPromptParts } from "./context-budget-hub-prompt.ts";
 
-function representativeParts(workMode: "operator" | "orchestrator", herdr: boolean): HubPromptParts & {
+function representativeParts(herdr: boolean): HubPromptParts & {
 	agentCards: { id: string; text: string }[];
 	researchCards: { id: string; text: string }[];
 } {
-	const pose = workModePrompt(workMode);
+	const pose = workModePrompt();
 	const agentCards = [
 		{ id: "builder", text: "### Builder\n**Dispatch as:** `builder`\nImplements slices.\n**Tools:** read,write" },
 		{ id: "reviewer", text: "### Reviewer\n**Dispatch as:** `reviewer`\nReviews code.\n**Tools:** read" },
@@ -39,22 +39,18 @@ function representativeParts(workMode: "operator" | "orchestrator", herdr: boole
 	};
 }
 
-test("compact stable policy preserves work mode, backend, ambiguity, and evidence invariants", () => {
-	const operator = assembleHubSystemPrompt(representativeParts("operator", false));
-	const orchestrator = assembleHubSystemPrompt(representativeParts("orchestrator", false));
-	assert.notEqual(operator, orchestrator);
-	assert.match(operator, /Fleet operator/);
-	assert.match(orchestrator, /dispatcher agent — an orchestrator/);
-	for (const prompt of [operator, orchestrator]) {
-		assert.match(prompt, /backend: native.*backend: coms.*backend: auto/s);
-		assert.match(prompt, /NEVER proceed past an ambiguity by guessing/);
-		assert.match(prompt, /returned evidence before reporting completion/);
-		assert.match(prompt, /Task triage/);
-	}
+test("compact stable policy preserves the operator, backend, ambiguity, and evidence invariants", () => {
+	const prompt = assembleHubSystemPrompt(representativeParts(false));
+	assert.match(prompt, /Fleet operator/);
+	assert.doesNotMatch(prompt, /dispatcher agent — an orchestrator/);
+	assert.match(prompt, /backend: native.*backend: coms.*backend: auto/s);
+	assert.match(prompt, /NEVER proceed past an ambiguity by guessing/);
+	assert.match(prompt, /returned evidence before reporting completion/);
+	assert.match(prompt, /Task triage/);
 });
 
 test("ledger identifies each roster and research card and does not mutate the prompt", () => {
-	const parts = representativeParts("operator", true);
+	const parts = representativeParts(true);
 	const prompt = assembleHubSystemPrompt(parts);
 	const ledger = recordHubLedger(prompt, namedHubLedgerParts(parts));
 	assert.equal(assembleHubSystemPrompt(parts), prompt);
@@ -71,7 +67,7 @@ test("ledger identifies each roster and research card and does not mutate the pr
 });
 
 test("volatile state is separately attributable while stable policy stays byte-stable", () => {
-	const first = { ...representativeParts("orchestrator", false), stateCapsule: "## Current task state\n- dispatches: 1" };
+	const first = { ...representativeParts(false), stateCapsule: "## Current task state\n- dispatches: 1" };
 	const second = { ...first, stateCapsule: "## Current task state\n- dispatches: 10" };
 	const firstLedger = recordHubLedger(assembleHubSystemPrompt(first), namedHubLedgerParts(first));
 	const secondLedger = recordHubLedger(assembleHubSystemPrompt(second), namedHubLedgerParts(second));
@@ -80,14 +76,9 @@ test("volatile state is separately attributable while stable policy stays byte-s
 	assert.notEqual(firstLedger.find(entry => entry.id === "hub/state")?.chars, secondLedger.find(entry => entry.id === "hub/state")?.chars);
 });
 
-test("policy duplication guard keeps detailed protocols out of the Hub persona", () => {
-	const persona = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
-	assert.match(persona, /skills\/orchestration-verification\/SKILL\.md/);
-	for (const duplicatedParagraph of ["Cap the open ledger at 8", "Give a peer time, not retries", "ASK_USER:", "NEEDS_RESEARCH:"]) assert.doesNotMatch(persona, new RegExp(duplicatedParagraph));
-});
 
 test("inactive pack policy fragments are absent and active fragments are attributed deterministically", () => {
-	const inactive = { ...representativeParts("operator", false), dispatchSection: "", verificationSection: "", comsSection: "", herdrSection: "", compactionSection: "", agentCatalog: "", researchCatalog: "", agentCards: [], researchCards: [] };
+	const inactive = { ...representativeParts(false), dispatchSection: "", verificationSection: "", comsSection: "", herdrSection: "", compactionSection: "", agentCatalog: "", researchCatalog: "", agentCards: [], researchCards: [] };
 	const inactivePrompt = assembleHubSystemPrompt(inactive);
 	const inactiveLedger = recordHubLedger(inactivePrompt, namedHubLedgerParts(inactive));
 	for (const id of ["hub/policy/dispatch", "hub/policy/verification", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction"]) {
@@ -95,19 +86,19 @@ test("inactive pack policy fragments are absent and active fragments are attribu
 	}
 	assert.doesNotMatch(inactivePrompt, /Native Roster|Verification Contract|Peer agents|Fleet \(herdr\)|Context recovery/);
 
-	const active = { ...representativeParts("orchestrator", true), compactionSection: "## Context recovery\n- request_compaction is active." };
+	const active = { ...representativeParts(true), compactionSection: "## Context recovery\n- request_compaction is active." };
 	const activeLedger = recordHubLedger(assembleHubSystemPrompt(active), namedHubLedgerParts(active));
 	assert.ok((activeLedger.find(entry => entry.id === "hub/policy/compaction")?.chars ?? 0) > 0);
 	assert.equal(activeLedger.reduce((sum, entry) => sum + entry.chars, 0), assembleHubSystemPrompt(active).length);
 });
 
 test("herdr is actual, zero, or unavailable — never an enabled placeholder", () => {
-	const off = representativeParts("orchestrator", false);
+	const off = representativeParts(false);
 	const offLedger = recordHubLedger(assembleHubSystemPrompt(off), namedHubLedgerParts(off));
 	const herdr = offLedger.find((entry) => entry.id === "hub/policy/workspace");
 	assert.equal(herdr?.chars, 0);
 	assert.equal(herdr?.confidence, "exact-chars");
 	assert.doesNotMatch(JSON.stringify(herdr), /enabled/);
 	assert.equal(assembleHubSystemPrompt(off).includes("## Fleet (herdr)"), false);
-	assert.equal(assembleHubSystemPrompt(representativeParts("orchestrator", true)).includes("## Fleet (herdr)"), true);
+	assert.equal(assembleHubSystemPrompt(representativeParts(true)).includes("## Fleet (herdr)"), true);
 });

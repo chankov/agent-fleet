@@ -10,7 +10,7 @@ import { HARNESS_VERSION } from "../version.ts";
 import { buildSessionStartNotice, createSessionFooter } from "./session-start.ts";
 
 const noticeData = {
-	workMode: "orchestrator",
+	workMode: "operator",
 	activeTeamName: "Default",
 	agentCount: 2,
 	members: "Builder, Verifier",
@@ -23,8 +23,9 @@ const noticeData = {
 
 test("session-start notice remains an exact data-oriented template", () => {
 	const notice = buildSessionStartNotice(noticeData);
-	assert.equal(createHash("sha256").update(notice).digest("hex"), "7490c96b202aa84ce749c7cc2d85d3e02771a2cd9faaa4a6282ea840fe1939bb");
-	assert.match(notice, /^Work Mode: orchestrator \(delegate-only\)/);
+	assert.equal(createHash("sha256").update(notice).digest("hex"), "a670ac4c40754c3b50c25cbe39aefc8dd1df23f94b90312e5acad18972ea04e9");
+	assert.match(notice, /^Work Mode: operator \(direct tools and delegation\)/);
+	assert.doesNotMatch(notice, /af-work-mode|Alt\+M|orchestrator/i);
 	assert.match(notice, /\/af-poll \[--panel NAME\].*same question/);
 	assert.match(notice, /\/af-debate \[--panel NAME\].*model panel$/);
 });
@@ -70,7 +71,8 @@ test("production footer reads the current provider and full model ID on each ren
 	off();
 	assert.match(footer.render(200)[0], /openrouter\/anthropic\/claude-sonnet-4\.5 {2,}Alt\+A fleet/);
 	assert.ok(!footer.render(200)[0].includes("(med)"));
-	assert.match(footer.render(200)[0], /Alt\+A fleet · Alt\+I inspect · Alt\+M Operator/);
+	assert.match(footer.render(200)[0], /Alt\+A fleet · Alt\+I inspect/);
+	assert.ok(!footer.render(200)[0].includes("Alt+M"));
 	assert.match(footer.render(200)[0], /\[####------\] 42%/);
 	assert.equal(footer.render(200)[1], " REC microphone");
 });

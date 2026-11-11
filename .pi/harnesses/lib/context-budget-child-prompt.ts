@@ -31,7 +31,7 @@ form
 with nothing after them. Your session pauses there; read-only research helpers are
 spawned for you, each helper's findings are saved to a file, and you are resumed in
 this same session with the file paths — read them and continue from where you left
-off. Ask at most ${maxQuestions} questions per pause. Use ASK_USER for unresolved decisions routed through the orchestrator; use NEEDS_RESEARCH for facts that can be looked up.`;
+off. Ask at most ${maxQuestions} questions per pause. Use ASK_USER for unresolved decisions routed through the operator; use NEEDS_RESEARCH for facts that can be looked up.`;
 }
 
 export function buildDelegationProtocol(roleNames: readonly string[], spawnBudget = DELEGATE_TREE_SPAWN_BUDGET): string {

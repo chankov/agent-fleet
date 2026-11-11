@@ -204,7 +204,6 @@ async function main(): Promise<void> {
 	let hubBrowser: boolean;
 	let hubAllExtensions: boolean;
 	let hubNoComs: boolean;
-	let hubWorkMode: "operator" | "orchestrator" | undefined;
 	let hubAgentTeam: string | undefined;
 	try {
 		dryRun = booleanFlag(argv, "--dry-run");
@@ -213,11 +212,9 @@ async function main(): Promise<void> {
 		hubAllExtensions = booleanFlag(argv, "--all-extensions");
   if(target&&hubAllExtensions)throw Error("Targeted teams refuse --all-extensions; select explicit workspace resources");
 		hubNoComs = booleanFlag(argv, "--no-coms");
-		const workMode = flagValue(argv, "--work-mode");
-		if (workMode && workMode !== "operator" && workMode !== "orchestrator") {
-			throw new Error("--work-mode requires operator or orchestrator");
-		}
-		hubWorkMode = workMode ?? undefined;
+		// Deprecated (2026-11-11): the Hub has one operator work mode.
+		const legacyWorkMode = flagValue(argv, "--work-mode");
+		if (legacyWorkMode) console.warn(`[team-up] --work-mode ${legacyWorkMode} is deprecated and ignored: the Hub has one operator work mode.`);
 		const canonicalAgents = flagValue(argv, "--agents");
 		const legacyAgents = flagValue(argv, "--legacy-agents");
 		if (canonicalAgents && legacyAgents) throw new Error("--agents and --legacy-agents are mutually exclusive");
@@ -230,11 +227,8 @@ async function main(): Promise<void> {
 	} catch (err) {
 		die(err instanceof Error ? err.message : String(err));
 	}
-	if (!hub && (hubBrowser || hubAllExtensions || hubNoComs || hubWorkMode || hubAgentTeam)) {
-		die("--work-mode/--agents/--no-coms/--browser/--all-extensions apply to the hub pane and therefore require --hub");
-	}
-	if (hubWorkMode === "orchestrator" && !hubAgentTeam) {
-		die("--work-mode orchestrator requires --agents <roster>");
+	if (!hub && (hubBrowser || hubAllExtensions || hubNoComs || hubAgentTeam)) {
+		die("--agents/--no-coms/--browser/--all-extensions apply to the hub pane and therefore require --hub");
 	}
 	let conductor: ConductorBackend | null;
 	try {
@@ -280,7 +274,6 @@ async function main(): Promise<void> {
 	// reads them, and a peer is not a hub.
 	const monitorEnv = dryRun ? null : resolveMonitorEnv();
 	const hubOptions = {
-		workMode: hubWorkMode,
 		agentTeam: hubAgentTeam,
 		noComs: hubNoComs,
 		browser: hubBrowser,

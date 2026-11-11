@@ -105,7 +105,7 @@ Then start a fleet:
 
 ```bash
 just fleet                                      # Hub/operator; direct tools; empty native roster
-just fleet --agents frontend                    # Hub/orchestrator + native specialists
+just fleet --agents frontend                    # Hub/operator starting with native specialists
 just fleet --agents frontend --peers frontend --project af
                                                 # same Hub + standing peers in Herdr
 ```
@@ -338,7 +338,7 @@ See **[native MCP setup](docs/codex-local-mcp.md)**, **[text/voice workflow](doc
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is now one `agent-hub` runtime with two work modes. Bare `just fleet` starts in **operator** work mode: direct `read`/`bash`/`edit`/`write`, orchestration tools, embedded `coms`, and an empty native roster. **Orchestrator** work mode removes `bash`/`edit`/`write` and drives specialist subagents — planner, builder, reviewer, test-engineer, documenter — under the Verification Contract. It keeps read-only `filesystem` inspection and refuses to self-read above 64 KiB per file or per turn. Both work modes keep the same Hub commands, research helpers, peer collaboration, and `damage-control-continue` guardrails.
+Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to every installed agent, embedded `coms`, and `damage-control-continue` guardrails. The operator decides when to delegate: research runs in parallel by default, non-trivial changes get an independent review, `poll_panel` asks the model panel for decisions, and builders can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 
@@ -355,14 +355,11 @@ What makes it different is what it **doesn't** put in front of the dispatcher LL
 
 ```bash
 just fleet                                      # operator; empty native roster
-just fleet --agents frontend                    # native roster; orchestrator inferred
-just fleet --work-mode operator --agents frontend # direct work plus the same roster
+just fleet --agents frontend                    # operator starting with a native roster
 just fleet --no-coms                            # direct/native work; no peer messaging
 
-# live work mode and roster changes preserve the session
+# roster changes preserve the session; dispatching any installed agent also adds it
 /af-agents-add code-reviewer
-/af-work-mode orchestrator      # Alt+M picker
-/af-work-mode operator
 
 # Herdr topology (requires a running server — https://herdr.dev)
 just fleet --herdr --project af
@@ -371,7 +368,7 @@ just fleet --agents frontend --peers frontend --project af
 
 Native specialists are local headless Pi subprocesses; standing peers are separate Pi or Claude Code processes in sibling Herdr panes. They can share a name without ambiguity: `dispatch_agent(..., backend: "native")` always starts the local Pi specialist, `backend: "coms"` requires the live peer, and `backend: "auto"` follows `.pi/agents/dispatch-policy.yaml`.
 
-From a Hub pane, add a declared Claude reviewer with `herdr_spawn_peer({ name: "code-reviewer" })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff code-reviewer` works in either work mode when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. All Hub slash commands remain registered in both work modes and unavailable capabilities refuse with remediation instead of disappearing.
+From a Hub pane, add a declared Claude reviewer with `herdr_spawn_peer({ name: "code-reviewer" })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff code-reviewer` works when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. All Hub slash commands remain registered in both work modes and unavailable capabilities refuse with remediation instead of disappearing.
 
 Compatibility forms (`just fleet hub`, `just fleet team <preset>`, and `--solo`) remain accepted during migration and print canonical replacements; use `--no-coms` instead of `--solo`.
 
@@ -425,7 +422,7 @@ Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/ski
 
 ## Agent personas
 
-15 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
+14 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
 
 Each persona is one Markdown file in pi's own frontmatter dialect, installed verbatim to `.pi/agents/personas/` in your workspace — there is no per-agent translation step. A persona you write yourself in `agents/` or `.claude/agents/` is scanned first and wins over an installed one of the same name. Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub.
 
@@ -451,7 +448,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime layers, fleet hierarchy, module map, external dependencies |
 | [docs/getting-started.md](docs/getting-started.md) | First session walkthrough |
 | [docs/skills-catalog.md](docs/skills-catalog.md) | All 29 skills with descriptions and triggers |
-| [docs/agents.md](docs/agents.md) | All 15 personas: roster, skill hooks, install matrix, teams |
+| [docs/agents.md](docs/agents.md) | All 14 personas: roster, skill hooks, install matrix, teams |
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-persona models, dispatcher language, rules/docs targets |
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |

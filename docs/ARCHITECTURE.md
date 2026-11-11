@@ -107,15 +107,13 @@ harness. Three independent choices shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Work Mode** | `operator`, `orchestrator` | Whether the main agent may use direct coding tools. Operator retains the captured `read`/`bash`/`edit`/`write` and approved extension surface; orchestrator removes those coding tools and keeps dispatch, research, assertions, `ask_user`, read-only `filesystem` stat/inventory/excerpt/readback, and available coms/Herdr tools. The orchestrator self-read ceiling is 64 KiB for one file and 64 KiB for the turn. Above that, research or a specialist gets the path, not the body. `dispatch_triage` is listed only when that consumer can evaluate. `/af-work-mode` and **Alt+M** switch this axis. |
-| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Roster changes do not change work mode in a live session. |
-| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change work mode or the native roster. |
+| **Operator** | one | The main agent always keeps the captured `read`/`bash`/`edit`/`write` and approved extension surface plus delegation to every installed agent, `poll_panel`, and available coms/Herdr tools. Whether to delegate is its judgment (PHILOSOPHY, 2026-11-11); the former delegate-only `orchestrator` work mode was removed. |
+| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Dispatching an installed agent outside the roster adds it. |
+| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change the native roster. |
 
-Bare `just fleet` therefore means operator work mode, an empty native roster, and
-the current terminal. At startup an explicit `--work-mode` wins; otherwise
-`--agents <roster>` implies orchestrator; otherwise operator is used. An
-orchestrator startup requires a roster. `/af-work-mode` and **Alt+M** switch
-only work mode in the live session, and `/af-agents-*` changes
+Bare `just fleet` therefore means the operator, an empty native roster, and
+the current terminal; `--agents <roster>` only picks the starting roster.
+`--work-mode` is deprecated and ignored with a warning, and `/af-agents-*` changes
 only the native roster. Dispatch, research, nested delegation, and Verification
 Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
 not a session execution mode. Dispatch/research counts and active duration are
@@ -149,7 +147,7 @@ fresh proof. Plain continue/resume inputs retain the accepted task; identical
 classification declarations avoid new triage, revision hashing and journal writes.
 Changed intent still uses the existing task-transition fence.
 
-All Hub-owned slash commands remain registered in both work modes. Capability packs are resolved automatically from explicit task intent, work mode, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roster, permissions, or the setter's existing transition/confirmation gates.
+All Hub-owned slash commands are always registered. Capability packs are resolved automatically from explicit task intent, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roster, permissions, or the setter's existing transition/confirmation gates.
 
 `/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt in both work modes and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
@@ -176,11 +174,10 @@ entries store only numeric/enumerated pressure metadata, never prompts, tool pay
 error bodies, or summaries.
 
 A persisted native roster is also metadata, not copied configuration: only its team name is stored
-and it is re-resolved against current teams and persona definitions. A stale or absent roster in a
-resumed orchestrator session fails closed—work mode remains orchestrator, direct tools remain removed,
-and model input is blocked until `/af-agents-team`, an explicit `--agent-team <name>` restart, or an
-explicit operator selection resolves it. Explicit CLI work mode and roster selections retain
-precedence.
+and it is re-resolved against current teams and persona definitions. A stale or absent roster is
+reported and the session continues without it. A session saved in the removed orchestrator mode
+continues as the operator with a one-time notice; the Hub records the operator so the notice is not
+repeated. An explicit `--agent-team` selection retains precedence.
 
 Pi's session JSONL is the authoritative append-only record for rebuilding a session, including
 compaction and Hub metadata. Pressure and roster recovery operate through Pi/Hub lifecycle APIs;
@@ -208,7 +205,7 @@ flowchart TD
     You(["You · Hermes relay · Codex native text/voice"])
 
     subgraph HUBL["HUB — guarded runtime  (bare just fleet)"]
-        Hub["agent-hub harness<br/>operator or orchestrator work mode · routes tasks<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
+        Hub["agent-hub harness<br/>one operator · works directly and delegates<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
     end
 
     subgraph TEAML["OPTIONAL NATIVE ROSTER  (.pi/agents/teams.yaml)"]
@@ -407,8 +404,7 @@ local-file-only source snapshots without another model run. It is registered in 
 children but appears in their effective tool surface only while the inherited complete profile has
 `assist.deterministic-tools: true`; stale or forged calls are refused at execution too. Profile and
 work-mode changes rebuild the truthful T4 catalog, and compaction reconciles that effective surface.
-Orchestrator mode may use this narrow inspection/managed-snapshot exception, but still has no generic
-bash, edit, or write tools. Orchestrator excerpt, readback, and inventory share a 64 KiB turn ceiling and refuse a file above 64 KiB without returning its body. Excerpt hashes and reads a window, not the whole file into memory. The recovery is `spawn_research` or a specialist dispatch that carries the path, not the contents. Native specialist, research, and nested-delegate explicit tool caps remain
+Excerpt hashes and reads a window, not the whole file into memory. Native specialist, research, and nested-delegate explicit tool caps remain
 authoritative: the assist flag cannot append `filesystem` outside a declared cap.
 Opaque handles bind canonical paths,
 content hashes/fingerprints, and offsets; continuation fails on stale bytes or directory state,
@@ -516,7 +512,7 @@ application of work-mode tools compares the actual active catalog before and aft
 `setActiveTools` and can emit `agent-fleet.tool-catalog-delta/v1`: removed, added/available,
 active substitutes with explicit limitations, `permissionExpansion: false`, and SHA-256 catalog
 identities. The delta is persisted as a trusted session entry and included in the next system
-prompt. Orchestrator mode still excludes direct `write`, `edit`, and `bash`; a substitute is only
+prompt. A substitute is only
 an already-active path such as `dispatch_agent` or read-only inspection, and is never invoked by
 the catalog machinery.
 
@@ -598,9 +594,8 @@ observed in-flight from the JSON event stream — deterministic rules (out-of-sc
 against the declared `scope` globs, tool-call loops, consecutive failures, tool-call cap)
 escalate to a one-shot cheap LLM judge whose DRIFTING/STUCK verdict terminates the run as
 `drift_stop` (exit 125, partial output preserved); enabled per hub/agent/dispatch
-(`watchdog` key, `/af-watchdog`, `watchdog` param). Orchestrator work mode auto-arms the
-watchdog when the hub setting is `auto`/`on`; a dispatch `watchdog: false` cannot disarm it
-there. Hub or per-agent `off` remains the opt-out. Two rules about scope: the session's
+(`watchdog` key, `/af-watchdog`, `watchdog` param); a dispatch `watchdog` param wins over the
+per-agent and hub settings. Hub or per-agent `off` remains the opt-out. Two rules about scope: the session's
 own `artifacts/`, `findings/`, and `delegations/` subtrees are implicitly in scope (the
 deliverable protocol *orders* specialists to write there, and the judge is told so), and the
 `scope` rule is non-terminal — it reports a drift advisory on the result and never stops a

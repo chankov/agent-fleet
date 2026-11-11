@@ -59,9 +59,9 @@ test('automatic actual parent inventory/find/ls/grep before model, all tiers and
  }
  assert.equal(f.calls(),12);
  const next=await f.toolResult('find',originals[1][1],originals[1][2],'next');assert.equal(next.details.fileDiscovery.counts.cached,3);assert.equal(f.calls(),12);
- for(const tier of ['trivial','small','feature','project'])for(const workMode of ['operator','orchestrator'] as const){
- let active:string[]=[];const policy=createWorkModePolicy({getBaselineTools:()=>['read','find','ls','grep','bash','ask_system1_files'],getRosterSize:()=>1,getActiveTeamName:()=> 'default',getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>false,getFileDiscoveryEnabled:()=>discoveryHubEnabled(f.pi),getIdentityLabel:()=>null,getTaskTier:()=>tier,getPendingOperations:()=>[],getContextState:()=> 'normal',setActiveTools:tools=>active=tools,persist(){},replayDeferredInputs(){},watchdogArmed:()=>false},workMode);
- policy.applyWorkModeTools();assert.ok(active.includes('ask_system1_files'));if(workMode==='orchestrator')assert.ok(!active.includes('bash'));
+ for(const tier of ['trivial','small','feature','project']){
+ let active:string[]=[];const policy=createWorkModePolicy({getBaselineTools:()=>['read','find','ls','grep','bash','ask_system1_files'],getRosterSize:()=>1,getActiveTeamName:()=> 'default',getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>false,getFileDiscoveryEnabled:()=>discoveryHubEnabled(f.pi),getIdentityLabel:()=>null,getTaskTier:()=>tier,getPendingOperations:()=>[],getContextState:()=> 'normal',setActiveTools:tools=>active=tools,persist(){}});
+ policy.applyWorkModeTools();assert.ok(active.includes('ask_system1_files'));assert.ok(active.includes('bash'),'the operator keeps direct tools');
  }
 });
 test('precise skip and failure keep original candidates; bounded-output chaining and no arbitrary bash parsing',async t=>{
@@ -85,7 +85,7 @@ test('explicit paths/patterns/custom-only questions use same engine, reserved ID
  assert.equal((await f.execute('ask_system1_files',{paths:['docs/file-0.ts'],command:'bad'})).details.reason,'invalid_input');
  process.env.AGENT_FLEET_AGENTIC_CHILD='1';try{assert.equal(discoveryHubEnabled(f.pi),false);assert.equal((await f.execute('ask_system1_files',{paths:['docs/file-0.ts']})).details.reason,'consumer_off');}finally{delete process.env.AGENT_FLEET_AGENTIC_CHILD;}
  await resetDiscoveryHub(f.pi);assert.equal(await f.toolResult('find',{path:'docs'},{content:[{type:'text',text:'file-0.ts\nfile-1.ts'}]},'off'),undefined);
- for(const workMode of ['operator','orchestrator'] as const)assert.ok(!resolveWorkModeTools({workMode,baselineTools:['ask_system1_files'],comsReady:false,herdrReady:false,askUserAvailable:false}).includes('ask_system1_files'));
+ assert.ok(!resolveWorkModeTools({baselineTools:['ask_system1_files'],comsReady:false,herdrReady:false,askUserAvailable:false}).includes('ask_system1_files'));
 });
 test('B1 off/unconfigured automatic hooks are inert and preserve byte-identical discovery and read evidence without capture or inference',async t=>{
  const f=setup(t);await resetDiscoveryHub(f.pi);

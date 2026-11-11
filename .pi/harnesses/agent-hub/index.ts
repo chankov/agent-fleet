@@ -61,7 +61,7 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, orchestratorNeedsRoster, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
 import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
@@ -85,9 +85,7 @@ import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredRet
 import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState, resolveSessionWorkMode, resolveSessionRoster, type WorkMode } from "./work-mode.ts";
-import { compactWorkMode } from "./work-mode-controls.ts";
-import { registerWorkMode } from "./commands/work-mode.ts";
+import { NATIVE_ROSTER_ENTRY_TYPE, RETIRED_WORK_MODE_NOTICE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, resolveSessionRoster, sessionSavedInRetiredWorkMode, type WorkMode } from "./work-mode.ts";
 import { registerAgentsTeam } from "./commands/agents-team.ts";
 import { registerAgentsList } from "./commands/agents-list.ts";
 import { registerAgentsHistory } from "./commands/agents-history.ts";
@@ -272,7 +270,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("color", { description: "Coms: hex color #RRGGBB (else frontmatter or palette fallback)", type: "string", default: undefined });
 	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
 	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just fleet hub --solo`)", type: "boolean", default: false });
-	pi.registerFlag("work-mode", { description: "Fleet main-agent work mode: operator|orchestrator", type: "string", default: undefined });
+	pi.registerFlag("work-mode", { description: "Deprecated and ignored: the Hub has one operator work mode", type: "string", default: undefined });
 	pi.registerFlag("agent-team", { description: "Internal: activate a named native roster from .pi/agents/teams.yaml", type: "string", default: undefined });
 
 	// ── Embedded coms: shared peer state ──
@@ -315,9 +313,6 @@ export default function (pi: ExtensionAPI) {
 		getContext: () => currentCtx,
 		instructionReceipts: true,
 		onPeersChanged: () => refreshFleetUi(),
-		acceptInbound: () => currentCtx && modelWorkBlockedByRosterRecovery(currentCtx)
-			? "orchestrator roster recovery required"
-			: null,
 		handleCustomEnvelope: (socket, envelope) => {
    if(connectionControl.handle(socket,envelope))return true;
 			if (handleObservationEnvelope(socket, envelope, {
@@ -540,7 +535,6 @@ export default function (pi: ExtensionAPI) {
 	let transitionDiversions = 0;
 	let transitionHintDelivered = false;
 	let transitionBatchRefused = false;
-	let orchestratorSelfReadUsed = 0;
 	const processBlock = () => processPersistenceBlocked ? { reason: "process_state_corrupt", message: "Process persistence is blocked; dependent effects remain refused. Ask the human to run /af-task-triage-recover for a checked in-session append/readback; if it refuses, inspect or resume a valid session. Never edit session JSONL or reset obligations." } : pendingTaskTransition ? { reason: "task_transition_pending", message: taskTransitionRecoveryHint } : null;
 	const persistProcessVerdict = (state: ProcessObligationState, verdict: ProcessVerdict) => {
 		try { pi.appendEntry("agent-hub-process-state", processAuditRecord(state, verdict)); }
@@ -561,10 +555,8 @@ export default function (pi: ExtensionAPI) {
 	let runHistoryKeep: number | null = DEFAULT_RUN_HISTORY_KEEP;
 	// ── Drift watchdog (drift-watchdog.js) ──
 	// Hub-wide setting from the overrides file, live-switchable via /af-watchdog;
-	// per-agent overrides ("on"/"off") win over it. In operator work mode a
-	// dispatch_agent `watchdog` param wins over both. In orchestrator work mode the
-	// watchdog auto-arms unless hub or per-agent is explicitly off; dispatch
-	// `watchdog: false` cannot disarm it.
+	// per-agent overrides ("on"/"off") win over it, and a dispatch_agent
+	// `watchdog` param wins over both.
 	let watchdogSetting: string = DEFAULT_WATCHDOG_SETTING;
 	let watchdogJudgeModel: string | null = null;
 	let watchdogSystem1: WatchdogSystem1Session | null = null;
@@ -775,7 +767,6 @@ export default function (pi: ExtensionAPI) {
 		quarantineSession: agentStateFactory.quarantine,
 		persist: team => pi.appendEntry(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState(team)),
 		recompute: recomputeGrid, refreshUi: () => updateWidget(), displayName,
-		orchestratorNeedsRosterAfterDrop: size => orchestratorNeedsRoster(getWorkMode(), size),
 	});
 	const { activateTeam, persistActiveRoster, add: rosterAdd, drop: rosterDrop } = rosterPolicy;
 
@@ -1044,27 +1035,17 @@ export default function (pi: ExtensionAPI) {
 		getAgenticAskEnabled: () => agenticHubEnabled(pi),
    getFileDiscoveryEnabled: () => discoveryHubEnabled(pi),
 		getDispatchTriageEnabled: () => triageRuntime?.available === true,
-		activateFallbackRoster: ctx => {
-			if (!rosterPolicy.activateFirstValidTeam()) return;
-			workModePolicy.clearRosterRecovery();
-			persistActiveRoster();
-			setTimeout(replayDeferredRecoveryInputs, 0);
-			updateWidget();
-			ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
-		},
 		getActiveTeamName: () => activeTeamName, getComsReady: () => comsReady,
 		getHerdrReady: () => herdrFleetReady, getAskUserAvailable: () => askUserAvailable,
 		getIdentityLabel: () => identity ? `${identity.name}@${identity.project}` : null,
 		getTaskTier: () => taskTier, getPendingOperations: pendingCapabilityOperations,
 		getContextState: capabilityContextState, getActiveTools: () => pi.getActiveTools(), setActiveTools: tools => pi.setActiveTools(tools),
 		recordToolCatalog: recordToolCatalogChange,
-		persist: (type, data) => pi.appendEntry(type, data), replayDeferredInputs: replayDeferredRecoveryInputs,
-		watchdogArmed: mode => resolveWatchdogActive(undefined, undefined, watchdogSetting, mode),
+		persist: (type, data) => pi.appendEntry(type, data),
 	});
 	const {
 		getWorkMode, getCapabilityResolution, resolveIncomingCapabilities, provisionalCapabilityRefusal,
-		applyWorkModeTools, modelWorkBlockedByRosterRecovery,
-		statusText: workModeStatusText, applySelection: applyWorkModeSelection, openPicker: openWorkModePicker,
+		applyWorkModeTools, statusText: workModeStatusText,
 	} = workModePolicy;
 
 
@@ -1274,8 +1255,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	registerPollPanel(pi, {
-		blocked: ctx => provisionalCapabilityRefusal("fleet")?.content[0]?.text
-			?? (modelWorkBlockedByRosterRecovery(ctx) ? "Model work is blocked until the roster recovery is resolved; nothing started or charged." : null),
+		blocked: () => provisionalCapabilityRefusal("fleet")?.content[0]?.text ?? null,
 		run: (params, ctx, onProgress) => withProfileWork(async () => {
 			const cwd = ctx.cwd || process.cwd();
 			try { return await runAfPoll({ ...params, ...hubPollPorts(ctx, cwd, { started: onProgress, voice: onProgress }) }); }
@@ -1289,18 +1269,15 @@ export default function (pi: ExtensionAPI) {
 	registerFleetTools(pi, toolCtx);
 	registerFilesystemTool(pi, {
 		enabled: () => resolveAssist(readActiveProfile()?.profile.assist)['deterministic-tools'],
-		readOnly: () => getWorkMode() === "orchestrator",
 		sessionDir: () => sessionDir,
 		policyRoots: () => sessionOverrides?.policyRoots,
 		managedReadbackAllowed: handle => discoveryManagedReadbackAllowed(pi,handle),
-  remainingSelfReadBytes: () => Math.max(0, 64 * 1024 - orchestratorSelfReadUsed),
-		noteSelfReadBytes: bytes => { orchestratorSelfReadUsed += bytes; },
 	});
 
 	const researchControls = createResearchControls({
 		runtime: researchRuntime,
 		refresh: () => {},
-		getAgents: () => agentStates, displayName, modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		getAgents: () => agentStates, displayName, modelWorkBlocked: () => false,
 		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind } }),
 		cancelOwned: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		restartSpecialist: async (state: AgentState, ctx) => {
@@ -1345,16 +1322,13 @@ export default function (pi: ExtensionAPI) {
 			{ label: "Active roster", detail: activeTeamName ? `${activeTeamName} (${agentStates.size} specialists)` : "(none)", origin: ".pi/agents/teams.yaml" },
 			{ label: "Coms identity", detail: identity ? `${identity.name}@${identity.project}${comsReady ? "" : " · not ready"}` : "not connected", origin: "runtime" },
 			{ label: "Node", detail: process.version, origin: "runtime" },
-			{ label: "Related screens", detail: "/af-work-mode · /af-agents-team · /af-dispatch-policy · /af-context · /af-allowed · /af-coms", origin: "runtime" },
+			{ label: "Related screens", detail: "/af-agents-team · /af-dispatch-policy · /af-context · /af-allowed · /af-coms", origin: "runtime" },
 		],
 	});
 	const openFleetConfig = (ctx: ExtensionContext, args = "") => gridUI.withSuspended(() => fleetConfigUi.open(ctx, args));
 
 	const commandCtx: CommandContext = {
 		setWidgetContext: ctx => { widgetCtx = ctx; },
-		applyWorkModeSelection,
-		getWorkModeStatusText: workModeStatusText,
-		openWorkModePicker,
 		handleTaskTriageRecover: () => {
 			if (!processPersistenceBlocked) return false;
 			try {
@@ -1440,7 +1414,6 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			activateTeam(selected.roster.name);
-			workModePolicy.clearRosterRecovery();
 			persistActiveRoster();
 			resolveIncomingCapabilities("");
 			applyWorkModeTools();
@@ -1845,7 +1818,6 @@ export default function (pi: ExtensionAPI) {
 			await coms.updateScope((args ?? "").trim(), ctx);
 		},
 		handleHandoff: async (args, ctx) => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!comsReady) { ctx.ui.notify("coms is not active in this session — /af-handoff unavailable.", "warning"); return; }
 			const target = (args ?? "").trim();
 			if (!target) {
@@ -1874,7 +1846,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Handoff to ${peer.name}: asking the dispatcher to compose a brief…`, "info");
 		},
 		handleCompound: async (args, ctx) => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			if (!agentStates.has("documenter")) {
 				ctx.ui.notify(
 					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
@@ -1912,7 +1883,6 @@ export default function (pi: ExtensionAPI) {
 		},
 		handlePoll: async (args, ctx) => {
 			return withProfileWork(async () => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const cwd = ctx.cwd || process.cwd();
 			const followUp = (customType: string) => (content: string) => pi.sendMessage({ customType, content, display: true }, { deliverAs: "followUp", triggerTurn: false });
 			const result = await handleAfPoll({ args: args ?? "", ...hubPollPorts(ctx, cwd, { started: followUp("af-poll-started"), voice: followUp("af-poll-voice") }) });
@@ -1932,7 +1902,6 @@ export default function (pi: ExtensionAPI) {
 		},
 		handleDebate: async (args, ctx) => {
 			return withProfileWork(async () => {
-			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const cwd = ctx.cwd || process.cwd();
 			const result = await handleAfDebate({
 				args: args ?? "",
@@ -2042,7 +2011,6 @@ export default function (pi: ExtensionAPI) {
 	registerContextCommand(pi, commandCtx);
 	registerAudit(pi, commandCtx);
 	registerConfig(pi, commandCtx);
-	registerWorkMode(pi, commandCtx);
 	registerWatchdog(pi, commandCtx);
 	registerAgentsAdd(pi, commandCtx);
 	registerAgentsDrop(pi, commandCtx);
@@ -2093,7 +2061,7 @@ export default function (pi: ExtensionAPI) {
 		getResearch: () => researchStates,
 		parseResearchHandle,
 		displayName,
-		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		modelWorkBlocked: () => false,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
 		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
@@ -2129,7 +2097,7 @@ export default function (pi: ExtensionAPI) {
 		openDetail: openFleetDetail,
 		openHistory: ctx => openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub")),
 		openConfig: ctx => fleetConfigUi.open(ctx as ExtensionContext),
-		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		modelWorkBlocked: () => false,
 		restartSpecialist: researchControls.restartSpecialist,
 		removeResearch: researchControls.remove,
 		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
@@ -2189,7 +2157,6 @@ export default function (pi: ExtensionAPI) {
 	registerInputShortcuts(pi, {
 		setWidgetContext: ctx => { widgetCtx = ctx; }, openFleetDashboard,
 		toggleFleetWidget: () => gridUI.toggle(),
-		workModeStatusText, openWorkModePicker,
 		openFleetConfig: ctx => openFleetConfig(ctx),
 	});
 
@@ -2365,10 +2332,10 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("before_agent_start", async () => {
 		if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
-			try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "before_agent_start", consumerPresent: !!taskTriage, consumerStatus: taskTriage?.status.status ?? null, consumerDetail: taskTriage?.status.detail ?? null, calls: taskTriage?.calls ?? null, processPersistenceBlocked, rosterBlocked: !!currentCtx && modelWorkBlockedByRosterRecovery(currentCtx), pendingTaskTransition }) + "\n"); } catch { /* diagnostic only */ }
+			try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "before_agent_start", consumerPresent: !!taskTriage, consumerStatus: taskTriage?.status.status ?? null, consumerDetail: taskTriage?.status.detail ?? null, calls: taskTriage?.calls ?? null, processPersistenceBlocked, rosterBlocked: false, pendingTaskTransition }) + "\n"); } catch { /* diagnostic only */ }
 		}
 		// Pressure/roster recovery gates run first; assessment runs before this model input.
-		if (taskTriage && !processPersistenceBlocked && (!currentCtx || !modelWorkBlockedByRosterRecovery(currentCtx))) {
+		if (taskTriage && !processPersistenceBlocked) {
 			// Persist the first task identity before binding a pre-model assessment:
 			// compaction/resume must not mint a new ID for the same cached input.
 			try { noProgress.persistTaskIdentity(); } catch { processPersistenceBlocked = true; }
@@ -2402,7 +2369,7 @@ export default function (pi: ExtensionAPI) {
 		appendEntry: (type, data) => pi.appendEntry(type, data),
 		sendUserMessage: (content, options) => pi.sendUserMessage(content as any, options),
 		resolveCapabilities: resolveIncomingCapabilities, applyWorkMode: applyWorkModeTools,
-		modelWorkBlocked: modelWorkBlockedByRosterRecovery,
+		modelWorkBlocked: () => false,
 		onAcceptedInput: (text, source, replayed) => {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
             if(hubTaskText && isTaskContinuation(text))return;
@@ -2422,7 +2389,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		pressureLifecycle.messageEnd(event, ctx);
 	});
-	pi.on("turn_start", event => { orchestratorSelfReadUsed = 0; hubCapture.start(event.turnIndex); });
+	pi.on("turn_start", event => { hubCapture.start(event.turnIndex); });
 	pi.on("turn_end", async (event, ctx) => {
 		if (transitionBatchRefused && pendingTaskTransition) transitionHintDelivered = true;
 		transitionBatchRefused = false;
@@ -2474,7 +2441,7 @@ export default function (pi: ExtensionAPI) {
 	registerSessionOrchestration(pi, {
 		resetSession: async (_ctx) => { await resetDamageGuardHub(pi); resetHubSession(_ctx, {
 			registerVersion: registerVersionStatus, resetPressure: pressureLifecycle.reset,
-			clearRosterRecovery: workModePolicy.clearRosterRecovery, captureBaselineTools: () => { baselineTools = pi.getActiveTools(); },
+			captureBaselineTools: () => { baselineTools = pi.getActiveTools(); },
 			resetAccessApproval: () => {codexNotifications?.stop();codexNotifications=undefined;accessApprovalRouter.reset();permissionRelay.reset();accessEpochs.clear();},
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
@@ -2638,40 +2605,25 @@ export default function (pi: ExtensionAPI) {
 			if (persistedCatalog) toolCatalogRuntime.restore(persistedCatalog);
 			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);
 			if (persistedUnknownTools) unknownToolCounter = restoreUnknownToolCounter(persistedUnknownTools, { limit: 3 });
-			const explicitWorkMode = pi.getFlag("work-mode");
+			const legacyWorkModeFlag = pi.getFlag("work-mode");
 			const explicitRoster = pi.getFlag("agent-team");
-			const hasExplicitRoster = typeof explicitRoster === "string" && explicitRoster.trim() !== "";
 			const startupRoster = resolveSessionRoster({
 				teams,
 				entries: sessionEntries,
 				explicitRoster,
 				availablePersonas: allAgentDefs.map(def => def.name),
-				includePersisted: !(explicitWorkMode === "operator" && !hasExplicitRoster),
 			});
-			workModePolicy.setRestoredWorkMode(resolveSessionWorkMode({
-				entries: sessionEntries,
-				explicitWorkMode,
-				hasExplicitRoster: startupRoster.source === "explicit",
-			}));
 			if (startupRoster.roster) {
 				activateTeam(startupRoster.roster.name);
 				persistActiveRoster();
 			}
-			const rosterRecoveryRequired = orchestratorNeedsRoster(getWorkMode(), agentStates.size);
-			const rosterRecoveryDiagnostic = rosterRecoveryRequired
-				? startupRoster.diagnostic || "Persisted orchestrator work mode has no native roster."
-				: "";
-			workModePolicy.setRosterRecovery(rosterRecoveryRequired, rosterRecoveryDiagnostic);
-			if (startupRoster.diagnostic) {
-				_ctx.ui.notify(
-					`${startupRoster.diagnostic} ${rosterRecoveryRequired ? "Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator." : "Continuing without that roster."}`,
-					rosterRecoveryRequired ? "error" : "warning",
-				);
-			} else if (rosterRecoveryRequired) {
-				_ctx.ui.notify(
-					`${rosterRecoveryDiagnostic} Model input is blocked until you select /af-agents-team, restart with --agent-team <name>, or switch explicitly with --work-mode operator.`,
-					"error",
-				);
+			if (startupRoster.diagnostic) _ctx.ui.notify(`${startupRoster.diagnostic} Continuing without that roster.`, "warning");
+			// The orchestrator mode was removed (2026-11-11). Tell the human once, then
+			// record the operator so a resumed session does not repeat the notice.
+			const legacyFlag = typeof legacyWorkModeFlag === "string" ? legacyWorkModeFlag.trim() : "";
+			if (legacyFlag || sessionSavedInRetiredWorkMode(sessionEntries)) {
+				_ctx.ui.notify(legacyFlag ? `--work-mode ${legacyFlag} is ignored. ${RETIRED_WORK_MODE_NOTICE}` : RETIRED_WORK_MODE_NOTICE, "warning");
+				if (sessionSavedInRetiredWorkMode(sessionEntries)) { try { pi.appendEntry(WORK_MODE_ENTRY_TYPE, { workMode: "operator" }); } catch { /* the notice repeats next resume */ } }
 			}
 		},
 		resolveCapabilities: async (_ctx) => {
@@ -2736,7 +2688,7 @@ export default function (pi: ExtensionAPI) {
 				getModel: () => _ctx.model ? `${_ctx.model.provider}/${_ctx.model.id}` : "no-model",
 				getThinkingLevel: () => pi.getThinkingLevel?.() ?? undefined,
 				thinkingSuffix,
-				getHint: () => composeFleetFooterHint(compactWorkMode(getWorkMode())),
+				getHint: () => composeFleetFooterHint(),
 				renderLeft: renderHubFooterLeft,
 				truncateToWidth,
 				visibleWidth,

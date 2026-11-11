@@ -2,7 +2,7 @@
 // extension in a real Pi runtime with an injectable fake shared System 1
 // service with a guarded fake transport (AGENT_HUB_TASK_TRIAGE_FAKE — test-only
 // seam in index.ts, not a separate provider/service) and a network guard. Gathers actual registered-hook evidence for
-// operator/orchestrator task-triage paths.
+// operator task-triage paths, with and without a native roster.
 //
 // No real API/model credentials: the child environment uses a whitelisted
 // synthetic readiness key and NODE_OPTIONS preloads
@@ -231,7 +231,7 @@ async function startSession(t: any, dir: string, opts: { fake: string; script: S
     "-e", join(repoRoot, ".pi/harnesses/ask-user-remote/index.ts"),
     "-e", loadedHubEntry,
     "-e", join(dir, "probe.ts"),
-    ...(opts.fleetArgs ?? ["--solo", "--work-mode", "operator"]),
+    ...(opts.fleetArgs ?? ["--solo"]),
     "--model", "triage-e2e/m",
   ], { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"], detached: true });
   let seq = 0;
@@ -450,7 +450,7 @@ test("real Pi active assessment refresh preserves explicit compaction and drops 
     const dir = setupWorkspace(t);
     if (mode === "off") writeFileSync(join(dir, ".ai/system1.json"), JSON.stringify(triageDocument({ ...TRIAGE_CONFIG, mode: "off", remoteContextApproved: false })));
     const session = await startSession(t, dir, { fake: mode === "off" ? "plain" : mode, script: [{ text: "Synthetic capability inspection only; no tool execution." }],
-      fleetArgs: ["--solo", "--work-mode", "operator", "-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] });
+      fleetArgs: ["--solo", "-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] });
     assert.equal((await session.request("Please compact the conversation.")).success, true);
     assert.ok(session.contexts()[0].tools.includes("request_compaction"), `${mode}: current explicit compaction survives pre-model assessment refresh`);
     assert.equal(session.fakeCalls().length, mode === "off" ? 0 : 1, "refresh introduces no extra inference");
@@ -755,20 +755,20 @@ test("real Pi refuses unsafe or oversized exact-action presentation before askin
   assert.doesNotMatch(JSON.stringify(audit), /synthetic-only-sentinel|hidden/);
 });
 
-test("real Pi orchestrator/populated-roster, recover command, session switch and shutdown", { timeout: 180_000 }, async t => {
+test("real Pi populated-roster, recover command, session switch and shutdown", { timeout: 180_000 }, async t => {
   const dir = setupWorkspace(t, { team: "tiny" });
   const script: ScriptStep[] = [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator bind" } },
     { tool: "dispatch_agent", args: { agent: "planner", task: "Plan the typo fix" } },
     { text: "done" },
   ];
-  const first = await startSession(t, dir, { fake: "plain", script, fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "tiny"] });
+  const first = await startSession(t, dir, { fake: "plain", script, fleetArgs: ["--solo", "--agent-team", "tiny"] });
   const r1 = await first.request("fix the typo in README");
-  assert.equal(r1.success, true, `orchestrator prompt failed: ${JSON.stringify(r1)}`);
+  assert.equal(r1.success, true, `roster prompt failed: ${JSON.stringify(r1)}`);
   const calls = first.contexts();
-  assert.ok(calls.length >= 1, "orchestrator turn reached the model");
-  assert.ok(!calls[0].tools.includes("bash") && !calls[0].tools.includes("write"), "orchestrator turn has no direct coding tools");
-  assert.ok(calls[0].tools.includes("dispatch_agent"), "orchestrator turn keeps dispatch");
+  assert.ok(calls.length >= 1, "roster turn reached the model");
+  assert.ok(calls[0].tools.includes("bash") && calls[0].tools.includes("write"), "the operator keeps direct coding tools beside its roster");
+  assert.ok(calls[0].tools.includes("dispatch_agent"), "roster turn keeps dispatch");
   const inbound = inboundText(first);
   assert.match(inbound, /Unknown agent "planner"/, "populated roster without planner still refuses unknown agent");
   // An installed persona is added on first dispatch; one that is not installed names the human install step.
@@ -797,7 +797,7 @@ test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budg
   const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "probe-second", "code-reviewer", "probe-correction"] });
   writeFileSync(join(dir, "README.md"), "synthetic security review scope\n");
   const session = await startSession(t, dir, { fake: "security", decisions: ["No — stop"],
-    fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"], script: [
+    fleetArgs: ["--solo", "--agent-team", "stage"], script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "retain the small spend cap" } },
       { tool: "set_assertions", args: { assertions: [{ id: "A1", tag: "test", text: "Security change is independently reviewed", source: "real-Pi fixture", test_command: "node --test fixture" }] } },
       { tool: "update_assertion", args: { id: "A1", status: "proven", evidence: "fixture evidence" } },
@@ -851,7 +851,7 @@ test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budg
   assert.equal(toolResult(session, 3)?.details?.reason, "process_obligations_open", `no review evidence was invented; ${registeredProof()}`);
 });
 
-test("real Pi orchestrator G3.1 irreversible refuses fixture-producer dispatch as unsupported", { timeout: 180_000 }, async t => {
+test("real Pi roster G3.1 irreversible refuses fixture-producer dispatch as unsupported", { timeout: 180_000 }, async t => {
   const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "planner", "code-reviewer"] });
   for (const backend of ["coms", "native"] as const) {
     // A prior refused attempt is no-progress history for this actor; it must not
@@ -860,12 +860,12 @@ test("real Pi orchestrator G3.1 irreversible refuses fixture-producer dispatch a
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator irreversible bind" } },
       { tool: "dispatch_agent", args: { agent: "probe-builder", task: `Produce the fixture through ${backend}`, backend } },
       { text: "done" },
-    ], fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"] });
+    ], fleetArgs: ["--solo", "--agent-team", "stage"] });
     const r = await session.request("run the production database migration now");
-    assert.equal(r.success, true, `orchestrator ${backend} prompt failed: ${JSON.stringify(r)}`);
+    assert.equal(r.success, true, `roster ${backend} prompt failed: ${JSON.stringify(r)}`);
     const calls = session.contexts();
     assert.ok(calls.length >= 3, `${backend}: bind, blocked dispatch and closing turn execute`);
-    assert.ok(!calls[0].tools.includes("bash") && !calls[0].tools.includes("write"), "orchestrator turn has no direct coding tools");
+    assert.ok(calls[0].tools.includes("bash") && calls[0].tools.includes("write"), "the operator keeps direct coding tools beside its roster");
     assert.ok(session.fakeCalls().length >= 1, `${backend}: irreversible input was evaluated through the real hooks`);
     const refusal = toolResult(session, 2);
     assert.equal(refusal?.details?.status, "action_confirmation_unsupported", `${backend}: actual independent action-gate refusal, not no-progress`);
@@ -941,7 +941,7 @@ test("real Pi required wide plan closes through a runnable offline native planne
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "synthetic wide task requires a plan" } },
     { tool: "dispatch_agent", args: { agent: "planner", backend: "native", task: "Read README.md and plan ONLY the wdiget to widget correction." } },
     { text: "plan stage observed" },
-  ], fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"] });
+  ], fleetArgs: ["--solo", "--agent-team", "stage"] });
   assert.equal((await session.request("change the synthetic README fixture across the declared wide scope")).success, true);
   const planned = toolResult(session, 2);
   assert.equal(planned?.details?.exitCode, 0, `a real native Pi planner must run: ${planned?.text}`);
@@ -963,7 +963,7 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
   execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "synthetic baseline"], { cwd: dir });
   const assertion = { id: "A1", tag: "test", text: "Synthetic README has exactly the widget typo correction", source: "isolated C2 fixture", test_command: README_CHECK };
   const session = await startSession(t, dir, { fake: "wide", childProvider: true,
-    fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"], script: [
+    fleetArgs: ["--solo", "--agent-team", "stage"], script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "synthetic wide task requires a plan and review" } },
       { text: "initial classification complete" },
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "bind clarified verification to same task" } },
@@ -1007,7 +1007,7 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
   assert.equal(events.find(e => e.role === "reviewer" && e.step === "return")?.readOk, true);
 });
 
-test("real Pi orchestrator G3.2 wide work admits fixture without planning and preserves optional producer failures", { timeout: 240_000 }, async t => {
+test("real Pi roster G3.2 wide work admits fixture without planning and preserves optional producer failures", { timeout: 240_000 }, async t => {
   const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "planner", "code-reviewer"] });
   const session = await startSession(t, dir, { fake: "wide", script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator wide bind" } },
@@ -1015,9 +1015,9 @@ test("real Pi orchestrator G3.2 wide work admits fixture without planning and pr
     { tool: "dispatch_agent", args: { agent: "planner", task: "Plan the wide fixture change" } },
     { tool: "dispatch_agent", args: { agent: "probe-builder", task: "Produce the fixture after a failed plan" } },
     { text: "done" },
-  ], fleetArgs: ["--solo", "--work-mode", "orchestrator", "--agent-team", "stage"] });
+  ], fleetArgs: ["--solo", "--agent-team", "stage"] });
   const r = await session.request("rework the fleet workspace layout across components");
-  assert.equal(r.success, true, `orchestrator prompt failed: ${JSON.stringify(r)}`);
+  assert.equal(r.success, true, `roster prompt failed: ${JSON.stringify(r)}`);
   const calls = session.contexts();
   assert.ok(calls.length >= 5, `all staged dispatches execute, got ${calls.length}`);
   assert.ok(session.fakeCalls().length >= 1, "wide input was evaluated through the real hooks");

@@ -137,9 +137,9 @@ test("T5: wide/low operator keeps read inspection without planner; arbitrary she
   assert.equal(processPreEffectGate(wide, "child", "builder"), null);
   assert.equal(processPreEffectGate(wide, "write"), null);
   assert.equal(evaluateProcessObligations(wide, { writable: true, budgetTier: "small" }).accepted, false);
-  // Orchestrator never receives generic direct tools.
-  const orchestrator = resolveWorkModeTools({ workMode: "orchestrator" as any, baselineTools: ["read", "bash", "edit"], comsReady: false, herdrReady: false, askUserAvailable: true } as any);
-  assert.ok(!orchestrator.includes("bash") && !orchestrator.includes("edit"));
+  // The one operator keeps its direct tools; the process gates above are what stop an effect.
+  const operator = resolveWorkModeTools({ baselineTools: ["read", "bash", "edit"], comsReady: false, herdrReady: false, askUserAvailable: true });
+  assert.ok(operator.includes("bash") && operator.includes("edit"));
 });
 
 test("T6/T8: missing/invalid/abandoned/unknown-process have distinct reasons; legacy preflight needs positive no-launch proof", () => {

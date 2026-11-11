@@ -7,14 +7,14 @@ import { confirmationGate, type CapabilityConfirmationState } from "./capability
 
 const baseline = ["read", "bash", "edit", "write"];
 const base = (overrides: Partial<CapabilityResolutionInput> = {}): CapabilityResolutionInput => ({
-	workMode: "operator", userText: "hello", taskPacks: [], comsReady: false, herdrReady: false,
+	userText: "hello", taskPacks: [], comsReady: false, herdrReady: false,
 	pendingOperations: [], contextState: "normal", ...overrides,
 });
 
 function surface(input: Partial<CapabilityResolutionInput> = {}) {
 	const resolution = resolveCapabilityPacks(base(input));
 	const tools = resolveWorkModeTools({
-		workMode: input.workMode ?? "operator", baselineTools: baseline,
+		baselineTools: baseline,
 		comsReady: input.comsReady ?? false, herdrReady: input.herdrReady ?? false,
 		askUserAvailable: true, capabilityPacks: [...resolution.active, ...resolution.provisional],
 	});
@@ -42,11 +42,9 @@ test("end-to-end deterministic capability matrix exposes only the intended profi
 	assert.ok(!fleet.tools.includes("dispatch_triage"));
 	assert.ok(absent(fleet.tools, [...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
 
-	const orchestrator = surface({ workMode: "orchestrator" });
-	assert.ok(visibleFleet.every(tool => orchestrator.tools.includes(tool)));
-	assert.ok(orchestrator.tools.includes("filesystem"));
-	assert.ok(!orchestrator.tools.includes("dispatch_triage"));
-	assert.ok(absent(orchestrator.tools, baseline));
+	// No delegate-only surface exists any more: filesystem stays profile-gated.
+	assert.ok(!greeting.tools.includes("filesystem"));
+	assert.ok(!greeting.tools.includes("dispatch_triage"));
 
 	const verification = surface({ userText: "Implement this feature with acceptance criteria.", taskTier: "feature" });
 	assert.ok(VERIFICATION_TOOLS.every(tool => verification.tools.includes(tool)));

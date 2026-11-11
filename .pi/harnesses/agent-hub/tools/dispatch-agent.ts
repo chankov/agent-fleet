@@ -77,7 +77,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 
 			const questions: string[] = Array.isArray(details.questions) ? details.questions : [];
 			const questionsBlock = questions.length > 0
-				? "\n" + theme.fg("warning", `⚠ ${questions.length} ASK_USER question(s) raised — orchestrator resolves first; escalate unresolved decisions`)
+				? "\n" + theme.fg("warning", `⚠ ${questions.length} ASK_USER question(s) raised — operator resolves first; escalate unresolved decisions`)
 				: "";
 
 			if (options.expanded && details.fullOutput) {

@@ -1,7 +1,6 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 
 export const SESSION_START_COMMANDS = [
-	"/af-work-mode [mode]      Operator | Orchestrator (Alt+M)",
 	"/af-agents-team          Select a team",
 	"/af-agents-list          Open Fleet Dashboard",
 	"/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total",
@@ -35,12 +34,12 @@ export interface SessionStartNoticeData {
 
 export function buildSessionStartNotice(data: SessionStartNoticeData): string {
 	return [
-		`Work Mode: ${data.workMode} (${data.workMode === "operator" ? "direct tools enabled" : "delegate-only"})`,
+		`Work Mode: ${data.workMode} (direct tools and delegation)`,
 		`Native roster: ${data.activeTeamName || "(none)"} (${data.agentCount}${data.members ? `: ${data.members}` : ""})`,
 		"Native roster sets loaded from: .pi/agents/teams.yaml",
 		`Dispatch backends: ${data.dispatchLabel}`,
 		`User-facing language: ${data.userLanguage} (override in .ai/agent-fleet-overrides.md)`,
-		`ask_user: ${data.askUserLabel}; specialist questions go to orchestrator triage via ASK_USER:`,
+		`ask_user: ${data.askUserLabel}; specialist questions go to operator triage via ASK_USER:`,
 		`Coms: ${data.comsLabel}`,
 		`Fleet: ${data.fleetLabel}`,
 		"",

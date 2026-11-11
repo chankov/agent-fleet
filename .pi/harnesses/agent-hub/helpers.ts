@@ -61,10 +61,6 @@ export function resolveStartupRoster(
 	return { name, members: [...teams[name]] };
 }
 
-export function orchestratorNeedsRoster(workMode: string, rosterSize: number): boolean {
-	return workMode === "orchestrator" && rosterSize < 1;
-}
-
 // Normalize a dispatcher-supplied agent name to the persona-slug key space:
 // display names ("Test Engineer"), underscores, and stray whitespace all resolve
 // to the same key the hub stores states under ("test-engineer").

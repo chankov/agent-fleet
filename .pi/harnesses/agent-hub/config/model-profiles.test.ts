@@ -31,6 +31,10 @@ test('invalid profiles fail as a whole without dropping valid siblings', () => {
     assert.match(parseModelProfiles('x: [invalid]').errors.join('\n'), /mapping/);
     assert.match(parseModelProfiles('x: {builder: a/b, builder: c/d}').errors.join('\n'), /unique|duplicate/i);
 });
+test('an older profile that still maps the retired orchestrator persona stays valid', () => {
+    assert.deepEqual(validateProfile({ orchestrator: 'a/b', builder: 'a/b' } as any, [{ name: 'builder', model: 'a/b' } as any]), []);
+    assert.match(validateProfile({ typo: 'a/b' } as any, [{ name: 'builder', model: 'a/b' } as any]).join('\n'), /unknown persona "typo"/);
+});
 test('allowlist and named role validation reject external models and typos', () => {
     assert.match(parseModelProfiles(local.replace('documenter: omlx/qwen', 'documenter: cloud/x')).errors.join('\n'), /allowed-models/);
     const p = parseModelProfiles(local).profiles.local;

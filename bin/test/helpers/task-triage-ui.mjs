@@ -33,7 +33,7 @@ export function prepareTriageUiCase(scene, { ambient = process.env } = {}) {
    "-e", join(root, ".pi/harnesses/ask-user-remote/index.ts"),
    "-e", join(root, ".pi/harnesses/agent-hub/index.ts"),
    "-e", join(root, "bin/test/helpers/task-triage-ui-probe.ts"),
-   "--solo", "--work-mode", "operator", "--model", "triage-ui/m"];
+   "--solo", "--model", "triage-ui/m"];
   return { workspace, executable: join(root, "node_modules/.bin/pi"), args, env };
  } catch (error) { rmSync(workspace, { recursive: true, force: true }); throw error; }
 }

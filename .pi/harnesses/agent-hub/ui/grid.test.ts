@@ -65,7 +65,7 @@ test("plain and Alt arrows reach the editor exactly once in collapsed and expand
 	h.editor.handleInput("k"); assert.match(h.widget.render(80).join("\n"), /❯.*Builder/);
 });
 
-test("production registrar callback toggles the production grid once and preserves Alt+A/M routing", () => {
+test("production registrar callback toggles the production grid once and preserves Alt+A routing; Alt+M is unbound", () => {
 	const h = harness(); h.editor.focused = true;
 	const registrations = new Map<string, any>();
 	const calls = { toggle: 0, dashboard: 0, mode: 0 };
@@ -73,8 +73,6 @@ test("production registrar callback toggles the production grid once and preserv
 		setWidgetContext() {},
 		openFleetDashboard: async () => { calls.dashboard++; },
 		toggleFleetWidget: () => { calls.toggle++; h.grid.toggle(); },
-		workModeStatusText: () => "mode",
-		openWorkModePicker: async () => { calls.mode++; },
 	});
 	const ctx: any = { hasUI: true, ui: { select() {}, notify() {} } };
 	h.editor.onExtensionShortcut = (data: string) => {
@@ -85,7 +83,7 @@ test("production registrar callback toggles the production grid once and preserv
 	h.editor.handleInput("x"); assert.match(h.widget.render(80)[0]!, /press x again/);
 	h.editor.handleInput("\x1bi"); assert.equal(h.widget.render(80).length, 1); assert.equal(calls.toggle, 2);
 	h.editor.handleInput("\x1ba"); h.editor.handleInput("\x1bm");
-	assert.deepEqual(calls, { toggle: 2, dashboard: 1, mode: 1 });
+	assert.deepEqual(calls, { toggle: 2, dashboard: 1, mode: 0 });
 });
 
 test("late host Alt+M/A callbacks forward exactly once collapsed and expanded", () => {

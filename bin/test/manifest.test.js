@@ -223,7 +223,7 @@ test("command sources never cross agents", () => {
 });
 
 test("every persona is offered, including the ones coupled to the pi runtime", () => {
-  for (const name of ["bowser", "web-debugger", "orchestrator", "code-reviewer"]) {
+  for (const name of ["bowser", "web-debugger", "code-reviewer"]) {
     const item = manifest.items.find((i) => i.id === `persona:${name}`);
     assert.deepEqual(Object.keys(item.agents), [...MANIFEST_AGENTS], name);
   }
@@ -245,7 +245,9 @@ test("personas are copied verbatim — agents/*.md is already pi's own dialect",
 
 test("every persona declares its pre-2.1 agents/ path as a legacy target", () => {
   const personas = manifest.items.filter((i) => i.kind === "persona");
-  assert.ok(personas.length >= 15);
+  // 14 since the orchestrator catalog persona went with its work mode (2026-11-11).
+  assert.ok(personas.length >= 14);
+  assert.equal(personas.some((i) => i.id === "persona:orchestrator"), false);
   for (const item of personas) {
     const name = item.id.slice("persona:".length);
     assert.equal(item.agents.pi.target, `.pi/agents/personas/${name}.md`, item.id);

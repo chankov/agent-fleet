@@ -23,7 +23,6 @@ local-workers:
     code-reviewer: *qwenWorkers
     deep-researcher: *qwenWorkers
     documenter: *qwenWorkers
-    # orchestrator intentionally inherits the current selection.
     plan-reviewer: *qwenWorkers
     planner: *qwenWorkers
     releaser: *qwenWorkers
@@ -87,7 +86,6 @@ local-full:
     code-reviewer: *qwen36
     deep-researcher: *qwen36
     documenter: *qwen36
-    orchestrator: *qwen36
     plan-reviewer: *qwen36
     planner: *qwen36
     releaser: *qwen36

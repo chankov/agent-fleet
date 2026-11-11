@@ -147,7 +147,7 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
      return result(admit(ports,readOnly,source.path,bindHandles(readback({handle,allowedRoot:source.allowedRoot,maxBytes:params.max_bytes,boundedOutput:true}),source.rootId)));
     }
     case "snapshot":
-     if (!profileEnabled) throw new Error("filesystem snapshot requires assist.deterministic-tools; orchestrator inspection is inventory, excerpt, and readback only");
+     if (!profileEnabled) throw new Error("filesystem snapshot requires assist.deterministic-tools; read-only inspection is inventory, excerpt, and readback only");
      if(params.origin!=="file" || !params.path) throw new Error("snapshot accepts a local file origin and path only");
      return result(snapshotSource({origin:"file",path:workspacePath(params.path,workspace),allowedRoot:workspace,sessionDir:session}));
     default: throw new Error("Unsupported filesystem operation");

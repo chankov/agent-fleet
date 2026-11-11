@@ -1,4 +1,3 @@
-import type { WorkMode } from "./work-mode.ts";
 import type { CapabilityConfirmationState } from "./capability-confirmation.ts";
 
 export const CAPABILITY_PACKS = ["core", "fleet", "verification", "peer", "workspace", "compaction"] as const;
@@ -12,7 +11,6 @@ export interface PendingOperation {
 }
 
 export interface CapabilityResolutionInput {
-	workMode: WorkMode;
 	userText: string;
 	taskTier?: TaskTier;
 	taskPacks: readonly CapabilityPack[];
@@ -29,7 +27,6 @@ export interface CapabilityResolutionInput {
 export type CapabilityReason =
 	| "core"
 	| "inactive"
-	| "work-mode-required"
 	| "operator-default"
 	| "explicit-fleet"
 	| "explicit-verification"
@@ -162,7 +159,6 @@ export function resolveCapabilityPacks(input: CapabilityResolutionInput): Capabi
 	}
 	for (const operation of input.pendingOperations) activate(operation.pack, "pending-operation");
 
-	if (input.workMode === "orchestrator") activate("fleet", "work-mode-required");
 	if (intent.fleet) activate("fleet", "explicit-fleet");
 	if (intent.verification) activate("verification", "explicit-verification");
 	if (input.taskTier === "feature" || input.taskTier === "project") activate("verification", "tier-verification");

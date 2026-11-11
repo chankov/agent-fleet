@@ -109,12 +109,10 @@ test("standalone child filesystem receives root table without widening malformed
  assert.throws(()=>filesystemPolicyRootsFromEnv({[FILESYSTEM_POLICY_ROOTS_ENV]:JSON.stringify({...table,roots:[{...table.roots[1],canonicalPath:base}]})}),/Invalid/);
 });
 
-test("T5 effective surface follows deterministic-tools for operator and is read-only-visible for orchestrator", () => {
+test("T5 effective surface follows deterministic-tools; no delegate-only mode exposes it unconditionally", () => {
  const base={baselineTools:["read","filesystem"],comsReady:false,herdrReady:false,askUserAvailable:false,capabilityPacks:["core"] as const};
- assert.equal(resolveWorkModeTools({...base,workMode:"operator",deterministicTools:false}).includes("filesystem"),false);
- assert.equal(resolveWorkModeTools({...base,workMode:"operator",deterministicTools:true}).includes("filesystem"),true);
- assert.equal(resolveWorkModeTools({...base,workMode:"orchestrator",deterministicTools:false}).includes("filesystem"),true);
- assert.equal(resolveWorkModeTools({...base,workMode:"orchestrator",deterministicTools:false}).includes("bash"),false);
+ assert.equal(resolveWorkModeTools({...base,deterministicTools:false}).includes("filesystem"),false);
+ assert.equal(resolveWorkModeTools({...base,deterministicTools:true}).includes("filesystem"),true);
 });
 
 test("T5 nested delegate explicit tool caps control filesystem exposure", () => {

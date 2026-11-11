@@ -5,64 +5,39 @@ import {
 	COMS_TOOLS,
 	HERDR_TOOLS,
 	ORCHESTRATION_TOOLS,
+	isRetiredWorkMode,
 	latestPersistedNativeRoster,
-	latestPersistedWorkMode,
 	parseWorkMode,
 	persistedNativeRosterState,
+	sessionSavedInRetiredWorkMode,
 	workModePrompt,
 	resolveWorkModeTools,
-	resolveSessionWorkMode,
 	resolveSessionRoster,
-	resolveStartupWorkMode,
+	WORK_MODES,
 } from "./work-mode.ts";
 
-test("parseWorkMode accepts only operator and orchestrator", () => {
+test("the Hub has one work mode; the removed orchestrator name is recognised only for migration", () => {
+	assert.deepEqual([...WORK_MODES], ["operator"]);
 	assert.equal(parseWorkMode("operator"), "operator");
-	assert.equal(parseWorkMode("orchestrator"), "orchestrator");
 	assert.equal(parseWorkMode(" operator "), "operator");
+	assert.equal(parseWorkMode("orchestrator"), null);
 	assert.equal(parseWorkMode("builder"), null);
-	assert.equal(parseWorkMode(undefined), null);
+	assert.equal(isRetiredWorkMode("orchestrator"), true);
+	assert.equal(isRetiredWorkMode("builder"), false);
 });
 
-test("startup work mode honors explicit work mode before roster implication", () => {
-	assert.equal(resolveStartupWorkMode({}), "operator");
-	assert.equal(resolveStartupWorkMode({ hasExplicitRoster: false }), "operator");
-	assert.equal(resolveStartupWorkMode({ hasExplicitRoster: true }), "orchestrator");
-	assert.equal(
-		resolveStartupWorkMode({ explicitWorkMode: "operator", hasExplicitRoster: true }),
-		"operator",
-	);
-	assert.equal(
-		resolveStartupWorkMode({ explicitWorkMode: "orchestrator", hasExplicitRoster: false }),
-		"orchestrator",
-	);
-	assert.throws(
-		() => resolveStartupWorkMode({ explicitWorkMode: "builder" }),
-		/Unknown work mode "builder"/,
-	);
-});
-
-test("latest persisted work mode restores canonical and legacy session state", () => {
-	const entries = [
+test("a session last saved in orchestrator mode (canonical or legacy posture) is detected for the one-time notice", () => {
+	assert.equal(sessionSavedInRetiredWorkMode([
 		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "operator" } },
 		{ type: "message", role: "user", content: "ignore" },
 		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "builder" } },
 		{ type: "custom", customType: "agent-hub-posture", data: { posture: "orchestrator" } },
-	];
-	assert.equal(latestPersistedWorkMode(entries), "orchestrator");
-	assert.equal(latestPersistedWorkMode([
-		{ type: "custom", customType: "agent-hub-posture", data: { posture: "operator" } },
-	]), "operator");
-	assert.equal(latestPersistedWorkMode([]), null);
-});
-
-test("session work mode restores state unless an explicit CLI work mode overrides it", () => {
-	const entries = [
+	]), true);
+	assert.equal(sessionSavedInRetiredWorkMode([
 		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "orchestrator" } },
-	];
-	assert.equal(resolveSessionWorkMode({ entries }), "orchestrator");
-	assert.equal(resolveSessionWorkMode({ entries, explicitWorkMode: "operator" }), "operator");
-	assert.equal(resolveSessionWorkMode({ entries: [], hasExplicitRoster: true }), "orchestrator");
+		{ type: "custom", customType: "agent-hub-work-mode", data: { workMode: "operator" } },
+	]), false, "the operator entry recorded after the notice ends it");
+	assert.equal(sessionSavedInRetiredWorkMode([]), false);
 });
 
 test("native roster metadata restores only versioned team names", () => {
@@ -113,23 +88,16 @@ test("session roster restores current team configuration and fails closed when i
 	assert.equal(stale.source, "persisted");
 });
 
-test("work mode prompt permits direct work only for operators", () => {
-	const operator = workModePrompt("operator");
+test("the operator prompt permits direct work and carries the delegation guide", () => {
+	const operator = workModePrompt();
 	assert.match(operator.intro, /Fleet operator/);
 	assert.match(operator.hardRules, /MAY read, execute, edit, and write directly/);
-	assert.doesNotMatch(operator.hardRules, /NEVER try to read, write, or execute/);
-
-	const orchestrator = workModePrompt("orchestrator");
-	assert.match(orchestrator.intro, /dispatcher agent/);
-	assert.match(orchestrator.hardRules, /NEVER try to execute, edit, or write repository code directly/);
-	assert.match(orchestrator.hardRules, /`filesystem` is a narrow direct inspection exception/);
-	assert.match(orchestrator.hardRules, /no arbitrary write or shell authority/);
-	assert.doesNotMatch(orchestrator.hardRules, /herdr_spawn_pane/);
+	assert.doesNotMatch(operator.hardRules, /NEVER try to (read|execute)/);
+	assert.match(operator.delegationGuide, /## When to delegate/);
 });
 
 test("operator preserves coding and approved extension tools while gating Hub capabilities", () => {
 	const tools = resolveWorkModeTools({
-		workMode: "operator",
 		baselineTools: [
 			"read", "bash", "edit", "write", "bowser", "ask_user",
 			"coms_send", "herdr_spawn_peer", "dispatch_agent",
@@ -151,7 +119,6 @@ test("operator preserves coding and approved extension tools while gating Hub ca
 
 test("operator adds only runtime-ready coms and Herdr groups", () => {
 	const tools = resolveWorkModeTools({
-		workMode: "operator",
 		baselineTools: ["read", "coms_send", "herdr_spawn_peer"],
 		comsReady: true,
 		herdrReady: true,
@@ -162,44 +129,23 @@ test("operator adds only runtime-ready coms and Herdr groups", () => {
 	assert.ok(!tools.includes("ask_user"));
 });
 
-test("orchestrator excludes direct and unrelated extension tools", () => {
-	const tools = resolveWorkModeTools({
-		workMode: "orchestrator",
-		baselineTools: ["read", "bash", "edit", "write", "bowser", "ask_user"],
-		comsReady: true,
-		herdrReady: true,
-		askUserAvailable: true,
-	});
-
-	for (const tool of ["read", "bash", "edit", "write", "bowser"]) {
-		assert.ok(!tools.includes(tool), `${tool} should not be active`);
-	}
-	for (const tool of [...ORCHESTRATION_TOOLS.filter(name => name !== "dispatch_triage"), ...COMS_TOOLS, ...HERDR_TOOLS, "ask_user", "filesystem"]) {
-		assert.ok(tools.includes(tool), `${tool} should be active`);
-	}
-	assert.ok(!tools.includes("dispatch_triage"));
-});
-
 test("dispatch_triage is listed only when the consumer can evaluate", () => {
 	const hidden = resolveWorkModeTools({
-		workMode: "orchestrator", baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false,
+		baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false,
 	});
 	const shown = resolveWorkModeTools({
-		workMode: "orchestrator", baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false, triageEnabled: true,
+		baselineTools: ["read"], comsReady: false, herdrReady: false, askUserAvailable: false, triageEnabled: true,
 	});
 	assert.ok(!hidden.includes("dispatch_triage"));
 	assert.ok(shown.includes("dispatch_triage"));
 });
 
 test("ask_user remains gated even when present in the baseline", () => {
-	for (const workMode of ["operator", "orchestrator"] as const) {
-		const tools = resolveWorkModeTools({
-			workMode,
-			baselineTools: ["read", "ask_user"],
-			comsReady: false,
-			herdrReady: false,
-			askUserAvailable: false,
-		});
-		assert.ok(!tools.includes("ask_user"));
-	}
+	const tools = resolveWorkModeTools({
+		baselineTools: ["read", "ask_user"],
+		comsReady: false,
+		herdrReady: false,
+		askUserAvailable: false,
+	});
+	assert.ok(!tools.includes("ask_user"));
 });

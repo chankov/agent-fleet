@@ -19,7 +19,6 @@ export interface RosterPolicyPorts<TDef extends RosterDef, TState extends Roster
 	recompute(): void;
 	refreshUi(): void;
 	displayName(name: string): string;
-	orchestratorNeedsRosterAfterDrop(size: number): boolean;
 }
 
 export interface RosterPolicy<TDef extends RosterDef> {
@@ -82,7 +81,6 @@ export function createRosterPolicy<TDef extends RosterDef, TState extends Roster
 		const state = states.get(key);
 		if (!state) return { ok: false, message: `"${name}" is not in the active team (${Array.from(states.values()).map(item => item.def.name).join(", ") || "empty"})` };
 		if (state.status === "running") return { ok: false, message: `${ports.displayName(state.def.name)} is running — wait for it to finish or /af-agents-kill it first` };
-		if (ports.orchestratorNeedsRosterAfterDrop(states.size - 1)) return { ok: false, message: `${ports.displayName(state.def.name)} is the last team member — switch to operator work mode or add a replacement before dropping it` };
 		states.delete(key);
 		if (states.size === 0) ports.setActiveTeamName("");
 		ports.recompute(); ports.refreshUi();

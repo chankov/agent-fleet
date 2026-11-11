@@ -1,12 +1,11 @@
 # agent-hub
 
 The unified Agent Fleet runtime for pi, with [`coms`](../coms/README.md) **embedded**. Bare
-`just fleet` loads Fleet Core and starts `agent-hub` in **operator** work mode with direct coding
-and orchestration tools, but no standing native roster. The same live session can switch to
-**orchestrator** work mode, which removes direct coding tools and drives native specialists under
-the Verification Contract. Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
+`just fleet` loads Fleet Core and starts `agent-hub` with its one **operator**: direct coding tools
+plus delegation to every installed agent, under the Verification Contract, with no standing native
+roster. The former delegate-only orchestrator work mode was removed (2026-11-11). Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
 [`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the update
-checker. Both work modes can adjust the native roster, run research, collaborate with Pi/Claude
+checker. The operator can adjust the native roster, run research, collaborate with Pi/Claude
 peers, and hand the session to a visible coms peer.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
@@ -32,7 +31,7 @@ An enabled consumer evaluates accepted user task input before the first model
 turn, including when the dispatcher skips `set_task_tier` or watchdog is off.
 Limits: 40 KiB aggregate user task/clarifications, 64 KiB state, 100 logical calls
 per saved session and 2,000 ms per evaluation. Identical input/scope is cached;
-new scope can require another call. Reset, compaction, resume or work-mode change
+new scope can require another call. Reset, compaction or resume
 does not refill the allowance. No file bodies/tool outputs/environment are sent
 by this consumer; sensitive/oversized input is refused, not silently truncated.
 
@@ -134,15 +133,10 @@ immediate stopping is necessary, without destructive artifact cleanup.
 
 These are independent runtime axes:
 
-- **Work Mode** — `/af-work-mode operator|orchestrator` switches prompt and active tools without
-  restarting or losing session state; `/af-work-mode` without an argument and **Alt+M** open the
-  two-option picker. Operator keeps `read`, `bash`, `edit`, `write`, approved extension tools, and
-  orchestration. Orchestrator withholds direct coding tools but keeps dispatch, research, assertions,
-  roster controls, `ask_user`, read-only `filesystem` stat/inventory/excerpt/readback, ready coms, and ready Herdr tools.
-  Large files support bounded excerpts with byte offset/max_bytes. Self-read output remains limited to 64 KiB per turn; choose smaller pages or a helper when useful.
-  `dispatch_triage` is listed only when that consumer can evaluate. Snapshot stays profile-gated.
-  In orchestrator work mode, raw Herdr panes are auxiliary-process orchestration—not a route around delegation for reading,
-  editing, testing, or implementing code.
+- **One operator** — keeps `read`, `bash`, `edit`, `write`, approved extension tools, and the
+  delegation tools; `dispatch_triage` is listed only when that consumer can evaluate, and the
+  `filesystem` inspection tool stays profile-gated (`assist.deterministic-tools`). Raw Herdr panes are
+  for auxiliary processes such as watchers or servers. `--work-mode` is deprecated and ignored.
 - **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
   empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
 - **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
@@ -155,13 +149,13 @@ with a warning. The selected team is saved in the session just like a manual tea
 Child deadlines, nested delegation, and Verification Contract rigor follow the **task tier**, not
 Work Mode. Dispatch and research counts are usage, never a per-turn allowance.
 
-All Hub slash commands, including `/af-handoff`, are registered in both work modes. A command whose
+All Hub slash commands, including `/af-handoff`, are always registered. A command whose
 runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
 disables only embedded coms; direct operator work and native dispatch remain available.
 
 ### Automatic capability surfaces
 
-Capability packs load **automatically** from the current request, work mode, task tier, pending work,
+Capability packs load **automatically** from the current request, task tier, pending work,
 and runtime state; there is no activation command. `core` is always present, and so is `fleet`:
 the operator always holds `dispatch_agent`, `spawn_research`, `poll_panel`, `set_task_tier` and
 `team_adjust`, because whether to delegate is its judgment rather than a keyword match on the
@@ -234,7 +228,7 @@ and records its reason in the state capsule and `/af-context`. Before that pack'
 the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
 cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
 follow-up turns so a workflow does not lose tools. They shrink only through
-`set_task_tier(new_task: true)` (apart from mandatory work mode and pending-operation leases), never
+`set_task_tier(new_task: true)` (apart from the operator's fleet and pending-operation leases), never
 merely because the next message sounds different. Compaction is the transient exception:
 a task-triage assessment refresh preserves the current input's already-resolved explicit
 compaction intent without re-reading task text or promoting declined packs. The next
@@ -282,22 +276,11 @@ fallback, or switch to a model with a larger context window:
 /compact Preserve the current goal, decisions, assertions, pending operations, blockers, and next step.
 ```
 
-A resumed orchestrator session can also require roster recovery. The Hub persists only the selected
-team name and resolves it again against the current `.pi/agents/teams.yaml` and persona files. If the
-team is missing, renamed, empty, or stale, the Hub preserves orchestrator work mode, keeps direct coding
-tools unavailable, and blocks model input rather than inventing a roster or silently downgrading.
-Recover with one of these explicit choices:
-
-```text
-/af-agents-team                 # select a currently valid team in the live session
-/af-work-mode operator          # explicitly leave delegate-only work mode and restore direct tools
-just fleet --agents <name>      # restart through the public Fleet CLI
-just fleet --work-mode operator   # restart explicitly as an operator
-```
-
-For a direct Pi launch, the roster flag is `--agent-team <name>` and the work mode flag is
-`--work-mode operator`; explicit startup flags take precedence over persisted selections. Fix stale
-team/persona declarations before selecting them.
+The Hub persists only the selected team name and resolves it again against the current
+`.pi/agents/teams.yaml` and persona files. A missing, renamed, empty, or stale team is reported and
+the session continues without it; select a current team with `/af-agents-team` or restart with
+`just fleet --agents <name>` (`--agent-team <name>` for a direct Pi launch). A session saved in the
+removed orchestrator work mode continues as the operator with a one-time notice.
 
 The Pi session JSONL under `~/.pi/agent/sessions/` is the authoritative append-only conversation and
 recovery record. Context overflow or a stale roster does **not** by itself mean that file is corrupt.
@@ -361,7 +344,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
 - **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
-- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic in either work mode. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
+- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
 - **Fleet config screen** — `/af-config [tab]` or **`Alt+,`** opens a read-only full-screen view of what is configured and what is active: desired state (`.ai/agent-fleet.json`), the install record with recorded-hash vs on-disk checks, overrides sections and the values the Hub parsed at start, AI-state provenance, System 1, STT, fleet YAML (teams, peers with LIVE marks, dispatch policy, voices), damage-control rules, and the session runtime. It reads files and compares hashes only; installer evaluation (item states, feature availability, conflicts) stays with `agent-fleet verify`/`setup`, and the screen writes nothing. See [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session).
 - **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
 - **Research helpers** — the dispatcher invokes `spawn_research` automatically for read-only
@@ -398,7 +381,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `.pi/agent-sessions/assertions.json` (wiped at session start like `findings/`) and renders a
   one-line status (`Assertions: 2✓ 1○ 1✗ · open: A4`) so the contract survives compaction without
   re-flooding the dispatcher LLM context — after a compaction the dispatcher calls `get_assertions`
-  to recover the full text the status line omits. The `orchestrator` persona drives it — a deep-researcher
+  to recover the full text the status line omits. The operator drives it — a deep-researcher
   parity inventory for "behave like" requests, runtime proof for UI/visibility assertions, the
   regression reset on a re-ask — per
   [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). The hub also
@@ -437,7 +420,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `./artifacts/...` files are not session artifacts. Planner's existing PLAN_FILE behavior is preserved;
   the artifact path is an additional handoff channel.
 - **Dispatch scope advisory** — `dispatch_agent` accepts optional `scope: string[]` for writable
-  builder-style runs. The orchestrator should derive these globs from the plan task's file list,
+  builder-style runs. The operator should derive these globs from the plan task's file list,
   and skip scope for exploratory/reconnaissance work where the right files are not known yet. The
   hub snapshots git status before the writable dispatch, diffs after the whole tool call (including
   auto-research resumes), and reports out-of-scope paths in `details.scopeViolations` plus a ⚠ text
@@ -445,7 +428,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   automatically. Known limitation: concurrent writable dispatches can only be attributed
   approximately, so overlapping runs are flagged in the notice.
 - **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
-  timeline (orchestrator turns, dispatches, research helpers) with per-agent durations, parallel-run
+  timeline (operator turns, dispatches, research helpers) with per-agent durations, parallel-run
   markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
   fields select models from team config. `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping
   its standing card) or kills a currently running research helper (`all` clears every live helper).
@@ -596,7 +579,7 @@ SDK editor contract can be positively verified, an empty focused editor can acti
 inspection window with the registered `Alt+I` shortcut; the same chord collapses it, and `j`/`k`
 select. Enter opens detail, while `x`/`r` use the same two-press confirmation and ownership checks as
 the dashboard. Plain and Alt arrow keys remain editor input unchanged and exactly once. Existing
-`Alt+M` and `Alt+A` shortcuts continue to open the work-mode picker and Fleet Dashboard exactly once
+`Alt+A` shortcut continues to open the Fleet Dashboard exactly once
 from either widget state. Autocomplete, paste, key release,
 non-empty/unfocused editors, modal UI, RPC/print/headless modes, and unsupported custom editors do not
 activate it; unsupported environments retain a noninteractive summary without a key hint. The window
@@ -606,15 +589,11 @@ Both fleet surfaces scrub terminal controls and size Unicode by display cells. A
 aborts only the local request—the confirmation explicitly notes that the peer pane keeps running.
 The coms pool panel remains at the **bottom of the Fleet Dashboard**.
 
-### Work Mode picker
+### macOS Alt shortcuts
 
-Press **`Alt+M`** or run **`/af-work-mode`** to open the work mode picker:
-**operator** (direct tools) or **orchestrator** (delegate-only). Arrow keys move, Enter applies,
-and Esc cancels with no change. Switching to Orchestrator with no agents auto-loads the first valid
-configured team. On macOS, the outer terminal must send Option as Meta or Alt+M will not reach
+On macOS, the outer terminal must send Option as Meta or the Fleet's Alt shortcuts will not reach
 the Hub. In Terminal.app, enable **Use Option as Meta key** under **Settings → Profiles → Keyboard**
-for the profile used by the window. If Option+M inserts `µ`, this setting is not enabled. `Command+M`
-is Terminal.app's Minimize shortcut, not a Fleet shortcut. For details, see the
+for the profile used by the window. For details, see the
 [macOS terminal note](../../../docs/pi-extensions.md).
 
 ### Fleet config screen
@@ -974,12 +953,10 @@ drives the cards — not post-hoc:
   partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
   corrected, narrowed task — never the same task unchanged.
 
-Enablement is dynamic. In **operator** work mode, precedence is the `watchdog: true|false`
+Enablement is dynamic. Precedence is the `watchdog: true|false`
 param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog builder
 on|off|clear`) → the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project
-default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. In
-**orchestrator** work mode, hub `auto`/`on` auto-arms; dispatch `watchdog: false` cannot
-disarm it. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
+default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
 `off`. Read-only research helpers are not monitored — they already run under the per-tool
 watchdog + turn deadline and cannot write.
 
@@ -1274,13 +1251,13 @@ Orchestration, research helpers, and the grid keep working.
 ### Tool surface
 
 `setActiveTools` always preserves the orchestration surface and adds runtime-ready capabilities.
-Operator work mode also preserves the baseline direct/extension tools; orchestrator work mode does not.
+The operator also preserves the baseline direct/extension tools.
 Coms tools are active only when coms is ready, Herdr tools only in a live Herdr pane, and `ask_user`
-only when registered. Work mode switching recomputes this list live without touching session state.
+only when registered. Capability refreshes recompute this list live without touching session state.
 
 `set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
 [What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they stay on the
-orchestration surface in both work modes.
+orchestration surface.
 
 ## Optional Hermes local monitor transport
 
@@ -1334,7 +1311,7 @@ lease or socket loss and must never persist or log the token.
 ```bash
 # Unified Fleet interface (Fleet Core + Agent Hub are loaded together)
 just fleet
-just fleet --work-mode operator --agents frontend --project myrepo
+just fleet --agents frontend --project myrepo
 just fleet --agents frontend --peers frontend --project myrepo
 
 # equivalent direct guarded launch
@@ -1550,7 +1527,7 @@ root, not guessed to be a file. Free-form prose and XML are never executed as to
 Fleet `1` opens a read-only request/response viewer. Press `e` to enable memory-only
 capture, Enter to inspect a pair, left/right and Enter to copy, `d` to disable and
 clear. `j` navigation is unchanged. The optional `dispatch_triage` tool is for the
-orchestrator, not a human slash command; all dispatch gates remain authoritative.
+operator, not a human slash command; all dispatch gates remain authoritative.
 See [the guide](../../../docs/system1-dispatch-triage.md) for opt-in configuration,
 privacy boundaries, evaluation commands and outstanding live acceptance.
 
@@ -1562,7 +1539,7 @@ D7 `consumers.contextCompaction` adds optional automatic early-boundary advice. 
 
 ## Automatic System 1 file discovery
 
-D9 `consumers.fileDiscovery` is separately consented and off by default. In both work modes/all tiers it ranks eligible parent inventory/find/ls/grep before delivery, plus initial/current native research/worker and registered nested delegate discoveries. Every display-permitted candidate remains (low/unscored included); large lists use bounded pages and normal read budgets, never top-K. Scope is a hint, not permission; mandatory policy, original failures and launch/acceptance gates survive. Fleet `1` opt-in diagnostics show only hashed identity, trigger/counts/coverage/elapsed and actual-or-unknown usage, not queries/bodies/paths/tokens. Start a new session after config changes. See [D9 scope, full-list/status/privacy limits and source/local-tarball activation instructions](../../../docs/system1-file-discovery.md); published latest is not assumed to contain this checkout's D9.
+D9 `consumers.fileDiscovery` is separately consented and off by default. At all tiers it ranks eligible parent inventory/find/ls/grep before delivery, plus initial/current native research/worker and registered nested delegate discoveries. Every display-permitted candidate remains (low/unscored included); large lists use bounded pages and normal read budgets, never top-K. Scope is a hint, not permission; mandatory policy, original failures and launch/acceptance gates survive. Fleet `1` opt-in diagnostics show only hashed identity, trigger/counts/coverage/elapsed and actual-or-unknown usage, not queries/bodies/paths/tokens. Start a new session after config changes. See [D9 scope, full-list/status/privacy limits and source/local-tarball activation instructions](../../../docs/system1-file-discovery.md); published latest is not assumed to contain this checkout's D9.
 
 ## Agentic System 1 advisory tool
 
@@ -1576,7 +1553,7 @@ are researched. Unresolved material decisions (requirements, public compatibilit
 consequential trade-offs, new permissions or scope) use `ask_user`; without the tool,
 ask in chat and wait for an explicit answer.
 
-Specialist `ASK_USER` returns go to the orchestrator first. It resolves questions
+Specialist `ASK_USER` returns go to the operator first. It resolves questions
 from approved decisions, repository facts or routine engineering judgment, then
 escalates what it cannot resolve. A parent-only answer uses a single task line:
 

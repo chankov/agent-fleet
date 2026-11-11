@@ -3,80 +3,37 @@ import test from "node:test";
 import { createWorkModePolicy } from "./work-mode.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "../lifecycle/context-pressure.ts";
 
-function fixture(rosterSize = 1, fallbackRosterSize = 0, pendingOperations: any[] = []) {
-	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = []; let replayed = 0; let fallbackAttempts = 0;
+function fixture(rosterSize = 1, _fallbackRosterSize = 0, pendingOperations: any[] = []) {
+	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = [];
 	const policy = createWorkModePolicy({
 		getBaselineTools: () => ["read", "edit"], getRosterSize: () => rosterSize, getActiveTeamName: () => rosterSize ? "default" : "",
-		activateFallbackRoster: () => { fallbackAttempts++; rosterSize = fallbackRosterSize; },
 		getComsReady: () => false, getHerdrReady: () => false, getAskUserAvailable: () => true, getIdentityLabel: () => null,
 		getTaskTier: () => "feature", getPendingOperations: () => pendingOperations, getContextState: () => "normal",
 		getActiveTools: () => activeTools, setActiveTools: tools => { activeTools = tools; }, recordToolCatalog: change => catalogChanges.push(change), persist: (type, data) => entries.push([type, data]),
-		replayDeferredInputs: () => { replayed++; }, watchdogArmed: () => true,
 	});
 	const notices: [string, string][] = [];
-	const ctx = { hasUI: true, ui: { notify: (message: string, level: string) => notices.push([message, level]), setStatus: () => {}, select: async () => undefined } } as any;
-	return { policy, ctx, notices, entries, catalogChanges, tools: () => activeTools, replayed: () => replayed, fallbackAttempts: () => fallbackAttempts };
+	const ctx = { hasUI: true, ui: { notify: (message: string, level: string) => notices.push([message, level]), setStatus: () => {} } } as any;
+	return { policy, ctx, notices, entries, catalogChanges, tools: () => activeTools };
 }
 
-test("validated work-mode commit persists, recomputes capabilities, and applies active tools", async () => {
-	const f = fixture();
-	assert.equal(await f.policy.commit("orchestrator", f.ctx), "ok");
-	assert.equal(f.policy.getWorkMode(), "orchestrator");
-	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
-	assert.ok(f.tools().includes("dispatch_agent"));
-	assert.equal(f.catalogChanges.at(-1).reason, "mode_switch");
-	assert.equal(f.catalogChanges.at(-1).fromMode, "operator");
-	assert.equal(f.catalogChanges.at(-1).toMode, "orchestrator");
-	assert.deepEqual(f.catalogChanges.at(-1).next, f.tools());
-	assert.deepEqual(f.entries.at(-1), ["agent-hub-work-mode", { workMode: "orchestrator" }]);
-	assert.equal(await f.policy.commit("orchestrator", f.ctx), "unchanged");
-	assert.equal(await f.policy.commit("operator", f.ctx), "ok");
-	await new Promise(resolve => setTimeout(resolve, 0));
-	assert.equal(f.replayed(), 1);
-});
-
-test("command and picker activate a fallback roster before switching to orchestrator", async () => {
-	for (const picker of [false, true]) {
-		const f = fixture(0, 2);
-		if (picker) {
-			f.ctx.ui.select = async (_title: string, options: string[]) => options[1];
-			await f.policy.openPicker(f.ctx);
-		} else await f.policy.applySelection("orchestrator", f.ctx);
-		assert.equal(f.policy.getWorkMode(), "orchestrator");
-		assert.equal(f.fallbackAttempts(), 1);
-		assert.ok(f.tools().includes("dispatch_agent"));
-		assert.ok(!f.tools().includes("edit"));
-		assert.deepEqual(f.entries.at(-1), ["agent-hub-work-mode", { workMode: "orchestrator" }]);
-		assert.match(f.notices.at(-1)![0], /Native roster: default \(2\)/);
-	}
-});
-
-test("existing rosters, operator selection, and cancelled pickers never activate a fallback", async () => {
-	const existing = fixture(1, 2);
-	await existing.policy.applySelection("orchestrator", existing.ctx);
-	assert.equal(existing.fallbackAttempts(), 0);
-	const empty = fixture(0, 2);
-	await empty.policy.openPicker(empty.ctx);
-	await empty.policy.applySelection("operator", empty.ctx);
-	assert.equal(empty.fallbackAttempts(), 0);
-	assert.equal(empty.policy.getWorkMode(), "operator");
-});
-
-test("work-mode apply refuses orchestrator when no fallback roster is available", async () => {
+test("the Hub has one work mode: the operator keeps direct tools and its fleet, with no switching surface", () => {
 	const f = fixture(0);
-	await f.policy.applySelection("orchestrator", f.ctx);
 	assert.equal(f.policy.getWorkMode(), "operator");
-	assert.match(f.notices[0][0], /requires at least one native specialist/);
-	assert.equal(f.entries.some(([type]) => type === "agent-hub-work-mode"), false);
+	f.policy.resolveIncomingCapabilities("");
+	f.policy.applyWorkModeTools();
+	for (const tool of ["read", "edit", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(f.tools().includes(tool), tool);
+	assert.equal(f.catalogChanges.at(-1).toMode, "operator");
+	assert.match(f.policy.statusText(), /Work Mode: operator\nDirect tools: enabled/);
+	for (const removed of ["commit", "applySelection", "openPicker", "setRestoredWorkMode", "modelWorkBlockedByRosterRecovery"]) assert.equal((f.policy as any)[removed], undefined, removed);
+	assert.equal(f.entries.some(([type]) => type === "agent-hub-work-mode"), false, "nothing persists a work-mode switch");
 });
 
-test("pending operation leases survive a mode switch without restoring direct write or bash", async () => {
-	const f = fixture(1, 0, [{ kind: "dispatch", status: "running" }]);
-	await f.policy.commit("orchestrator", f.ctx);
-	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
-	assert.ok(f.tools().includes("dispatch_agent"));
-	assert.ok(!f.tools().includes("write"));
-	assert.ok(!f.tools().includes("bash"));
+test("pending operation leases keep fleet active beside the operator's direct tools", () => {
+	const f = fixture(1, 0, [{ pack: "fleet", kind: "dispatch" }]);
+	f.policy.resolveIncomingCapabilities("");
+	f.policy.applyWorkModeTools();
+	assert.equal(f.policy.getCapabilityResolution().reasons.fleet, "pending-operation");
+	assert.ok(f.tools().includes("dispatch_agent") && f.tools().includes("edit"));
 });
 
 test("low-pressure lifecycle refresh keeps explicit compaction until a different user request", () => {

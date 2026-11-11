@@ -17,7 +17,7 @@ const PI_LAUNCH_RECIPES = new Set([
 	"_fleet-team-resume",
 ]);
 
-const HELP = `Agent Fleet — one guarded Hub runtime, two work modes, independent topology
+const HELP = `Agent Fleet — one guarded Hub runtime with one operator, independent topology
 
 СЕСИЕН WORKTREE TARGET
   just fleet --worktree ../repo.worktree --dry-run
@@ -42,7 +42,7 @@ SET UP A NEW REPOSITORY
 
 QUICK START
   just fleet                    # Hub/operator, empty native roster
-  just fleet --agents frontend # Hub/orchestrator with native specialists
+  just fleet --agents frontend # Hub/operator starting with a native roster
   just fleet --herdr --project af
                                 # Hub/operator in a one-pane Herdr workspace
   just fleet --agents frontend --peers frontend --project af
@@ -68,23 +68,19 @@ FLEET CORE — loaded in every Pi mode
   BTW side sessions · update check via damage-control-continue (voice is opt-in with --voice)
 
 UNIFIED HUB
-  just fleet [--work-mode operator|orchestrator] [--agents <roster>]
-             [--herdr] [--peers <preset>] [--no-coms] [PI_ARGS...]
-      Bare Fleet always loads Agent Hub in operator work mode. Operator keeps
-      read/bash/edit/write plus orchestration; the initial native roster is empty.
-      --agents selects .pi/agents/teams.yaml and implies orchestrator unless an
-      explicit --work-mode operator is supplied. --no-coms leaves direct/native work
-      available while coms, peer dispatch, and handoff refuse actionably.
+  just fleet [--agents <roster>] [--herdr] [--peers <preset>] [--no-coms] [PI_ARGS...]
+      Fleet loads Agent Hub with its one operator: read/bash/edit/write plus
+      delegation to every installed agent. --agents picks the starting native
+      roster from .pi/agents/teams.yaml; dispatching any other installed agent
+      adds it. --work-mode is deprecated and ignored. --no-coms leaves
+      direct/native work available while coms, peer dispatch, and handoff
+      refuse actionably.
 
-WORK MODE AND ROSTER
-  /af-work-mode                 # report work mode and capability state
+ROSTER
   /af-agents-add code-reviewer  # add a native Pi specialist at runtime
-  /af-work-mode orchestrator    # remove direct coding tools; keep orchestration
-  /af-work-mode operator        # restore the approved direct tool surface
 
-  Work mode is independent from the native roster and peer topology. Budgets follow task tier.
-  All Hub slash commands, including /af-handoff, stay registered in both work modes;
-  actions whose coms/Herdr capability is unavailable return remediation guidance.
+  The roster is independent from the peer topology. Budgets follow task tier.
+  Actions whose coms/Herdr capability is unavailable return remediation guidance.
 
   Explicit dispatch backend examples (inside the Hub):
     dispatch_agent({ agent: "code-reviewer", task: "Review the diff", backend: "native" })

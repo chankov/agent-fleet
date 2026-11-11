@@ -100,7 +100,7 @@ async function run() {
     "-e", join(root, ".pi/harnesses/ask-user-remote/index.ts"),
     "-e", join(root, ".pi/harnesses/agent-hub/index.ts"),
     "-e", join(worktree, "probe-hooks.ts"),
-    "--solo", "--work-mode", "orchestrator", "--agent-team", "stage", "--model", model,
+    "--solo", "--agent-team", "stage", "--model", model,
   ], { cwd: worktree, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   let ended = false, exit, turns = 0, serial = 0, err = "", buffer = "";
   const pending = new Map(), waiters = new Set(), parentModels = [];

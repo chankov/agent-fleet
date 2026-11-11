@@ -54,7 +54,7 @@ async function run(from) {
       "-e", join(root, ".pi/harnesses/damage-control-continue/index.ts"),
       "-e", join(root, ".pi/harnesses/ask-user-remote/index.ts"),
       "-e", join(root, ".pi/harnesses/agent-hub/index.ts"), "-e", join(workspace, "review-gate.ts"),
-      "--solo", "--work-mode", "orchestrator", "--agent-team", "review-only", "--model", "openai-codex/gpt-6-luna"],
+      "--solo", "--agent-team", "review-only", "--model", "openai-codex/gpt-6-luna"],
     { cwd: workspace, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
     let buffer = "", turns = 0, ended = false, reply, failPendingPrompt;
     const models = [], callbacks = new Map(), waiters = new Set();
