@@ -3,12 +3,18 @@
 ## Runtime behavior
 
 D7 adds a runtime-owned recovery coordinator and shared native child adapter.
-The real `Pi 1.3.0 --mode json -p --no-extensions` contract is verified offline
-(previously verified Pi 1.1.0 and 1.2.0 remain admitted)
+The real `Pi --mode json -p --no-extensions` contract is verified offline against
+Pi 1.1.0, 1.2.0, 1.3.0 and 1.5.2
 with fake inference, actual Pi compaction, persisted tool results, and subsequent
 continuation. Runtime detection resolves npm-bin symlink launchers before reading
-the owning Pi package version. Other runtime versions remain on their native baseline; a method
-called `compact` alone is not a capability proof.
+the owning Pi package version. The gate is a **minimum version** (`1.1.0`,
+maintainer decision 2026-11-11): every later plain `x.y.z` Pi release is admitted
+without a new Agent Fleet package. Older, unknown, pre-release and custom builds
+remain on their native baseline. Later releases are admitted on the assumption
+that Pi keeps the lifecycle contract, not on per-version proof; if a future Pi
+breaks it, recovery reports a compaction/restore failure rather than silently
+falling back. To check a new Pi, run the real-CLI suite against it:
+`CONTEXT_CONTINUITY_PI_RUNTIME=<pi package dir> npm run test:context-continuity`.
 
 Automatic compaction has a 50% minimum, 60% early opportunity, deterministic 70%
 target and 80% ceiling (operator-approved 2026-10-15). Explicit manual requests
@@ -53,7 +59,7 @@ physical attempt, measurement, episode and last phase without exposing channel t
 
 Deterministic pressure recovery does **not** require System1 selection, keys,
 fileDiscovery or any semantic consumer. Launch the normal Agent Fleet Hub on the
-verified Pi 1.3.0 runtime; no extra user `continue` is required for an interrupted,
+supported Pi runtime (1.1.0 or later); no extra user `continue` is required for an interrupted,
 still-authorized step after successful recovery.
 
 Optional early semantic advice uses the existing **single** `.ai/system1.json`

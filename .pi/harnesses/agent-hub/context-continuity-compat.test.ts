@@ -11,11 +11,11 @@ test("symlink launchers resolve the runtime package without trusting unknown or 
   const entry=join(pkg,"dist/bundle/cli.js");writeFileSync(entry,"// fixture");
   const launcher=join(dir,"bin/pi");symlinkSync("../runtime/dist/bundle/cli.js",launcher);
   const chain=join(dir,"bin/pi-chain");symlinkSync("pi",chain);
-  for(const version of ["1.1.0","1.2.0","1.3.0","0.84.2","1.1.1"]) {
+  for(const version of ["1.1.0","1.2.0","1.3.0","0.84.2","1.1.1","1.5.2"]) {
    writeFileSync(join(pkg,"package.json"),JSON.stringify({name:"@earendil-works/pi-coding-agent",version}));
    assert.equal(currentPiRuntimeVersion(launcher),version);
    assert.equal(currentPiRuntimeVersion(chain),version);
-   assert.equal(contextContinuityCompatibility(currentPiRuntimeVersion(launcher)).supported,["1.1.0","1.2.0","1.3.0"].includes(version));
+   assert.equal(contextContinuityCompatibility(currentPiRuntimeVersion(launcher)).supported,version!=="0.84.2");
   }
   writeFileSync(join(pkg,"package.json"),JSON.stringify({name:"other-package",version:"1.1.0"}));
   assert.equal(currentPiRuntimeVersion(launcher),"unknown");
@@ -24,12 +24,13 @@ test("symlink launchers resolve the runtime package without trusting unknown or 
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test("only exact verified candidate runtime is accepted; legacy/unknown preserve baseline",()=>{
-  assert.equal(contextContinuityCompatibility("1.1.0").supported,true);
-  assert.equal(contextContinuityCompatibility("1.2.0").supported,true);
-  assert.equal(contextContinuityCompatibility("1.3.0").supported,true);
-  for(const version of ["1.3.1","1.4.0","0.84.2","unknown","1.1.1","1.1.0-custom",""]) {
-    assert.equal(contextContinuityCompatibility(version).supported,false);
+test("minimum-version gate admits later releases; legacy/unknown/non-plain preserve baseline",()=>{
+  for(const version of ["1.1.0","1.1.1","1.2.0","1.3.0","1.3.1","1.4.0","1.5.2","1.10.0","2.0.0"]) {
+    assert.equal(contextContinuityCompatibility(version).supported,true,version);
+    assert.match(contextContinuityCompatibility(version).reason,/minimum 1\.1\.0/);
+  }
+  for(const version of ["1.0.9","0.84.2","0.99.99","unknown","1.1.0-custom","2.0.0-beta.1","1.5","v1.5.2",""]) {
+    assert.equal(contextContinuityCompatibility(version).supported,false,version);
     assert.match(contextContinuityCompatibility(version).reason,/baseline/);
   }
 });
