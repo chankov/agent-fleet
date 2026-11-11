@@ -1093,6 +1093,14 @@ through read-authorized exact lookup; legacy prompts remain unchanged.
 Code/local fixtures do not activate receivers/MCP or authorize live actions.
 See [the local MCP contract](codex-local-mcp.md).
 
+## Local Codex full final-response reading
+
+`coms-response-read.ts` adds a bounded read-only RPC shared by Hub and standalone COMS peers through `createComsPeer`. At finalization it records owner/wire/source-entry pointer metadata in the existing session history and a bounded in-memory locator index (4096 slots, no silent eviction), never a second copy of the answer. The final assistant text blocks are projected and scrubbed together before 2048-byte UTF-8 pagination; thinking/tool data is excluded. Public source/projection size is limited to 1 MiB and the wire frame to 16 KiB. Legacy instruction receipts remain 4096-byte previews with unchanged schema.
+
+The native `fleet_response_read` tool uses `fleet-codex-response-read.ts` and `fleet-codex-response-transport.ts`: current exact per-chat read checks before/after socket I/O, canonical local socket checks, strict framing and page validation. A namespace/epoch/reference/projection/digest-bound cursor requires no MCP-process cache or secret, so an MCP-only restart can resume against the same still-active receiver. Changed/revoked/unavailable sources fail closed. Fleet closure/restart discards the locator index; archive retention and historical access are deliberately not implemented.
+
+Instruction result wrappers expose a locator without changing stored receipt fields or asserting freshness. A ready response publishes a separate reference-only `message` event through an already enabled notification runtime; failure does not destroy the source/receipt or authorize replay. The reference hashes the canonical owner epoch and wire ID, not raw answer content; it is routing data, not authority. Full public-text digests/version/offsets support deterministic local reconstruction tests, not a claim that a model or human consumed every page or that the underlying task succeeded. No direct Codex file reads, new rights or automatic activation are introduced. See [the MCP contract](codex-local-mcp.md#read-a-full-final-fleet-response).
+
 ## Local Codex machine permission boundary (source checkpoint)
 
 `fleet_permissions`, `fleet_permission_decide` and `fleet_permission_receipt`

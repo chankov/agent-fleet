@@ -37,6 +37,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // spawn default at 2.0.8, so give it room that a few hundred releases cannot use up.
 const PACK_MAX_BUFFER = 64 * 1024 * 1024;
 
+// Borrow only an already installed local package, never an empty root stub.
+// Workspaces can have valid isolated runtime dependencies without a root copy.
+function installedDependency(name) {
+  for (const base of [root, join(root, '.pi/agent-fleet/scripts'), join(root, '.pi/harnesses'), join(root, '.pi/extensions')]) {
+    const candidate = join(base, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+  }
+  assert.fail(`local dependency unavailable for isolated fixture: ${name}`);
+}
+
 function fakePiListingScript() {
   const models = [...new Set(collectModelTargets(root).map((target) => target.model).filter(Boolean))];
   const rows = ["provider model", ...models.map((id) => {
@@ -268,6 +278,7 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
   for (const file of ["diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), file);
   assert.ok(paths.has("bin/catalog/harness-runtime-closure.json"), "relocated harness closure must ship in package");
   assert.ok(paths.has("skills/fleet-native-voice.zip"), "the packaged Codex skill archive must ship");
+  for (const file of [".pi/harnesses/lib/coms-response-read.ts", ".pi/agent-fleet/scripts/lib/fleet-codex-response-read.ts", ".pi/agent-fleet/scripts/lib/fleet-codex-response-transport.ts"]) assert.ok(paths.has(file), `full-response runtime must ship: ${file}`);
   assert.ok(paths.has("docs/codex-setup.md"), "the Codex setup guide must ship");
   assert.equal([...paths].some((path) => path.startsWith("skills/fleet-native-voice/")), false, "the unpacked fleet-native-voice source must not ship (pi would load it)");
   for (const file of ["set-codex-mcp.js", "skill-zip.js", "mcp-probe.js"]) assert.ok(paths.has(`bin/lib/${file}`), `set-codex-mcp runtime must ship: ${file}`);
@@ -344,7 +355,7 @@ test("workflow-only install runs a production policy prompt without the Hub item
     for (const dependency of ["@sinclair/typebox", "yaml"]) {
       const target = join(workspace, ".pi/agent-fleet/scripts/node_modules", dependency);
       mkdirSync(dirname(target), { recursive: true });
-      cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+      cpSync(installedDependency(dependency), target, { recursive: true });
     }
     const project = join(workspace, "project");
     mkdirSync(join(project, ".ai", "rules"), { recursive: true });
@@ -439,7 +450,7 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
         for (const dependency of Object.keys(runtimePackage.dependencies ?? {})) {
           const target = join(workspace, dependencyRoot, "node_modules", dependency);
           mkdirSync(dirname(target), { recursive: true });
-          cpSync(join(root, "node_modules", dependency), target, { recursive: true });
+          cpSync(installedDependency(dependency), target, { recursive: true });
         }
       }
       const flowModule = pathToFileURL(join(workspace, ".pi", "agent-fleet", "scripts", "flow.ts")).href;
@@ -472,7 +483,8 @@ test("isolated tarball supports Default and Full deterministic setup", () => {
     const nativeInput=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'package-fixture',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/list',params:{}},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'fleet_diagnostics',arguments:{},_meta:{threadId:'11111111-1111-4111-8111-111111111111'}}}].map(v=>JSON.stringify(v)).join('\n')+'\n';
     const native=spawnSync(process.execPath,[join(extracted,'.pi/agent-fleet/scripts/fleet-codex-local-mcp.mjs'),'--registry-root',join(nativeRoot,'registry'),'--policy-root',join(nativeRoot,'policy'),'--host-profile','package-fixture','--principal','local'],{input:nativeInput,encoding:'utf8',timeout:15000});
     assert.equal(native.status,0,native.stderr);const nativeReplies=native.stdout.trim().split('\n').map(line=>JSON.parse(line));
-    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.length,24);
+    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.length,28);
+    assert.equal(nativeReplies.find(v=>v.id===2)?.result.tools.at(-1).name,'fleet_response_read');
     const diagnosticReply=nativeReplies.find(v=>v.id===3);assert.equal(diagnosticReply?.result.isError,false);assert.equal(JSON.parse(diagnosticReply.result.content[0].text).scope,'local_diagnostics');
     assert.equal(existsSync(join(nativeRoot,'policy')),false);
     const allPreviewWorkspace = join(fixture, "all-features-preview"); mkdirSync(allPreviewWorkspace);

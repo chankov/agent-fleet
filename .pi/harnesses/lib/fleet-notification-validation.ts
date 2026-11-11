@@ -34,14 +34,15 @@ export function matchesDesktopQueueTuple(a:DesktopQueueTupleEvidence){
 
 const legacyNotificationToolNames = ["fleet_discover", "fleet_binding_prepare", "fleet_binding_commit", "fleet_check_read", "fleet_observe", "fleet_overview", "fleet_resync", "fleet_watch", "fleet_instruction_prepare", "fleet_instruction_commit", "fleet_instruction_receipt", "fleet_answer_prepare", "fleet_answer_commit", "fleet_answer_receipt", "fleet_journal_upgrade_prepare", "fleet_journal_upgrade_commit", "fleet_diagnostics", "fleet_receipts", "fleet_legacy_history", "fleet_snapshot", "fleet_replay", "fleet_permissions", "fleet_permission_decide", "fleet_permission_receipt"];
 const connectionTools=['fleet_connect_prepare','fleet_connect_commit','fleet_connection_status'];
-export const notificationToolNames=[...legacyNotificationToolNames,...connectionTools];
-/** Explicitly support both pinned legacy and connection catalogs; unknown/partial extensions fail closed. */
+const connectionNotificationToolNames=[...legacyNotificationToolNames,...connectionTools];
+export const notificationToolNames=[...connectionNotificationToolNames,'fleet_response_read'];
+/** Known 24/27 catalogs remain notification-compatible only; current full-read catalog has 28. */
 export function assessLoadedFleetCatalog(observation:unknown,allowLegacy=false){
  const d=observation as {identity?:unknown;nodeVersion?:unknown;protocolVersion?:unknown;tools?:unknown};
  const tools=Array.isArray(d?.tools)?d.tools:[];
  const names=tools.map(t=>t&&typeof t==='object'?(t as {name?:unknown}).name:undefined);
  const valid=tools.length<=128&&names.every(n=>typeof n==='string'&&/^[a-z_]{1,96}$/.test(n))&&new Set(names).size===names.length;
- const expected=allowLegacy&&names.length===legacyNotificationToolNames.length&&!connectionTools.some(n=>names.includes(n))?legacyNotificationToolNames:notificationToolNames;
+ const expected=allowLegacy&&names.length===legacyNotificationToolNames.length&&!connectionTools.some(n=>names.includes(n))?legacyNotificationToolNames:allowLegacy&&names.length===connectionNotificationToolNames.length&&!names.includes('fleet_response_read')?connectionNotificationToolNames:notificationToolNames;
  const missing=expected.filter(n=>!names.includes(n));
  const unexpected=names.filter(n=>typeof n!=='string'||!expected.some(name=>name===n)).map(()=> 'unexpected_tool_entry');
  const ready=valid&&d?.identity==='host_context_validated'&&d?.protocolVersion==='2025-06-18'&&missing.length===0&&unexpected.length===0;

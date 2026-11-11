@@ -25,7 +25,7 @@ function fixture(t: any) {
  return { service, policyRoot, root, path, raw, marker, journal, receipt, clock: (n: number) => { clock = n; }, remoteCalls: () => remoteCalls };
 }
 test('upgrade source catalog has two strict tools; no model identity/root/consent parameters', () => {
- assert.equal(TOOLS.length, 27);
+ assert.equal(TOOLS.length, 28);
  for (const name of ['fleet_journal_upgrade_prepare', 'fleet_journal_upgrade_commit']) {
   const tool = TOOLS.find(t => t.name === name)!; assert.ok(tool); assert.equal(tool.inputSchema.additionalProperties, false);
   assert.match(tool.description, /human|quiescen/i);

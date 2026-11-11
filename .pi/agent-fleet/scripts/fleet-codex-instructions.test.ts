@@ -35,3 +35,10 @@ test('S6a permission revoked during terminal arrival withholds source text from 
     assert.equal((await bridge.prepare(c, args)).status, 'historical');
     assert.equal(f.sends(), 1);
 });
+test('response locator is metadata outside legacy receipt, survives MCP history without fresh availability claim',async t=>{
+ const f=await fixture(t),p=await f.bridge.prepare(c,args),result=await f.bridge.commit(c,p.proposalId as string);
+ const {responseReference}=await import('../../harnesses/lib/coms-response-read.ts');
+ assert.deepEqual(result.fullResponse,{tool:'fleet_response_read',target,reference:responseReference(target,(result.receipt as any).wireId),availability:'not_checked',scope:'same_live_session_only'});
+ assert.equal(Object.hasOwn(result.receipt as object,'fullResponse'),false);const state=await f.store.open();await f.store.revoke('fixture',state.revision);
+ const history=await new InstructionBridge(f.options).receipt(c,{requestId:args.requestId});assert.deepEqual(history.fullResponse,result.fullResponse);assert.equal(f.reads(),0);assert.equal(f.sends(),1);
+});

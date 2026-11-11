@@ -4,7 +4,7 @@ import type {ConversationKey,TargetEpoch,Right} from './fleet-codex-allowlist.ts
 import {PermissionTransport} from './fleet-codex-permission-transport.ts';
 import {validInstructionTarget,targetKey} from '../../../harnesses/lib/fleet-notification-validation.ts';
 export class ConnectionError extends Error {readonly code:string;constructor(code:string){super(code);this.code=code;}}
-const fail=(code:string):never=>{throw new ConnectionError(code);};
+function fail(code:string):never{throw new ConnectionError(code);}
 const key=(c:ConversationKey)=>JSON.stringify([c.hostProfile,c.principal,c.threadId]);
 export function parseConnection(v:any,operation:'prepare'|'commit'|'status'){
  const fields=operation==='prepare'?['target','rights','durationHours','notifications','desktopConfirmed']:operation==='status'?['target']:['proposalId','quiescentWritersConfirmed'];

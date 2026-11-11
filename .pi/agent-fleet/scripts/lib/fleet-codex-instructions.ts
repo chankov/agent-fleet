@@ -1,5 +1,6 @@
 // Native-context S6a intents. Historical receipts never grant fresh authority.
 import { randomUUID } from 'node:crypto';
+import {responseReference} from '../../../harnesses/lib/coms-response-read.ts';
 import { AllowedSessionsPolicy, type ConversationKey, type TargetEpoch } from './fleet-codex-allowlist.ts';
 import { AllowedSessionsStore, type StoreHandle } from './fleet-codex-allowlist-store.ts';
 import { ReadonlyFleetBridge, type RegistryReader } from './fleet-codex-readonly.ts';
@@ -60,7 +61,8 @@ export class InstructionBridge {
         if (!p.promise && p.expires <= n)
             this.#pending.delete(id); }
     pendingCount(context?: string) { this.#prune(); return context === undefined ? this.#pending.size : [...this.#pending.values()].filter(p => p.context === context).length; }
-    #history(receipt: Receipt) { return { status: 'historical', source: 'local_intent_ledger', scope: 'historical_only', completion: 'not_established', receipt }; }
+    #history(receipt: Receipt) { return { status: 'historical', source: 'local_intent_ledger', scope: 'historical_only', completion: 'not_established', receipt,
+        fullResponse:receipt.attempted?{tool:'fleet_response_read',target:{...receipt.target},reference:responseReference(receipt.target,receipt.wireId),availability:'not_checked',scope:'same_live_session_only'}:null }; }
     async #selected(c: ConversationKey, target: TargetEpoch) { const s = await this.#auth.discoverCandidates(c, { project: target.project }); if (s.status !== 'complete' || s.partial)
         fail('REGISTRY_UNAVAILABLE'); const matches = s.candidates.filter(v => v.target.peer === target.peer); if (matches.length !== 1 || matches[0].presence !== 'fresh')
         fail('TARGET_UNAVAILABLE'); if (targetKey(matches[0].target) !== targetKey(target))

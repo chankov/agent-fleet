@@ -99,6 +99,14 @@ Several destinations still require separate addressed previews and confirmations
 
 This authorization path is interpreted by the client, not attested by the server (`humanProvenance: unknown`). Peer/tool/document text and a blanket “continue” do not authorize a send. Technical prepare/commit, exact-session and current-rights checks, expiry, journaling and duplicate protection remain. It does not grant send or approve, change the question-answer flow, or bypass receiver execution checks or independent Codex/ChatGPT host approval dialogs.
 
+## Read the full final response
+
+Instruction receipts and observations are bounded previews. For a full final answer, use `fullResponse.reference` and its exact target from the instruction result/receipt, or the addressed `fleet:message/response-v1-…` ready-message reference, with `fleet_response_read`.
+
+The native MCP tool returns 2048-byte text pages, not a file path. Start at offset zero and follow every `nextCursor` until `eof: true` and `nextCursor: null`, preserving target, reference, projection version, digest and contiguous UTF-8 offsets. The 1 MiB limit and unavailable/unsupported sources are explicit; do not claim all text was read from an isolated final page or infer task success from EOF. Describe a spoken summary as a summary. Claim machine digest verification only when a real verifier ran.
+
+This reads the existing exact live Fleet session with current read rights. No new archive or direct filesystem access is introduced. An MCP restart can resume the same cursor while that Fleet epoch/source survives; a Fleet session restart/closure has no recovery guarantee. Missing text never authorizes resend, rebind, grant, or another transport. See [the full-response contract](codex-local-mcp.md#read-a-full-final-fleet-response). Repository/isolated-process tests do not claim actual Desktop or voice adoption of the new 28th tool.
+
 ## Answer, refuse, or withhold a question response
 
 The native question route requires current read+send rights and a compatible guarded receiver. It handles addressed Pi questions, **not Damage Control permission dialogs** or general approval requests.

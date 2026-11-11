@@ -41,7 +41,7 @@ export function redactSecrets(value: string): string {
 	return value
 		.replace(/-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)* PRIVATE KEY-----/gi, REDACTED)
 		.replace(/(["']authorization["']\s*:\s*["']bearer\s+)[^"']+/gi, `$1${REDACTED}`)
-		.replace(new RegExp(`(["']?)([A-Z0-9_]*${credential})\\1(\\s*[:=]\\s*)(["'])(.*?)\\4`, "gi"), (_match, quote, key, separator, valueQuote) => `${quote}${key}${quote}${separator}${valueQuote}${REDACTED}${valueQuote}`)
+		.replace(new RegExp(`(["']?)(\\b[A-Z0-9_]*${credential})\\1(\\s*[:=]\\s*)(["'])(.*?)\\4`, "gi"), (_match, quote, key, separator, valueQuote) => `${quote}${key}${quote}${separator}${valueQuote}${REDACTED}${valueQuote}`)
 		.replace(/(\bauthorization\s*:\s*bearer\s+)[^\s"']+/gi, `$1${REDACTED}`)
 		.replace(new RegExp(`(\\b[A-Z0-9_]*${credential}\\b\\s*=\\s*)(["']?)[^\\s,"';&]+\\2`, "gi"), `$1${REDACTED}`)
 		.replace(new RegExp(`(\\b${credential}\\b\\s*[:=]\\s*)(["']?)[^\\s,"';&]+\\2`, "gi"), `$1${REDACTED}`)

@@ -8,7 +8,9 @@ Explicit faithful user sends to one selected read+send target do not require a r
 
 Recorded implementation checks include isolated connection prepare/commit/status over STDIO, exact temporary Unix-socket transport tests, lease and no-replay regressions, and bounded/sanitized/scrollable Fleet View tests. Separately authorized operational work verified an exact new AF epoch, explicit notification prepare/enable and one actual message delivery to the selected Codex chat. It did not newly exercise question responses or Damage Control after that reload, and it does not close the private-verification feature's independent review. The actual Fleet View panel's visual acceptance in the live TUI remains pending; a live status API response is not a visual test.
 
-A fresh 27-tool runtime and managed registration are not proof that a running Desktop host has refreshed its cached 24-tool catalog. The deployment steps below remain necessary where the old catalog or skill is loaded. This is a verification boundary, not a promise of automatic publication, refresh, binding, activation or renewal.
+Full final-response reading appends `fleet_response_read` as the 28th source tool. It uses existing read rights and the exact live Fleet session, not a new archive or direct Codex file access; see [the response contract](codex-local-mcp.md#read-a-full-final-fleet-response). A source-only change does not reload a receiver or Desktop.
+
+A fresh 28-tool runtime and managed registration are not proof that a running Desktop host has refreshed its cached 24/27-tool catalog. The deployment steps below remain necessary where the old catalog or skill is loaded. This is a verification boundary, not a promise of automatic publication, refresh, binding, activation or renewal.
 
 ## Scope and acceptance
 
@@ -32,7 +34,7 @@ The optional repository skill is `skills/fleet-connect/SKILL.md`. Its installati
 5. Call `fleet_connect_commit` once. For a new lease pass `quiescentWritersConfirmed:true` only after that confirmation. A proposal lasts 300 seconds and is current-chat scoped. It is lost on MCP restart.
 6. Call `fleet_connection_status` for fresh policy/receiver observations. `committed` describes the local transition; inspect `notifications.status` separately. Unknown/partial effects never authorize replay.
 
-The connection tools extend the current source catalog from 24 to 27 tools. Source availability is not proof that a running host has loaded them. Validate the actual host after an approved reload; do not restart a working Fleet instance automatically. The runtime explicitly accepts the exact pinned legacy 24-tool notification catalog as well as the complete new 27-tool catalog. Partial/unexpected catalogs are refused.
+The connection tools extend the current source catalog from 24 to 27 tools. Source availability is not proof that a running host has loaded them. Validate the actual host after an approved reload; do not restart a working Fleet instance automatically. The runtime explicitly accepts the pinned 24-tool and 27-tool catalogs for notification compatibility, alongside the current 28-tool catalog. Those older catalogs do not establish full-response support. Partial/unexpected catalogs are refused.
 
 ## Policy and expiry
 
@@ -92,7 +94,7 @@ Safe completion steps:
 2. In the **actual Desktop host**, use Settings → MCP servers → Restart, as described by the [official MCP guide](https://developers.openai.com/codex/mcp). Do not substitute an AF reload or full app restart. If the installed UI offers only a broader restart, stop and review its consequences separately.
 3. The measured Desktop request schema includes `config/mcpServer/reload` with null parameters, not a per-server selector. Treat its scope as potentially all host MCP connections. Pending server-memory proposals are lost on MCP restart; durable policy and attempted-action receipts stay. Never repeat unknown actions.
 4. The separate queue daemon's control socket is **not** the Desktop stdio app-server that owns the active MCP clients. Refreshing that daemon is not proof of a Desktop catalog refresh. Do not inject into existing stdio pipes or kill MCP clients as a replacement for the supported host action.
-5. In a fresh turn in the same chat, obtain actual native diagnostics/tool availability. Require all 27 names, including the three connection tools. A separately spawned `initialize`/`tools/list` probe proves the registered runtime starts, not that the active host has adopted it.
+5. In a fresh turn in the same chat, obtain actual native diagnostics/tool availability. Require all 28 current names, including the three connection tools and `fleet_response_read`. A separately spawned `initialize`/`tools/list` probe proves the registered runtime starts, not that the active host has adopted it.
 6. Verify `fleet_connection_status` against the exact existing target first. It must not change rights, expiry or delivery state. A rights-only `fleet_connect_prepare` with `notifications:false` can preview the existing connection without renewal; present its complete effects before any real commit. Isolated fixture commit tests are preferable to touching an active connection solely for a test.
 
 A MCP-only refresh is not intended to change the native thread UUID or the AF epoch, but verify them rather than assuming. Existing 24-tool notification catalogs remain explicitly supported, so loading the connection trio does not require disabling/re-enabling notifications or extending their deadline. Initial notification bootstrap still has the host-mapping limitation described above.

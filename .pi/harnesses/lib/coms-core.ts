@@ -1,4 +1,5 @@
 import {publishFleetSourceEvent,fleetSourceDigest} from './fleet-event-source.ts';
+import {SessionResponseReader} from './coms-response-read.ts';
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { instructionReceipt, ownerOf, sameOwner, validateInstructionTag } from './coms-instruction-receipts.ts';
 import * as fs from "node:fs";
@@ -128,6 +129,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	const peerCards = new Map<string, AgentCard & { staleCount: number }>();
 	const pendingReplies = new Map<string, PendingReply>();
 	const inboundQueue = new Map<string, InboundContext>();
+ const responses = new SessionResponseReader();
 	const scope = { includeExplicit: false, displayProject: null as string | null };
 	let identity: ComsIdentity | null = null;
 	let currentInbound: InboundContext | null = null;
@@ -210,8 +212,15 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
    && typeof manager?.getLeafId === 'function' && typeof manager?.getEntry === 'function'
    ? { version: 1 as const, owner: ownerOf(identity) } : undefined;
  }
- function terminalFor(inbound: InboundContext, response: unknown, error: unknown) {
+ function terminalFor(inbound: InboundContext, response: unknown, error: unknown, sourceEntryId?: string) {
   if (!inbound.instruction || !identity || !sameOwner(ownerOf(identity),inbound.instruction.owner)) return undefined;
+  const captured=responses.capture(ownerOf(identity),inbound.msg_id,sourceEntryId,deps.getContext()?.sessionManager,(kind,data)=>pi.appendEntry(kind,data));
+  if(captured.sourceSha256)try{
+   publishFleetSourceEvent({kind:'message',owner:ownerOf(identity),sourceId:captured.reference.slice('fleet:message/'.length),createdAt:Date.now(),deadline:null,contentDigest:captured.sourceSha256});
+  }catch{
+   // Notification failure must not destroy a ready response or authorize instruction replay.
+   try{pi.appendEntry('coms-response-notification',{reference:captured.reference,status:'unavailable'});}catch{/* Receipt/source remain independently readable. */}
+  }
   const receipt = instructionReceipt(ownerOf(identity),inbound.msg_id,response,error);
   try { pi.appendEntry('coms-instruction-receipt',receipt); } catch { /* Wire evidence remains valid; later history may be unknown. */ }
   return receipt;
@@ -242,6 +251,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
   const admission = currentInbound || turnState !== 'idle' || dispatchPaused ? 'queued' : 'submitted';
   if(identity)try{publishFleetSourceEvent({kind:'message',owner:ownerOf(identity),sourceId:envelope.msg_id,createdAt:Date.parse(envelope.timestamp),deadline:null,contentDigest:fleetSourceDigest({prompt:envelope.prompt,sender:envelope.sender_session})});}catch{nack(socket,envelope.msg_id,'notification durable ingress unavailable');return;}
 		inboundQueue.set(envelope.msg_id, inbound);
+  if(native&&identity)responses.begin(ownerOf(identity),envelope.msg_id);
   if (native) { socket.write(JSON.stringify({type:'ack',msg_id:envelope.msg_id,instruction:{...instructionCapability(),admission}})+'\n');socket.end(); }
   else ack(socket, envelope.msg_id);
 		audit({ event: "inbound_prompt", msg_id: envelope.msg_id, sender: envelope.sender_session, hops: envelope.hops });
@@ -346,6 +356,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 				if (parsed.type === "prompt") handlePrompt(socket, parsed);
 				else if (parsed.type === "response") handleResponse(socket, parsed);
 				else if (parsed.type === "ping") handlePing(socket, parsed);
+    else if (deps.instructionReceipts && responses.handle(socket,parsed,()=>identity?ownerOf(identity):null,deps.getContext()?.sessionManager)) socket.end();
 				else if (!deps.handleCustomEnvelope?.(socket, parsed)) nack(socket, parsed.msg_id, "unknown type");
 			} catch {
 				nack(socket, parsed.msg_id, "internal error");
@@ -595,7 +606,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		return { status: "complete", response: "response" in result ? result.response : undefined };
 	}
 
-	function responseForInbound(ctx: ExtensionContext, inbound: InboundContext): { response: any; error: string | null } {
+	function responseForInbound(ctx: ExtensionContext, inbound: InboundContext): { response: any; error: string | null; sourceEntryId?: string } {
 		const branch = ctx.sessionManager.getBranch();
 		let markerIndex = -1;
 		for (let index = branch.length - 1; index >= 0; index -= 1) {
@@ -608,33 +619,35 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		if (markerIndex < 0) return { response: null, error: "peer agent ended without a successful final answer" };
 
 		let message: any = null;
+  let sourceEntryId: string | undefined;
 		for (let index = branch.length - 1; index > markerIndex; index -= 1) {
 			const candidate = branch[index] as any;
 			if (candidate?.type === "message" && candidate?.message?.role === "assistant") {
 				message = candidate.message;
+    sourceEntryId = candidate.id;
 				break;
 			}
 		}
 		if (!message || message.stopReason !== "stop") {
-			return { response: null, error: "peer agent ended without a successful final answer" };
+			return { response: null, error: "peer agent ended without a successful final answer", sourceEntryId };
 		}
 		const text = typeof message.content === "string"
 			? message.content
 			: Array.isArray(message.content)
 				? message.content.filter((block: any) => block?.type === "text").map((block: any) => block.text).join("\n")
 				: "";
-		if (!text.trim()) return { response: null, error: "peer agent produced an empty final answer" };
+		if (!text.trim()) return { response: null, error: "peer agent produced an empty final answer", sourceEntryId };
 		if (inbound.response_schema && typeof inbound.response_schema === "object") {
 			try { return { response: JSON.parse(text), error: null }; }
 			catch { return { response: null, error: "response not valid JSON" }; }
 		}
-		return { response: text, error: null };
+		return { response: text, error: null, sourceEntryId };
 	}
 
 	async function respond(ctx: ExtensionContext, inbound = currentInbound): Promise<void> {
 		if (!inbound || !identity || inbound.fulfilled) return;
-		const { response, error } = responseForInbound(ctx, inbound);
-  const receipt=terminalFor(inbound,response,error);
+		const { response, error, sourceEntryId } = responseForInbound(ctx, inbound);
+  const receipt=terminalFor(inbound,response,error,sourceEntryId);
 		try {
 			await sendEnvelope(inbound.sender_endpoint, {
 				type: "response", msg_id: inbound.msg_id, sender_session: identity.session_id,
@@ -696,6 +709,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	async function shutdown(): Promise<void> {
 		if (shuttingDown) return;
 		shuttingDown = true;
+  responses.clear();
 		if (pingTimer) { try { clearInterval(pingTimer); } catch { /* ignore */ } pingTimer = null; }
 		if (keepaliveTimer) { try { clearInterval(keepaliveTimer); } catch { /* ignore */ } keepaliveTimer = null; }
 		if (herdrWatch) { try { herdrWatch.stop(); } catch { /* ignore */ } herdrWatch = null; }

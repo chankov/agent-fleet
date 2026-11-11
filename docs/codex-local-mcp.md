@@ -107,6 +107,22 @@ Binding changes, `grant_send`, question answers/refusals, machine `approve` perm
 
 The sender records durable intent before one delivery attempt. Exact duplicates return history; reuse of an action ID with a different target, operation, or payload conflicts. Do not resend, switch IDs, or switch transports to work around an uncertain outcome. `submitted`, queued work, and a correlated terminal response are different states; even a terminal response is not proof of semantic whole-task completion or human delivery.
 
+## Read a full final Fleet response
+
+Instruction receipts retain their existing **4096 UTF-8 byte preview**, and `fleet_observe` remains a bounded transcript projection. Neither has a text continuation. New instruction results/receipts include `fullResponse` metadata outside the unchanged receipt schema: `tool`, exact `target`, `reference`, and `availability: not_checked`. This locator does not establish current availability or grant rights. Older responses without a receiver pointer are unavailable through the new route.
+
+Call `fleet_response_read {project, peer, reference, cursor?}` with the returned selector/reference. A ready-response notification uses the same `fleet:message/response-v1-…` reference and exact addressed target. It is a separate `message` event from the incoming instruction, not raw answer text, an approval, or proof of completion. Notifications must already be explicitly enabled; reading does not enable them.
+
+The tool makes a read-only addressed COMS RPC to the same live Fleet session. Like other observation tools, its existing policy checks may durably downgrade stale local rights, so the MCP `readOnlyHint` remains false; this does not authorize peer writes or new grants. Fleet reads the exact final assistant entry through its existing session manager. Codex does **not** open a file or choose a path. The receiver retains only bounded locator metadata and a session-history pointer, not a new answer archive; the client does not save response text into its action journal or report store.
+
+Each page exposes `text`, UTF-8 `offsetBytes`, `nextOffsetBytes`, `totalBytes`, stable `sourceSha256`/`projectionVersion`, `chunkSha256`, `redacted`, source state/stop reason, and `nextCursor`/`eof`. Text is at most 2048 UTF-8 bytes per page with intact code points. The serialized wire frame is bounded to 16 KiB. An assistant entry is limited to 4096 content blocks. Both raw public text and its allowed projection are limited to 1 MiB; excess yields `RESPONSE_TOO_LARGE`, never a silently truncated success. Thinking and tool data are excluded. All public text blocks of the final message are joined in order with newlines, then scrubbed together before pagination, including multiline credentials and unterminated private keys.
+
+Read from offset zero, follow every `nextCursor`, and require contiguous offsets, the same target/reference/projection/digest, and final `eof: true`, `nextCursor: null`. Tests reconstruct the bytes and verify the whole digest deterministically. Do not claim the model computed a SHA hash without an actual verifier. A server EOF alone proves neither receipt of earlier pages nor semantic task success; inspect `sourceState` separately.
+
+A cursor survives an MCP connection/process restart **only while the same Fleet receiver/session, source and current read rights remain available**. It is bound to the native namespace and exact source version. Revocation, changed epoch/source, malformed cursor, unsupported RPC, missing pointer and `NOT_READY` remain explicit failures/gaps. Never merge versions, retarget automatically, or resend an instruction to recover missing text. Closing/restarting Fleet discards its in-memory locator index; no historical-access guarantee or archive is introduced. The index holds at most 4096 locators per live receiver and does not silently evict issued locators at capacity.
+
+The source catalogue now contains **28 tools**. The new tool is appended, preserving existing tool order and schemas; the exact 24/27-tool notification compatibility catalogues remain distinct from current full-response support. Source tests and a separately spawned MCP process are not evidence that an existing Desktop host has adopted the new tool or that a running Fleet receiver has reloaded this handler.
+
 ## Answer or refuse a Pi question
 
 An actual human response, current read+send rights, and a compatible guarded question receiver are required. Native Pi questions are **not** Damage Control permission dialogs or general approval requests.
