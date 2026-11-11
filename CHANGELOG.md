@@ -1,5 +1,12 @@
 # Agent Fleet changelog
 
+## 2.1.2
+
+### Patch Changes
+
+- a8e76a5: Add bounded full-response reading for Codex connections. A final response can now be read in full from the exact live Fleet session through validated, resumable pages, with secrets redacted; notifications carry a reference to the response instead of its text.
+- 9b40ff9: Fix automatic compact-and-continue being disabled on newer Pi releases. The context-continuity gate was an exact list of Pi versions (1.1.0–1.3.0), so Pi 1.4+ fell back to a hard stop at the context limit. It is now a minimum version (1.1.0): later Pi releases work without a new Agent Fleet package.
+
 ## 2.1.1
 
 ### Patch Changes
