@@ -4,7 +4,10 @@ export const MAX_DELEGATE_DEPTH = 1;
 export const DELEGATE_TREE_SPAWN_BUDGET = 4;
 export const READ_ONLY_TOOLS = "read,grep,find,ls";
 
-const SAFE_AGENT_KEY_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// A slug, optionally followed by the reserved parallel-instance suffix --p2 ... --p16.
+const SAFE_AGENT_KEY_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--p(?:[2-9]|1[0-6]))?$/;
+/** The reserved suffix of a parallel instance; persona files may not use it. */
+export const PARALLEL_INSTANCE_SUFFIX_RE = /--p(?:[2-9]|1[0-6])$/;
 
 export interface ModelOverrideConfig {
 	model?: string;

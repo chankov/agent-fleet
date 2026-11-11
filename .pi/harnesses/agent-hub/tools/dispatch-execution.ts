@@ -806,7 +806,7 @@ export function routeParallelInstance(d: DispatchExecutorDeps, params: DispatchA
 		for (let n = 2; n <= 16; n++) {
 			const candidate = parallelInstanceName(base, n);
 			if (busy(candidate)) continue;
-			if (d.state.addAgentInstance(base, candidate)) agent = candidate;
+			try { if (d.state.addAgentInstance(base, candidate)) agent = candidate; } catch { /* stay on the base; the gate explains */ }
 			break;
 		}
 	}

@@ -5,7 +5,7 @@ import { createEvidenceSession } from "../execution-evidence.ts";
 import { join, resolve } from "node:path";
 import { parseTeamsYaml, safePathWithin } from "../helpers.ts";
 import { parseDispatchPolicy } from "../backend-policy.js";
-import { clampDelegateDepth, MAX_DELEGATE_DEPTH, safeAgentKey } from "../helpers.ts";
+import { clampDelegateDepth, MAX_DELEGATE_DEPTH, PARALLEL_INSTANCE_SUFFIX_RE, safeAgentKey } from "../helpers.ts";
 import type { AgentDef, SubagentRole } from "../types.ts";
 import { normalizeThinkingLevel } from "./overrides.ts";
 import { PERSONA_DIRS } from "../../../agent-fleet/scripts/lib/persona-dirs.ts";
@@ -88,6 +88,8 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 		}
 		if (!frontmatter.name) return null;
 		try { safeAgentKey(frontmatter.name); } catch { return null; }
+		// --p<n> names are reserved for parallel instances created by the Hub.
+		if (PARALLEL_INSTANCE_SUFFIX_RE.test(frontmatter.name)) return null;
 		let delegateDepth: number | undefined;
 		if (frontmatter.delegate_depth !== undefined) {
 			const depth = Number(frontmatter.delegate_depth);

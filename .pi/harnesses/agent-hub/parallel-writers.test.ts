@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parallelWriterGate, routeParallelInstance, type WriterEntry } from "./tools/dispatch-execution.ts";
 import { basePersonaName, checkTierPersonaGate, isReviewPersona } from "./run-budget.js";
+import { safeAgentKey } from "./helpers.ts";
+import { createAgentStateFactory } from "./context/agent-state.ts";
+import { createRosterPolicy } from "./policy/roster.ts";
+import { parseAgentFile } from "./config/agents.ts";
 import { confineNativeChild, linuxUserNamespaceSandboxAvailable } from "./write-isolation.ts";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 
@@ -147,6 +151,32 @@ test("a non-parallel dispatch is never renamed, so the writer gate can refuse it
 	assert.equal(reserved.get("builder"), 1, "releasing the refused duplicate does not free the first claim");
 	first.release();
 	assert.equal(reserved.has("builder"), false);
+});
+
+test("a parallel instance passes the real agent-key, session and roster paths; persona files cannot claim the suffix", t => {
+	// The live failure was "Invalid agent key \"builder--p2\"": exercise the production pieces, not fakes.
+	assert.equal(safeAgentKey("builder--p2"), "builder--p2");
+	assert.equal(safeAgentKey("code-reviewer--p16"), "code-reviewer--p16");
+	for (const bad of ["builder--p1", "builder--p17", "builder---p2", "builder--x2", "--p2"]) assert.throws(() => safeAgentKey(bad), /Invalid agent key/, bad);
+	const sessionDir = mkdtempSync(join(tmpdir(), "fleet-instance-"));
+	t.after(() => rmSync(sessionDir, { recursive: true, force: true }));
+	const factory = createAgentStateFactory(() => sessionDir);
+	const states = new Map<string, any>();
+	const roster = createRosterPolicy({
+		getTeams: () => ({}), getAllDefs: () => [{ name: "builder" }] as any, getStates: () => states,
+		getActiveTeamName: () => "default", setActiveTeamName() {}, clearBackendNotices() {},
+		createFreshState: (def: any, adoption: any) => factory.freshAgentState(def, adoption), adoptSession: (def: any) => factory.adoptableSessionFile(def),
+		quarantineSession: () => ({ usable: true, quarantined: null, reason: null }), persist() {}, recompute() {}, refreshUi() {}, displayName: (name: string) => name,
+	} as any);
+	const added = roster.addInstance({ name: "builder--p2", tools: "read,write", file: "agents/builder.md" } as any);
+	assert.equal(added.ok, true, added.message);
+	assert.equal(states.get("builder--p2")?.status, "idle");
+	const personaDir = join(sessionDir, "personas");
+	mkdirSync(personaDir);
+	writeFileSync(join(personaDir, "fake--p2.md"), "---\nname: fake--p2\ndescription: squatter\n---\nbody\n");
+	writeFileSync(join(personaDir, "real.md"), "---\nname: real\ndescription: fine\n---\nbody\n");
+	assert.equal(parseAgentFile(join(personaDir, "fake--p2.md")), null, "the instance suffix is reserved for the Hub");
+	assert.equal(parseAgentFile(join(personaDir, "real.md"))?.name, "real");
 });
 
 test("an instance keeps its base persona's review meaning and tier gate", () => {
