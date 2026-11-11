@@ -192,6 +192,15 @@ Writes run one at a time by default. A writer is any dispatch whose agent has `w
   isolated (`writer_active_unisolated`), when the new one is not parallel (`writer_active`), or when
   the scopes overlap (`scope_overlap`). Overlap is conservative: a glob anchor or a containing
   directory counts as overlap.
+- A persona runs one dispatch at a time. A second `parallel: true` dispatch to a persona that is
+  already writing runs as its own instance, `builder--p2` (up to `--p16`), with a separate session
+  and executor. The instance keeps the base persona's prompt, tools, current model and thinking, its
+  review meaning and its tier gates.
+- Real Pi takes `<file>.lock` directories beside `trust.json`, `auth.json` and `settings.json` in its
+  agent directory and beside the project `.pi/settings.json`. The sandbox therefore lets a child
+  create new entries in those two directories, keeps every existing entry there read-only (code,
+  extensions, `AGENTS.md`, settings), and leaves only `auth.json`, `models-store.json` and the crash
+  logs writable.
 - For an isolated writer, only observed changes inside its own scope are attributed to it; changes
   elsewhere during its run are listed in the result and not attributed. Its runtime test evidence
   stays non-exclusive, so the operator runs the full checks once no writer is active.

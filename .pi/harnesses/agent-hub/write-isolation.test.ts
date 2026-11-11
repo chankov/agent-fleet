@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { confineNativeChild, linuxUserNamespaceSandboxAvailable, policyFor } from "./write-isolation.ts";
 import { assertSafeSandboxStdio, killPiTree, nativeChildEnv, spawnPiAgent } from "./spawn.ts";
+import { piStateGrants } from "./dispatch-native-prepare.ts";
 
 const hasLinuxSandbox = linuxUserNamespaceSandboxAvailable();
 
@@ -263,6 +264,33 @@ test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports ap
 	assert.equal(readFileSync(join(root, "allowed-dir", "from-pi"), "utf8"), "ok");
 	assert.equal(existsSync(join(root, "blocked-dir", "from-pi")), false);
 	assert.equal(existsSync(join(root, "blocked-dir", "from-shell")), false);
+});
+
+test("Pi lock directories accept new lock entries while their existing code, prompts and settings stay read-only", { skip: !hasLinuxSandbox }, () => {
+	// Real Pi 1.5 takes <file>.lock directories beside trust/auth/settings at startup; without
+	// this grant every sandboxed child failed with EROFS before doing any work.
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-pi-locks-")));
+	const agent = join(root, "agent"), project = join(root, "project");
+	for (const dir of ["runtime", "artifacts", "temp", "agent/extensions", "project/.pi/harnesses", "project/src"]) mkdirSync(join(root, dir), { recursive: true });
+	for (const [file, body] of [["agent/AGENTS.md", "global\n"], ["agent/settings.json", "{}\n"], ["agent/auth.json", "{}\n"], ["project/.pi/settings.json", "{}\n"], ["project/.pi/harnesses/code.ts", "// code\n"]]) writeFileSync(join(root, file), body);
+	const env = { PI_CODING_AGENT_DIR: agent } as NodeJS.ProcessEnv;
+	const run = (script: string) => {
+		const launch = confineNativeChild({
+			enabled: true, cwd: project, allowlist: ["src"], runtimePaths: [join(root, "runtime")], artifactPaths: [join(root, "artifacts")], tempPaths: [join(root, "temp")],
+			...piStateGrants(project, env), command: "/bin/sh", args: ["-c", script],
+		});
+		assert.equal(launch.applied, true, launch.reason);
+		assert.deepEqual(launch.lockDirectories, [agent, join(project, ".pi")]);
+		return spawnSync(launch.command!, launch.args!, { cwd: launch.cwd, env: { ...process.env, ...launch.env }, encoding: "utf8", timeout: 10_000 }).status;
+	};
+	assert.equal(run(`mkdir ${agent}/trust.json.lock && rmdir ${agent}/trust.json.lock`), 0, "agent-dir lock entries are creatable");
+	assert.equal(run(`mkdir ${project}/.pi/settings.json.lock && rmdir ${project}/.pi/settings.json.lock`), 0, "project .pi lock entries are creatable");
+	assert.equal(run(`echo '{}' > ${agent}/auth.json`), 0, "auth.json stays writable for token refresh");
+	assert.equal(run(`touch ${project}/src/x`), 0, "the scope stays writable");
+	for (const script of [`touch ${agent}/extensions/x`, `echo x >> ${agent}/AGENTS.md`, `echo x >> ${agent}/settings.json`, `rm -r ${agent}/extensions`,
+		`touch ${project}/.pi/harnesses/x`, `echo x >> ${project}/.pi/settings.json`, `touch ${project}/README.md`]) assert.notEqual(run(script), 0, script);
+	assert.equal(readFileSync(join(agent, "AGENTS.md"), "utf8"), "global\n");
+	assert.equal(existsSync(join(agent, "extensions")), true);
 });
 
 test("T6c concurrent user edits outside the allowlist are preserved", { skip: !hasLinuxSandbox }, async () => {

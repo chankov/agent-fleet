@@ -8,6 +8,22 @@ import { profileFallback, profileChild, PROFILE_ENV } from './policy/profile-run
 import { BOUNDED_OUTPUT_DIR_ENV } from './bounded-output.ts';
 import { FILESYSTEM_SESSION_DIR_ENV } from './filesystem-tool.ts';
 import { chmodSync, mkdirSync, existsSync, copyFileSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { join as joinPath } from "node:path";
+
+/**
+ * What a real Pi child must write even under the sandbox: it takes `<file>.lock`
+ * directories beside trust.json, auth.json and settings.json in its agent directory
+ * and beside the project .pi/settings.json, and rewrites auth.json on token refresh.
+ * Existing code and prompt files in those directories stay read-only.
+ */
+export function piStateGrants(cwd: string, env: NodeJS.ProcessEnv = process.env): { lockDirectories: string[]; stateFiles: string[] } {
+	const agentDir = env.PI_CODING_AGENT_DIR?.trim() || joinPath(env.HOME || homedir(), ".pi", "agent");
+	return {
+		lockDirectories: [agentDir, joinPath(cwd, ".pi")],
+		stateFiles: ["auth.json", "models-store.json", "crashes.json", "pi-crash.log"].map(name => joinPath(agentDir, name)),
+	};
+}
 import { applyModelOverride, clampDelegateDepth, DELEGATE_TREE_SPAWN_BUDGET, fallbackModelFor, MAX_DELEGATE_DEPTH, safePathWithin } from "./helpers.ts";
 import { contextOverflowDiagnostic, shouldRecycleSession } from "./run-budget.js";
 import { estimatePromptTokens, resolveContextWindow, shouldRecycleBeforeSpawn } from "./context-window.js";
@@ -222,6 +238,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 			runtimePaths: [base.evidenceDir],
 			artifactPaths: [artifactRoot],
 			tempPaths: [tempRoot],
+			...piStateGrants(ctx.cwd || process.cwd()),
 		};
 		writeIsolationPolicy = confineNativeChild(writeIsolation);
 		if (!writeIsolationPolicy.applied) return base.finishRun(`Write isolation refused: ${writeIsolationPolicy.reason ?? "native backend unavailable"}. No unsandboxed child was started.`, 1);

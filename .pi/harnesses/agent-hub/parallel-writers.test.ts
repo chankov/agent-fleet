@@ -4,7 +4,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parallelWriterGate, type WriterEntry } from "./tools/dispatch-execution.ts";
+import { parallelWriterGate, routeParallelInstance, type WriterEntry } from "./tools/dispatch-execution.ts";
+import { basePersonaName, checkTierPersonaGate, isReviewPersona } from "./run-budget.js";
 import { confineNativeChild, linuxUserNamespaceSandboxAvailable } from "./write-isolation.ts";
 import { checkScope, diffAgainst, snapshotWorktree } from "./scope-gate.js";
 
@@ -101,4 +102,58 @@ test("two concurrent sandboxed writers with disjoint scopes each change only the
 	// Attribution as dispatch-execution does it for an isolated writer: only its own scope.
 	assert.deepEqual(checkScope(diff.paths, ["a/"]).inScope, ["a/one.txt"]);
 	assert.deepEqual(checkScope(diff.paths, ["b/"]).inScope, ["b/two.txt"]);
+});
+
+function routingDeps() {
+	const states = new Map<string, any>([["builder", { def: { name: "builder", tools: "read,write" }, status: "idle" }]]);
+	const created: string[] = [];
+	const d: any = {
+		state: {
+			getAgentStates: () => states,
+			getActiveWriters: () => [],
+			addAgentInstance: (base: string, instance: string) => {
+				if (base !== "builder") return false;
+				created.push(instance); states.set(instance, { def: { name: instance, tools: "read,write" }, status: "idle" }); return true;
+			},
+		},
+	};
+	return { d, states, created };
+}
+
+test("two concurrent parallel dispatches to one persona get separate instances; sequential ones reuse the base", () => {
+	const { d, created } = routingDeps();
+	const reserved = new Map<string, number>();
+	const first = routeParallelInstance(d, { agent: "builder", task: "a", parallel: true, scope: ["a"] }, reserved);
+	const second = routeParallelInstance(d, { agent: "Builder", task: "b", parallel: true, scope: ["b"] }, reserved);
+	assert.equal(first.params.agent, "builder");
+	assert.equal(second.params.agent, "builder--p2", "the second concurrent call gets its own session and executor");
+	assert.deepEqual(created, ["builder--p2"]);
+	const third = routeParallelInstance(d, { agent: "builder", task: "c", parallel: true, scope: ["c"] }, reserved);
+	assert.equal(third.params.agent, "builder--p3");
+	first.release(); second.release(); third.release();
+	const later = routeParallelInstance(d, { agent: "builder", task: "d", parallel: true, scope: ["d"] }, reserved);
+	assert.equal(later.params.agent, "builder", "once idle, the base persona is reused");
+	later.release();
+});
+
+test("a non-parallel dispatch is never renamed, so the writer gate can refuse it", () => {
+	const { d, created } = routingDeps();
+	const reserved = new Map<string, number>();
+	const first = routeParallelInstance(d, { agent: "builder", task: "x", parallel: true, scope: ["a"] }, reserved);
+	const routed = routeParallelInstance(d, { agent: "builder", task: "x" }, reserved);
+	assert.equal(routed.params.agent, "builder");
+	assert.deepEqual(created, []);
+	routed.release();
+	assert.equal(reserved.get("builder"), 1, "releasing the refused duplicate does not free the first claim");
+	first.release();
+	assert.equal(reserved.has("builder"), false);
+});
+
+test("an instance keeps its base persona's review meaning and tier gate", () => {
+	assert.equal(basePersonaName("builder--p2"), "builder");
+	assert.equal(basePersonaName("Code-Reviewer--p3"), "code-reviewer");
+	assert.equal(basePersonaName("gpt-4"), "gpt-4", "a real name ending in a number is not an instance");
+	assert.equal(basePersonaName("web-debugger"), "web-debugger");
+	assert.equal(isReviewPersona("code-reviewer--p2"), true);
+	assert.ok(checkTierPersonaGate("small", "security-auditor--p2"), "an instance cannot bypass the tier gate");
 });

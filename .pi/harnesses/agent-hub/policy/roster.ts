@@ -26,6 +26,8 @@ export interface RosterPolicy<TDef extends RosterDef> {
 	activateFirstValidTeam(): boolean;
 	persistActiveRoster(): void;
 	add(name: string): RosterMutationResult;
+	/** Adds a synthetic instance definition (for example a parallel builder-2) to the active team. */
+	addInstance(def: TDef): RosterMutationResult;
 	drop(name: string): RosterMutationResult;
 }
 
@@ -88,5 +90,14 @@ export function createRosterPolicy<TDef extends RosterDef, TState extends Roster
 		const note = health.usable ? " (its session file is kept for re-adding)" : health.quarantined ? ` (its session file was unusable — ${health.reason} — and was quarantined to ${health.quarantined}; re-adding starts clean)` : " (it has no session file; re-adding starts clean)";
 		return { ok: true, message: `${ports.displayName(state.def.name)} dropped from the active team${note}` };
 	}
-	return { activateTeam, activateFirstValidTeam, persistActiveRoster, add, drop };
+	function addInstance(def: TDef): RosterMutationResult {
+		const states = ports.getStates();
+		const key = def.name.toLowerCase();
+		if (states.has(key)) return { ok: true, message: `${ports.displayName(def.name)} is already in the active team` };
+		states.set(key, ports.createFreshState(def, ports.adoptSession(def)));
+		if (!ports.getActiveTeamName()) ports.setActiveTeamName("ad-hoc");
+		ports.recompute(); ports.refreshUi();
+		return { ok: true, message: `${ports.displayName(def.name)} added to the active team as a parallel instance` };
+	}
+	return { activateTeam, activateFirstValidTeam, persistActiveRoster, add, addInstance, drop };
 }

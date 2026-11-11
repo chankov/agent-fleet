@@ -1,3 +1,4 @@
+import { basePersonaName, parallelInstanceName } from "../run-budget.js";
 import { privateRequirements, privateDeclarationHash, privateClassification, type PrivateProofUse } from '../private-config-review.ts';
 import { capturePrivateConfig, privateConfigRevision, type PrivateConfigBinding } from '../private-config-current-state.ts';
 import { finishPrivateConfigReview } from '../private-config-review.ts';
@@ -69,6 +70,8 @@ export interface DispatchExecutionState {
 	getActiveWriters?(): WriterEntry[];
 	/** Registers a writable dispatch; an isolated one makes its native launch sandboxed. Returns its release. */
 	beginWriter?(entry: WriterEntry): () => void;
+	/** Creates (or reuses) a parallel instance of an installed writable persona, e.g. builder-2. */
+	addAgentInstance?(base: string, instance: string): boolean;
 	/** Records an admitted delegation in the current task brief. */
 	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
@@ -619,7 +622,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
 			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: taskChanges(observation?.paths ?? []) });
 		}
-		const stage = p.privateConfig ? null : p.agent === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
+		const stage = p.privateConfig ? null : basePersonaName(p.agent) === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = affirmativeReviewVerdict(result.output);
 		// Candidate registration happens only after independent review and actual
         // same-revision runtime checks, never from reported past edits.
@@ -786,7 +789,48 @@ export function structuredResearchPrompt(params: SpawnResearchParams): string {
 	].join("\n");
 }
 
+/**
+ * A persona runs one dispatch at a time (one session, one executor). A second
+ * `parallel: true` dispatch to a persona that is already writing gets its own
+ * instance (builder--p2, builder--p3, ...) with a separate session and executor.
+ * Claims are counted synchronously, so concurrent tool calls cannot pick the same
+ * instance and a refused duplicate cannot free another call's claim. Nothing else
+ * changes: the parallel writer gate still decides whether each one may run.
+ */
+export function routeParallelInstance(d: DispatchExecutorDeps, params: DispatchAgentParams, reserved: Map<string, number>): { params: DispatchAgentParams; release: () => void } {
+	const base = normalizeAgentInput(params.agent);
+	const busy = (name: string) => (reserved.get(name) ?? 0) > 0 || d.state.getAgentStates().get(name)?.status === "running"
+		|| (d.state.getActiveWriters?.() ?? []).some(writer => writer.agent.toLowerCase() === name);
+	let agent = base;
+	if (params.parallel === true && busy(base) && d.state.addAgentInstance) {
+		for (let n = 2; n <= 16; n++) {
+			const candidate = parallelInstanceName(base, n);
+			if (busy(candidate)) continue;
+			if (d.state.addAgentInstance(base, candidate)) agent = candidate;
+			break;
+		}
+	}
+	reserved.set(agent, (reserved.get(agent) ?? 0) + 1);
+	let released = false;
+	return { params: agent === base ? params : { ...params, agent }, release: () => {
+		if (released) return;
+		released = true;
+		const left = (reserved.get(agent) ?? 1) - 1;
+		if (left > 0) reserved.set(agent, left); else reserved.delete(agent);
+	} };
+}
+
 export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
+	const reserved = new Map<string, number>();
+	const guarded = createGuardedDispatchExecutor(d);
+	return async (id, params, signal, onUpdate, ctx) => {
+		const routed = routeParallelInstance(d, params, reserved);
+		try { return await guarded(id, routed.params, signal, onUpdate, ctx); }
+		finally { routed.release(); }
+	};
+}
+
+function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
 	return withNoProgress(d, "dispatch", async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability;
 		const agent = normalizeAgentInput(params.agent);

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, lstatSync, realpathSync, statSync } from "node:fs";
-import { delimiter, isAbsolute, relative, resolve } from "node:path";
+import { accessSync, existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { constants } from "node:fs";
 
 export type WriteIsolationBackend = "auto" | "bubblewrap" | "seatbelt" | "missing";
@@ -15,6 +15,14 @@ export interface WriteIsolationRequest {
 	runtimePaths?: string[];
 	artifactPaths?: string[];
 	tempPaths?: string[];
+	/**
+	 * Directories where Pi creates `<file>.lock` directories beside its state files
+	 * (its agent directory and the project `.pi`). New entries may be created there;
+	 * every existing entry stays read-only unless listed in `stateFiles`.
+	 */
+	lockDirectories?: string[];
+	/** Existing Pi state files a child may rewrite (for example auth.json on token refresh). */
+	stateFiles?: string[];
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
@@ -41,6 +49,8 @@ export interface WriteIsolationResult extends WriteIsolationPolicy {
 	seatbeltProfile?: string;
 	writableFiles?: string[];
 	writableDirectories?: string[];
+	/** Directories where only new entries (Pi lock directories) are writable. */
+	lockDirectories?: string[];
 }
 
 const GLOB_META = /[*?\[\]{}!]/;
@@ -125,8 +135,34 @@ function resolveApprovedPaths(input: WriteIsolationRequest): { files: string[]; 
 	return { files: [...new Set(files)], directories: [...new Set(directories)] };
 }
 
-function seatbeltProfile(files: string[], directories: string[]): string {
+/** Canonical lock directories and the existing entries inside them that must stay read-only. */
+export function resolveLockDirectories(input: Pick<WriteIsolationRequest, "lockDirectories" | "stateFiles">): { directories: string[]; readOnlyEntries: string[]; stateFiles: string[] } {
+	const stateFiles = [...new Set((input.stateFiles ?? []).filter(path => existsSync(path)).map(path => canonicalTrustedPath(path)))];
+	const directories: string[] = [];
+	const readOnlyEntries: string[] = [];
+	for (const raw of input.lockDirectories ?? []) {
+		if (!raw || !existsSync(raw) || !statSync(raw).isDirectory()) continue;
+		const dir = canonicalTrustedPath(raw);
+		if (directories.includes(dir)) continue;
+		directories.push(dir);
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const path = join(dir, entry.name);
+			// Symlinks are not rebound: their targets keep the outer read-only root.
+			if (entry.isSymbolicLink() || stateFiles.includes(path)) continue;
+			readOnlyEntries.push(path);
+		}
+	}
+	return { directories, readOnlyEntries, stateFiles };
+}
+
+function seatbeltRegexPath(path: string): string {
+	return path.replace(/[\\^$.*+?()[\]{}|"]/g, "\\$&");
+}
+
+function seatbeltProfile(files: string[], directories: string[], lockDirectories: string[] = []): string {
 	const grants = [
+		// Pi's own lock directories (`<state>.json.lock`) beside its state files; nothing else there.
+		...lockDirectories.map(path => `(regex #"^${seatbeltRegexPath(path)}/[^/]+\\.lock(/.*)?$")`),
 		...files.map(path => `(literal ${quoteSeatbelt(path)})`),
 		...directories.flatMap(path => [`(literal ${quoteSeatbelt(path)})`, `(subpath ${quoteSeatbelt(path)})`]),
 		// Ordinary stdio/redirection needs these device nodes. Keep them literal:
@@ -157,7 +193,8 @@ export function confineNativeChild(input: WriteIsolationRequest): WriteIsolation
 	if (selected !== expected) return { ...base, applied: false, failClosed: true, reason: `${selected} is not the native write-isolation backend for ${platform}`, cwd };
 
 	let approved: { files: string[]; directories: string[] };
-	try { approved = resolveApprovedPaths(input); }
+	let locks: ReturnType<typeof resolveLockDirectories>;
+	try { approved = resolveApprovedPaths(input); locks = resolveLockDirectories(input); }
 	catch (error) { return { ...base, applied: false, failClosed: true, reason: error instanceof Error ? error.message : String(error), cwd }; }
 	if (approved.files.length === 0 && approved.directories.length === 0)
 		return { ...base, applied: false, failClosed: true, reason: "no approved writable paths; refusing sandbox launch with an empty grant set", cwd };
@@ -166,6 +203,14 @@ export function confineNativeChild(input: WriteIsolationRequest): WriteIsolation
 	if (!backendPath) return { ...base, applied: false, failClosed: true, reason: `${selected} backend unavailable; refusing unsandboxed execution`, cwd };
 	if (selected === "bubblewrap") {
 		const deviceArgs = ["/dev/null", "/dev/tty"].filter(path => { try { accessSync(path); return true; } catch { return false; } }).flatMap(path => ["--dev-bind", path, path]);
+		// Order matters: a later mount wins for its subtree. Lock directories become
+		// writable for new entries, their existing entries go back to read-only, then
+		// Pi state files and finally the approved grants (which may lie inside them).
+		const lockBinds = [
+			...locks.directories.flatMap(path => ["--bind", path, path]),
+			...locks.readOnlyEntries.flatMap(path => ["--ro-bind", path, path]),
+			...locks.stateFiles.flatMap(path => ["--bind", path, path]),
+		];
 		const binds = [
 			...approved.directories.flatMap(path => ["--bind", path, path]),
 			...approved.files.flatMap(path => ["--bind", path, path]),
@@ -174,14 +219,14 @@ export function confineNativeChild(input: WriteIsolationRequest): WriteIsolation
 			...base, applied: true, failClosed: true, command: backendPath,
 			// Do not use bwrap --new-session: the Hub deliberately owns one detached
 			// process group so its existing cancellation cascade reaches descendants.
-			args: ["--die-with-parent", "--ro-bind", "/", "/", ...deviceArgs, ...binds, "--chdir", cwd, "--", command, ...originalArgs],
-			cwd, env: input.env, writableFiles: approved.files, writableDirectories: approved.directories,
+			args: ["--die-with-parent", "--ro-bind", "/", "/", ...deviceArgs, ...lockBinds, ...binds, "--chdir", cwd, "--", command, ...originalArgs],
+			cwd, env: input.env, writableFiles: [...approved.files, ...locks.stateFiles], writableDirectories: approved.directories, lockDirectories: locks.directories,
 		};
 	}
-	const profile = seatbeltProfile(approved.files, approved.directories);
+	const profile = seatbeltProfile([...approved.files, ...locks.stateFiles], approved.directories, locks.directories);
 	return {
 		...base, applied: true, failClosed: true, command: backendPath,
 		args: ["-p", profile, "--", command, ...originalArgs], cwd, env: input.env,
-		seatbeltProfile: profile, writableFiles: approved.files, writableDirectories: approved.directories,
+		seatbeltProfile: profile, writableFiles: [...approved.files, ...locks.stateFiles], writableDirectories: approved.directories, lockDirectories: locks.directories,
 	};
 }

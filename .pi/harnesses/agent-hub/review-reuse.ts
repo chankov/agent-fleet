@@ -1,3 +1,4 @@
+import { basePersonaName } from "./run-budget.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -22,7 +23,7 @@ export function normalizeReviewEvidence(value:unknown):ReviewEvidence[] {
  * source additions, file state and the retained report's bytes. Unknown => rerun.
  */
 export function reviewInput(cwd:string,taskId:string,agent:string,scope:string[],state:ProcessObligationState,requirements:readonly {id:string;tag?:string;text?:string;source?:string;reference?:string;criticalConditions?:string[];testCommand?:string;compilerCommand?:string}[],artifacts:{path:string}[],acceptedInput?:string):ReviewInput|null {
- if(!reviewers.has(agent)||!scope.length||!state.changedFiles.length)return null;
+ if(!reviewers.has(basePersonaName(agent))||!scope.length||!state.changedFiles.length)return null;
  try {
   const normalized=[...new Set(scope.map(s=>s.trim()).filter(Boolean))].sort();
   const scopeRevision=worktreeRevision(cwd,normalized,normalized);

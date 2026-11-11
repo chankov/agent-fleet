@@ -277,7 +277,7 @@ const GATED_TIERS = new Set(["trivial", "small"]);
 export function checkTierPersonaGate(tier, persona) {
 	const t = normalizeTaskTier(tier);
 	if (!t || !GATED_TIERS.has(t)) return null;
-	const name = String(persona || "").trim().toLowerCase();
+	const name = basePersonaName(persona);
 	if (!HEAVY_PERSONAS.includes(name)) return null;
 	return {
 		reason: "tier_persona_gate",
@@ -314,8 +314,28 @@ export function blockingFindingCap(tier) {
 }
 
 /** Is this a review persona (gets the finding-budget clause)? */
+/** Reserved infix of a parallel persona instance: builder--p2 ... builder--p16. */
+export const PARALLEL_INSTANCE_INFIX = "--p";
+
+/** The instance name for slot n (2..16) of a persona. */
+export function parallelInstanceName(persona, n) {
+	return `${String(persona || "").trim().toLowerCase()}${PARALLEL_INSTANCE_INFIX}${n}`;
+}
+
+/**
+ * The persona a parallel instance was cloned from; any other name is returned
+ * normalized. Role rules use it so an instance keeps the base persona's review
+ * meaning and tier gates. Agent keys are slugs, so the instance marker is the
+ * reserved `--p<n>` suffix rather than a plain `-<n>` that a real name may use.
+ */
+export function basePersonaName(persona) {
+	const name = String(persona || "").trim().toLowerCase();
+	const match = /^(.+)--p([2-9]|1[0-6])$/.exec(name);
+	return match ? match[1] : name;
+}
+
 export function isReviewPersona(persona) {
-	return REVIEW_PERSONAS.includes(String(persona || "").trim().toLowerCase());
+	return REVIEW_PERSONAS.includes(basePersonaName(persona));
 }
 
 /**

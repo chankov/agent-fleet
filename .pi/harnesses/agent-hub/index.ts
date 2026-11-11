@@ -1069,6 +1069,16 @@ export default function (pi: ExtensionAPI) {
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
 				getActiveWriters: () => Array.from(activeWriters.values()),
+				addAgentInstance: (base, instance) => {
+					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === base);
+					if (!def) return false;
+					// The instance keeps the base persona's prompt file, tools and the model and
+					// thinking it resolves to now, so project model overrides still apply.
+					const clone: AgentDef = { ...def, name: instance, model: resolvedModel(def) ?? def.model, thinking: resolvedThinking(def) ?? def.thinking };
+					const result = rosterPolicy.addInstance(clone);
+					if (result.ok) widgetCtx?.ui?.notify?.(`dispatch_agent: ${result.message}`, "info");
+					return result.ok;
+				},
 				beginWriter: entry => {
 					const id = ++writerSequence;
 					activeWriters.set(id, entry);
