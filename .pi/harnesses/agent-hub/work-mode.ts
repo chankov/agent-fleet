@@ -4,7 +4,7 @@ export type WorkMode = (typeof WORK_MODES)[number];
 export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
 const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
 
-export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "set_task_tier", "team_adjust"] as const;
+export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "poll_panel", "set_task_tier", "team_adjust"] as const;
 export const VERIFICATION_TOOLS = ["set_assertions", "update_assertion", "get_assertions"] as const;
 /** Compatibility export for callers that need every orchestration-owned tool. */
 export const ORCHESTRATION_TOOLS = [...FLEET_TOOLS, ...VERIFICATION_TOOLS] as const;
@@ -130,10 +130,20 @@ export function resolveSessionRoster(options: {
 	return { source, roster: { name, members }, diagnostic: null };
 }
 
-export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: string } {
+/** Operator guidance on when to delegate. Stable policy: no counters or task state. */
+export const OPERATOR_DELEGATION_GUIDE = `## When to delegate
+Delegation is your judgment, not an obligation. Use it to keep your own context focused, to get an independent view, or to run independent work in parallel.
+- Research: delegate by default with \`spawn_research\`. Start independent questions in parallel in the same turn, not one after another, and work from the findings instead of re-reading the files yourself.
+- Build: make a small, focused change yourself. Delegate a larger coherent change to one builder.
+- Review: a non-trivial change always gets review from a separate agent; reviewing your own work in the same context is not independent.
+- Decisions: for an architectural choice, an uncertain diagnosis, a choice between approaches or a risky change, call \`poll_panel\` with one self-contained question before committing to a direction. Facts are never polled: research or read them. Deep research stays one model.
+- Read-only work (research, review, polls) may run in parallel freely. Writable dispatches run one at a time.`;
+
+export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: string; delegationGuide: string } {
 	if (workMode === "operator") {
 		return {
-			intro: "You are the Fleet operator. You may work on the codebase directly and may also coordinate specialist agents when delegation adds value.",
+			delegationGuide: OPERATOR_DELEGATION_GUIDE,
+			intro: "You are the Fleet operator. You work on the codebase directly and delegate to specialist and research agents whenever that keeps your context focused, adds an independent view, or lets independent work run in parallel.",
 			hardRules: `- You MAY read, execute, edit, and write directly in operator work mode.
 - Use direct tools for focused work when they are the simplest path; delegate when specialization, parallelism, or independent verification adds value.
 - Give concurrent writable agents explicit non-overlapping scopes and inspect overlap warnings before proceeding.
@@ -141,6 +151,7 @@ export function workModePrompt(workMode: WorkMode): { intro: string; hardRules: 
 		};
 	}
 	return {
+		delegationGuide: "",
 		intro: "You are a dispatcher agent — an orchestrator. You coordinate specialist agents to accomplish tasks. You have no generic direct coding tools.",
 		hardRules: `- NEVER try to execute, edit, or write repository code directly — you have no generic bash/write/edit tools.
 - \`filesystem\` is a narrow direct inspection exception: always available in orchestrator for read-only stat, inventory, excerpt, and readback. Use stat and bounded excerpts with offset/max_bytes even for large files. The 64 KiB whole-turn output ceiling includes inventory. On too_large, reduce the page or continue next turn; use a helper when useful. Never retry an unchanged refusal. Snapshot stays profile-gated. It grants no arbitrary write or shell authority.

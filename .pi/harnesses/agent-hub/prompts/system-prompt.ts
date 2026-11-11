@@ -18,6 +18,13 @@ import {
 	verificationFragment,
 } from "./fragments.ts";
 
+/** First sentence of a persona description, capped, so a long keyword list does not bloat the catalog. */
+export function briefDescription(description: string, max = 140): string {
+	const text = String(description ?? "").replace(/\s+/g, " ").trim();
+	const sentence = text.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? text;
+	return sentence.length > max ? `${sentence.slice(0, max - 1)}…` : sentence;
+}
+
 export interface BuiltHubSystemPrompt {
 	systemPrompt: string;
 	ledger: ContextBudgetComponent[];
@@ -40,12 +47,19 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const workspaceActive = modelPacks.has("workspace");
 	const compactionActive = modelPacks.has("compaction");
 	const agents = fleetActive ? ctx.getAgents() : [];
+	// One line per agent: the catalog lists every installed agent, so it stays compact.
 	const agentCards = agents.map(agent => ({
 		id: agent.name,
-		text: `### ${agent.displayName}\n**Dispatch as:** \`${agent.name}\`\n${agent.description}\n**Tools:** ${agent.tools}`,
+		text: `- \`${agent.name}\`${agent.inTeam === false ? " (not in team yet)" : ""} — ${briefDescription(agent.description)} · ${/\b(write|edit)\b/.test(agent.tools) ? "writes" : "read-only"}${agent.model ? ` · ${agent.model}` : ""}`,
 	}));
-	const agentCatalog = agentCards.map(card => card.text).join("\n\n");
-	const teamMembers = agents.map(agent => agent.displayName).join(", ");
+	const agentCatalog = agentCards.map(card => card.text).join("\n");
+	const teamMembers = fleetActive
+		? (ctx.getTeamMembers?.() ?? agents.filter(agent => agent.inTeam !== false).map(agent => agent.displayName)).join(", ")
+		: "";
+	const providerLimits = fleetActive ? ctx.getProviderLimits?.() ?? [] : [];
+	const providerLimitLine = providerLimits.length
+		? `\n- Local model concurrency: ${providerLimits.map(limit => `\`${limit.provider}/\` at most ${limit.limit} parallel run${limit.limit === 1 ? "" : "s"}`).join("; ")}. Extra dispatches or research on a capped provider queue behind the running ones; choose another agent or model when waiting would stall the task.`
+		: "";
 	const researchPersonas = fleetActive ? ctx.getResearchPersonas() : [];
 	const researchCards = researchPersonas.map(persona => ({
 		id: persona.name,
@@ -58,7 +72,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const userLanguage = ctx.getUserLanguage();
 	const askUserBlock = askUserFragment(askUserAvailable, userLanguage);
 	const triageBeforeDispatch = fleetActive && ctx.getWorkMode() === "orchestrator" && ctx.getActiveTools().includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
-	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage) + (triageBeforeDispatch ? `
+	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage) + providerLimitLine + (triageBeforeDispatch ? `
 
 ## Enabled System 1 pre-dispatch advice
 After resolving requirements, task classification and the active roster, call \`dispatch_triage\` once for each focused task you intend to delegate, before choosing its \`dispatch_agent\` persona. Send only minimal non-secret context, relative scope, and the actual language/domain. Do not read files or credentials merely to populate triage.
@@ -67,7 +81,9 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 ` : "");
 	const ambiguityRule = ambiguityFragment(askUserAvailable, userLanguage);
 	const languageLines = languageFragment(askUserAvailable, userLanguage);
-	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution);
+	const busyProviders = providerLimits.filter(limit => limit.inFlight > 0 || limit.queued > 0);
+	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution)
+		+ (busyProviders.length ? `\n- local model slots in use: ${busyProviders.map(limit => `${limit.provider} ${limit.inFlight}/${limit.limit}${limit.queued ? ` (+${limit.queued} queued)` : ""}`).join(", ")}` : "");
 	const agenticRecommended = ctx.getActiveTools().includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
 	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : "", ctx.getActiveTools().includes('ask_system1_files') ? FILE_DISCOVERY_FRAGMENT : ""].filter(Boolean).join("\n\n");
 	const artifactRoot = ctx.getArtifactRoot?.();
@@ -98,13 +114,14 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		ambiguityRule,
 		agentCatalog,
 		researchCatalog,
+		delegationGuide: workModeText.delegationGuide,
 	});
 	const ledger = recordHubLedger(systemPrompt, namedHubLedgerParts({
 		intro: workModeText.intro,
 		languageLines,
 		teamMembers,
 		agentCards,
-		dispatchSection,
+		dispatchSection: dispatchSection + (fleetActive ? workModeText.delegationGuide : ""),
 		modeSection: stableModeSection,
 		verificationSection,
 		projectPolicySection,

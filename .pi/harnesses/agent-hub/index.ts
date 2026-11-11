@@ -117,7 +117,8 @@ import { registerCompound } from "./commands/compound.ts";
 import { registerPoll } from "./commands/poll.ts";
 import { registerDebate } from "./commands/debate.ts";
 import type { CommandContext } from "./commands/context.ts";
-import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll } from "./poll-command.ts";
+import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll, runAfPoll, type AfPollHandleInput } from "./poll-command.ts";
+import { registerPollPanel } from "./tools/poll-panel.ts";
 import { formatAfDebateStarted, formatAfDebateVoiceProgress, handleAfDebate } from "./debate-command.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
@@ -384,6 +385,9 @@ export default function (pi: ExtensionAPI) {
 
 	let researchPersonas: AgentDef[] = [];
 	let allAgentDefs: AgentDef[] = [];
+	/** Installed personas dispatch_agent may target: research personas use spawn_research, and
+	 *  `kind: orchestrator` only documents the Hub role. */
+	const dispatchableAgentDefs = (): AgentDef[] => allAgentDefs.filter(def => !["research", "orchestrator"].includes((def.kind || "").toLowerCase()));
 	let teams: Record<string, string[]> = {};
 	// Named model profiles from .pi/agents/model-profiles.yaml (validated at
 	// session start) and the session-lifetime per-persona model overrides set by
@@ -1044,6 +1048,11 @@ export default function (pi: ExtensionAPI) {
 				getExternalBlockerRefusedOnce: () => externalBlockerRefusedOnce, setExternalBlockerRefusedOnce: value => { externalBlockerRefusedOnce = value; },
 				isAskUserAvailable: () => askUserAvailable, getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
+				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
+				addInstalledAgent: name => {
+					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === String(name).trim().toLowerCase());
+					return def ? rosterAdd(def.name) : null;
+				},
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
@@ -1130,6 +1139,97 @@ export default function (pi: ExtensionAPI) {
 			turnResearchCount++; taskResearchCount++; turnReport.research++; sessionTotals.research++; budgetCtx.updateModeStatus();
 			return { charged: true, operation: "research", owner: "hub" };
 		},
+	});
+	/** Panel poll ports shared by `/af-poll` and `poll_panel`; only progress delivery differs. */
+	function hubPollPorts(ctx: ExtensionContext, cwd: string, progress: { started(text: string): void; voice(text: string): void }): Omit<AfPollHandleInput, "args"> {
+		return {
+			cwd,
+			pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
+			listPanels: async dir => {
+				const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
+				return listPanelNames(dir);
+			},
+			preflight: async ({ panel, persona, cwd: root }) => {
+				const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
+					import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
+					import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
+					import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
+				]);
+				try { resolvePersona(persona, root); }
+				catch (error) { return error instanceof Error ? error.message : String(error); }
+				let voices;
+				try { voices = resolvePanel(panel, root); }
+				catch (error) { return error instanceof Error ? error.message : String(error); }
+				const report = checkChildVisibility(voices.map(voice => voice.model));
+				if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
+				const hidden = report.models.filter(model => !model.ok);
+				if (hidden.length) {
+					return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
+				}
+				return null;
+			},
+			checkBudget: async () => {
+				ensureTaskTier();
+				return null;
+			},
+			chargeBudget: () => {
+				turnDispatchCount += 1;
+				taskDispatchCount += 1;
+				sessionTotals.dispatches += 1;
+				updateModeStatus();
+			},
+			onAccepted: async ({ panel, persona, question }) => {
+				let voices: { name: string; model: string }[] = [];
+				try {
+					const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
+					voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
+				} catch { /* names are decorative */ }
+				ctx.ui.setStatus("hub-poll", `Poll: ${panel} (${voices.length || "?"} voices) running…`);
+				ctx.ui.notify(`Poll started — panel ${panel}. This can take a minute.`, "info");
+				progress.started(formatAfPollStarted({ panel, persona, question, voices }));
+			},
+			execute: async ({ panel, persona, question }) => {
+				const [{ Run }, { runPoll }, { runMerge }, { resolvePersona }] = await Promise.all([
+					import("../../agent-fleet/scripts/workflows/lib/run.ts"),
+					import("../../agent-fleet/scripts/workflows/lib/poll.ts"),
+					import("../../agent-fleet/scripts/workflows/lib/merge.ts"),
+					import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
+				]);
+				const run = new Run({ cwd, command: ["/af-poll", "--panel", panel, question] });
+				const personaDef = resolvePersona(persona, cwd);
+				const poll = await runPoll({
+					run, cwd, persona: personaDef, panel, task: question,
+					onVoice: result => {
+						const voice = result.ok
+							? { name: result.voice.name, model: result.voice.model, ok: true as const, position: result.report.position, confidence: result.report.confidence }
+							: { name: result.voice.name, model: result.voice.model, ok: false as const, reason: result.reason };
+						progress.voice(formatAfPollVoiceProgress(voice));
+					},
+				});
+				ctx.ui.setStatus("hub-poll", `Poll: ${panel} merging…`);
+				const merge = await runMerge({ run, cwd, persona: personaDef, panel, task: question, opinions: poll.results });
+				const directory = path.relative(cwd, poll.directory) || poll.directory;
+				return {
+					panel,
+					directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
+					voices: poll.results.map(item => item.ok
+						? { name: item.voice.name, model: item.voice.model, ok: true as const, position: item.report.position, confidence: item.report.confidence }
+						: { name: item.voice.name, model: item.voice.model, ok: false as const, reason: item.reason }),
+					recommendation: merge.report.recommendation,
+					integrator: merge.integrator.name,
+				};
+			},
+		};
+	}
+
+	registerPollPanel(pi, {
+		blocked: ctx => provisionalCapabilityRefusal("fleet")?.content[0]?.text
+			?? (modelWorkBlockedByRosterRecovery(ctx) ? "Model work is blocked until the roster recovery is resolved; nothing started or charged." : null),
+		run: (params, ctx, onProgress) => withProfileWork(async () => {
+			const cwd = ctx.cwd || process.cwd();
+			try { return await runAfPoll({ ...params, ...hubPollPorts(ctx, cwd, { started: onProgress, voice: onProgress }) }); }
+			finally { ctx.ui.setStatus("hub-poll", ""); }
+		}),
 	});
 	registerSetTaskTier(pi, toolCtx);
 	registerTeamAdjust(pi, toolCtx);
@@ -1763,86 +1863,8 @@ export default function (pi: ExtensionAPI) {
 			return withProfileWork(async () => {
 			if (modelWorkBlockedByRosterRecovery(ctx)) return;
 			const cwd = ctx.cwd || process.cwd();
-			const result = await handleAfPoll({
-				args: args ?? "",
-				cwd,
-				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
-				listPanels: async dir => {
-					const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-					return listPanelNames(dir);
-				},
-				preflight: async ({ panel, persona, cwd: root }) => {
-					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
-						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
-					]);
-					try { resolvePersona(persona, root); }
-					catch (error) { return error instanceof Error ? error.message : String(error); }
-					let voices;
-					try { voices = resolvePanel(panel, root); }
-					catch (error) { return error instanceof Error ? error.message : String(error); }
-					const report = checkChildVisibility(voices.map(voice => voice.model));
-					if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
-					const hidden = report.models.filter(model => !model.ok);
-					if (hidden.length) {
-						return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
-					}
-					return null;
-				},
-				checkBudget: async () => {
-					ensureTaskTier();
-					return null;
-				},
-				chargeBudget: () => {
-					turnDispatchCount += 1;
-					taskDispatchCount += 1;
-					sessionTotals.dispatches += 1;
-					updateModeStatus();
-				},
-				onAccepted: async ({ panel, persona, question }) => {
-					let voices: { name: string; model: string }[] = [];
-					try {
-						const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
-					} catch { /* names are decorative */ }
-					const started = formatAfPollStarted({ panel, persona, question, voices });
-					ctx.ui.setStatus("hub-poll", `Poll: ${panel} (${voices.length || "?"} voices) running…`);
-					ctx.ui.notify(`Poll started — panel ${panel}. This can take a minute.`, "info");
-					pi.sendMessage({ customType: "af-poll-started", content: started, display: true }, { deliverAs: "followUp", triggerTurn: false });
-				},
-				execute: async ({ panel, persona, question }) => {
-					const [{ Run }, { runPoll }, { runMerge }, { resolvePersona }] = await Promise.all([
-						import("../../agent-fleet/scripts/workflows/lib/run.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/poll.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/merge.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-					]);
-					const run = new Run({ cwd, command: ["/af-poll", "--panel", panel, question] });
-					const personaDef = resolvePersona(persona, cwd);
-					const poll = await runPoll({
-						run, cwd, persona: personaDef, panel, task: question,
-						onVoice: result => {
-							const voice = result.ok
-								? { name: result.voice.name, model: result.voice.model, ok: true as const, position: result.report.position, confidence: result.report.confidence }
-								: { name: result.voice.name, model: result.voice.model, ok: false as const, reason: result.reason };
-							pi.sendMessage({ customType: "af-poll-voice", content: formatAfPollVoiceProgress(voice), display: true }, { deliverAs: "followUp", triggerTurn: false });
-						},
-					});
-					ctx.ui.setStatus("hub-poll", `Poll: ${panel} merging…`);
-					const merge = await runMerge({ run, cwd, persona: personaDef, panel, task: question, opinions: poll.results });
-					const directory = path.relative(cwd, poll.directory) || poll.directory;
-					return {
-						panel,
-						directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
-						voices: poll.results.map(item => item.ok
-							? { name: item.voice.name, model: item.voice.model, ok: true as const, position: item.report.position, confidence: item.report.confidence }
-							: { name: item.voice.name, model: item.voice.model, ok: false as const, reason: item.reason }),
-						recommendation: merge.report.recommendation,
-						integrator: merge.integrator.name,
-					};
-				},
-			});
+			const followUp = (customType: string) => (content: string) => pi.sendMessage({ customType, content, display: true }, { deliverAs: "followUp", triggerTurn: false });
+			const result = await handleAfPoll({ args: args ?? "", ...hubPollPorts(ctx, cwd, { started: followUp("af-poll-started"), voice: followUp("af-poll-voice") }) });
 			ctx.ui.setStatus("hub-poll", "");
 			if (!result.ok) {
 				ctx.ui.notify(result.message, "error");
@@ -2212,12 +2234,16 @@ export default function (pi: ExtensionAPI) {
 		getCapabilityResolution,
 		getActiveTools: () => pi.getActiveTools(),
 		getToolCatalogNotice: () => [latestToolCatalogDelta ? toolCatalogNotice(latestToolCatalogDelta) : "", latestUnknownToolNotice].filter(Boolean).join("\n"),
-		getAgents: () => Array.from(agentStates.values()).map(state => ({
-			name: state.def.name,
-			displayName: displayName(state.def.name),
-			description: state.def.description,
-			tools: state.def.tools,
+		getAgents: () => dispatchableAgentDefs().map(def => ({
+			name: def.name,
+			displayName: displayName(def.name),
+			description: def.description,
+			tools: def.tools,
+			model: resolvedModel(def),
+			inTeam: agentStates.has(def.name.toLowerCase()),
 		})),
+		getTeamMembers: () => Array.from(agentStates.values(), state => displayName(state.def.name)),
+		getProviderLimits: () => providerSemaphore.snapshot(),
 		getResearchPersonas: () => researchPersonas.map(def => ({
 			name: def.name,
 			displayName: displayName(def.name),

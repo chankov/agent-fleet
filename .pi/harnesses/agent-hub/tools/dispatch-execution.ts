@@ -58,6 +58,10 @@ export interface DispatchExecutionState {
 	getAgentStates(): Map<string, AgentState>;
 	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; compilerCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
 	getResearchPersonas(): ResearchAgentDef[];
+	/** Adds an installed, dispatchable persona to the active team; null when none is installed under that name. */
+	addInstalledAgent?(agent: string): { ok: boolean; message: string } | null;
+	/** Installed personas dispatch_agent may target (research and catalog-only personas excluded). */
+	getInstalledAgentNames?(): string[];
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
 	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
 	getProcessState?(): ProcessObligationState;
@@ -145,14 +149,27 @@ function unknownAgentMessage(agent: string, available: string[], researchHint: b
 	const research = researchHint
 		? `\n\n"${agent}" is a research persona. Call spawn_research with persona "${agent}" instead of dispatch_agent. Do not invent a substitute dispatch.`
 		: "";
-	return `Unknown agent "${agent}". dispatch_agent only accepts the active roster. Available agents: ${roster}.${research}\n\nDo not invent a substitute dispatch. ${["planner", "code-reviewer", "plan-reviewer", "security-auditor"].includes(agent) ? `Ask the human to activate the required role with /af-agents-add ${agent} or /af-agents-team; this does not change the tier or budget. ` : ""}Use an available agent, or spawn_research for a research persona.`;
+	const processRole = !researchHint && ["planner", "code-reviewer", "plan-reviewer", "security-auditor"].includes(agent)
+		? `Ask the human to install the ${agent} persona (agent-fleet setup, or /af-agents-add ${agent} when its file is present); once installed, dispatching it adds it to the team. This does not change the tier or budget. `
+		: "";
+	return `Unknown agent "${agent}". dispatch_agent accepts installed agents. Installed agents: ${roster}.${research}\n\nDo not invent a substitute dispatch. ${processRole}Use an installed agent, or spawn_research for a research persona.`;
 }
 
-export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string): ToolExecutionResult | null {
-	const available = rosterNames(d);
-	const onRoster = d.state.getAgentStates().has(agent) || available.some(name => normalizeAgentInput(name) === agent);
+export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string, ctx?: ExtensionContext): ToolExecutionResult | null {
+	const roster = rosterNames(d);
+	let onRoster = d.state.getAgentStates().has(agent) || roster.some(name => normalizeAgentInput(name) === agent);
+	const available = [...new Set([...roster, ...(d.state.getInstalledAgentNames?.() ?? [])])];
 	if (isResearchDispatchName(d, agent)) {
 		return refusal(d, agent, task, "research_persona_via_dispatch", unknownAgentMessage(agent, available, true), "research_persona_via_dispatch");
+	}
+	if (!onRoster) {
+		// Every installed agent is dispatchable. The first dispatch adds it to the
+		// active team, so backend policy and session reuse keep working per member.
+		const added = d.state.addInstalledAgent?.(agent) ?? null;
+		if (added?.ok) {
+			onRoster = true;
+			try { ctx?.ui?.notify?.(`dispatch_agent: ${added.message}`, "info"); } catch { /* observational only */ }
+		}
 	}
 	if (!onRoster) {
 		return refusal(d, agent, task, "unknown_agent", unknownAgentMessage(agent, available, false), "unknown_agent");
@@ -205,7 +222,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
  if(operatorMode){try{operatorScopeSyntax(scope);}catch{return refusal(d,agent,task,'operator_state_preflight_failed','Current-state scope must contain 1–128 unique exact files; no aliases/globs.');}}
  if(operatorMode && (!['code-reviewer','security-auditor'].includes(agent)||params.backend!=='native'||params.scope_mode==='create'||params.deliverables?.length||!s.getProcessState))
   return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native code/security reviewer, existing exact files and no deliverables.');
-	const rosterRefusal = validateDispatchAgent(d, agent, task);
+	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx);
 	if (rosterRefusal) return rosterRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
@@ -698,7 +715,7 @@ export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 	return withNoProgress(d, "dispatch", async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability;
 		const agent = normalizeAgentInput(params.agent);
-		const invalid = validateDispatchAgent(d, agent, params.task); if (invalid) return invalid;
+		const invalid = validateDispatchAgent(d, agent, params.task, ctx); if (invalid) return invalid;
 		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 		d.budget.ensureTaskTier();
 		const processGate = d.state.processBlock?.() ?? (d.state.getProcessState ? processPreEffectGate(d.state.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });

@@ -31,22 +31,22 @@ const explicitIntentCases: Array<{
 		active: string[];
 		provisional?: string[];
 	}> = [
-		{ name: "greeting exposes core only", active: ["core"] },
-		{ name: "operator direct work avoids fleet", input: { userText: "Fix the parser and run its tests." }, active: ["core"] },
+		{ name: "greeting exposes core and the operator's fleet", active: ["core", "fleet"] },
+		{ name: "operator direct work still holds fleet tools", input: { userText: "Fix the parser and run its tests." }, active: ["core", "fleet"] },
 		{ name: "orchestrator always has fleet", input: { workMode: "orchestrator" }, active: ["core", "fleet"] },
 		{ name: "explicit delegation enables fleet", input: { userText: "Delegate this to a specialist." }, active: ["core", "fleet"] },
 		{ name: "explicit research enables fleet", input: { userText: "Spawn a research helper for this." }, active: ["core", "fleet"] },
-		{ name: "feature acceptance work enables verification", input: { userText: "Implement this feature.", taskTier: "feature" }, active: ["core", "verification"] },
-		{ name: "explicit assertions enable verification", input: { userText: "Verify the acceptance criteria." }, active: ["core", "verification"] },
-		{ name: "equivalent Bulgarian acceptance request enables verification", input: { userText: "Провери критериите за приемане." }, active: ["core", "verification"] },
-		{ name: "explicit ready coms enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: true }, active: ["core", "peer"] },
-		{ name: "unready coms never enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: false }, active: ["core"] },
-		{ name: "explicit ready pane enables workspace", input: { userText: "Open a Herdr pane for the watcher.", herdrReady: true }, active: ["core", "workspace"] },
-		{ name: "unready Herdr never enables workspace", input: { userText: "Open a Herdr pane for the watcher.", herdrReady: false }, active: ["core"] },
-		{ name: "explicit compaction enables compaction", input: { userText: "Please compact the conversation." }, active: ["core", "compaction"] },
-		{ name: "approaching context exposes compaction", input: { contextState: "approaching-compaction" }, active: ["core", "compaction"] },
-		{ name: "imminent context enables compaction", input: { contextState: "imminent-compaction" }, active: ["core", "compaction"] },
-		{ name: "ordinary compact code wording does not enable compaction", input: { userText: "Make this compact." }, active: ["core"] },
+		{ name: "feature acceptance work enables verification", input: { userText: "Implement this feature.", taskTier: "feature" }, active: ["core", "fleet", "verification"] },
+		{ name: "explicit assertions enable verification", input: { userText: "Verify the acceptance criteria." }, active: ["core", "fleet", "verification"] },
+		{ name: "equivalent Bulgarian acceptance request enables verification", input: { userText: "Провери критериите за приемане." }, active: ["core", "fleet", "verification"] },
+		{ name: "explicit ready coms enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: true }, active: ["core", "fleet", "peer"] },
+		{ name: "unready coms never enables peer", input: { userText: "Send this through coms to the existing peer.", comsReady: false }, active: ["core", "fleet"] },
+		{ name: "explicit ready pane enables workspace", input: { userText: "Open a Herdr pane for the watcher.", herdrReady: true }, active: ["core", "fleet", "workspace"] },
+		{ name: "unready Herdr never enables workspace", input: { userText: "Open a Herdr pane for the watcher.", herdrReady: false }, active: ["core", "fleet"] },
+		{ name: "explicit compaction enables compaction", input: { userText: "Please compact the conversation." }, active: ["core", "fleet", "compaction"] },
+		{ name: "approaching context exposes compaction", input: { contextState: "approaching-compaction" }, active: ["core", "fleet", "compaction"] },
+		{ name: "imminent context enables compaction", input: { contextState: "imminent-compaction" }, active: ["core", "fleet", "compaction"] },
+		{ name: "ordinary compact code wording does not enable compaction", input: { userText: "Make this compact." }, active: ["core", "fleet"] },
 		{ name: "mixed explicit intent enables each matching pack", input: { userText: "Delegate a specialist, message the peer on coms, and open a Herdr pane.", comsReady: true, herdrReady: true }, active: ["core", "fleet", "peer", "workspace"] },
 	];
 
@@ -62,30 +62,37 @@ for (const row of explicitIntentCases) {
 test("minimal changed-task verification does not require the heavy verification pack at low tiers", () => {
 	for (const taskTier of ["trivial", "small"] as const) {
 		assert.deepEqual(surface({ userText: "fully implement PLAN54", taskTier }), {
-			active: ["core"], provisional: [], confirmationRequired: [],
+			active: ["core", "fleet"], provisional: [], confirmationRequired: [],
 		});
 	}
 });
 
 test("readiness is a prerequisite and never becomes intent", () => {
 	assert.deepEqual(surface({ comsReady: true, herdrReady: true }), {
-		active: ["core"], provisional: [], confirmationRequired: [],
+		active: ["core", "fleet"], provisional: [], confirmationRequired: [],
 	});
 });
 
 test("ambiguous execution gets only the smallest ready provisional pack", () => {
+	// Fleet is always active for the operator, so ambiguous delegation needs no confirmation.
 	assert.deepEqual(surface({ userText: "Could you get somebody else to handle this?" }), {
-		active: ["core"], provisional: ["fleet"], confirmationRequired: ["fleet"],
+		active: ["core", "fleet"], provisional: [], confirmationRequired: [],
 	});
 	assert.deepEqual(surface({ userText: "Can you contact them about this?", comsReady: true }), {
-		active: ["core"], provisional: ["peer"], confirmationRequired: ["peer"],
+		active: ["core", "fleet"], provisional: ["peer"], confirmationRequired: ["peer"],
 	});
 	assert.deepEqual(surface({ userText: "Can you start it somewhere?", herdrReady: true }), {
-		active: ["core"], provisional: ["workspace"], confirmationRequired: ["workspace"],
+		active: ["core", "fleet"], provisional: ["workspace"], confirmationRequired: ["workspace"],
 	});
 	assert.deepEqual(surface({ userText: "Can you contact them about this?", comsReady: false }), {
-		active: ["core"], provisional: [], confirmationRequired: [],
+		active: ["core", "fleet"], provisional: [], confirmationRequired: [],
 	});
+});
+
+test("operator fleet uses the default reason only when no specific reason applies", () => {
+	assert.equal(resolveCapabilityPacks(base()).reasons.fleet, "operator-default");
+	assert.equal(resolveCapabilityPacks(base({ userText: "Delegate this." })).reasons.fleet, "explicit-fleet");
+	assert.equal(resolveCapabilityPacks(base({ taskPacks: ["fleet"] })).reasons.fleet, "task-retained");
 });
 
 test("resolution is deterministic and reasons never retain user text", () => {
@@ -101,13 +108,18 @@ test("resolution is deterministic and reasons never retain user text", () => {
 test("provisional packs persist without silently becoming active", () => {
 	const continued = resolveCapabilityPacks(base({
 		userText: "continue direct work",
-		provisionalPacks: ["fleet"],
+		provisionalPacks: ["peer"],
+		comsReady: true,
 	}));
-	assert.deepEqual(continued.active, ["core"]);
-	assert.deepEqual(continued.provisional, ["fleet"]);
-	assert.deepEqual(continued.confirmationRequired, ["fleet"]);
+	assert.deepEqual(continued.active, ["core", "fleet"]);
+	assert.deepEqual(continued.provisional, ["peer"]);
+	assert.deepEqual(continued.confirmationRequired, ["peer"]);
 
-	const reset = resolveCapabilityPacks(base({ provisionalPacks: ["fleet"], newTask: true }));
+	// A legacy persisted provisional fleet is superseded by the operator's own fleet.
+	const legacy = resolveCapabilityPacks(base({ provisionalPacks: ["fleet"] }));
+	assert.deepEqual(legacy.provisional, []);
+
+	const reset = resolveCapabilityPacks(base({ provisionalPacks: ["peer"], comsReady: true, newTask: true }));
 	assert.deepEqual(reset.provisional, []);
 });
 
@@ -141,8 +153,8 @@ test("task packs are monotonic and pending operations lease active packs", () =>
 		pendingOperations: [{ pack: "peer", kind: "message" }],
 		comsReady: true,
 	}));
-	assert.deepEqual(leased.active, ["core", "peer"]);
-	assert.deepEqual(leased.nextTaskPacks, ["peer"]);
+	assert.deepEqual(leased.active, ["core", "fleet", "peer"]);
+	assert.deepEqual(leased.nextTaskPacks, ["fleet", "peer"]);
 	assert.equal(leased.reasons.peer, "pending-operation");
 });
 

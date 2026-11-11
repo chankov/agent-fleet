@@ -370,13 +370,20 @@ test("capture JSON times out with bounded diagnostics for persistent malformed d
 // prompt grew with the decision-routing, ORCHESTRATOR_ANSWER, review-reuse and
 // optional-planning guidance approved on 2026-10-15. recommendedMaxChars raises only
 // that opt-in fleet surface, and the System 1 overhead itself stays bounded below.
+//
+// 2026-11-11 (PHILOSOPHY: one operator that delegates on its own judgment): the
+// operator always holds the fleet tools, so every profile now carries the fleet
+// surface (delegation schemas, dispatch policy, "When to delegate"), measured at
+// about +5,300 chars over the old greeting. Greeting and direct therefore share the
+// fleet budget, verification and compaction add their own pack on top of it, and
+// the recommended fleet surface keeps its System 1 allowance above that.
 const RECOMMENDED_SYSTEM1_ALLOWANCE = 6_000;
 const budgetProfiles = [
-		{ name: "greeting", message: "hello", maxChars: 14_000, expectedTool: "ask_user" },
-		{ name: "direct", message: "Fix the parser and run its tests.", maxChars: 18_000, expectedTool: "read" },
-		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, recommendedMaxChars: 24_000, expectedTool: "dispatch_agent" },
-		{ name: "verification", message: "Implement this feature with acceptance criteria.", maxChars: 20_000, expectedTool: "set_assertions" },
-		{ name: "compaction", message: "Please compact the conversation.", maxChars: 20_000, expectedTool: "request_compaction", extraArgs: ["-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] },
+		{ name: "greeting", message: "hello", maxChars: 20_000, expectedTool: "ask_user" },
+		{ name: "direct", message: "Fix the parser and run its tests.", maxChars: 20_000, expectedTool: "read" },
+		{ name: "fleet", message: "Delegate this implementation to a specialist.", maxChars: 20_000, recommendedMaxChars: 26_000, expectedTool: "dispatch_agent" },
+		{ name: "verification", message: "Implement this feature with acceptance criteria.", maxChars: 24_000, expectedTool: "set_assertions" },
+		{ name: "compaction", message: "Please compact the conversation.", maxChars: 22_000, expectedTool: "request_compaction", extraArgs: ["-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] },
 ] as const;
 const offProfileChars = new Map<string, number>();
 for (const mode of ["off", "recommended"] as const) {
@@ -469,9 +476,12 @@ for (const mode of ["off", "recommended"] as const) {
 			assert.equal(measured.networkRequests, 0, "budget probes must not send network requests");
 			assert.ok(measured.promptChars > 0, `${profile.name} must expose its effective replacement prompt`);
 			assert.equal(measured.active.includes("ask_system1"), mode === "recommended", "explicit System 1 mode must match the active surface");
-			assert.equal(measured.active.includes("dispatch_triage"), mode === "recommended" && profile.name === "fleet");
+			// Fleet is always active, so recommended System 1 adds dispatch_triage on every profile.
+			assert.equal(measured.active.includes("dispatch_triage"), mode === "recommended");
 			const effective = measured.promptChars + measured.schemaChars;
-			const maxChars = mode === "recommended" && "recommendedMaxChars" in profile ? profile.recommendedMaxChars : profile.maxChars;
+			const maxChars = mode === "recommended"
+				? ("recommendedMaxChars" in profile ? profile.recommendedMaxChars : profile.maxChars + RECOMMENDED_SYSTEM1_ALLOWANCE)
+				: profile.maxChars;
 			assert.ok(effective <= maxChars,
 				`${profile.name} effective chars=${effective} > ${maxChars} (prompt ${measured.promptChars}; largest schemas ${JSON.stringify(measured.largest)})`);
 			// Off profiles run first in this file; the opt-in System 1 surface must stay bounded.
@@ -480,7 +490,7 @@ for (const mode of ["off", "recommended"] as const) {
 			if (mode === "recommended" && off !== undefined) assert.ok(effective - off <= RECOMMENDED_SYSTEM1_ALLOWANCE,
 				`${profile.name} System 1 overhead=${effective - off} > ${RECOMMENDED_SYSTEM1_ALLOWANCE}`);
 			assert.ok(measured.active.includes(profile.expectedTool), `${profile.name} must expose ${profile.expectedTool}`);
-			if (profile.name !== "fleet") assert.ok(!measured.active.includes("dispatch_agent"));
+			assert.ok(measured.active.includes("dispatch_agent"), `${profile.name} keeps the operator's fleet tools`);
 		} finally {
 			await rpc.close();
 			rmSync(workspace, { recursive: true, force: true });
@@ -773,8 +783,8 @@ export default function (pi) {
 			else assert.match(result.stdout, /Native roster: default \([1-9][0-9]*\)/);
 			const active = JSON.parse(readFileSync(capturePath, "utf8"));
 			if (workMode === "operator") {
-				for (const tool of ["read", "bash", "edit", "write"]) assert.ok(active.includes(tool), `${tool} should be active`);
-				for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive on greeting`);
+				for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(active.includes(tool), `${tool} should be active`);
+				for (const tool of ["set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive on greeting`);
 			} else {
 				for (const tool of ["read", "bash", "edit", "write", "set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive`);
 				for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"]) assert.ok(active.includes(tool), `${tool} should be active for orchestrator`);
@@ -809,8 +819,8 @@ export default function (pi) {
 		}
 
 		const operator = await rpc.activeTools();
-		for (const tool of ["read", "bash", "edit", "write", "ask_user"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
-		for (const tool of ["dispatch_agent", "spawn_research", "set_assertions"]) assert.ok(!operator.includes(tool), `${tool} should be inactive for operator greeting`);
+		for (const tool of ["read", "bash", "edit", "write", "ask_user", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
+		for (const tool of ["set_assertions"]) assert.ok(!operator.includes(tool), `${tool} should be inactive for operator greeting`);
 		for (const gated of ["coms_send", "herdr_spawn_peer", "herdr_spawn_pane"]) {
 			assert.ok(!operator.includes(gated), `${gated} should stay gated when unavailable`);
 		}

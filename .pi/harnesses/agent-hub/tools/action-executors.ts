@@ -16,7 +16,6 @@ import type {
 	SetTaskTierParams, TeamAdjustParams, ToolExecutionResult, ToolExecutor, UpdateAssertionParams,
 } from "./context.ts";
 
-const TEAM_ADJUST_ROSTER_CAP = 8;
 type Refusal = ToolExecutionResult | null;
 
 export interface ActionExecutorDeps {
@@ -134,12 +133,9 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {
 		const refusal = d.provisionalCapabilityRefusal("fleet"); if (refusal) return refusal;
 		const act = String(params.action || "").trim().toLowerCase();
-		if (!d.budget.currentBudget().delegation) {
-			const tier = d.getTaskTier() ?? DEFAULT_TASK_TIER;
-			return { content: [{ type: "text", text: `team_adjust is disabled at tier "${tier}" — a single-specialist path never needs roster changes. Raise the task tier with set_task_tier if the work outgrew "${tier}".` }], details: { status: "refused" } };
-		}
+		// Every installed agent is dispatchable and auto-added on first dispatch, so
+		// roster changes are neither tier-gated nor capped (2026-11-11).
 		if (act !== "add" && act !== "drop") return { content: [{ type: "text", text: `Unknown action "${params.action}" — expected add or drop.` }], details: { status: "error" } };
-		if (act === "add" && d.getAgentStates().size >= TEAM_ADJUST_ROSTER_CAP) return { content: [{ type: "text", text: `Roster cap reached (${TEAM_ADJUST_ROSTER_CAP}) — drop an unused member first, or ask the user to /af-agents-add manually.` }], details: { status: "refused" } };
 		const result = act === "add" ? d.rosterAdd(params.agent) : d.rosterDrop(params.agent);
 		if (result.ok) ctx.ui.notify(`team_adjust (${act}): ${result.message} — dispatcher's reason: ${params.reason || "(none given)"}`, "info");
 		const roster = Array.from(d.getAgentStates().values()).map(s => s.def.name).join(", ");

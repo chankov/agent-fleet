@@ -134,5 +134,10 @@ export function createProviderSemaphore(limits = DEFAULT_PROVIDER_LIMITS) {
 		inFlight: (model) => lane(providerKey(model)).live,
 		queued: (model) => lane(providerKey(model)).queue.length,
 		limitFor: (model) => providerLimit(model, limits),
+		/** Capped providers with live and queued counts, for the model-visible prompt. */
+		snapshot: () => Object.entries(limits || {})
+			.filter(([, limit]) => Number.isFinite(limit) && limit > 0)
+			.map(([provider, limit]) => ({ provider, limit, inFlight: lane(provider).live, queued: lane(provider).queue.length }))
+			.sort((a, b) => a.provider.localeCompare(b.provider)),
 	};
 }

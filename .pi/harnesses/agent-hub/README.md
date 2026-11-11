@@ -162,13 +162,27 @@ disables only embedded coms; direct operator work and native dispatch remain ava
 ### Automatic capability surfaces
 
 Capability packs load **automatically** from the current request, work mode, task tier, pending work,
-and runtime state; there is no activation command. `core` is always present. Orchestrator work mode
-always includes `fleet`; explicit delegation/research, acceptance work, an existing coms peer, a
-Herdr pane/watcher request, and explicit or imminent compaction respectively add `fleet`,
-`verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr runtime is only
-**readiness**, not intent: its tools and policy remain model-inactive until requested.
+and runtime state; there is no activation command. `core` is always present, and so is `fleet`:
+the operator always holds `dispatch_agent`, `spawn_research`, `poll_panel`, `set_task_tier` and
+`team_adjust`, because whether to delegate is its judgment rather than a keyword match on the
+request (reason `operator-default`, or a more specific one such as `explicit-fleet`). Acceptance
+work, an existing coms peer, a Herdr pane/watcher request, and explicit or imminent compaction
+respectively add `verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr
+runtime is only **readiness**, not intent: its tools and policy remain model-inactive until requested.
 
-Ambiguous delegation, peer, or workspace intent provisionally exposes the smallest relevant pack
+### Operator delegation
+
+The operator prompt lists **every installed agent** (research and catalog-only personas excluded),
+marks those outside the active team, and gives each one's model. Dispatching an installed agent
+that is not in the active team adds it automatically and notifies the human, so backend policy and
+session reuse keep working per member; an agent that is not installed is refused with the installed
+list and, for a required process role, the human install step. A `## When to delegate` section
+tells the operator to delegate research by default and in parallel, to make small changes itself,
+to get non-trivial changes reviewed by a separate agent, and to poll the panel for decisions.
+Capped model providers (by default `omlx/` and `custom/`, overridable with
+`AGENT_HUB_PROVIDER_LIMITS`) appear with their limits; slots in use appear in the task state.
+
+Ambiguous peer or workspace intent provisionally exposes the smallest relevant pack
 and records its reason in the state capsule and `/af-context`. Before that pack's first side effect,
 the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
 cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
@@ -972,9 +986,10 @@ Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
   live (drop refuses running or last members; session files are kept for re-adding).
 - `/af-agents-save <name>` — persist the current roster as a named team back into
   `teams.yaml` (targeted block upsert; comments and other teams untouched).
-- `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**;
-  disabled at trivial/small tiers, capped at 8 roster members, and every change is notified to the
-  human. The system prompt is rebuilt each turn, so changes take effect immediately.
+- `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**; every
+  change is notified to the human. It is rarely needed: `dispatch_agent` to an installed agent adds
+  it automatically, and added agents are kept. It is not tier-gated or capped. The system prompt is
+  rebuilt each turn, so changes take effect immediately.
 
 ### `/af-hub-report`
 
@@ -1059,6 +1074,7 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
 - `/af-coms` — coms control surface (peer list / status)
 - `/af-handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
 - `/af-poll [--panel NAME] [--persona NAME] <question>` — ask every voice in a named model panel (from `.pi/agents/voices.yaml`) the same question. `--panel` wins; else `poll-panel:` in `## agent-hub`; else a refusal listing available panels. Counts as **one** turn-budget dispatch. The main loop gets an immediate `POLL STARTED` receipt (no dispatcher turn), then one `POLL VOICE` line per finished voice, then the digest. Full opinions stay on disk under `.pi/agent-sessions/artifacts/polls/<runId>/`.
+- `poll_panel` (model tool) — the same poll, started by the operator itself with typed `question`, optional `panel` and `persona`. It is meant for decisions, not facts: architectural choices, uncertain diagnoses, choosing between approaches, risky changes. It is read-only, counts as one dispatch, streams voice progress in the tool result instead of follow-up messages, and returns the digest and opinions directory. A poll with fewer than two successful voices fails and is reported as no decision.
 - `/af-debate [--panel NAME] [--persona NAME] [--rounds N] <question>` — same panel, 2–5 harness-mediated rounds (default 3). Each surviving voice sees the labeled positions of the others from the previous round. There is no judge and no hidden merge. Counts as **one** turn-budget dispatch. Per-round files land under `.pi/agent-sessions/artifacts/polls/<runId>/debate/round-<n>/`.
 - `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
   candidate-lessons brief from the session (corrections, recurring findings, root causes),

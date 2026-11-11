@@ -15,6 +15,7 @@
     "herdr_read_pane",
     "herdr_spawn_pane",
     "herdr_spawn_peer",
+    "poll_panel",
     "run_flow",
     "set_assertions",
     "set_task_tier",

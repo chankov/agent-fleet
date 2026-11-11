@@ -30,6 +30,7 @@ export type CapabilityReason =
 	| "core"
 	| "inactive"
 	| "work-mode-required"
+	| "operator-default"
 	| "explicit-fleet"
 	| "explicit-verification"
 	| "tier-verification"
@@ -170,6 +171,12 @@ export function resolveCapabilityPacks(input: CapabilityResolutionInput): Capabi
 	if (intent.compaction) activate("compaction", "explicit-compaction");
 	if (input.contextState === "approaching-compaction") activate("compaction", "approaching-compaction");
 	if (input.contextState === "imminent-compaction") activate("compaction", "imminent-compaction");
+
+	// The operator always holds its delegation tools: whether to delegate is its
+	// judgment, not a keyword match on the user's wording (PHILOSOPHY, 2026-11-11).
+	// More specific reasons (explicit, retained, leased) are kept when present.
+	if (!active.has("fleet")) activate("fleet", "operator-default");
+	provisional.delete("fleet");
 
 	const ambiguous = ambiguousPack(input.userText, input);
 	if (ambiguous && !active.has(ambiguous) && isAvailable(ambiguous, input)) {

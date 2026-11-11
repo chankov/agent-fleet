@@ -7,6 +7,16 @@ export interface HubPromptAgent {
 	displayName: string;
 	description: string;
 	tools: string;
+	model?: string;
+	/** False for an installed agent not yet in the active team; its first dispatch adds it. */
+	inTeam?: boolean;
+}
+
+export interface HubPromptProviderLimit {
+	provider: string;
+	limit: number;
+	inFlight: number;
+	queued: number;
 }
 
 export interface HubPromptResearchPersona {
@@ -40,7 +50,12 @@ export interface HubPromptContext {
 	getCapabilityResolution(): CapabilityResolution;
 	getActiveTools(): readonly string[];
 	getToolCatalogNotice?(): string;
+	/** Every installed dispatchable agent, not only the active team. */
 	getAgents(): readonly HubPromptAgent[];
+	/** Active team display names; defaults to agents marked inTeam. */
+	getTeamMembers?(): readonly string[];
+	/** Capped model providers (local endpoints) with live usage. */
+	getProviderLimits?(): readonly HubPromptProviderLimit[];
 	getResearchPersonas(): readonly HubPromptResearchPersona[];
 	getPromptState(): HubPromptState;
 	getWorkMode(): WorkMode;

@@ -91,7 +91,8 @@ test("authorized new-task reset rebinds only current input, clears prior confirm
  const current="PRIVATE_CURRENT_INPUT: read README then request_compaction";
  context.resetTaskWindow(null,300,true,current);
  assert.ok(policy.getCapabilityResolution().active.includes("compaction"));
- assert.ok(!policy.getCapabilityResolution().active.includes("fleet"));
+ // The operator keeps fleet by default after a reset; the task-scoped confirmation is cleared.
+ assert.equal(policy.getCapabilityResolution().reasons.fleet,"operator-default");
  assert.equal(policy.getCapabilityConfirmation().fleet,undefined);
  assert.ok(!JSON.stringify(persisted).includes("PRIVATE_CURRENT_INPUT"));
  context.resetTaskWindow(null,400,false);

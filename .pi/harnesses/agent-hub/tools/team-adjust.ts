@@ -8,7 +8,7 @@ export function registerTeamAdjust(pi: ExtensionAPI, toolCtx: ToolContext): void
 		name: "team_adjust",
 		label: "Team Adjust",
 		description:
-			"Add or drop a specialist persona in the ACTIVE team (the roster you can dispatch to). Use sparingly, when the current roster genuinely cannot serve the task (e.g. add security-auditor for a security-sensitive change, drop an unused specialist). Not available at trivial/small tiers. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
+			"Add or drop a persona in the active team. Rarely needed: dispatch_agent to any installed agent adds it automatically. Drop only an agent that actively gets in the way; keeping added agents costs nothing. The human sees every change and can revert with /af-agents-add /af-agents-drop.",
 		parameters: Type.Object({
 			action: Type.String({ description: "add | drop" }),
 			agent: Type.String({ description: "Persona name (case-insensitive), e.g. security-auditor" }),

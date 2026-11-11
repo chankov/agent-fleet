@@ -237,3 +237,34 @@ test("decision routing retains material questions but triages specialists first 
   if (!askUser) assert.match(prompt, /wait for an explicit answer; silence is not approval/);
  }
 });
+
+test("operator prompt lists every installed agent, marks ones outside the team, and shows local model caps", () => {
+ const ctx = fixture();
+ const prompt = buildHubSystemPrompt({
+  ...ctx,
+  getWorkMode: () => "operator",
+  getAgents: () => [
+   { name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write", model: "omlx/Qwen", inTeam: true },
+   { name: "security-auditor", displayName: "Security Auditor", description: "Audits.", tools: "read", inTeam: false },
+  ],
+  getTeamMembers: () => ["Builder"],
+  getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 1, queued: 0 }],
+ }).systemPrompt;
+ assert.match(prompt, /^- `builder` — Builds changes\. · writes · omlx\/Qwen$/m);
+ assert.match(prompt, /^- `security-auditor` \(not in team yet\) — Audits\. · read-only$/m);
+ assert.match(prompt, /Members: Builder\n/);
+ assert.match(prompt, /dispatching one outside the active team adds it automatically/);
+ assert.match(prompt, /## When to delegate[\s\S]*Research: delegate by default[\s\S]*in parallel in the same turn/);
+ assert.match(prompt, /`omlx\/` at most 2 parallel runs/);
+ assert.match(prompt, /local model slots in use: omlx 1\/2/);
+});
+
+test("delegation guidance stays out of the orchestrator prompt; idle caps add no slot line", () => {
+ const ctx = fixture();
+ const orchestrator = buildHubSystemPrompt({ ...ctx, getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 0, queued: 0 }] }).systemPrompt;
+ assert.doesNotMatch(orchestrator, /## When to delegate/);
+ assert.match(orchestrator, /`omlx\/` at most 2 parallel runs/);
+ assert.doesNotMatch(orchestrator, /local model slots in use/);
+ const uncapped = buildHubSystemPrompt({ ...ctx, getWorkMode: () => "operator", getProviderLimits: () => [] }).systemPrompt;
+ assert.doesNotMatch(uncapped, /Local model concurrency/);
+});

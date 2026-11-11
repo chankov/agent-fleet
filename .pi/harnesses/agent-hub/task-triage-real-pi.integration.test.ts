@@ -707,7 +707,8 @@ test("real Pi operator exact confirmation: deny, approve, then deny a separate w
   const r = await session.request("run the production database migration now");
   assert.equal(r.success, true, `prompt failed: ${JSON.stringify(r)}`);
   assert.ok(session.fakeCalls().length >= 1, "irreversible input was evaluated through the real hooks");
-  assert.ok(session.contexts()[0].tools.includes("write") && !session.contexts()[0].tools.includes("dispatch_agent"), "operator action confirmation has direct tools but no fleet lease");
+  // The operator always holds fleet tools (2026-11-11); confirmation still governs the direct write.
+  assert.ok(session.contexts()[0].tools.includes("write") && session.contexts()[0].tools.includes("dispatch_agent"), "operator action confirmation keeps direct tools alongside the operator's fleet");
   assert.deepEqual(session.decisions().map(d => d.value), ["No — deny", "Yes — authorize once", "No — deny"], "each write gets its own real Pi UI decision");
   for (const [i, d] of session.decisions().entries()) {
     const target = createHash("sha256").update(JSON.stringify(actions[i])).digest("hex");
@@ -770,7 +771,8 @@ test("real Pi orchestrator/populated-roster, recover command, session switch and
   assert.ok(calls[0].tools.includes("dispatch_agent"), "orchestrator turn keeps dispatch");
   const inbound = inboundText(first);
   assert.match(inbound, /Unknown agent "planner"/, "populated roster without planner still refuses unknown agent");
-  assert.match(inbound, /\/af-agents-add code-reviewer|\/af-agents-team/, "missing required reviewer retains actionable recovery");
+  // An installed persona is added on first dispatch; one that is not installed names the human install step.
+  assert.match(inbound, /install the planner persona/, "missing required role retains actionable recovery");
 
   // Persistence recovery command is live in the real session and reports checked state.
   const rr = await first.request("/af-task-triage-recover");

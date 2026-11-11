@@ -90,7 +90,7 @@ test("unknown agent does not increment dispatch budget and lists available agent
 	const result = prepareDispatch(d as any, { agent: "not-a-real-agent", task: "do work" } as any, {} as any);
 	assert.equal("agent" in result && !("content" in result), false);
 	assert.equal((result as any).details.status, "unknown_agent");
-	assert.match((result as any).content[0].text, /Available agents: builder/);
+	assert.match((result as any).content[0].text, /Installed agents: builder/);
 	assert.match((result as any).content[0].text, /Do not invent a substitute dispatch/);
 	assert.equal(d._turn(), 0);
 	assert.equal(d._task(), 0);
@@ -101,7 +101,7 @@ test("dispatch_agent researcher redirects to spawn_research without consuming bu
 	const result = prepareDispatch(d as any, { agent: "researcher", task: "look around" } as any, {} as any);
 	assert.equal((result as any).details.status, "research_persona_via_dispatch");
 	assert.match((result as any).content[0].text, /spawn_research/);
-	assert.match((result as any).content[0].text, /Available agents: builder/);
+	assert.match((result as any).content[0].text, /Installed agents: builder/);
 	assert.equal(d._turn(), 0);
 	assert.equal(d._task(), 0);
 });
@@ -1007,22 +1007,34 @@ test("T11 reviewer APPROVE covering current changed files records review at curr
  assert.equal(process().review.revision, process().acceptance.revision);
 });
 
-test("empty roster names explicit human role recovery without tier escalation", async t => {
- const { d } = await highRiskChangedFixture(t);
- d.state.getAgentStates().clear();
- const refusal = validateDispatchAgent(d as any, "code-reviewer", "review");
- assert.match((refusal!.content[0] as any).text, /\/af-agents-add code-reviewer|\/af-agents-team/);
- assert.equal((refusal!.details as any).status, "unknown_agent");
-});
-
-test("partial roster still names the missing required role recovery", async t => {
+test("an installed agent outside the active team is added on first dispatch and notified", async t => {
  const { d } = await highRiskChangedFixture(t);
  d.state.getAgentStates().clear();
  d.state.getAgentStates().set("builder", { def: { name: "builder" } });
- for (const role of ["planner", "code-reviewer"]) {
-  const refusal = validateDispatchAgent(d as any, role, "required stage");
-  assert.match((refusal!.content[0] as any).text, new RegExp(`/af-agents-add ${role}`));
- }
+ const added: string[] = [], notices: string[] = [];
+ (d.state as any).getInstalledAgentNames = () => ["builder", "code-reviewer", "planner"];
+ (d.state as any).addInstalledAgent = (name: string) => {
+  if (!["code-reviewer", "planner"].includes(name)) return null;
+  added.push(name); d.state.getAgentStates().set(name, { def: { name } });
+  return { ok: true, message: `${name} added to the active team` };
+ };
+ const ctx = { ui: { notify: (text: string) => notices.push(text) } } as any;
+ for (const role of ["planner", "code-reviewer"]) assert.equal(validateDispatchAgent(d as any, role, "required stage", ctx), null, role);
+ assert.deepEqual(added, ["planner", "code-reviewer"]);
+ assert.ok(notices.every(text => /added to the active team/.test(text)) && notices.length === 2);
+ assert.equal(validateDispatchAgent(d as any, "planner", "again", ctx), null, "already on the team: no second add");
+ assert.equal(added.length, 2);
+});
+
+test("an agent that is not installed is refused with the installed list and no human slash recovery", async t => {
+ const { d } = await highRiskChangedFixture(t);
+ d.state.getAgentStates().clear();
+ (d.state as any).getInstalledAgentNames = () => ["builder", "code-reviewer"];
+ (d.state as any).addInstalledAgent = () => null;
+ const refusal = validateDispatchAgent(d as any, "made-up-reviewer", "review");
+ assert.equal((refusal!.details as any).status, "unknown_agent");
+ assert.match((refusal!.content[0] as any).text, /Installed agents: builder, code-reviewer/);
+ assert.doesNotMatch((refusal!.content[0] as any).text, /\/af-agents-add/);
 });
 
 test("process-required reviewer is not refused by docs-lane hint", async t => {

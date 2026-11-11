@@ -114,9 +114,11 @@ test("assessment refresh cannot turn a declined provisional pack into permission
 	f.policy.setCapabilityConfirmation("fleet", "declined");
 	f.policy.refreshCapabilities();
 	assert.equal(f.policy.getCapabilityConfirmation().fleet, "declined");
+	// The operator always holds fleet tools, but a human decline recorded for this
+	// task (e.g. from an older session) still gates every fleet side effect.
 	assert.equal(f.policy.provisionalCapabilityRefusal("fleet")?.details.confirmation, "declined");
 	assert.ok(f.policy.getCapabilityResolution().active.includes("compaction"));
-	assert.ok(!f.policy.getCapabilityResolution().active.includes("fleet"));
+	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
 });
 
 test("assessment refresh does not restore explicit compaction from old persisted active state", () => {
@@ -128,12 +130,12 @@ test("assessment refresh does not restore explicit compaction from old persisted
 	assert.ok(!f.policy.getCapabilityResolution().active.includes("compaction"));
 });
 
-test("capability confirmation promotes provisional packs and operation leases keep packs active", () => {
+test("ambiguous delegation needs no confirmation because the operator holds fleet; leases keep packs active", () => {
 	const f = fixture();
 	f.policy.resolveIncomingCapabilities("someone else to handle this");
-	assert.ok(f.policy.getCapabilityResolution().provisional.includes("fleet"));
-	assert.equal(f.policy.provisionalCapabilityRefusal("fleet")?.details.status, "provisional_confirmation_required");
-	f.policy.setCapabilityConfirmation("fleet", "promoted");
+	assert.ok(!f.policy.getCapabilityResolution().provisional.includes("fleet"));
+	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
+	assert.equal(f.policy.provisionalCapabilityRefusal("fleet"), null);
 	f.policy.resolveIncomingCapabilities("");
 	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
 	assert.equal(f.policy.provisionalCapabilityRefusal("fleet"), null);

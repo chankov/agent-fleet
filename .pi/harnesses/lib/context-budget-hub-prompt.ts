@@ -23,6 +23,8 @@ export interface HubPromptParts {
 	ambiguityRule: string;
 	agentCatalog: string;
 	researchCatalog: string;
+	/** Work-mode guidance on when to delegate; stable policy. */
+	delegationGuide?: string;
 	/** Changes per turn: tier, budgets, active counters, and pending state only. */
 	stateCapsule?: string;
 }
@@ -44,13 +46,13 @@ export const HUB_HERDR_SECTION = `
  */
 export function assembleHubSystemPrompt(parts: HubPromptParts): string {
 	const team = parts.activeTeamName || "(none)";
-	const members = parts.teamMembers || "(none — add a persona before using dispatch_agent)";
+	const members = parts.teamMembers || "(none yet)";
 	const state = parts.stateCapsule ? `\n${parts.stateCapsule}\n` : "";
 	const fleet = parts.dispatchSection ? `
 ## Native Roster: ${team}
 Members: ${members}
-Dispatch only listed agents. The roster may change through its Fleet commands or \`team_adjust\` when it genuinely cannot serve the task; more personas is usually the wrong answer.
-
+Every agent under "Agents" is installed and dispatchable; dispatching one outside the active team adds it automatically. Keep added agents. Drop one with \`team_adjust\` only when it actively gets in the way.
+${parts.delegationGuide ? `\n${parts.delegationGuide}\n` : ""}
 ## How to Work
 ${parts.dispatchSection}
 - Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live same-name peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
@@ -62,6 +64,7 @@ ${parts.dispatchSection}
 - Specialists cannot spawn helpers; run necessary research and pass its findings or artifact path to the specialist.
 
 ## Agents
+Dispatch with \`dispatch_agent\` using the name in backticks.
 
 ${parts.agentCatalog}
 

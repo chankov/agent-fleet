@@ -6,7 +6,7 @@ import { CONTENT_REPLY_BYTES } from "./deterministic-fs.ts";
 import { artifactPreviewFromText } from "./artifacts.js";
 
 const object=(value:unknown):Record<string,unknown>=>value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:{};
-const coordination=new Set(["dispatch_agent","spawn_research","coms_send","coms_get","coms_await","set_task_tier"]);
+const coordination=new Set(["dispatch_agent","spawn_research","poll_panel","coms_send","coms_get","coms_await","set_task_tier"]);
 const inspection=new Set(["read","filesystem","bash","grep","find","ls"]);
 const failure=/failed|refused|blocked|cancel|error|pending|stale|incomplete|uncertain/i;
 const decisions=(value:unknown)=>Array.isArray(value)&&value.some(v=>String(v).trim()&&!/^(?:none|\[\])$/i.test(String(v).trim()));

@@ -80,7 +80,7 @@ const commandModules = [
 const comsCoreSource = readFileSync(new URL("../lib/coms-core.ts", import.meta.url), "utf8");
 const personaSource = readFileSync(new URL("../../../agents/orchestrator.md", import.meta.url), "utf8");
 
-test("operator gets actionable fleet tools only when transition or S1 stage needs them", () => {
+test("operator always holds fleet tools; transitions and S1 stages lease them with a specific reason", () => {
  const bind = { taskId: "task-1", evaluationId: "eval-1", inputRevision: "input-1" };
  const baseline = ["read", "grep", "find", "ls", "bash", "edit", "write"];
  const tools = (pendingOperations: Array<{ pack: "fleet"; kind: string }>) => {
@@ -88,8 +88,9 @@ test("operator gets actionable fleet tools only when transition or S1 stage need
   return { packs, active: resolveWorkModeTools({ workMode: "operator", baselineTools: baseline, comsReady: false, herdrReady: false, askUserAvailable: true, capabilityPacks: packs.active }) };
  };
  const ordinary = tools([]);
- assert.deepEqual(ordinary.packs.active, ["core"]);
- assert.ok(!ordinary.active.includes("set_task_tier"));
+ assert.deepEqual(ordinary.packs.active, ["core", "fleet"]);
+ assert.equal(ordinary.packs.reasons.fleet, "operator-default");
+ assert.ok(ordinary.active.includes("set_task_tier") && ordinary.active.includes("dispatch_agent") && ordinary.active.includes("spawn_research"));
  for (const stage of ["wide_change", "security_change"] as const) {
   const state = applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: [stage] }, bind);
   const pending = processOpenObligations(state).some(name => name === "plan" || name === "review") ? [{ pack: "fleet" as const, kind: "process-stage" }] : [];
@@ -351,13 +352,15 @@ test("T9 autonomous-recovery guidance uses the active catalog and read-only rout
 });
 
 
-test("verification-only operator can classify risk without activating fleet", () => {
+test("verification-only pack classifies risk without leasing fleet, and the operator still holds fleet", () => {
  const packs=resolveCapabilityPacks({workMode:"operator",userText:"Continue the existing checks",taskTier:"small",taskPacks:["verification"],comsReady:false,herdrReady:false,pendingOperations:[],contextState:"normal"});
- assert.deepEqual(packs.active,["core","verification"]);
+ assert.deepEqual(packs.active,["core","fleet","verification"]);
  const baseline=["read","bash","edit","write"];
+ const verificationOnly=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:["core","verification"]});
+ for(const name of ["set_task_tier","set_assertions","update_assertion","get_assertions"])assert.ok(verificationOnly.includes(name),name);
+ for(const name of ["dispatch_agent","spawn_research","team_adjust"])assert.ok(!verificationOnly.includes(name),name);
  const tools=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:packs.active});
- for(const name of ["set_task_tier","set_assertions","update_assertion","get_assertions"])assert.ok(tools.includes(name),name);
- for(const name of ["dispatch_agent","spawn_research","team_adjust"])assert.ok(!tools.includes(name),name);
+ for(const name of ["dispatch_agent","spawn_research","set_assertions"])assert.ok(tools.includes(name),name);
  assert.deepEqual(tools.filter(name=>baseline.includes(name)),baseline);
  assert.match(processPreEffectGate(createProcessState(),"prove")!.message,/risk/);
  const both=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:["core","fleet","verification"]});

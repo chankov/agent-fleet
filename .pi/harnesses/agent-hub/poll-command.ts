@@ -157,17 +157,25 @@ export function formatAfPollDispatcherNote(input: AfPollDigestInput, digest: str
 export async function handleAfPoll(input: AfPollHandleInput): Promise<AfPollHandleResult> {
 	const parsed = parseAfPollArgs(input.args);
 	if (parsed.error) return { ok: false, message: parsed.error };
+	return runAfPoll({ ...input, panel: parsed.panel, persona: parsed.persona, question: parsed.question });
+}
+
+/** Shared by `/af-poll` (parsed slash arguments) and the operator's `poll_panel` tool (typed parameters). */
+export async function runAfPoll(input: Omit<AfPollHandleInput, "args"> & { panel?: string; persona?: string; question: string }): Promise<AfPollHandleResult> {
+	const question = String(input.question ?? "").trim();
+	if (!question) return { ok: false, message: "A poll needs a non-empty question." };
+	const persona = input.persona?.trim() || HUB_POLL_DEFAULT_PERSONA;
 	const available = await input.listPanels(input.cwd);
-	const panel = resolveAfPollPanel(parsed.panel, input.pollPanelOverride, available);
+	const panel = resolveAfPollPanel(input.panel, input.pollPanelOverride, available);
 	if ("error" in panel) return { ok: false, message: panel.error };
-	const blocked = await input.preflight?.({ panel: panel.panel, persona: parsed.persona, cwd: input.cwd });
+	const blocked = await input.preflight?.({ panel: panel.panel, persona, cwd: input.cwd });
 	if (blocked) return { ok: false, message: blocked };
 	const budget = await input.checkBudget();
 	if (budget) return { ok: false, message: budget };
 	input.chargeBudget();
-	try { await input.onAccepted?.({ panel: panel.panel, persona: parsed.persona, question: parsed.question }); } catch { /* progress is best-effort */ }
+	try { await input.onAccepted?.({ panel: panel.panel, persona, question }); } catch { /* progress is best-effort */ }
 	try {
-		const digestInput = await input.execute({ panel: panel.panel, persona: parsed.persona, question: parsed.question, cwd: input.cwd });
+		const digestInput = await input.execute({ panel: panel.panel, persona, question, cwd: input.cwd });
 		const digest = formatAfPollDigest(digestInput);
 		return { ok: true, message: digest, digest, dispatcherNote: formatAfPollDispatcherNote(digestInput, digest) };
 	} catch (error) {

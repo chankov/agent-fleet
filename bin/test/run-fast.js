@@ -102,6 +102,7 @@ const fastTestFiles = [
   ".pi/harnesses/agent-hub/operator-watchdog.test.ts",
   ".pi/harnesses/agent-hub/assertion-ledger.test.js",
   ".pi/harnesses/agent-hub/provider-semaphore.test.js",
+  ".pi/harnesses/agent-hub/tools/poll-panel.test.ts",
   ".pi/harnesses/agent-hub/context-window.test.ts",
   ".pi/harnesses/agent-hub/backend-policy.test.ts",
   ".pi/agent-fleet/scripts/workflows/lib/writer-lease.test.ts",

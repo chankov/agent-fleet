@@ -141,3 +141,18 @@ test("a nested spawn on the same provider cannot stall behind its own ancestor",
 	assert.equal(inner, true);
 	assert.equal(sem.inFlight("custom/Qwen"), 0);
 });
+
+test("snapshot lists only capped providers with live and queued counts", async () => {
+	const sem = createProviderSemaphore({ omlx: 1, custom: 2, ollama: null });
+	assert.deepEqual(sem.snapshot(), [
+		{ provider: "custom", limit: 2, inFlight: 0, queued: 0 },
+		{ provider: "omlx", limit: 1, inFlight: 0, queued: 0 },
+	]);
+	const first = await sem.acquire("omlx/Qwen");
+	const waiting = sem.acquire("omlx/Qwen");
+	await settle();
+	assert.deepEqual(sem.snapshot().find((row) => row.provider === "omlx"), { provider: "omlx", limit: 1, inFlight: 1, queued: 1 });
+	first();
+	(await waiting)();
+	assert.deepEqual(sem.snapshot().find((row) => row.provider === "omlx"), { provider: "omlx", limit: 1, inFlight: 0, queued: 0 });
+});

@@ -24,16 +24,19 @@ function surface(input: Partial<CapabilityResolutionInput> = {}) {
 const absent = (tools: readonly string[], names: readonly string[]) => names.every(name => !tools.includes(name));
 
 test("end-to-end deterministic capability matrix exposes only the intended profile surfaces", () => {
+	// The operator always holds its delegation tools (PHILOSOPHY, 2026-11-11).
+	const visibleFleet = FLEET_TOOLS.filter(tool => tool !== "dispatch_triage");
 	const greeting = surface();
-	assert.deepEqual(greeting.resolution.active, ["core"]);
+	assert.deepEqual(greeting.resolution.active, ["core", "fleet"]);
 	assert.ok(baseline.every(tool => greeting.tools.includes(tool)));
-	assert.ok(absent(greeting.tools, [...FLEET_TOOLS, ...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS, "request_compaction"]));
+	assert.ok(visibleFleet.every(tool => greeting.tools.includes(tool)));
+	assert.ok(absent(greeting.tools, [...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS, "request_compaction"]));
 
 	const direct = surface({ userText: "Fix the parser and run its tests." });
-	assert.deepEqual(direct.resolution.active, ["core"]);
-	assert.ok(absent(direct.tools, [...FLEET_TOOLS, ...VERIFICATION_TOOLS]));
+	assert.deepEqual(direct.resolution.active, ["core", "fleet"]);
+	assert.ok(visibleFleet.every(tool => direct.tools.includes(tool)));
+	assert.ok(absent(direct.tools, VERIFICATION_TOOLS));
 
-	const visibleFleet = FLEET_TOOLS.filter(tool => tool !== "dispatch_triage");
 	const fleet = surface({ userText: "Delegate this implementation to a specialist." });
 	assert.ok(visibleFleet.every(tool => fleet.tools.includes(tool)));
 	assert.ok(!fleet.tools.includes("dispatch_triage"));
@@ -48,28 +51,29 @@ test("end-to-end deterministic capability matrix exposes only the intended profi
 	const verification = surface({ userText: "Implement this feature with acceptance criteria.", taskTier: "feature" });
 	assert.ok(VERIFICATION_TOOLS.every(tool => verification.tools.includes(tool)));
 	assert.ok(verification.tools.includes("set_task_tier"), "classification is available without dispatch");
-	assert.ok(absent(verification.tools, [...FLEET_TOOLS.filter(tool => tool !== "set_task_tier"), ...COMS_TOOLS, ...HERDR_TOOLS]));
+	assert.ok(absent(verification.tools, [...COMS_TOOLS, ...HERDR_TOOLS]));
 
 	const peer = surface({ userText: "Send this through coms to the existing peer.", comsReady: true });
 	assert.ok(COMS_TOOLS.every(tool => peer.tools.includes(tool)));
-	assert.ok(absent(peer.tools, [...FLEET_TOOLS, ...HERDR_TOOLS]));
+	assert.ok(absent(peer.tools, HERDR_TOOLS));
 
 	const workspace = surface({ userText: "Open a Herdr pane for the watcher.", herdrReady: true });
 	assert.ok(HERDR_TOOLS.every(tool => workspace.tools.includes(tool)));
-	assert.ok(absent(workspace.tools, [...FLEET_TOOLS, ...COMS_TOOLS]));
+	assert.ok(absent(workspace.tools, COMS_TOOLS));
 
 	const compaction = surface({ userText: "Please compact the conversation." });
 	assert.ok(compaction.tools.includes("request_compaction"));
-	assert.ok(absent(compaction.tools, [...FLEET_TOOLS, ...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
+	assert.ok(absent(compaction.tools, [...VERIFICATION_TOOLS, ...COMS_TOOLS, ...HERDR_TOOLS]));
 
 	const approaching = surface({ contextState: "approaching-compaction" });
 	assert.ok(approaching.tools.includes("request_compaction"));
-	assert.deepEqual(approaching.resolution.nextTaskPacks, []);
+	assert.deepEqual(approaching.resolution.nextTaskPacks, ["fleet"]);
 });
 
 test("provisional packs cannot bypass server-side confirmation and explicit new-task resets stale state", () => {
+	// Fleet is never provisional: the operator always holds it.
+	assert.deepEqual(surface({ userText: "Could you get somebody else to handle this?" }).resolution.provisional, []);
 	for (const [pack, input] of [
-		["fleet", { userText: "Could you get somebody else to handle this?" }],
 		["peer", { userText: "Can you contact them about this?", comsReady: true }],
 		["workspace", { userText: "Can you start it somewhere?", herdrReady: true }],
 	] as const) {
@@ -84,6 +88,6 @@ test("provisional packs cannot bypass server-side confirmation and explicit new-
 		assert.equal(confirmationGate(state, pack, true).allowed, false, `${pack} remains blocked after rejection`);
 	}
 	const reset = surface({ taskPacks: ["fleet", "verification", "peer"], newTask: true });
-	assert.deepEqual(reset.resolution.active, ["core"]);
+	assert.deepEqual(reset.resolution.active, ["core", "fleet"]);
 	assert.deepEqual(reset.resolution.provisional, []);
 });

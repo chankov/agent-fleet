@@ -15,7 +15,7 @@ const sources = new Set<TraceSource>(["runtime", "native", "process", "task-tria
 const statuses = new Set<TraceStatus>(["pending", "completed", "failed", "allowed", "denied", "blocked", "cancelled", "interrupted", "unavailable", "reused", "not_started", "busy"]);
 const reasons = new Set(["zero_access", "read_only", "no_delete", "authority_changed", "human_denial", "policy_rule", "task_transition_pending", "process_state_corrupt", "risk_required", "action_confirmation_unsupported", "approval_queue"]);
 const actors = new Set(["operator", "specialist", "builder", "planner", "plan-reviewer", "code-reviewer", "security-auditor", "test-engineer", "researcher", "deep-researcher", "architect", "documenter", "debugger"]);
-const tools = new Set(["bash", "read", "write", "edit", "grep", "find", "ls", "filesystem", "ask_user", "dispatch_agent", "spawn_research", "set_task_tier", "set_assertions", "update_assertion", "get_assertions", "coms_send", "coms_get", "coms_await", "delegate"]);
+const tools = new Set(["bash", "read", "write", "edit", "grep", "find", "ls", "filesystem", "ask_user", "dispatch_agent", "spawn_research", "poll_panel", "set_task_tier", "set_assertions", "update_assertion", "get_assertions", "coms_send", "coms_get", "coms_await", "delegate"]);
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const millis = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const digest = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
