@@ -780,6 +780,25 @@ rules: docs/rules, .ai/rules
 docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```
 
+### `workflows`
+
+Read by `just flow` when a flow starts. The `quality` and `build-test` flows need
+a command, and there is no default: a missing command is a startup refusal (exit `3`).
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `quality` | none | The one command a flow runs as its quality gate, split into argv with simple shell-style quotes and run without a shell. |
+| `quality.<repository>` | `quality` | Only in a workspace whose root holds nested repositories: the command for a flow selected into that repository with `--worktree`. `<repository>` is the path of its main checkout from the workspace root, for example `quality.ringithub`. |
+
+```markdown
+## workflows
+quality: npm test
+quality.ringithub: dotnet test
+```
+
+See [workflows](workflows.md#quality-configuration) for the timeout, logs and the
+relation to `CONSTRAINTS.md`.
+
 ### `env` (optional, read by the doctor)
 
 The overrides file references environment variables by **name** — test-account
@@ -948,6 +967,10 @@ branching: never
 language: <language name>
 rules: <repo-relative rule folder>[, <another folder>]
 docs: <repo-relative doc entry point>[, <another file or folder>]
+
+# Required by the quality and build-test flows (`just flow`).
+## workflows
+quality: <quality command>
 
 # Optional; names (never values) of env vars the sections above reference.
 # Only `agent-fleet doctor` reads this — it warns when one is unset.

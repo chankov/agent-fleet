@@ -103,7 +103,7 @@ Maintenance does not fetch remotes and does not delete `.pi/flow-sessions/<runId
 
 ## Quality configuration
 
-Quality blocks require a non-empty `quality:` command in `## workflows` in `.ai/agent-fleet-overrides.md`; there is **no implicit `npm test` fallback**. A missing override, missing `## workflows` section, or empty `quality:` value is a startup refusal (exit `3`), rather than a fake green command. The value is split into argv using simple shell-style quotes, inherits the operator environment, and runs without a shell.
+Quality blocks require a non-empty `quality:` command in `## workflows` in `.ai/agent-fleet-overrides.md`; there is **no implicit `npm test` fallback**. A missing override, missing `## workflows` section, or empty `quality:` value is a startup refusal (exit `3`), rather than a fake green command. The value is split into argv using simple shell-style quotes, inherits the operator environment, and runs without a shell. A workspace with nested repositories can also give each repository its own command with `quality.<repository>:` (see [below](#workspaces-with-nested-repositories)).
 
 ```markdown
 ## workflows
@@ -115,6 +115,27 @@ The runtime currently uses its 1,800-second default timeout; `timeout-seconds:` 
 ### `quality:` and `CONSTRAINTS.md`
 
 `quality:` is the **executable** gate — the one command a flow runs to decide acceptance. When a project also uses the `constraint-driven-development` skill, its `CONSTRAINTS.md` holds the *dimensions, the numbers, and the reason for each number*; it is what a human reads and what review diffs. The two are not redundant and must not disagree: `CONSTRAINTS.md` cites the command, `quality:` runs it. A `CONSTRAINTS.md` naming a gate command that `quality:` does not run is drift, and `quality:` is what the runtime obeys.
+
+## Workspaces with nested repositories
+
+When the workspace root is a plain folder that holds Git repositories (for example `rin-docs/` and `ringithub/`), each flow works in exactly one of them. Select it with `--worktree` and its path from the workspace root:
+
+```bash
+just flow quality --worktree ringithub
+just flow build-test --worktree ringithub --branch "add the validated endpoint"
+just flow cleanup --worktree ringithub
+just flow merge --worktree ringithub
+```
+
+`.ai/agent-fleet-overrides.md`, `.env` and policy are read from the workspace root. Git, the clean-tree check, the quality command and `--branch` run in the selected repository, so flow branches exist only there and `cleanup` and `merge` list them per repository. Traces stay at the root, under `.pi/flow-sessions/targets/<target>/<runId>/`. Without `--worktree`, a flow, `cleanup` or `merge` at such a root is a startup refusal (exit `3`) that names the flag. One run never spans two repositories.
+
+A nested repository can have its own quality command. `quality.<repository>:` wins over `quality:` for a flow selected into that repository. The key is the path of the repository's main checkout from the workspace root, so a linked worktree of `ringithub` also uses `quality.ringithub:`. A repository without its own key, or a checkout outside the workspace root, uses `quality:`. A refusal for a missing command names both keys.
+
+```markdown
+## workflows
+quality: npm test
+quality.ringithub: dotnet test
+```
 
 ## Safety and evidence
 
@@ -156,3 +177,5 @@ Before the Hub charges one research operation, code validates the effective rese
 The scout's native process and descendants run through `confineNativeChild`: the snapshot is read-only at the OS layer, and only its session-owned phase directory is writable for Pi session/runtime support. A second, non-exemptible extension validates the actual declared `read`, `grep`, `find`, and `ls` data paths and patterns against the snapshot, denying original-worktree absolute paths, traversal, and symlink escape. Damage-control remains loaded and applies its `zeroAccessPaths` rules independently. The OS sandbox intentionally retains read access to model/runtime libraries and provider configuration required to start Pi; the DATA-read claim is limited to those four filesystem tools, not a global no-read claim. The flow runs in detached-HEAD, no-branch mode; trace and manifest live under the current Hub session, and cleanup of the owned temporary workspace is attempted after every settlement or setup failure. `snapshotCleanup.status` reports `removed`, `not-created` or `failed`; a failure returns a visible warning and retained path rather than silently claiming cleanup. Trace and manifest artifacts are kept. Abrupt process termination (for example SIGKILL or power loss) cannot guarantee cleanup; no startup sweep deletes unknown or active directories. It never restores, deletes, checks out, branches, or commits in the original worktree.
 
 The Hub owns cancellation and the single budget charge. A duplicate `invocation_id` with identical inputs returns the existing promise/result; changed inputs under that id are stale and refused, and a distinct invocation while one is active is busy without charge. Flow acceptance is nested evidence only: `run_flow` returns parent acceptance as `not_accepted`, promotes no assertions, and retains open T11 obligations. Writable procedures—including `build-test` and its commit semantics—remain unavailable pending a separate reviewed slice.
+
+At a workspace root that is not a Git repository, `run_flow` needs `repo:`, the one nested repository to scout, as its path from the workspace root (for example `ringithub`). The snapshot is built from that repository. Personas, damage-control rules and scout settings come from the workspace root, and paths in the result are relative to the repository. Without `repo:`, the call is refused without a budget charge, and the refusal names the repositories the task already uses. `repo:` is also refused where the root is itself a repository, in a session already bound to a target checkout, and for an absolute path, `..`, or a folder that is not a repository checkout inside the workspace. `build-test` in a nested repository runs from the CLI: `just flow build-test --worktree <repository> …`.

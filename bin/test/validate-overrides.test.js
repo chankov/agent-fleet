@@ -89,6 +89,9 @@ delegate-depth.code-reviewer: 1
 recon-search-timeout-s: 120
 rules: docs/rules
 docs: Docs/AGENTS.md
+
+## workflows
+quality: npm test
 `;
   const findings = findingsFor(text, {
     extraFiles: { "docs/rules": true, "docs/rules/README.md": "# index\n", "Docs/AGENTS.md": "# guide\n" },
@@ -125,6 +128,20 @@ plan_output: Docs/plans
   assert.equal(findings.length, 1);
   assert.match(findings[0].issue, /unknown key "plan_output"/);
   assert.match(findings[0].fix, /plan-dir/);
+});
+
+test("## workflows is known, with quality and a per-repository quality key", () => {
+  assert.deepEqual(findingsFor(`## workflows
+quality: npm test
+quality.ringithub: dotnet test
+quality.apps/api: npm test
+`), []);
+  const findings = findingsFor(`## workflows
+qualty: npm test
+`);
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].issue, /unknown key "qualty" in ## workflows/);
+  assert.match(findings[0].fix, /quality\.<repository>/);
 });
 
 test("legacy ## agent-team gets a rename nudge but its keys still validate", () => {

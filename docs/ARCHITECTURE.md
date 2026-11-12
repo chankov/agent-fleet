@@ -50,6 +50,54 @@ See [usage and boundaries](session-worktree-targeting.md) and the
 [implementation/verification plan](plans/2026-0-archive/PLAN-session-worktree-targeting.md).
 No target-local Fleet copy or cwd-only workaround is needed.
 
+## Workspaces with nested repositories
+
+A Fleet workspace root can also be a plain folder that holds several Git
+repositories:
+
+```text
+workspace/              # Fleet installation; not a Git repository
+├── .ai/ .pi/ justfile
+├── rin-docs/           # nested repository
+└── ringithub/          # nested repository
+```
+
+Configuration, policy, personas and Fleet evidence stay at the workspace root.
+Git state is read and changed per nested repository:
+
+- **Discovery.** A nested repository is known only once a declared scope or a
+  changed task file points inside it. The path is resolved to its nearest Git
+  root; the root's children are never scanned. A path outside every nested
+  repository is a gap, and a passing sibling repository cannot cover it.
+- **Observation.** Dispatch snapshots, deltas and compiler discovery run per
+  repository and report workspace-relative paths (see
+  [runtime acceptance and recovery](#runtime-acceptance-and-recovery)).
+  Proactive turn review observes the same way. An `include` outside every
+  nested repository is recorded as `include_outside_nested_repository`, and the
+  root is not asked for a status of its own.
+- **Task revision.** A task's revision covers, whole, each nested repository
+  that holds a declared path or a changed task file. Review, acceptance and plan
+  records keep that basis. The `update_assertion` gate, `/af-recover`, the
+  no-progress ticket and refusal snapshots check against the same basis. A
+  change in a covered repository makes a record stale; a change in another
+  repository does not. Incomplete observation gives `unavailable`, as in a
+  single repository.
+- **Review reuse.** An incremental re-review keeps the `HEAD` of each declared
+  repository and is allowed only when none of them has moved.
+- **Operator view.** Once a task has recorded a step on a nested repository,
+  the operator's state capsule says that the root is not a Git repository and
+  names up to six repositories in use, with `+N more` beyond that.
+- **Flows.** A flow works in exactly one nested repository:
+  `just flow <flow> --worktree <repository>` from the CLI, or `repo:` on Hub
+  `run_flow` scout. Without that selection, a flow, `cleanup` or `merge` refuses
+  at startup, and `run_flow` refuses without a budget charge.
+  `quality.<repository>:` under `## workflows` wins over `quality:` for that
+  repository. See [workflows](workflows.md#workspaces-with-nested-repositories).
+
+A root that is itself a Git repository keeps whole-repository behaviour
+throughout. Git submodules, and repositories nested inside a root repository,
+are outside this contract.
+
 ## Runtime layers
 
 | Layer | Role | Implementation |
@@ -619,7 +667,7 @@ flowchart TD
 
 ### Explicit operator current-state verification
 
-`dispatch_agent.review_mode="operator-current-state"` is an explicit native-only verification contract for current Git-visible scoped files, not reconstructed edit authorship. A workspace root that is a plain folder holding nested repositories is observed per file's own repository, as change attribution already is; any file outside an observed repository refuses the whole candidate. There, a task revision covers each nested repository holding a declared path or a changed task file, whole; each recorded review, acceptance and plan keeps that basis and is checked against it, so a change in a covered repository makes it stale and a change in another one does not. A root that is itself a repository keeps the whole-repository revision. When an assertion proof is refused because review is open, the refusal names this route for operator-made edits, or the reviewer dispatch that covers registered changes. It snapshots the current task/revision, requires complete independent same-state review plus fresh runtime checks for every active automated assertion and AF-MIN-CHANGE, and preserves default changed-task/review/cancellation/action-confirmation gates. Process path/origin distinguishes current-state acceptance; read-only child `changes=unchanged`/`taskAccepted=false` and unsupported manual assertions are not rewritten. Scope mutation, stale input/revision, missing checks or concurrent writers fail closed. No automatic reload, grants, historical records or ledger proof is added. See [contract and manual activation](operator-current-state.md).
+`dispatch_agent.review_mode="operator-current-state"` is an explicit native-only verification contract for current Git-visible scoped files, not reconstructed edit authorship. In a workspace root that is a plain folder holding nested repositories, each file is observed in its own repository, any file outside an observed repository refuses the whole candidate, and the revision is the per-repository basis described in [workspaces with nested repositories](#workspaces-with-nested-repositories). When an assertion proof is refused because review is open, the refusal names this route for operator-made edits, or the reviewer dispatch that covers registered changes. It snapshots the current task/revision, requires complete independent same-state review plus fresh runtime checks for every active automated assertion and AF-MIN-CHANGE, and preserves default changed-task/review/cancellation/action-confirmation gates. Process path/origin distinguishes current-state acceptance; read-only child `changes=unchanged`/`taskAccepted=false` and unsupported manual assertions are not rewritten. Scope mutation, stale input/revision, missing checks or concurrent writers fail closed. No automatic reload, grants, historical records or ledger proof is added. See [contract and manual activation](operator-current-state.md).
 
 ### Local Codex observation boundary (experimental)
 

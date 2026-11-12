@@ -80,6 +80,13 @@ const KNOWN_SECTIONS = {
   "env": {
     keys: { "required": checkEnvVars() },
   },
+  // Read by `just flow` (.pi/agent-fleet/scripts/workflows/lib/quality.ts).
+  // A nested repository path containing `/` is not a key line for the parser
+  // below, so `quality.apps/api:` is skipped rather than flagged.
+  "workflows": {
+    keys: { "quality": null },
+    patterns: [{ re: /^quality\.[\w.-]+$/, example: "quality.<repository>" }],
+  },
 };
 
 function retiredQuota(value) {
