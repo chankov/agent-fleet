@@ -714,7 +714,9 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             concurrentWriters: observation?.concurrentWritableOverlap ?? true,
             effectsRef: protocolEvidencePath ?? undefined,
             completed: disposition.delivered && result.exitCode === 0,
-            blockingFindings: isReviewPersona(p.agent) && countReviewFindings(result.output).nonBlocking > 0 ? countReviewFindings(result.output).blocking : -1,
+            // A nonblocking review (the reconcile contract) approves with zero blocking findings;
+            // whether it also lists suggestions is irrelevant.
+            blockingFindings: isReviewPersona(p.agent) && affirmativeReviewVerdict(result.output) ? countReviewFindings(result.output).blocking : -1,
             coveredScope: isReviewPersona(p.agent) && result.exitCode === 0 ? d.noProgress.reviewCoverage(p.taskId).filter(path => checkScope([path], p.scopeGlobs).outOfScope.length === 0) : [],
             edited: p.beforeRevision !== afterRevision || !!observation && (observation.skipped || observation.paths.length > 0),
             evidenceRef: runPath ?? '', openRequirements: runtimeResult.verification.requirements.filter((r: any) => r.status !== 'passed').map((r: any) => r.id),

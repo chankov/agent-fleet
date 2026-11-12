@@ -367,7 +367,9 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             invocations.clear(); for (const [key, value] of nextInvocations) invocations.set(key, value);
             generation = {}; pending.clear(); pendingExecutors.clear(); pendingLineages.clear();
         },
-        reviewCoverage(taskId: string) { return [...dispatchEvidence.values()].filter(row => row.taskId === taskId && !row.completed).flatMap(row => row.changedScope); },
+        // The changes of the task's failed attempts. A verification_failed dispatch exited 0,
+        // so it counts as completed; its unpassed requirements are what mark it failed.
+        reviewCoverage(taskId: string) { return [...dispatchEvidence.values()].filter(row => row.taskId === taskId && (!row.completed || row.openRequirements.length > 0)).flatMap(row => row.changedScope); },
         recordDispatchEvidence(evidence: DispatchEvidence) {
             if (!evidence.dispatchId || !evidence.taskId || dispatchEvidence.has(evidence.dispatchId)) return false;
             persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'evidence', evidence } satisfies GuardHistory });
