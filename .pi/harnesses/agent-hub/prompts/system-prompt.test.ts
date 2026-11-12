@@ -268,3 +268,22 @@ test("the one operator prompt carries the delegation guide; idle caps add no slo
  const uncapped = buildHubSystemPrompt({ ...ctx, getProviderLimits: () => [] }).systemPrompt;
  assert.doesNotMatch(uncapped, /Local model concurrency/);
 });
+
+// Plan phase 7.2 (2026-11-12): in a plain folder of nested repositories the operator
+// sees that the root is not a repository and which nested repositories the task uses.
+test("the state capsule names the nested repositories a task uses, and only in such a workspace", () => {
+ const ctx = fixture();
+ const root = buildHubSystemPrompt(ctx).systemPrompt;
+ assert.doesNotMatch(root, /root is not a Git repository/, "a root repository adds nothing");
+ const state = ctx.getPromptState();
+ ctx.getPromptState = () => ({ ...state, nestedRepositories: ["rin-docs", "ringithub"] });
+ const nested = buildHubSystemPrompt(ctx).systemPrompt;
+ const line = nested.split("\n").find(text => text.includes("root is not a Git repository")) ?? "";
+ assert.match(line, /nested repositories rin-docs, ringithub/);
+ assert.match(line, /exact paths inside one of them/);
+ assert.match(line, /`run_flow` cannot run at this root/);
+ ctx.getPromptState = () => ({ ...state, nestedRepositories: Array.from({ length: 12 }, (_, i) => `repository-with-a-long-name-${i}`) });
+ const many = buildHubSystemPrompt(ctx).systemPrompt.split("\n").find(text => text.includes("root is not a Git repository")) ?? "";
+ assert.ok(many.length <= 360, `the line stays bounded (${many.length} chars)`);
+ assert.match(many, /\(\+6 more\)/);
+});

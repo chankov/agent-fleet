@@ -39,6 +39,8 @@ export interface HubPromptState {
 	taskDispatchCount: number;
 	taskResearchCount: number;
 	taskReviewRounds: number;
+	/** Nested repositories the task uses when the workspace root is not a Git repository; absent or empty at a root repository. */
+	nestedRepositories?: readonly string[];
 	provisionalConfirmations: readonly { pack: CapabilityPack; reason: string; question: string | { question: string; context?: string; options?: string[] } }[];
 }
 

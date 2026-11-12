@@ -272,6 +272,7 @@ test("T4 real lifecycle paths record mode deltas, unknown calls, compaction rest
 	assert.match(indexSource, /pi\.on\("turn_start", event => \{ toolCatalogRuntime\.beginModelRequest\(\);/, "each model request judges calls against the tools it was offered");
 	assert.match(indexSource, /revisionOf: \(ctx, scopes\) => revisionOf\(ctx\.cwd \|\| process\.cwd\(\), \[\.\.\.scopes\]\)/, "update_assertion checks each stage over its recorded basis (D8)");
 	assert.match(indexSource, /currentRevision: cwd => scopes => revisionOf\(cwd, \[\.\.\.scopes\]\)/, "/af-recover reconciles over the original dispatch's basis");
+	assert.match(indexSource, /nestedRepositories: nestedRepositoriesInUse\(processState\)/, "the state capsule names the nested repositories the task uses (7.2)");
 	assert.match(indexSource, /pi\.on\("message_end"[\s\S]*?observeUnknownToolCalls\(\{ message: event\.message, catalog: toolCatalogRuntime\.catalogForMessage\(\)/);
 	assert.match(indexSource, /getToolCatalogVersion: \(\) => toolCatalogRuntime\.catalogForMessage\(\)\.catalogVersion/);
 	assert.match(indexSource, /pi\.on\("agent_end"[\s\S]*?toolCatalogRuntime\.endTurn\(\)/);

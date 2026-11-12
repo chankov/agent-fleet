@@ -167,6 +167,17 @@ export function processPreEffectGate(state: ProcessObligationState, effect: "wri
  return null;
 }
 
+/**
+ * The nested repositories a task uses (plan phase 7.2): the bases of its recorded
+ * stages. A basis is recorded only when the workspace root is not a repository, and
+ * only an observable one (a 64-hex revision) is certain to name repositories, since a
+ * gap keeps an unobserved path in the basis.
+ */
+export function nestedRepositoriesInUse(state: Pick<ProcessObligationState, "acceptance" | "review" | "plan">): string[] {
+ const stages = [state.acceptance, state.review, state.plan].filter(stage => stage?.revisionScopes?.length && /^[a-f0-9]{64}$/.test(stage.revision ?? ""));
+ return [...new Set(stages.flatMap(stage => stage.revisionScopes!))].sort();
+}
+
 /** The admissible way to close an open review, so the operator never has to guess one. */
 export function reviewRoute(state: Pick<ProcessObligationState, "changedFiles">): string {
  const raw = "A reply to a raw coms_send is a message, not a review record.";

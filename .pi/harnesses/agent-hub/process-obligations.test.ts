@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, normalizeProcessState, noteProcessStage, processPreEffectGate } from './process-obligations.ts';
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, nestedRepositoriesInUse, normalizeProcessState, noteProcessStage, processPreEffectGate } from './process-obligations.ts';
 
 for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alone cannot close independent stages even at lower spend tier`, () => {
  const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
@@ -20,6 +20,17 @@ test('an open review names the route that can close it, for operator edits and f
  const builderChange = processPreEffectGate(changed, 'prove', '', 'current')?.message ?? '';
  assert.match(builderChange, /dispatch_agent review that covers the task's changed files \(rin-docs\/prd\.md\)/);
  assert.doesNotMatch(builderChange, /operator-current-state/);
+});
+test('the nested repositories a task uses come from its observable recorded stages', () => {
+ const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'nested workspace' }).state;
+ assert.deepEqual(nestedRepositoriesInUse(base), [], 'nothing recorded yet');
+ const hex = (c: string) => c.repeat(64);
+ let state = noteProcessStage(base, 'acceptance', { evidenceRef: 'a', revision: hex('a'), revisionScopes: ['rin-docs'], changedFiles: ['rin-docs/prd.md'] });
+ state = noteProcessStage(state, 'review', { evidenceRef: 'r', revision: hex('b'), revisionScopes: ['ringithub', 'rin-docs'] });
+ assert.deepEqual(nestedRepositoriesInUse(state), ['rin-docs', 'ringithub']);
+ const gap = noteProcessStage(base, 'acceptance', { evidenceRef: 'g', revision: 'unavailable', revisionScopes: ['loose.md', 'rin-docs'] });
+ assert.deepEqual(nestedRepositoriesInUse(gap), [], 'an unobservable basis may hold paths that are not repositories');
+ assert.deepEqual(nestedRepositoriesInUse(noteProcessStage(base, 'review', { evidenceRef: 'w', revision: hex('c') })), [], 'a root repository records no basis');
 });
 test('a stage recorded over nested repositories is checked over the same repositories and must cover the task files', () => {
  const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'nested workspace' }).state;

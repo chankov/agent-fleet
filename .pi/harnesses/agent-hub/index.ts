@@ -101,7 +101,7 @@ import { showSessionAudit } from "./session-audit.ts";
 import { createExecutionTrace, createNativeExecutionTrace, registerExecutionTrace, EXECUTION_TRACE_ENTRY } from "./execution-trace.ts";
 import { beginRuntimeTrace } from "../lib/execution-trace.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, nestedRepositoriesInUse, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -2292,6 +2292,7 @@ export default function (pi: ExtensionAPI) {
 			taskDispatchCount,
 			taskResearchCount,
 			taskReviewRounds,
+			nestedRepositories: nestedRepositoriesInUse(processState),
 			provisionalConfirmations: getCapabilityResolution().provisional
 				.filter(pack => workModePolicy.getCapabilityConfirmation()[pack as ConfirmableCapabilityPack] !== "declined")
 				.map(pack => ({
