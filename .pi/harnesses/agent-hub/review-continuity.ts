@@ -15,12 +15,15 @@ function contained(cwd:string,path:string):string {
  if(isAbsolute(realRel)||realRel===".."||realRel.startsWith(".."+sep))throw new Error("Review symlink escape");
  return target;
 }
-/** Bounded snapshots only of the review's changed files. Gaps force full review. */
+/** Bounded snapshots only of the review's changed files. Gaps force full review.
+ * Under a plain folder of nested repositories (plan 7.3) the head records each
+ * declared repository's HEAD, so a new commit in any of them forces a full review,
+ * and a declared path outside every repository is a gap. */
 export function captureReviewBaseline(cwd:string,input:ReviewInput|null,state:ProcessObligationState):ReviewBaseline|null {
  if(!input)return null;
  try{
   const tree=snapshotWorktree(cwd,input.scope);
-  if(tree.skipped||("nested" in tree && tree.nested)||!tree.head)return null;
+  if(tree.skipped||("gaps" in tree && (tree as {gaps?:unknown[]}).gaps?.length)||!tree.head)return null;
   const paths=checkScope([...new Set([...tree.paths,...state.changedFiles])],input.scope).inScope;
   if(!paths.length||paths.length>100)return null;
   const files:ReviewBaseline["files"]=Object.create(null);let total=0;

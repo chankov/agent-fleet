@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync,writeFileSync,rmSync,symlinkSync } from "node:fs";
+import { mkdirSync,mkdtempSync,writeFileSync,rmSync,symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -45,6 +45,36 @@ for(const change of ["scope","contract","head","new-file","missing","tampered","
   assert.match(reviewContinuation(f.state,input,baseline,f.cwd,change==="focus"),/Full review required/);
  });
 }
+// Plan phase 7.3 (2026-11-12): a plain workspace folder holding nested repositories.
+function nestedFixture(t:any){
+ const cwd=mkdtempSync(join(tmpdir(),"af-review-nested-"));t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ const git=(dir:string,...args:string[])=>execFileSync("git",["-c","user.name=Test","-c","user.email=test@example.com",...args],{cwd:dir,stdio:"ignore"});
+ for(const repo of ["rin-docs","ringithub"]){const dir=join(cwd,repo);mkdirSync(dir);git(dir,"init");writeFileSync(join(dir,"prd.md"),"# v1\n");git(dir,"add",".");git(dir,"commit","-m","base");}
+ writeFileSync(join(cwd,"rin-docs/prd.md"),"# v2\n");
+ let state={...createProcessState(),changedFiles:["rin-docs/prd.md"]};
+ const input=reviewInput(cwd,"task","code-reviewer",["rin-docs/prd.md"],state,[],[])!;
+ assert.ok(input,"a nested scope has a review input");
+ const baseline=captureReviewBaseline(cwd,input,state)!;
+ assert.ok(baseline,"a nested scope has a baseline");
+ writeFileSync(join(cwd,"review.md"),"REJECT: version");writeFileSync(join(cwd,"baseline.json"),JSON.stringify(baseline));
+ state=normalizeProcessState(retainReviewHistory(state,input,"review.md","baseline.json",cwd));
+ return {cwd,state,input,baseline,git};
+}
+test("a nested repository keeps incremental review: the delta of the reviewed file",t=>{
+ const f=nestedFixture(t);
+ assert.deepEqual(Object.keys(f.baseline.files),["rin-docs/prd.md"]);
+ writeFileSync(join(f.cwd,"rin-docs/prd.md"),"# v3\n");
+ const text=reviewContinuation(f.state,f.input,captureReviewBaseline(f.cwd,f.input,f.state),f.cwd);
+ assert.match(text,/Incremental review context/);assert.match(text,/-# v2/);assert.match(text,/\+# v3/);
+});
+test("a nested repository's new commit, or a scope outside every repository, forces a full review",t=>{
+ const f=nestedFixture(t);
+ f.git(join(f.cwd,"rin-docs"),"commit","-am","land the edit");writeFileSync(join(f.cwd,"rin-docs/prd.md"),"# v3\n");
+ assert.match(reviewContinuation(f.state,f.input,captureReviewBaseline(f.cwd,f.input,f.state),f.cwd),/Full review required: HEAD/);
+ writeFileSync(join(f.cwd,"loose.md"),"no repository\n");
+ const gapInput={...f.input,scope:["loose.md","rin-docs/prd.md"]};
+ assert.equal(captureReviewBaseline(f.cwd,gapInput,{...f.state,changedFiles:["rin-docs/prd.md","loose.md"]}),null,"partial coverage is never a baseline");
+});
 test("snapshot refuses binary and oversized files instead of emitting partial delta",t=>{
  const f=fixture(t);
  writeFileSync(join(f.cwd,"a.ts"),Buffer.alloc(10));
