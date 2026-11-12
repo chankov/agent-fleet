@@ -2399,7 +2399,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		pressureLifecycle.messageEnd(event, ctx);
 	});
-	pi.on("turn_start", event => { hubCapture.start(event.turnIndex); });
+	pi.on("turn_start", event => { toolCatalogRuntime.beginModelRequest(); hubCapture.start(event.turnIndex); });
 	pi.on("turn_end", async (event, ctx) => {
 		if (transitionBatchRefused && pendingTaskTransition) transitionHintDelivered = true;
 		transitionBatchRefused = false;

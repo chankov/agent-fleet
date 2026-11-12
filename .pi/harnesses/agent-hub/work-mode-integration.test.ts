@@ -269,6 +269,7 @@ test("T4 real lifecycle paths record mode deltas, unknown calls, compaction rest
 	assert.match(workModePolicySource, /ports\.setActiveTools\(requested\)[\s\S]*?ports\.recordToolCatalog/);
 	assert.match(indexSource, /recordToolCatalog: recordToolCatalogChange/);
 	assert.match(indexSource, /pi\.on\("before_agent_start"[\s\S]*?toolCatalogRuntime\.beginTurn\(\)/);
+	assert.match(indexSource, /pi\.on\("turn_start", event => \{ toolCatalogRuntime\.beginModelRequest\(\);/, "each model request judges calls against the tools it was offered");
 	assert.match(indexSource, /pi\.on\("message_end"[\s\S]*?observeUnknownToolCalls\(\{ message: event\.message, catalog: toolCatalogRuntime\.catalogForMessage\(\)/);
 	assert.match(indexSource, /getToolCatalogVersion: \(\) => toolCatalogRuntime\.catalogForMessage\(\)\.catalogVersion/);
 	assert.match(indexSource, /pi\.on\("agent_end"[\s\S]*?toolCatalogRuntime\.endTurn\(\)/);

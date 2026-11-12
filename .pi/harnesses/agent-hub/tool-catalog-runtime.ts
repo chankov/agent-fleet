@@ -52,6 +52,10 @@ export function createToolCatalogRuntime(initial: ToolCatalogSnapshot) {
 		restore(snapshot: ToolCatalogSnapshot) { persistedSnapshot=null; currentCatalog = restoreToolCatalogAfterCompaction(snapshot); return currentCatalog; },
 		reconcile,
 		beginTurn() { activeTurnCatalog = currentCatalog; return activeTurnCatalog; },
+		// Tool changes made during a run (a capability refresh after set_task_tier) reach
+		// the model with its next request, so each request latches the catalog again.
+		// Latching once per run judged the rest of the run against a stale catalog.
+		beginModelRequest() { activeTurnCatalog = currentCatalog; return activeTurnCatalog; },
 		endTurn() { activeTurnCatalog = null; },
 		catalogForMessage() { return activeTurnCatalog ?? currentCatalog; },
 		compact(input: ToolCatalogCompactionInput): { snapshot: ToolCatalogSnapshot; delta: ToolCatalogDelta } | null {
