@@ -96,6 +96,17 @@ test("non-Git parent captures only consented scopes in two nested repositories a
  assert.ok(limited?.units.every(u => u.path.startsWith("rin-docs/")));
  git(app, "commit", "--allow-empty", "-qm", "new HEAD");
  assert.ok(finishTurnCore(baseline)?.gaps.includes("external_head_changed"));
+ // Plan phase 7.4 (2026-11-12): an include outside every nested repository is named as
+ // such, while the nested repositories stay observed.
+ writeFileSync(join(root, "AGENTS.md"), "root file, no repository\n");
+ const mixed = parseProactiveConfig({ version: 1, mode: "shadow", include: ["rin-docs/allowed", "AGENTS.md"] }, roots);
+ const mixedBaseline = beginTurnCore({ root, config: mixed, context, turnId: "mixed", policyRoots: roots });
+ writeFileSync(join(docs, "allowed/edit.md"), "mixed session edit\n");
+ const mixedResult = finishTurnCore(mixedBaseline);
+ assert.equal(mixedResult?.status, "partial");
+ assert.ok(mixedResult?.gaps.includes("include_outside_nested_repository"), JSON.stringify(mixedResult?.gaps));
+ assert.ok(!mixedResult?.gaps.includes("git_unavailable"), "the root of a nested workspace is not a Git failure");
+ assert.ok(mixedResult?.units.some(u => u.path === "rin-docs/allowed/edit.md"), "the nested repository stays observed");
 });
 
 test("symlinked parent workspace retains logical nested Git evidence paths", async t => {

@@ -64,6 +64,8 @@ function excerpt(bytes: Buffer, secrets: readonly string[]): SourceExcerpt {
  const source = bytes.toString("utf8");
  return Object.freeze({ hash: hash(text), offset: 0, endOffset: bytes.length, startLine: 1, endLine: Math.max(1, source.split("\n").length - (source.endsWith("\n") ? 1 : 0)), text, truncated: false });
 }
+/** A local include outside every nested repository under a root that is not one. */
+export const OUTSIDE_NESTED_GAP = "include_outside_nested_repository";
 export interface TurnBaseline {
  readonly sessionRoots?:SessionRoots;
  readonly root: string;
@@ -114,9 +116,13 @@ export function beginTurnCore(input: { root: string; config: ProactiveConfig; tu
  // Missing/unsupported scopes keep the original Git gap; no synthetic clean baseline.
  const independentWorkspace = !head && !!external && input.config.include.some(path => !path.startsWith("../")) && input.config.include.filter(path => !path.startsWith("../")).every(path =>
   [...external.gitHeads.keys()].some(scope => path === scope || path.startsWith(scope + "/")));
- if (independentWorkspace) {
+ // Plan 7.4: a root holding nested repositories is not a Git failure. When some local
+ // include lies outside every nested repository, name that gap; the repositories stay observed.
+ const outsideNested = !head && !!external && external.gitHeads.size > 0 && !independentWorkspace && input.config.include.filter(path => !path.startsWith("../")).some(path =>
+  ![...external.gitHeads.keys()].some(scope => path === scope || path.startsWith(scope + "/")));
+ if (independentWorkspace || outsideNested) {
   const index = gaps.indexOf("git_unavailable");
-  if (index >= 0) gaps.splice(index, 1);
+  if (index >= 0) gaps.splice(index, 1, ...(outsideNested ? [OUTSIDE_NESTED_GAP] : []));
  }
  return { ...(sessionRoots?{sessionRoots}:{}), independentWorkspace, root: input.root, head, dirty, initialPaths, config: input.config, turnId: input.turnId, context: structuredClone(input.context), gaps, startedAt, ...(external ? {external} : {}) };
 }
@@ -127,9 +133,11 @@ export function finishTurnCore(baseline: TurnBaseline | null, input: { assistant
  const now = input.now ?? Date.now, started = now();
  const gaps = [...baseline.gaps];
  let current: Set<string>;
+ // A root holding nested repositories has no status of its own (plan 7.4).
+ const rootlessParent = !!baseline.independentWorkspace || baseline.gaps.includes(OUTSIDE_NESTED_GAP);
  try {
-  current = baseline.independentWorkspace ? new Set() : status(baseline.root, started, now);
-  if (!baseline.independentWorkspace && git(baseline.root, ["rev-parse", "HEAD"], started, now).toString("utf8").trim() !== baseline.head) gaps.push("head_changed");
+  current = rootlessParent ? new Set() : status(baseline.root, started, now);
+  if (!rootlessParent && git(baseline.root, ["rev-parse", "HEAD"], started, now).toString("utf8").trim() !== baseline.head) gaps.push("head_changed");
  } catch (e) { current = new Set(); gaps.push((e as Error).message === "capture_timeout" ? "capture_timeout" : "git_unavailable"); }
  if (input.overlap) gaps.push("concurrent_writer_attribution_uncertain");
  const paths = [...new Set([...baseline.initialPaths, ...current, ...baseline.dirty.keys(), ...(input.knownTargets ?? [])])].sort();
