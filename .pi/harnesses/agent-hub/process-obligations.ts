@@ -149,8 +149,15 @@ export function processPreEffectGate(state: ProcessObligationState, effect: "wri
  const stageProducer = effect === "child" && ["code-reviewer", "plan-reviewer", "security-auditor"].includes(persona) && effectiveProcessStage(s, "review") && !s.review.evidenceRef;
 
  if ((effect === "write" || effect === "child") && !stageProducer) { const confirmation = processActionGate(s); if (confirmation) return confirmation; }
- if (effect === "prove") { const open = processOpenObligations(s, revision, privateUse).filter(x => x !== "acceptance" && x !== "action_confirmation"); if (open.length) return { reason: "process_obligations_open", message: `Assertion cannot become proven while process obligations are open: ${open.join(", ")}.` }; }
+ if (effect === "prove") { const open = processOpenObligations(s, revision, privateUse).filter(x => x !== "acceptance" && x !== "action_confirmation"); if (open.length) return { reason: "process_obligations_open", message: `Assertion cannot become proven while process obligations are open: ${open.join(", ")}.${open.includes("review") ? ` ${reviewRoute(s)}` : ""}` }; }
  return null;
+}
+
+/** The admissible way to close an open review, so the operator never has to guess one. */
+export function reviewRoute(state: Pick<ProcessObligationState, "changedFiles">): string {
+ const raw = "A reply to a raw coms_send is a message, not a review record.";
+ if (state.changedFiles.length) return `Close it with an independent dispatch_agent review that covers the task's changed files (${state.changedFiles.slice(0, 5).join(", ")}${state.changedFiles.length > 5 ? ", …" : ""}). ${raw}`;
+ return `No task change is registered, so no review can close it yet. For edits you made yourself, dispatch_agent code-reviewer with backend: native, review_mode: operator-current-state and scope: the exact edited files (it runs the automated assertion checks); or delegate the edit to a builder and then review that change. ${raw}`;
 }
 export function evaluateProcessObligations(state: ProcessObligationState, input: { writable: boolean; budgetTier: string; t2Accepted?: boolean; currentRevision?: string; privateUse?: PrivateProofUse }): ProcessVerdict {
  const s = normalizeProcessState(state); const additions = s.additions!.map(({ id, taskId, evaluationId, inputRevision, reason, status }) => ({ id, taskId, evaluationId, inputRevision, reason, status })); if (!input.writable) return { accepted: false, path: "read-only", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations: { risk: { status: "unsupported" }, acceptance: { status: "unsupported" }, review: { status: "unsupported" }, plan: { status: "unsupported" } }, additions, appliedRuleIds: rules(s.risk, "read-only"), currentStage: "acceptance", admissibleNextAction: "continue read-only research; changed-task acceptance is unavailable", auditScope: [], explanation: `Read-only source-traceable path; T2 acceptance is unsupported and fails closed. Budget tier ${input.budgetTier} controls per-run resources only.` };

@@ -6,6 +6,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fastTestFiles = [
   "bin/test/features.test.js",
   "bin/test/coms-stop-hook.test.js",
+  ".pi/harnesses/agent-hub/process-obligations.test.ts",
+  ".pi/harnesses/agent-hub/operator-current-state.test.ts",
   "bin/test/pi-runtime.test.js",
   "bin/test/overrides.test.js",
   "bin/test/catalogue-accepted.test.js",

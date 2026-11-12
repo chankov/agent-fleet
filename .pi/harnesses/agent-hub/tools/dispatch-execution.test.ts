@@ -1495,9 +1495,18 @@ test("native structured report bypasses extraction but does not replace task evi
  assert.equal(details.structuredReturn.assertions_unproven[0].id,"A1");
 });
 
-async function operatorStateFixture(t:any,scenario='pass') {
- const cwd=mkdtempSync(join(tmpdir(),'operator-review-'));t.after(()=>rmSync(cwd,{recursive:true,force:true}));execFileSync('git',['init','-q'],{cwd});
- writeFileSync(join(cwd,'a.ts'),'export const a=1;\n');
+// layout 'nested': the workspace root is not a repository and the edited file lives in a
+// nested one (rankedin: rin-docs/ and ringithub/ under a plain folder).
+async function operatorStateFixture(t:any,scenario='pass',layout:'single'|'nested'='single',scope=['a.ts']) {
+ const cwd=mkdtempSync(join(tmpdir(),'operator-review-'));t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ if(layout==='single'){execFileSync('git',['init','-q'],{cwd});writeFileSync(join(cwd,'a.ts'),'export const a=1;\n');}
+ else {
+  const docs=join(cwd,'rin-docs');mkdirSync(docs);execFileSync('git',['init','-q'],{cwd:docs});
+  writeFileSync(join(docs,'prd.md'),'# PRD\n');writeFileSync(join(docs,'clean.md'),'unchanged\n');
+  execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','add','.'],{cwd:docs});
+  execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base'],{cwd:docs});
+  writeFileSync(join(docs,'prd.md'),'# PRD\n\nEdited by the operator.\n');writeFileSync(join(cwd,'loose.md'),'not in any repository\n');
+ }
  const d=prepareDeps({agents:['code-reviewer'],tools:'read,bash'});d._agents.get('code-reviewer')!.lastBackend='native';
  const session=mkdtempSync(join(tmpdir(),'operator-session-'));t.after(()=>rmSync(session,{recursive:true,force:true}));d.state.getSessionDir=()=>session;
  const {createAssertionsArtifactsContext}=await import('../context/assertions-artifacts.ts');
@@ -1510,7 +1519,8 @@ async function operatorStateFixture(t:any,scenario='pass') {
  d.dispatchAgent=async()=>{
   if(scenario==='modified')writeFileSync(join(cwd,'a.ts'),'export const a=2;\n');
   if(scenario==='overlap')d._setOverlap(1);
-  const revision=worktreeRevision(cwd,[]);
+  // The child observes the same declared scope the Hub does (AGENT_FLEET_RUNTIME_TEST_SCOPES).
+  const revision=worktreeRevision(cwd,[],layout==='nested'?scope:[]);
   const {validateSpecialistResult}=await import('../specialist-result.ts');
   const submission=validateSpecialistResult({status:['partial','blocked'].includes(scenario)?scenario:'completed',summary:'Read-only current-state fixture',changed_files:[],assertions_proven:[],assertions_unproven:[],assertions_failed:scenario==='assertion-failed'?[{id:'A2',reason:'Unresolved assertion'}]:[],tests_run:['full scoped regression'],open_risks:[],requires_user_decision:scenario==='question'?['Choose behavior']:[],evidence:[]},cwd);
   return {output:scenario==='reject'?'**Verdict:** REJECT':'**Verdict:** APPROVE\ntests_run: full regression',exitCode:0,elapsed:1,dispatchId:'current-state',
@@ -1542,6 +1552,29 @@ test('current-state mode is explicit, native-only, exact observed files and neve
  }
  const f=await operatorStateFixture(t);const normal=await f.run('default',{agent:'code-reviewer',task:'A2 ordinary review',scope:['a.ts'],backend:'native'},undefined,undefined,{cwd:f.cwd} as any);
  assert.equal((normal.details as any).operatorStateVerification,undefined);assert.equal(f.state().acceptance.evidenceRef,null);
+});
+
+test('current-state review closes operator edits in a nested repository under a plain workspace folder',async t=>{
+ const scope=['rin-docs/prd.md'];
+ const f=await operatorStateFixture(t,'pass','nested',scope);
+ const r=await f.run('nested',{agent:'code-reviewer',task:'A2 current state of the operator PRD edit',scope,backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ const details=r.details as any;assert.ok(details.processVerdict,JSON.stringify(r));
+ assert.equal(details.operatorStateVerification.status,'accepted',JSON.stringify(details.operatorStateVerification));
+ assert.equal(details.processVerdict.obligations.review.status,'satisfied');assert.equal(details.processVerdict.obligations.acceptance.status,'satisfied');
+ assert.deepEqual(details.processVerdict.auditScope,scope);assert.deepEqual(f.state().changedFiles,scope);
+});
+
+test('nested current-state still refuses files outside a nested repository, clean files and a changed file during review',async t=>{
+ for(const scope of [['loose.md'],['rin-docs/clean.md'],['rin-docs/prd.md','loose.md']]){
+  const f=await operatorStateFixture(t,'pass','nested',scope);
+  const r=await f.run('nested-invalid',{agent:'code-reviewer',task:'A2 nested invalid '+scope.join(','),scope,backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+  assert.equal((r.details as any).started,false,scope.join(','));assert.equal(f.d._task(),0);
+ }
+ const scope=['rin-docs/prd.md'];
+ const f=await operatorStateFixture(t,'modified-nested','nested',scope);
+ f.d.dispatchAgent=(original=>async(...args:any[])=>{writeFileSync(join(f.cwd,'rin-docs/prd.md'),'# PRD\n\nChanged during the review.\n');return original(...args);})(f.d.dispatchAgent);
+ const r=await f.run('nested-modified',{agent:'code-reviewer',task:'A2 nested modified',scope,backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal((r.details as any).operatorStateVerification.status,'unproven');assert.equal(f.state().review.evidenceRef,null);assert.equal(f.state().acceptance.evidenceRef,null);
 });
 
 test('current-state mode cannot omit an active automated assertion by naming only another ID',async t=>{

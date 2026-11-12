@@ -12,9 +12,13 @@ export function operatorScopeSyntax(scope:unknown):string[] {
  return [...seen];
 }
 // Runtime-owned snapshots only. Never reconstruct historical effects from prose/logs.
+// A workspace folder that holds nested repositories (rin-docs/, ringithub/) is
+// observed per declared file's own repository, with workspace-relative paths; any
+// file outside an observed repository is a gap, and a gap makes the revision
+// unavailable, so partial coverage never becomes a candidate.
 export function captureOperatorState(input:{scope:unknown;cwd:string;snapshot:any;revision:string}):OperatorStateCandidate {
  const {cwd,snapshot,revision}=input,scope=operatorScopeSyntax(input.scope);
- if(snapshot?.skipped||snapshot?.nested||!snapshot?.fingerprints||revision==='unavailable'||!revision)throw Error('operator_state_scope_unavailable');
+ if(snapshot?.skipped||snapshot?.gaps?.length||!snapshot?.fingerprints||revision==='unavailable'||!revision)throw Error('operator_state_scope_unavailable');
  const root=realpathSync(cwd),seen=new Set<string>();
  for(const path of scope){
   // Existing Git observation is the boundary: ignored/clean/session output paths

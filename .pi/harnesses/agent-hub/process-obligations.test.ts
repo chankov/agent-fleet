@@ -10,6 +10,17 @@ for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alon
  for (const stage of ['plan', 'acceptance', 'review'] as const) assert.equal(verdict.obligations[stage].status, stage === 'plan' || stage === only ? 'satisfied' : 'open');
  assert.equal(processPreEffectGate(state, 'prove', '', 'current')?.reason, only === 'review' ? undefined : 'process_obligations_open');
 });
+test('an open review names the route that can close it, for operator edits and for registered changes', () => {
+ const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'operator edits' }).state;
+ const operatorEdits = processPreEffectGate(base, 'prove', '', 'current')?.message ?? '';
+ assert.match(operatorEdits, /open: review\./);
+ assert.match(operatorEdits, /backend: native, review_mode: operator-current-state/);
+ assert.match(operatorEdits, /raw coms_send is a message, not a review record/);
+ const changed = noteProcessStage(base, 'acceptance', { evidenceRef: 'builder:evidence', revision: 'current', changedFiles: ['rin-docs/prd.md'] });
+ const builderChange = processPreEffectGate(changed, 'prove', '', 'current')?.message ?? '';
+ assert.match(builderChange, /dispatch_agent review that covers the task's changed files \(rin-docs\/prd\.md\)/);
+ assert.doesNotMatch(builderChange, /operator-current-state/);
+});
 test('current verification and independent review are revision bound, plan is occurrence only', () => {
  let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
  for (const stage of ['plan', 'acceptance', 'review'] as const) state = noteProcessStage(state, stage, { evidenceRef: `${stage}:evidence`, revision: 'current' });

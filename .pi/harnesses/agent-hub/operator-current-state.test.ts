@@ -24,6 +24,9 @@ test('scope capture uses observed Git-visible regular files, rejects ignored/cle
  assert.deepEqual(captureOperatorState({scope:['a.ts'],cwd,snapshot,revision:'current'}),candidate);
  for(const scope of [[],['a.ts','a.ts'],['ignored.md'],['alias.ts'],['../a.ts'],['*.ts'],['.pi/agent-sessions/sessions/fake/session.json']])assert.throws(()=>captureOperatorState({scope,cwd,snapshot,revision:'current'}));
  assert.throws(()=>captureOperatorState({scope:['a.ts'],cwd,snapshot:{...snapshot,skipped:true},revision:'current'}));
+ // A nested-repository snapshot is accepted only with complete coverage.
+ assert.deepEqual(captureOperatorState({scope:['a.ts'],cwd,snapshot:{...snapshot,nested:true,gaps:[]},revision:'current'}),candidate);
+ assert.throws(()=>captureOperatorState({scope:['a.ts'],cwd,snapshot:{...snapshot,nested:true,gaps:[{scope:'loose.md',reason:'no repository'}]},revision:'current'}),{message:'operator_state_scope_unavailable'});
 });
 test('scope syntax gate accepts up to OPERATOR_SCOPE_MAX=128 unique exact files and rejects 129',()=>{
  assert.equal(OPERATOR_SCOPE_MAX,128);
