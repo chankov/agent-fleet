@@ -11,7 +11,7 @@ import { adoptTaskTriageState, applyTaskTriageAdditions } from "../task-triage-o
 import { createActionExecutors } from "./action-executors.ts";
 import { createTaskTriageRuntime } from "../task-triage-runtime.ts";
 import { TASK_TRIAGE_QUESTIONS, TASK_TRIAGE_QUESTION_VERSION } from "../task-triage-contract.ts";
-import { worktreeRevision } from "../scope-gate.js";
+import { revisionOf, revisionScopes, worktreeRevision } from "../scope-gate.js";
 import { extractAskUserQuestions } from "../presentation.ts";
 import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
 
@@ -621,7 +621,8 @@ test("a writable dispatch observes the worktree once before and once after the r
  assert.equal((prepare.match(/snapshotWorktree\(|worktreeRevision\(/g) ?? []).length, 1, "revision baseline and delta base share one snapshot");
  assert.match(source, /tracking\.snapshot = prepared\.beforeSnapshot \?\?/);
  assert.match(source, /compilerInspectedRevision = observation && !observation\.skipped && observation\.snapshot \? snapshotRevision\(observation\.snapshot\)/);
- assert.match(source, /repositoryAfterRevision = compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "only an awaited compiler run re-observes");
+ assert.match(source, /repositoryAfterRevision = p\.revisionScopes\.length \? revisionOf\(cwd, p\.revisionScopes\) : compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "at a root repository only an awaited compiler run re-observes; nested repositories revise over the task basis (D8)");
+ assert.match(prepare, /const basisFor=\(snapshot:any\):string\[\]=>snapshot\?\.nested\?nestedRevisionScopes\(/, "the basis is read off the dispatch's own snapshot, so a root repository costs no extra git call");
  assert.match(source, /const afterRevision = p\.privateConfig \? privateConfigRevision\(cwd, repositoryAfterRevision, p\.privateConfig\) : repositoryAfterRevision/, "old modes retain the repository observation unchanged");
 });
 
@@ -1506,6 +1507,9 @@ async function operatorStateFixture(t:any,scenario='pass',layout:'single'|'neste
   execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','add','.'],{cwd:docs});
   execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base'],{cwd:docs});
   writeFileSync(join(docs,'prd.md'),'# PRD\n\nEdited by the operator.\n');writeFileSync(join(cwd,'loose.md'),'not in any repository\n');
+  const app=join(cwd,'ringithub');mkdirSync(app);execFileSync('git',['init','-q'],{cwd:app});writeFileSync(join(app,'app.ts'),'export const app=1;\n');
+  execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','add','.'],{cwd:app});
+  execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base'],{cwd:app});
  }
  const d=prepareDeps({agents:['code-reviewer'],tools:'read,bash'});d._agents.get('code-reviewer')!.lastBackend='native';
  const session=mkdtempSync(join(tmpdir(),'operator-session-'));t.after(()=>rmSync(session,{recursive:true,force:true}));d.state.getSessionDir=()=>session;
@@ -1519,8 +1523,9 @@ async function operatorStateFixture(t:any,scenario='pass',layout:'single'|'neste
  d.dispatchAgent=async()=>{
   if(scenario==='modified')writeFileSync(join(cwd,'a.ts'),'export const a=2;\n');
   if(scenario==='overlap')d._setOverlap(1);
-  // The child observes the same declared scope the Hub does (AGENT_FLEET_RUNTIME_TEST_SCOPES).
-  const revision=worktreeRevision(cwd,[],layout==='nested'?scope:[]);
+  // The child observes the basis the Hub passes in AGENT_FLEET_RUNTIME_TEST_SCOPES: the
+  // whole repository at a root repository, each touched nested repository otherwise (D8).
+  const revision=layout==='nested'?revisionOf(cwd,revisionScopes(cwd,scope)):worktreeRevision(cwd,[]);
   const {validateSpecialistResult}=await import('../specialist-result.ts');
   const submission=validateSpecialistResult({status:['partial','blocked'].includes(scenario)?scenario:'completed',summary:'Read-only current-state fixture',changed_files:[],assertions_proven:[],assertions_unproven:[],assertions_failed:scenario==='assertion-failed'?[{id:'A2',reason:'Unresolved assertion'}]:[],tests_run:['full scoped regression'],open_risks:[],requires_user_decision:scenario==='question'?['Choose behavior']:[],evidence:[]},cwd);
   return {output:scenario==='reject'?'**Verdict:** REJECT':'**Verdict:** APPROVE\ntests_run: full regression',exitCode:0,elapsed:1,dispatchId:'current-state',
@@ -1562,6 +1567,14 @@ test('current-state review closes operator edits in a nested repository under a 
  assert.equal(details.operatorStateVerification.status,'accepted',JSON.stringify(details.operatorStateVerification));
  assert.equal(details.processVerdict.obligations.review.status,'satisfied');assert.equal(details.processVerdict.obligations.acceptance.status,'satisfied');
  assert.deepEqual(details.processVerdict.auditScope,scope);assert.deepEqual(f.state().changedFiles,scope);
+ // update_assertion's gate (rankedin, 2026-11-12): the root has no revision, so the
+ // review must be checked over the repository it covered.
+ const current=(scopes:readonly string[])=>revisionOf(f.cwd,scopes);
+ assert.equal(processPreEffectGate(f.state(),'prove','',current),null,'the reviewed operator edit can be proven');
+ writeFileSync(join(f.cwd,'ringithub/app.ts'),'export const app=2;\n');
+ assert.equal(processPreEffectGate(f.state(),'prove','',current),null,'a change in another nested repository leaves the review current');
+ writeFileSync(join(f.cwd,'rin-docs/clean.md'),'edited after the review\n');
+ assert.match(processPreEffectGate(f.state(),'prove','',current)?.message??'',/open: review/,'a later change in the reviewed repository makes the review stale');
 });
 
 test('nested current-state still refuses files outside a nested repository, clean files and a changed file during review',async t=>{

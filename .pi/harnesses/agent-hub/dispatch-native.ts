@@ -31,6 +31,8 @@ interface NativeDispatchArgs {
 	requestedBackend: NativeBackend;
 	resumeRequested: boolean;
 	resumeContract?: Omit<TaskResumeInput, "previous">;
+	/** The task revision basis (revisionScopes); [] at a root repository. */
+	revisionScopes?: string[];
 	assistSnapshot: ResolvedAssistFlags;
 	activeProfileSnapshot?: ActiveModelProfile;
 }
@@ -120,7 +122,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 
 	return {
 		trace: deps.traceNative?.(dispatchId, agentKey),
-		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, watchdogParam, launchIdentity:deps.launchIdentity?.(),
+		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, revisionScopes: args.revisionScopes ?? [], watchdogParam, launchIdentity:deps.launchIdentity?.(),
 		key: normalizeAgentInput(args.agentName),
 		personaKey: state.def.name.toLowerCase(),
 		agentKey, runNumber, histEntry, monitorKey, monitorStart, startTime,
@@ -234,6 +236,7 @@ export function createDispatchNative(deps: NativeDispatchDeps) {
 			requestedBackend: NativeBackend = "auto",
 			resumeRequested = false,
 			resumeContract?: Omit<TaskResumeInput, "previous">,
-		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract }),
+			revisionScopes: string[] = [],
+		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract, revisionScopes }),
 	};
 }

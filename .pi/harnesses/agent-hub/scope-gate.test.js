@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 
-import { checkScope, diffAgainst, reviewableChangedPaths, snapshotRevision, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
+import { checkScope, diffAgainst, reviewableChangedPaths, revisionOf, revisionScopes, snapshotRevision, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 
 function git(args, cwd) {
 	return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
@@ -175,6 +175,44 @@ test("nested Git reports per-scope gaps while retaining observed changes from ot
  assert.deepEqual(diff.paths, ["ringithub/src/tracked.ts"]);
  assert.deepEqual(diff.gaps.map(g => g.scope), ["loose/missing.txt"]);
  assert.equal(worktreeRevision(parent, scopes), "unavailable", "partial coverage is never a complete revision");
+});
+
+test("a task revision at a root repository is the whole repository, as before", t => {
+ const cwd = repo(t);
+ writeFileSync(join(cwd, "src/tracked.ts"), "changed\n");
+ assert.deepEqual(revisionScopes(cwd, ["src/tracked.ts", "docs/other.md"]), [], "a root repository needs no narrower basis");
+ assert.equal(revisionOf(cwd, []), worktreeRevision(cwd, []));
+ assert.notEqual(revisionOf(cwd, []), "unavailable");
+});
+
+// D8 (2026-11-12): in a plain folder of nested repositories a task revision covers each
+// nested repository holding a task path, whole, as a root repository's revision does.
+test("a task revision in a plain folder covers each touched nested repository whole", t => {
+ const parent = temporaryDirectory(t, "nested-task-revision-");
+ const docs = repo(t, join(parent, "rin-docs")), app = repo(t, join(parent, "ringithub"));
+ writeFileSync(join(docs, "src/tracked.ts"), "operator edit\n");
+ assert.deepEqual(revisionScopes(parent, ["rin-docs/src/tracked.ts", "rin-docs/src/deep/new.ts"]), ["rin-docs"]);
+ assert.deepEqual(revisionScopes(parent, ["ringithub/src/tracked.ts", "rin-docs/src/tracked.ts"]), ["rin-docs", "ringithub"]);
+ assert.equal(worktreeRevision(parent, []), "unavailable", "the root itself has no revision");
+ const scopes = revisionScopes(parent, ["rin-docs/src/tracked.ts"]);
+ const before = revisionOf(parent, scopes);
+ assert.match(before, /^[a-f0-9]{64}$/);
+ assert.equal(revisionOf(parent, revisionScopes(parent, ["rin-docs/src/deep"])), before, "any path in the same repository gives the same basis");
+ writeFileSync(join(app, "src/tracked.ts"), "unrelated repository\n");
+ assert.equal(revisionOf(parent, scopes), before, "a change in another nested repository does not touch this revision");
+ writeFileSync(join(docs, "outside-the-task.md"), "same repository, another file\n");
+ assert.notEqual(revisionOf(parent, scopes), before, "any change in the covered repository makes the revision differ");
+});
+
+test("a task path outside every nested repository leaves the revision unavailable, never partial", t => {
+ const parent = temporaryDirectory(t, "nested-task-gap-");
+ repo(t, join(parent, "rin-docs"));
+ writeFileSync(join(parent, "loose.md"), "no repository\n");
+ const scopes = revisionScopes(parent, ["rin-docs/src/tracked.ts", "loose.md"]);
+ assert.deepEqual(scopes, ["loose.md", "rin-docs"]);
+ assert.equal(revisionOf(parent, scopes), "unavailable");
+ assert.deepEqual(revisionScopes(parent, []), [], "no task path: no basis");
+ assert.equal(revisionOf(parent, []), "unavailable");
 });
 
 test("nested Git scopes cannot discover outside repositories or unanchored siblings", t => {

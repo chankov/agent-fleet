@@ -20,7 +20,7 @@ import { blockingFindingCap, checkTierPersonaGate, isReviewPersona, reviewBudget
 import { countReviewFindings, findingBudgetNotice } from "../review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
-import { checkScope, diffAgainst, reviewableChangedPaths, snapshotRevision, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
+import { checkScope, diffAgainst, nestedRevisionScopes, reviewableChangedPaths, revisionOf, revisionScopes, snapshotRevision, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
 import { findScopeOverlap } from "../scope-overlap.ts";
 import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
 import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
@@ -89,7 +89,7 @@ export interface DispatchExecutorDeps {
 	artifacts: AssertionsArtifactsContext;
 	research: ResearchRuntime<any>;
 	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
-	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">): Promise<DispatchResult>;
+	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">, revisionScopes?: string[]): Promise<DispatchResult>;
 	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
 	/** Opt-in profile assistance: recover a missing submit_result from the written report. */
 	returnExtractionAssist?(): boolean;
@@ -102,7 +102,7 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
+interface PreparedDispatch { privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; /** Task revision basis (D8); [] at a root repository. */ revisionScopes: string[]; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
 interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; release?: () => void; isolatedScope?: string[]; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; foreignPaths?: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
@@ -132,7 +132,7 @@ function refusalSnapshot(d: DispatchExecutorDeps, ctx: ExtensionContext): string
   const tier = (d.state as any)?.getTaskTier?.() ?? "unknown";
   const catalog = (d as any)?.getToolCatalogVersion?.() ?? "unknown";
   let revision = "unavailable";
-  try { revision = worktreeRevision(ctx.cwd || process.cwd(), []); } catch {}
+  try { const cwd = ctx.cwd || process.cwd(); revision = revisionOf(cwd, revisionScopes(cwd, (d.state as any)?.getProcessState?.()?.changedFiles ?? [])); } catch {}
   return `Snapshot: tier "${tier}", catalog "${catalog}", revision "${revision}". Prompt prose did not change state.`;
  } catch { return "Snapshot unavailable."; }
 }
@@ -280,6 +280,13 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	try { contract = preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: s.getSessionDir() }); }
 	catch (error) { return refusal(d, agent, task, "scope_preflight_failed", String(error)); }
 	const takeSnapshot=()=>snapshotWorktree(ctx.cwd||process.cwd(),(scope||[]).map(String).map(x=>x.trim()).filter(Boolean));
+ // The task revision basis (D8, 2026-11-12), read off the snapshot this dispatch takes
+ // anyway: [] at a root repository, where every revision is the whole repository as
+ // before; otherwise each nested repository holding a declared path or a registered
+ // task file, whole.
+ const basisPaths=[...(scope||[]).map(String).map(x=>x.trim()).filter(Boolean),...(s.getProcessState?.().changedFiles??[])];
+ const basisFor=(snapshot:any):string[]=>snapshot?.nested?nestedRevisionScopes(ctx.cwd||process.cwd(),basisPaths):snapshot?.skipped&&basisPaths.length?revisionScopes(ctx.cwd||process.cwd(),basisPaths):[];
+ const revisionFor=(snapshot:any,basis:string[])=>basis.length?revisionOf(ctx.cwd||process.cwd(),basis):snapshotRevision(snapshot);
  let operatorCandidate:OperatorStateCandidate|undefined,operatorSnapshot:any;
  if(operatorMode){
   try {
@@ -287,7 +294,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
    if(!state||tools.some(t=>['edit','write'].includes(t)))throw Error('operator_state_writable_tools');
    if(!tools.includes('bash'))throw Error('operator_state_tests_unavailable');
    operatorSnapshot=takeSnapshot();
-   operatorCandidate=captureOperatorState({scope,cwd:ctx.cwd||process.cwd(),snapshot:operatorSnapshot,revision:snapshotRevision(operatorSnapshot)});
+   operatorCandidate=captureOperatorState({scope,cwd:ctx.cwd||process.cwd(),snapshot:operatorSnapshot,revision:revisionFor(operatorSnapshot,basisFor(operatorSnapshot))});
    if(checkScope(s.getProcessState!().changedFiles,operatorCandidate.paths).outOfScope.length)throw Error('operator_state_incomplete_scope');
   }catch(e){return refusal(d,agent,task,'operator_state_preflight_failed',e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable');}
  }
@@ -317,7 +324,8 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	};
 	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
 	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();
- return { privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: snapshotRevision(beforeSnapshot), requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
+	const revisionBasis = basisFor(beforeSnapshot);
+ return { privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: revisionFor(beforeSnapshot, revisionBasis), revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
@@ -355,7 +363,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 
 async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<RunData> {
 	const findingClause = reviewBudgetClause(d.state.getTaskTier(), p.agent); const dispatchedTask = findingClause ? `${p.task}\n\n${findingClause}` : p.task;
-	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract);
+	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract, p.revisionScopes);
 	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = [];
 	while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
 		const questions = d.extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS); if (!questions.length) break;
@@ -370,7 +378,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		researchRounds.push({ questions, files: answered.map(a => a.file) });
 		const resume = "Research findings for your NEEDS_RESEARCH questions are ready. Read each file with your read tool, then continue from where you paused:\n" + answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
 		if (p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
-		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract); billed += result.billed ?? 0; out += result.out ?? 0;
+		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract, p.revisionScopes); billed += result.billed ?? 0; out += result.out ?? 0;
 	}
 	return { result, billed, out, researchRounds };
 }
@@ -520,7 +528,9 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		}
 	}
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	const repositoryAfterRevision = compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
+	const repositoryAfterRevision = p.revisionScopes.length ? revisionOf(cwd, p.revisionScopes) : compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
+	// Each recorded stage is checked over the basis it was recorded with.
+	const stageRevision = (scopes: readonly string[]) => scopes.join("\n") === p.revisionScopes.join("\n") ? afterRevision : revisionOf(cwd, [...scopes]);
  const afterRevision = p.privateConfig ? privateConfigRevision(cwd, repositoryAfterRevision, p.privateConfig) : repositoryAfterRevision;
 	const changes = !tracking.writable || !observation
 		? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
@@ -620,7 +630,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		let processState = s.getProcessState();
 		const taskChanges = (paths: string[]) => reviewableChangedPaths(paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
 		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
-			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, changedFiles: taskChanges(observation?.paths ?? []) });
+			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: taskChanges(observation?.paths ?? []) });
 		}
 		const stage = p.privateConfig ? null : basePersonaName(p.agent) === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = affirmativeReviewVerdict(result.output);
@@ -639,7 +649,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         if(candidateReady&&p.operatorCandidate){
           try {
             const evidenceRef=persistOperatorStateProof({writer:d.artifacts.writeRunArtifact,sessionDir:p.sessionDir,runCount:state?.runCount??0,dispatchId:result.dispatchId||randomUUID(),record:{schema:'agent-fleet.operator-state-verification/v1',...p.operatorCandidate,taskId:p.taskId,checks:runtimeResult.verification.checks,manualAssertions:'not_automatically_proven'}});
-            processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
+            processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,revisionScopes:p.revisionScopes,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
             operatorStateVerification={...operatorStateVerification,status:'accepted',evidenceRef};
           } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed'}; }
         }
@@ -658,7 +668,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 			&& !(parsedReturn?.requires_user_decision ?? []).some((entry: unknown) => String(entry).trim().toLowerCase() !== "none")
 			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
 		if (stage && planProduced && reviewAuthorized && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
-			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision });
+			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
             if(stage === "review" && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches() && tracking.overlapBaseline === s.getWritableOverlapCounter()
                 && p.reviewInput && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)) processState=retainReview(processState,completedReviewInput,runPath,cwd);
 		}
@@ -673,7 +683,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         }
 		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));
 		if (p.agent === "builder" && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
-			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision });
+			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
 		}
         if (p.privateConfig && privateConfigVerification?.status === 'accepted' && 'evidenceRef' in privateConfigVerification && 'evidenceHash' in privateConfigVerification && 'reviewer' in privateConfigVerification) {
          processState.privateVerification = { origin: 'private-config-current-state', binding: structuredClone(p.privateConfig), revision: afterRevision,
@@ -683,7 +693,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         }
         const privateUse: PrivateProofUse = { cwd, taskId: d.noProgress.taskId(), sessionDir: s.getSessionDir(), declarationHash: privateDeclarationHash(s.getAssertions() as AcceptanceRequirement[], s.getAcceptedUserInput?.()), activeWriters: s.getActiveWritableDispatches() - (tracking.writable ? 1 : 0), overlap: s.getWritableOverlapCounter() };
 		s.setProcessState?.(processState);
-		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: !p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted, currentRevision: afterRevision, ...(p.privateConfig ? { privateUse } : {}) });
+		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: !p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted, currentRevision: stageRevision, ...(p.privateConfig ? { privateUse } : {}) });
 		runtimeResult.process = processVerdict;
 		if (!processVerdict.accepted) {
 			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open").map(([name]) => `process_${name}_open`)])] };
@@ -699,7 +709,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         // T2/F3: use the canonical wrapper identity so production reconcile can match.
         // Previously this wrote raw p.agent while the wrapper used canonical([cwd, actor]).
         d.noProgress.recordDispatchEvidence({
-            dispatchId: result.dispatchId, taskId: p.taskId, executor: canonicalExecutor(cwd, p.agent), revision: afterRevision,
+            dispatchId: result.dispatchId, taskId: p.taskId, executor: canonicalExecutor(cwd, p.agent), revision: afterRevision, revisionScopes: p.revisionScopes,
             changedScope: changes.attribution === 'certain' ? changes.paths : [], readback,
             concurrentWriters: observation?.concurrentWritableOverlap ?? true,
             effectsRef: protocolEvidencePath ?? undefined,
@@ -848,9 +858,10 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
             let cached=null;
             try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
             if(cached){
-                const revision=worktreeRevision(ctx.cwd,[],params.scope??[]);
-                const next=noteProcessStage(state,"review",{evidenceRef:cached.evidenceRef,revision});
-                const verdict=evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:revision});
+                const basis=revisionScopes(ctx.cwd,[...(params.scope??[]),...state.changedFiles]);
+                const revision=basis.length?revisionOf(ctx.cwd,basis):worktreeRevision(ctx.cwd,[],params.scope??[]);
+                const next=noteProcessStage(state,"review",{evidenceRef:cached.evidenceRef,revision,revisionScopes:basis});
+                const verdict=evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:(scopes:readonly string[])=>scopes.join("\n")===basis.join("\n")?revision:revisionOf(ctx.cwd,[...scopes])});
                 d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,verdict);
                 if(d.state.processBlock?.())return refusal(d,agent,params.task,"process_state_corrupt","Review reuse could not persist current evidence.");
                 return {content:[{type:"text",text:`Independent ${agent} review already covers this unchanged scope and requirements. Reused evidence: ${cached.evidenceRef}. No child launched. New review focus requires review_reason.`}],details:{status:"review_reused",reused:true,started:false,notStarted:true,exitCode:0,elapsed:0,returnPath:cached.evidenceRef,processVerdict:verdict,accepted:verdict.accepted}};

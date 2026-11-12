@@ -82,7 +82,7 @@ import { createWatchdogActivity, createTaskTriageActivity, type WatchdogActivity
 import { createWatchdogSystem1Session, disposeWatchdogSystem1Session, readWatchdogSystem1Snapshot, type WatchdogSystem1Session } from "./system1-runtime.ts";
 import { shouldExtractReturn } from "./return-extract.js";
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
-import { checkScope, diffAgainst, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
+import { checkScope, diffAgainst, revisionOf, revisionScopes, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
 import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
 import { NATIVE_ROSTER_ENTRY_TYPE, RETIRED_WORK_MODE_NOTICE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, resolveSessionRoster, sessionSavedInRetiredWorkMode, type WorkMode } from "./work-mode.ts";
@@ -1129,7 +1129,8 @@ export default function (pi: ExtensionAPI) {
 			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
-			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => worktreeRevision(ctx.cwd || process.cwd(), []),
+			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => { const cwd = ctx.cwd || process.cwd(); return revisionOf(cwd, revisionScopes(cwd, processState.changedFiles)); },
+			revisionOf: (ctx, scopes) => revisionOf(ctx.cwd || process.cwd(), [...scopes]),
    privateProofUse: ctx => privateProofUse(ctx.cwd || process.cwd()),
 			adoptReservedTaskId: (id, resetTaskWindow) => { taskIdentityReset.run(id, resetTaskWindow); bindSemanticScope(id, hubTaskText ? createHash("sha256").update(hubTaskText).digest("hex") : ""); },
 			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); } }, signal),
@@ -1382,7 +1383,7 @@ export default function (pi: ExtensionAPI) {
         handleRecover: async (args, ctx) => {
             await runRecoverCommand(args, ctx, {
                 noProgress,
-                currentRevision: cwd => worktreeRevision(cwd, []),
+                currentRevision: cwd => scopes => revisionOf(cwd, [...scopes]),
                 confirm: confirmRecoverAction,
                 askPorts: (op, attempt, action) => ({
                     taskId: () => noProgress.taskId(), language: () => userLanguage,

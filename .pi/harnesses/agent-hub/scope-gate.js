@@ -144,6 +144,44 @@ export function worktreeRevision(cwd, scopes = [], declaredScopes = scopes) {
  return snapshotRevision(snapshotWorktree(cwd, declaredScopes), scopes);
 }
 
+function insideRepository(cwd) {
+ try {
+  execFileSync("git", ["-C", cwd, "rev-parse", "--is-inside-work-tree"], { env:sessionRootsFromEnv()?.mode==="targeted"?sessionGitEnv():process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return true;
+ } catch { return false; }
+}
+
+/**
+ * The basis a task revision covers (D8, 2026-11-12). At a root repository it is [],
+ * the whole repository, as every revision has always been. In a plain folder of
+ * nested repositories it is the workspace-relative root of each nested repository
+ * holding one of `paths`, so any change in such a repository makes the revision
+ * differ and a change in another one does not. A path outside every repository is
+ * kept as it is: the snapshot reports it as a gap and the revision is unavailable,
+ * never partial. Repositories are found only through declared paths, never by
+ * scanning the workspace.
+ */
+export function revisionScopes(cwd, paths = []) {
+ const declared = [...new Set((paths || []).map(path => normalizePath(String(path))).filter(Boolean))];
+ if (!declared.length || insideRepository(cwd)) return [];
+ return nestedRevisionScopes(cwd, declared);
+}
+
+/** revisionScopes for a caller that already observed a nested snapshot (no root check). */
+export function nestedRevisionScopes(cwd, paths = []) {
+ const declared = [...new Set((paths || []).map(path => normalizePath(String(path))).filter(Boolean))];
+ const scopes = new Set();
+ for (const path of declared) {
+  try { scopes.add(scopeRepository(cwd, path).prefix); } catch { scopes.add(path); }
+ }
+ return [...scopes].sort();
+}
+
+/** The revision over a basis from revisionScopes; [] is the root repository, whole. */
+export function revisionOf(cwd, scopes = []) {
+ return scopes.length ? worktreeRevision(cwd, [], scopes) : worktreeRevision(cwd, []);
+}
+
 /** The revision of an existing snapshot: equal to worktreeRevision taken at that moment,
  * so one observation can serve several consumers without another git status and rehash. */
 export function snapshotRevision(snapshot, scopes = []) {

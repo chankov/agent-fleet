@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from "node:fs";
 import { posix, resolve, relative } from "node:path";
-import { worktreeRevision } from "./scope-gate.js";
+import { revisionOf, revisionScopes, worktreeRevision } from "./scope-gate.js";
 import { explicitProcessLifecycle, recoveryCategoryFromDetails, recoveryDecision, type RecoveryCategory } from "./recovery-contract.ts";
 import { createRecoverState, type RecoverEvent } from './recover-state.ts';
 import { readBackDeliverables } from './acceptance.ts';
@@ -62,7 +62,7 @@ export type InvocationStatus =
  | { status: 'invalid'; reason: string; nextActions: string[] }
  | { status: 'abandoned'; reason: string; nextActions: string[] }
  | { status: 'unknown_process'; reason: string; nextActions: string[] };
-export interface DispatchEvidence { dispatchId: string; taskId: string; executor: string; revision: string; changedScope: string[]; readback: TechnicalEvidence['readback']; concurrentWriters: boolean; effectsRef?: string; completed: boolean; blockingFindings: number; coveredScope: string[]; edited: boolean; evidenceRef: string; openRequirements: string[] };
+export interface DispatchEvidence { dispatchId: string; taskId: string; executor: string; revision: string; /** Basis of `revision` (D8); absent or [] at a root repository. */ revisionScopes?: string[]; changedScope: string[]; readback: TechnicalEvidence['readback']; concurrentWriters: boolean; effectsRef?: string; completed: boolean; blockingFindings: number; coveredScope: string[]; edited: boolean; evidenceRef: string; openRequirements: string[] };
 const EFFECT_FENCE = new Set<RecoveryCategory>(["operator_cancelled", "indeterminate", "tool_protocol_error", "unknown_tool"]);
 const NO_EFFECT_CATEGORY = new Set<RecoveryCategory>(["not_started", "invalid_input"]);
 type FenceAttempt = { category?: RecoveryCategory; dispatchId: string; completed?: boolean };
@@ -373,15 +373,18 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'evidence', evidence } satisfies GuardHistory });
             dispatchEvidence.set(evidence.dispatchId, structuredClone(evidence)); return true;
         },
-        reconcile(operationId: string, attemptId: string, currentRevision: string, roots: { cwd: string; sessionDir: string }) {
+        reconcile(operationId: string, attemptId: string, currentRevisionInput: string | ((scopes: readonly string[]) => string), roots: { cwd: string; sessionDir: string }) {
             const op = recovery.inspect(operationId), attempt = op?.attempts.find(a => a.attemptId === attemptId);
             const original = attempt && dispatchEvidence.get(attempt.dispatchId);
             if (!op || !attempt || !original || original.taskId !== op.taskId || original.executor !== op.executor) return { cleared: false as const, reason: 'missing_original_runtime_evidence' };
-            if (currentRevision === 'unavailable' || worktreeRevision(roots.cwd, []) !== currentRevision) return { cleared: false as const, reason: 'stale_or_unavailable_revision' };
+            // The original dispatch's revision basis (D8): [] is the whole root repository.
+            const basis = original.revisionScopes ?? [];
+            const currentRevision = typeof currentRevisionInput === 'function' ? currentRevisionInput(basis) : currentRevisionInput;
+            if (currentRevision === 'unavailable' || revisionOf(roots.cwd, basis) !== currentRevision) return { cleared: false as const, reason: 'stale_or_unavailable_revision' };
             const currentReadback = readBackDeliverables({ files: original.readback.map(row => ({ input: row.path, path: row.path, before: row.sha256 ?? null })), scopeRoots: [] }, roots);
             if (original.readback.some((row, i) => row.status !== 'read' || !row.sha256 || currentReadback[i]?.status !== 'read' || currentReadback[i]?.sha256 !== row.sha256)) return { cleared: false as const, reason: 'readback_changed_or_unsafe' };
             const verifiedReadback = original.readback.map((row, i) => ({ ...row, path: relative(roots.cwd, row.path).replace(/\\/g, '/'), sha256: currentReadback[i]!.sha256 }));
-            const reviewer = [...dispatchEvidence.values()].find(row => row.taskId === op.taskId && row.executor !== op.executor && row.completed && row.revision === currentRevision && !row.edited && row.blockingFindings === 0 && row.changedScope.length === 0 && original.changedScope.every(path => row.coveredScope.includes(path)));
+            const reviewer = [...dispatchEvidence.values()].find(row => row.taskId === op.taskId && row.executor !== op.executor && row.completed && row.revision === currentRevision && (row.revisionScopes ?? []).join('\n') === basis.join('\n') && !row.edited && row.blockingFindings === 0 && row.changedScope.length === 0 && original.changedScope.every(path => row.coveredScope.includes(path)));
             return reconcileTechnical(recovery, { taskId: op.taskId, operationId, attemptId, currentRevision, observedRevision: original.revision, originalExecutor: original.executor, changedScope: original.changedScope, readback: verifiedReadback, concurrentWriters: original.concurrentWriters, effectsRef: original.effectsRef, reviewer: reviewer && { taskId: reviewer.taskId, executor: reviewer.executor, revision: reviewer.revision, completed: reviewer.completed, blockingFindings: reviewer.blockingFindings, coveredScope: reviewer.coveredScope, edited: reviewer.edited, evidenceRef: reviewer.evidenceRef }, openRequirements: original.openRequirements });
         },
         inspect(operationId: string) { return recovery.inspect(operationId); },
@@ -530,7 +533,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
             try { d.noProgress.recordOrchestratorAnswer(JSON.parse(parentAnswer[1]), scope); }
             catch { /* Invalid clarification never authorizes retry. */ }
         }
-        const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, worktreeRevision(cwd, []));
+        const ticket = d.noProgress.begin(key, fingerprint(), executorKey, scope, revisionOf(cwd, revisionScopes(cwd, [...scope, ...((d as any).state?.getProcessState?.()?.changedFiles ?? [])])));
         // Persist before executor launch. False and throwing ports are both no-launch
         // failures; release the reservation even when storage itself is unavailable.
         if (ticket.allowed && ticket.operationId) {

@@ -3,9 +3,9 @@ import test from 'node:test';
 import { createRecoverState } from './recover-state.ts';
 import { reconcileTechnical } from './reconcile.ts';
 import { createNoProgressGuard } from './no-progress.ts';
-import { worktreeRevision } from './scope-gate.js';
+import { revisionOf, revisionScopes, worktreeRevision } from './scope-gate.js';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -50,6 +50,32 @@ test('production reconcile adapter retains failed delivery and open requirements
  const restored=createNoProgressGuard(); restored.restore(rows);
  assert.equal(restored.inspect(failed.operationId!)?.technical?.status,'cleared');
  assert.equal(restored.begin('contract','before','builder',[],revision).allowed,true,'technical clearance allows explicit continuation without acceptance');
+});
+
+// D8 (2026-11-12): in a plain folder of nested repositories the root has no revision,
+// so recovery compares over the basis the original dispatch recorded.
+test('production reconcile in a nested repository compares over the original dispatch basis', t => {
+ const cwd = mkdtempSync(join(tmpdir(),'af-reconcile-nested-')); t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ const docs = join(cwd,'rin-docs'); mkdirSync(docs); execFileSync('git',['init','-q',docs]);
+ writeFileSync(join(docs,'README.md'),'docs\n');
+ execFileSync('git',['-C',docs,'-c','user.email=fixture@example.test','-c','user.name=Fixture','add','.']);
+ execFileSync('git',['-C',docs,'-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base']);
+ const path=join(docs,'partial.ts'); writeFileSync(path,'partial result');
+ const basis=revisionScopes(cwd,['rin-docs/partial.ts']); assert.deepEqual(basis,['rin-docs']);
+ const revision=revisionOf(cwd,basis), sha256=createHash('sha256').update('partial result').digest('hex');
+ assert.equal(worktreeRevision(cwd,[]),'unavailable','the root itself has no revision');
+ const guard=createNoProgressGuard(()=>{});
+ const failed=guard.begin('contract','before','builder'); guard.finish(failed,'before',{dispatchId:'failed-original',reason:'lost delivery',category:'verification_failed'});
+ const original={dispatchId:'failed-original',taskId:guard.taskId(),executor:'builder',revision,revisionScopes:basis,changedScope:['rin-docs/partial.ts'],readback:[{path,status:'read' as const,changed:true,sha256,retainedPath:'evidence/original-readback'}],concurrentWriters:false,completed:false,blockingFindings:0,coveredScope:[],edited:false,evidenceRef:'evidence/failed',openRequirements:['AF-MIN-CHANGE']};
+ assert.equal(guard.recordDispatchEvidence(original),true);
+ const roots={cwd,sessionDir:cwd};
+ const current=(scopes:readonly string[])=>revisionOf(cwd,[...scopes]);
+ assert.equal(guard.recordDispatchEvidence({...original,dispatchId:'other-basis-review',executor:'reviewer',revisionScopes:['rin-docs','ringithub'],changedScope:[],readback:[],completed:true,coveredScope:['rin-docs/partial.ts'],evidenceRef:'evidence/other',openRequirements:[]}),true);
+ assert.equal(guard.reconcile(failed.operationId!,failed.attemptId!,current,roots).cleared,false,'a review over another basis is not this revision');
+ assert.equal(guard.recordDispatchEvidence({...original,dispatchId:'independent-review',executor:'code-reviewer',changedScope:[],readback:[],completed:true,coveredScope:['rin-docs/partial.ts'],evidenceRef:'evidence/independent-review',openRequirements:[]}),true);
+ assert.equal(guard.reconcile(failed.operationId!,failed.attemptId!,worktreeRevision(cwd,[]),roots).cleared,false,'the bare root revision never clears');
+ const result=guard.reconcile(failed.operationId!,failed.attemptId!,current,roots);
+ assert.equal(result.cleared,true,JSON.stringify(result));
 });
 
 test('self, stale, unsupported readback, ambiguous writers and missing T3 effects fail closed', () => {

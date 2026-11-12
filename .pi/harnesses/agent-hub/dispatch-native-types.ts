@@ -241,6 +241,8 @@ export interface NativeRunBase {
 	task: string;
 	inputArtifacts: DispatchInputArtifactPreview[];
 	scopeGlobs: string[];
+	/** The task revision basis; [] at a root repository (whole repository). */
+	revisionScopes?: string[];
 	watchdogParam?: boolean;
 	key: string;
 	personaKey: string;

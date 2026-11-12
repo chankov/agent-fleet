@@ -15,7 +15,8 @@ export function parseRecoverArgs(args: string): RecoverRequest | null {
 
 export interface RecoverHandlerDeps {
  noProgress: NoProgressGuard;
- currentRevision: (cwd: string) => string;
+ /** The revision over a dispatch's recorded basis ([] is the whole root repository). */
+ currentRevision: (cwd: string) => string | ((scopes: readonly string[]) => string);
  confirm: typeof confirmRecoverAction;
  askPorts: (op: NonNullable<ReturnType<NoProgressGuard['inspect']>>, attempt: NonNullable<NonNullable<ReturnType<NoProgressGuard['inspect']>>['attempts']>[number], action: 'retry' | 'abandon') => RecoverAuthorizationPorts;
 }

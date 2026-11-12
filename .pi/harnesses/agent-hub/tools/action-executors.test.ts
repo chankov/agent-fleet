@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createActionExecutors } from "./action-executors.ts";
-import { applyProcessClassification, createProcessState } from "../process-obligations.ts";
+import { applyProcessClassification, createProcessState, noteProcessStage } from "../process-obligations.ts";
 import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { PROFILE_ENV, setActiveProfile } from "../policy/profile-runtime.ts";
 
@@ -167,6 +167,26 @@ test("update_assertion cannot prove while risk or review obligations remain open
  const deps = comsDeps({ getAssertions: () => assertions, setAssertions: (v: any[]) => { assertions = v; }, getProcessState: () => createProcessState(), artifacts: { persistAssertions() {}, updateAssertionStatus() {}, evidencePathExists: () => false, artifactsRoot: () => "/tmp/artifacts" } });
  const result = await createActionExecutors(deps as any).executeUpdateAssertion("u", { id: "A1", status: "proven", evidence: "test passed" } as any, undefined, undefined, {} as any);
  assert.equal((result.details as any).reason, "process_obligations_open"); assert.equal(assertions[0].status, "open");
+});
+
+// rankedin, 2026-11-12: the workspace root is a plain folder, so the root revision is
+// unavailable; a review recorded over rin-docs must be checked over rin-docs.
+test("update_assertion checks each stage over the repositories it was recorded with", async () => {
+ let assertions: any[] = [{ id: "P0", tag: "test", text: "PRD valid", source: "plan", status: "open" }];
+ let state = applyProcessClassification(createProcessState(), { risk: "high", scope: "wide", reason: "nested workspace" }).state;
+ state = noteProcessStage(state, "acceptance", { evidenceRef: "operator:proof", revision: "docs-r1", revisionScopes: ["rin-docs"], changedFiles: ["rin-docs/prd.md"] });
+ state = noteProcessStage(state, "review", { evidenceRef: "review:proof", revision: "docs-r1", revisionScopes: ["rin-docs"] });
+ const asked: string[] = [];
+ const deps = comsDeps({
+  getAssertions: () => assertions, setAssertions: (v: any[]) => { assertions = v; }, getProcessState: () => state,
+  artifacts: { persistAssertions() {}, updateAssertionStatus() {}, evidencePathExists: () => false, artifactsRoot: () => "/tmp/artifacts" },
+  currentRevision: () => "unavailable",
+  revisionOf: (_ctx: unknown, scopes: readonly string[]) => { asked.push(scopes.join(",")); return scopes.join(",") === "rin-docs" ? "docs-r1" : "unavailable"; },
+ });
+ const result = await createActionExecutors(deps as any).executeUpdateAssertion("u", { id: "P0", status: "proven", evidence: "node --test prd.test.js → 3/3 pass" } as any, undefined, undefined, {} as any);
+ assert.notEqual((result.details as any)?.reason, "process_obligations_open", JSON.stringify(result.content));
+ assert.equal(assertions[0].status, "proven");
+ assert.ok(asked.length > 0 && asked.every(key => key === "rin-docs"), asked.join(" | "));
 });
 
 test("set_task_tier requires explicit reasoned risk changes and persists process state independently of tier", async () => {

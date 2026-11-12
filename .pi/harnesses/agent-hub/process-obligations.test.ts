@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, noteProcessStage, processPreEffectGate } from './process-obligations.ts';
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, normalizeProcessState, noteProcessStage, processPreEffectGate } from './process-obligations.ts';
 
 for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alone cannot close independent stages even at lower spend tier`, () => {
  const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
@@ -20,6 +20,26 @@ test('an open review names the route that can close it, for operator edits and f
  const builderChange = processPreEffectGate(changed, 'prove', '', 'current')?.message ?? '';
  assert.match(builderChange, /dispatch_agent review that covers the task's changed files \(rin-docs\/prd\.md\)/);
  assert.doesNotMatch(builderChange, /operator-current-state/);
+});
+test('a stage recorded over nested repositories is checked over the same repositories and must cover the task files', () => {
+ const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'nested workspace' }).state;
+ let state = noteProcessStage(base, 'acceptance', { evidenceRef: 'operator:proof', revision: 'docs-r1', revisionScopes: ['rin-docs'], changedFiles: ['rin-docs/prd.md'] });
+ state = noteProcessStage(state, 'review', { evidenceRef: 'review:proof', revision: 'docs-r1', revisionScopes: ['rin-docs'] });
+ const revisions: Record<string, string> = { 'rin-docs': 'docs-r1', '': 'unavailable' };
+ const asked: string[] = [];
+ const current = (scopes: readonly string[]) => { asked.push(scopes.join(',')); return revisions[scopes.join(',')] ?? 'unavailable'; };
+ assert.equal(processPreEffectGate(state, 'prove', '', current), null, 'the root has no revision, the covered repository is unchanged');
+ assert.ok(asked.every(key => key === 'rin-docs'), `each stage is recomputed over its own repositories: ${asked.join(' | ')}`);
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: 'project', currentRevision: current }).accepted, true);
+ revisions['rin-docs'] = 'docs-r2';
+ assert.match(processPreEffectGate(state, 'prove', '', current)?.message ?? '', /open: review/, 'a change in the covered repository makes the review stale');
+ revisions['rin-docs'] = 'docs-r1';
+ const widened = { ...state, changedFiles: ['rin-docs/prd.md', 'ringithub/src/app.ts'] };
+ assert.match(processPreEffectGate(widened, 'prove', '', current)?.message ?? '', /open: review/, 'a task file in an uncovered repository is not reviewed');
+ assert.equal(normalizeProcessState(JSON.parse(JSON.stringify(state))).review.revisionScopes?.join(','), 'rin-docs', 'the basis survives persistence');
+ const legacy = noteProcessStage(base, 'review', { evidenceRef: 'review:proof', revision: 'whole' });
+ assert.equal(legacy.review.revisionScopes, undefined, 'a root-repository stage keeps the old shape');
+ assert.equal(processPreEffectGate(legacy, 'prove', '', 'whole'), null);
 });
 test('current verification and independent review are revision bound, plan is occurrence only', () => {
  let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;

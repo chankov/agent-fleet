@@ -41,6 +41,8 @@ export interface ActionExecutorDeps {
 	setAssertions(value: Assertion[]): void;
 	currentTaskId(): string;
 	currentRevision(ctx: ExtensionContext): string;
+	/** The revision over a recorded stage basis; [] is the whole root repository (D8). */
+	revisionOf?(ctx: ExtensionContext, scopes: readonly string[]): string;
  privateProofUse?(ctx: ExtensionContext): PrivateProofUse;
 	confirmTaskSupersession?(input: { oldTaskId: string; newTaskId: string; reason: string }, ctx: ExtensionContext, signal?: AbortSignal): Promise<boolean>;
 	adoptReservedTaskId?(id: string, resetTaskWindow: () => void): void;
@@ -158,7 +160,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		const a = assertions.find(x => x.id.toLowerCase() === String(params.id).trim().toLowerCase());
 		if (!a) return { content: [{ type: "text", text: `No assertion "${params.id}" in the ledger. Call set_assertions first, or check the id. Current: ${assertions.map(x => x.id).join(", ") || "(empty)"}.` }], details: { status: "error" } };
 		if (wanted === "proven") {
-			const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "prove", "", d.currentRevision(ctx), d.privateProofUse?.(ctx));
+			const gate = d.processBlock?.() ?? processPreEffectGate(getProcessState(), "prove", "", d.revisionOf ? (scopes: readonly string[]) => d.revisionOf!(ctx, scopes) : d.currentRevision(ctx), d.privateProofUse?.(ctx));
 			if (gate) return { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } };
 			const validation = validateEvidence(a.tag, params.evidence || "", { fileExists: d.artifacts.evidencePathExists, evidenceRoot: safePathWithin(d.artifacts.artifactsRoot(), "evidence") });
 			if (!validation.ok) return { content: [{ type: "text", text: `${a.id} stays ${a.status}: ${validation.reason}` }], details: { status: "rejected", reason: validation.reason } };

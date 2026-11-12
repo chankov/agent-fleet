@@ -189,7 +189,9 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
 		env: { ...deps.guardrailEnv(run.agentKey), ...(delegateEnv || {}), [TRACE_OWNER_ENV]: run.dispatchId,
    ...(boundAssertionIds === undefined ? {} : { [BOUND_ASSERTION_IDS_ENV]: JSON.stringify(boundAssertionIds) }),
    [PRIVATE_CONFIG_ENV]: run.resumeContract?.privateConfig ? JSON.stringify(run.resumeContract.privateConfig) : '',
-    [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.scopeGlobs) },
+    // A root repository keeps the declared scope (its revision is the whole repository
+    // either way); nested repositories use the task basis the Hub records (D8).
+    [RUNTIME_TEST_SCOPE_ENV]: JSON.stringify(run.revisionScopes?.length ? run.revisionScopes : run.scopeGlobs) },
 		attemptLifecycle: {
    ...drift.attemptLifecycle,
    beforePhysicalSpawn: info=>{
