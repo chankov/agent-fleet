@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
-import { readFlowBranchMetadata, type FlowBranchMetadata } from "../workflows/lib/git.ts";
+import { insideRepository, readFlowBranchMetadata, type FlowBranchMetadata } from "../workflows/lib/git.ts";
 import type { FlowMaintenanceCommand } from "./flow-command.ts";
 
 export interface FlowBranchInfo {
@@ -193,6 +193,7 @@ export async function runFlowMaintenance(command: FlowMaintenanceCommand, option
 	const ask = options.taskPrompt ?? defaultPrompt;
 	const out = options.writeOut ?? (text => process.stdout.write(text));
 	const error = options.writeError ?? (text => process.stderr.write(text));
+	if (!insideRepository(cwd)) throw new FlowMaintenanceError(`Flow ${command.action} refused: the workspace root is not a Git repository. Select the nested repository with --worktree <path>, for example \`just flow ${command.action} --worktree <repository>\`.`);
 	const branches = listFlowBranches(cwd);
 	out(renderFlowBranches(branches));
 	if (!branches.length) return 0;

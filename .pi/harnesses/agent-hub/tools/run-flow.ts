@@ -3,15 +3,16 @@ import { Type } from "@sinclair/typebox";
 import { randomUUID } from "node:crypto";
 import {sessionRootsFromEnv,resolveSessionRoots,withSessionRoots,validateSessionRoots} from '../../lib/workspace-context.ts';
 import { mkdirSync, mkdtempSync, rmSync,realpathSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { executeFlow, type HubScoutExecution } from "../../../agent-fleet/scripts/flow.ts";
+import { insideRepository } from "../../../agent-fleet/scripts/workflows/lib/git.ts";
 import { createIsolatedWorkingTreeSnapshot, type IsolatedSnapshotManifest } from "../../../agent-fleet/scripts/workflows/lib/isolated-snapshot.ts";
 import type { ScoutWorkflowDeps } from "../../../agent-fleet/scripts/workflows/wf-scout.ts";
 import { worktreeRevision } from "../scope-gate.js";
 import { buildRuntimeResult } from "../acceptance.ts";
 
-export interface RunFlowParams { procedure: "scout"; request: string; invocation_id: string }
+export interface RunFlowParams { procedure: "scout"; request: string; invocation_id: string; repo?: string }
 export interface HubFlowBudgetReservation { charged: boolean; operation: "research"; owner: "hub"; refusal?: string }
 export interface RunFlowDeps {
 	sessionDir(): string | null;
@@ -25,6 +26,28 @@ export interface RunFlowDeps {
 	scoutAgent?: ScoutWorkflowDeps["agent"];
 	worktreeRevision?: typeof worktreeRevision;
 	buildRuntimeResult?: typeof buildRuntimeResult;
+	/** Nested repositories the task already uses; named in the refusal when `repo` is missing. */
+	nestedRepositories?(): readonly string[];
+}
+
+type SessionRoots = ReturnType<typeof resolveSessionRoots>;
+/** D9: at a workspace root that is not a repository, scout works in exactly one nested repository the caller names. */
+function nestedTarget(roots: SessionRoots | undefined, cwd: string, repo: string | undefined, known: (() => readonly string[]) | undefined): { binding?: SessionRoots } | { refusal: string } {
+	if (repo === undefined) {
+		if (roots?.mode === "targeted" || insideRepository(cwd)) return {};
+		const list = known?.() ?? [];
+		return { refusal: `The workspace root is not a Git repository; pass repo: with the nested repository to scout${list.length ? ` (this task uses ${list.join(", ")})` : ""}.` };
+	}
+	if (roots?.mode === "targeted") return { refusal: "repo is unavailable in a session already bound to a target checkout." };
+	if (insideRepository(cwd)) return { refusal: "repo applies only when the workspace root is not a Git repository." };
+	const path = repo.trim().replaceAll("\\", "/").replace(/\/+$/, "");
+	if (!path || isAbsolute(path) || path.split("/").includes("..")) return { refusal: `repo must be a path inside the workspace: ${JSON.stringify(repo)}` };
+	let binding: SessionRoots;
+	try { binding = resolveSessionRoots(cwd, { worktree: path }); }
+	catch (error) { return { refusal: `repo ${JSON.stringify(repo)} is not a nested repository checkout: ${message(error)}` }; }
+	const fromRoot = relative(cwd, binding.executionRoot);
+	if (!fromRoot || fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) return { refusal: `repo must lie inside the workspace: ${JSON.stringify(repo)}` };
+	return { binding };
 }
 
 interface StoredRun { promise: Promise<any>; controller: AbortController; request: string;scope:string }
@@ -43,17 +66,18 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
  let sessionEpoch=0;
 	pi.on("session_shutdown", () => {sessionEpoch++;for (const run of runs.values()) run.controller.abort("session shutdown");runs.clear();activeId=null;});
 	pi.registerTool({
-		name: "run_flow", label: "Run Flow", description: "Run the read-only scout workflow in an isolated no-branch snapshot. Initial T13 surface; writable flows are unavailable.",
+		name: "run_flow", label: "Run Flow", description: "Run the read-only scout workflow in an isolated no-branch snapshot. Initial T13 surface; writable flows are unavailable. When the workspace root is not a Git repository, name the nested repository with repo.",
 		parameters: Type.Object({
 			procedure: Type.Literal("scout"),
 			request: Type.String({ minLength: 1, description: "Exact read-only reconnaissance question." }),
 			invocation_id: Type.String({ minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]+$", description: "Stable idempotency key; duplicates return the existing run." }),
+			repo: Type.Optional(Type.String({ minLength: 1, maxLength: 512, description: "Only when the workspace root is not a Git repository: the one nested repository to scout, as its path from the workspace root (for example `ringithub`)." })),
 		}, { additionalProperties: false }),
 		execute(_toolCallId, raw, signal, onUpdate, ctx) {
 			const params = raw as RunFlowParams;
    const epoch=sessionEpoch;
-   let scope:string;
-   try{const roots=sessionRootsFromEnv(),cwd=realpathSync(ctx.cwd||process.cwd());if(roots?.mode==='targeted'&&cwd!==roots.executionRoot)return Promise.resolve(failure('target-refused','flow_source_target_mismatch',false,false));scope=roots?.targetId??cwd;}catch{return Promise.resolve(failure('target-refused','flow_source_target_unavailable',false,false));}
+   let scope:string;let selected:SessionRoots|undefined;
+   try{const roots=sessionRootsFromEnv(),cwd=realpathSync(ctx.cwd||process.cwd());if(roots?.mode==='targeted'&&cwd!==roots.executionRoot)return Promise.resolve(failure('target-refused','flow_source_target_mismatch',false,false));const target=nestedTarget(roots,cwd,params.repo,deps.nestedRepositories);if('refusal' in target)return Promise.resolve(failure('target-refused',target.refusal,false,false));selected=target.binding;scope=selected?.targetId??roots?.targetId??cwd;}catch{return Promise.resolve(failure('target-refused','flow_source_target_unavailable',false,false));}
 			const existing = runs.get(params.invocation_id);
 			if (existing) {
 				if (existing.request !== params.request || existing.scope!==scope) return Promise.resolve({ content: [{ type: "text", text: "Stale duplicate refused: invocation_id is already bound to different scout inputs; no budget charged." }], details: { status: "stale-duplicate", budgetCharged: false, executionStarted: false } });
@@ -73,11 +97,12 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 				try {
 					const sessionDir = deps.sessionDir();
 					if (!sessionDir) return failure("invalid-environment", "run_flow requires an active managed Hub session", false, false);
-					const sourceCwd = ctx.cwd || process.cwd();
-     const sourceBinding=sessionRootsFromEnv();if(sourceBinding?.mode==='targeted'&&realpathSync(sourceCwd)!==sourceBinding.executionRoot)throw Error('flow_source_target_mismatch');
+					// A named nested repository is the snapshot source; configuration still comes from the workspace root.
+					const workspaceCwd = ctx.cwd || process.cwd(), sourceCwd = selected?.executionRoot ?? workspaceCwd;
+     const sourceBinding=selected??sessionRootsFromEnv();if(sourceBinding?.mode==='targeted'&&realpathSync(sourceCwd)!==sourceBinding.executionRoot)throw Error('flow_source_target_mismatch');
 					let config;
 					try {
-						config = deps.effectiveScoutConfig(sourceCwd);
+						config = deps.effectiveScoutConfig(selected ? workspaceCwd : sourceCwd);
 						const allowedTools = new Set(["read", "grep", "find", "ls"]);
 						if (!config.allowlisted || config.tools.length === 0 || config.tools.some(tool => !allowedTools.has(tool))) throw new Error("effective scout configuration is not allowlisted filesystem-read-only");
 					} catch (error) { return failure("preflight-refused", error, false, false); }
@@ -88,7 +113,8 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					snapshotRoot = realpathSync(mkdtempSync(join(tmpdir(), "agent-fleet-scout-snapshot-")));
 					const workspace = join(snapshotRoot, "workspace"), manifestPath = join(artifactDir, "snapshot-manifest.json");
 					let manifest: IsolatedSnapshotManifest;
-					try { manifest = (deps.createSnapshot ?? createIsolatedWorkingTreeSnapshot)(sourceCwd, workspace, manifestPath); }
+					const createSnapshot = () => (deps.createSnapshot ?? createIsolatedWorkingTreeSnapshot)(sourceCwd, workspace, manifestPath);
+					try { manifest = selected ? withSessionRoots(selected, createSnapshot) : createSnapshot(); }
 					catch (error) { return failure("snapshot-refused", error, false, false); }
 					const snapshotBinding=sourceBinding?.mode==='targeted'?resolveSessionRoots(sourceBinding.workspaceRoot,{worktree:workspace}):undefined;
      let budget: HubFlowBudgetReservation;
@@ -118,7 +144,9 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
 					});
 					const obligations = deps.processObligations();
 					const details = { status: result.status, runId, invocationId: params.invocation_id, procedure: "scout", budgetCharged: true, budgetOwner: "hub", budgetOperation: "research", executionStarted: true, flowAcceptance: { accepted: result.accepted, status: result.status, reason: result.reason ?? null }, parentAcceptance: { accepted: false, status: "not_accepted", assertionsProven: [], obligations }, runtimeResult, effectiveConfiguration: config, snapshot: { ...(sourceBinding?{sourceTargetId:sourceBinding.targetId,workspaceRoot:sourceBinding.workspaceRoot,snapshotTargetId:snapshotBinding?.targetId,executionRoot:workspace}:{}), schema: manifest.schema, sourceRevision: manifest.sourceRevision, sourceStateHash: manifest.sourceStateHash, manifestPath, originalRevisionUnchanged: unchanged }, tracePath: join(artifactDir, "trace.jsonl") };
-					return { content: [{ type: "text", text: `${result.banner}\nFlow acceptance is separate; parent task remains not accepted and no assertion was promoted.\nTrace: ${details.tracePath}` }], details };
+					const repository = selected ? relative(realpathSync(workspaceCwd), selected.executionRoot).split(sep).join("/") : undefined;
+					if (repository) Object.assign(details.snapshot, { repository });
+					return { content: [{ type: "text", text: `${result.banner}\n${repository ? `Scouted nested repository ${repository}; paths in this result are relative to it.\n` : ""}Flow acceptance is separate; parent task remains not accepted and no assertion was promoted.\nTrace: ${details.tracePath}` }], details };
 				} catch (error) {
 					return failure(executionStarted ? "result-failed" : "setup-failed", error, budgetCharged, executionStarted, runId ? { runId } : {});
 				} finally {

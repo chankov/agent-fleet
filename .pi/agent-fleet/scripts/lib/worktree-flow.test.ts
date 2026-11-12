@@ -40,3 +40,22 @@ test('targeted trace accepts a physical workspace alias but refuses an alias esc
   });
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+// Plan 7.5 (D9): a workspace whose root is a plain folder holding repositories, like rankedin.
+test('a flow at a non-Git workspace root runs only inside the nested repository --worktree selects',{timeout:90000},async()=>{
+ const root=mkdtempSync(join(tmpdir(),'fleet-nested-flow-'));const git=(cwd:string,...args:string[])=>execFileSync('git',['-C',cwd,...args],{env:sessionGitEnv(),stdio:'pipe'}).toString().trim();
+ const cli=(...args:string[])=>spawnSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(source,'.pi/agent-fleet/scripts/flow.ts'),...args],{cwd:root,encoding:'utf8',env:{...process.env,AF_SESSION_ROOTS:undefined,AF_TARGET_BASE_PROJECT:undefined,AF_TARGET_EFFECTIVE_PROJECT:undefined,PI_OFFLINE:'1'},timeout:20000});
+ try{
+  for(const name of ['rin-docs','ringithub']){const repo=join(root,name);mkdirSync(repo);git(repo,'init','-q');writeFileSync(join(repo,'marker'),name);git(repo,'add','.');git(repo,'-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','-qm','initial');}
+  mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai/agent-fleet-overrides.md'),`## workflows\nquality: ${process.execPath} -e "console.log('workspace '+process.cwd())"\nquality.ringithub: ${process.execPath} -e "console.log('ringithub '+process.cwd())"\n`);
+  const unselected=cli('quality','--allow-dirty','--run-id','unselected');assert.equal(unselected.status,3,unselected.stderr);assert.match(unselected.stderr,/workspace root is not a Git repository[\s\S]*--worktree <path>/);assert.equal(existsSync(join(root,'.pi/flow-sessions')),false);
+  const listing=cli('cleanup');assert.equal(listing.status,3,listing.stderr);assert.match(listing.stderr,/Flow cleanup refused: the workspace root is not a Git repository[\s\S]*just flow cleanup --worktree <repository>/);
+  const ran=cli('quality','--worktree','ringithub','--branch','--run-id','nested-quality');assert.equal(ran.status,0,ran.stderr);assert.match(ran.stdout+ran.stderr,/FLOW ACCEPTED/);
+  const ringithub=resolveSessionRoots(root,{worktree:'ringithub'});const trace=join(root,'.pi/flow-sessions/targets',ringithub.targetId,'nested-quality');
+  assert.match(readFileSync(join(trace,'command.log'),'utf8'),new RegExp(`ringithub ${join(root,'ringithub').replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\n`),'the repository key runs inside the selected repository');
+  assert.equal(git(join(root,'ringithub'),'branch','--show-current'),'flow/quality-nested-quality');assert.equal(git(join(root,'ringithub'),'status','--porcelain'),'');
+  assert.notEqual(git(join(root,'rin-docs'),'branch','--show-current'),'flow/quality-nested-quality','the other nested repository is untouched');
+  const listed=cli('cleanup','--worktree','ringithub');assert.equal(listed.status,0,listed.stderr);assert.match(listed.stdout,/flow\/quality-nested-quality/);
+  const docs=cli('cleanup','--worktree','rin-docs');assert.equal(docs.status,0,docs.stderr);assert.match(docs.stdout,/No local flow\/\* branches found/);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

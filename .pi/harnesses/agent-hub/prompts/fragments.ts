@@ -57,7 +57,7 @@ function nestedWorkspaceLine(repositories: readonly string[] | undefined): strin
 	if (!repositories?.length) return "";
 	const shown = repositories.slice(0, 6).join(", ");
 	const more = repositories.length > 6 ? ` (+${repositories.length - 6} more)` : "";
-	return `\n- workspace: the root is not a Git repository; this task uses nested repositories ${shown}${more}. Declare exact paths inside one of them; \`run_flow\` cannot run at this root.`;
+	return `\n- workspace: the root is not a Git repository; this task uses nested repositories ${shown}${more}. Declare exact paths inside one of them; \`run_flow\` takes \`repo:\` naming one.`;
 }
 
 export const TASK_TRIAGE_FRAGMENT = `## Task triage (before dispatch)

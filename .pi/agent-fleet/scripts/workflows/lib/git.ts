@@ -28,6 +28,15 @@ function asStartRefusal(action: () => string): string {
 	catch (error) { throw new StartRefusedError(error instanceof Error ? error.message : String(error)); }
 }
 
+/** A plain folder holding nested repositories has no tree of its own to branch, commit or snapshot. */
+export function insideRepository(cwd = process.cwd()): boolean {
+	return optionalGit(cwd, ["rev-parse", "--is-inside-work-tree"]) === "true";
+}
+
+export function requireRepository(cwd = process.cwd()): void {
+	if (!insideRepository(cwd)) throw new StartRefusedError("Flow start refused: the workspace root is not a Git repository. Select the nested repository the flow works in with --worktree <path>, for example `just flow --worktree <repository> <flow> ...`.");
+}
+
 export function isClean(cwd = process.cwd()): boolean {
 	return asStartRefusal(() => git(cwd, ["status", "--porcelain", "--untracked-files=all"])) === "";
 }

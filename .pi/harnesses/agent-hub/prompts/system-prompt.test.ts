@@ -281,7 +281,7 @@ test("the state capsule names the nested repositories a task uses, and only in s
  const line = nested.split("\n").find(text => text.includes("root is not a Git repository")) ?? "";
  assert.match(line, /nested repositories rin-docs, ringithub/);
  assert.match(line, /exact paths inside one of them/);
- assert.match(line, /`run_flow` cannot run at this root/);
+ assert.match(line, /`run_flow` takes `repo:` naming one/);
  ctx.getPromptState = () => ({ ...state, nestedRepositories: Array.from({ length: 12 }, (_, i) => `repository-with-a-long-name-${i}`) });
  const many = buildHubSystemPrompt(ctx).systemPrompt.split("\n").find(text => text.includes("root is not a Git repository")) ?? "";
  assert.ok(many.length <= 360, `the line stays bounded (${many.length} chars)`);

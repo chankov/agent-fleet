@@ -120,3 +120,57 @@ test("snapshot cleanup covers failed setup and budget refusal, and reports remov
   } finally { if (retained) rmSync(retained, { recursive: true, force: true }); }
  } finally { rmSync(root, { recursive: true, force: true }); rmSync(session, { recursive: true, force: true }); }
 });
+
+/** A workspace like rankedin: a plain folder holding the repositories `rin-docs` and `ringithub`. */
+function nestedWorkspace(): string {
+	const root = mkdtempSync(join(tmpdir(), "af-run-flow-nested-"));
+	for (const name of ["rin-docs", "ringithub"]) {
+		const repo = join(root, name); mkdirSync(repo); writeFileSync(join(repo, "README.md"), `${name} baseline\n`);
+		execFileSync("git", ["init", "-q"], { cwd: repo }); execFileSync("git", ["add", "."], { cwd: repo });
+		execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], { cwd: repo });
+	}
+	// Fleet resources live at the workspace root, never inside a nested repository.
+	mkdirSync(join(root, ".pi/agents/personas"), { recursive: true });
+	writeFileSync(join(root, ".pi/damage-control-rules.yaml"), JSON.stringify({ bashToolPatterns: [], zeroAccessPaths: [], readOnlyPaths: [], noDeletePaths: [] }));
+	writeFileSync(join(root, ".pi/agents/personas/researcher.md"), "---\nname: researcher\ndescription: read only\ntools: read,grep,find,ls\nmodel: test/model\n---\nScout.\n");
+	return root;
+}
+
+test("plan 7.5: at a non-Git root, run_flow scouts a snapshot of the one nested repository named by repo", async () => {
+	const root = nestedWorkspace(); let charges = 0, configCwd = "", childCwd = "";
+	try {
+		writeFileSync(join(root, "ringithub", "README.md"), "dirty ringithub\n");
+		const { definition } = harness({ sessionDir: () => join(root, ".pi/agent-sessions/sessions/hub"), taskId: () => "nested-task", processObligations: () => ({ open: [] }), nestedRepositories: () => ["rin-docs", "ringithub"],
+			reserveBudget: async () => { charges++; return { charged: true, operation: "research", owner: "hub" }; },
+			effectiveScoutConfig: (cwd: string) => { configCwd = cwd; return { model: "test/model", profile: null, tools: ["read"], fallback: null, allowlisted: true }; },
+			scoutAgent: async (options: any) => { childCwd = options.cwd; const roots = sessionRootsFromEnv()!; assert.equal(roots.workspaceRoot, root); assert.equal(roots.executionRoot, options.cwd); assert.equal(readFileSync(join(options.cwd, "README.md"), "utf8"), "dirty ringithub\n"); assert.equal(existsSync(join(options.cwd, "rin-docs")), false); assert.ok(options.run.trace.directory.startsWith(`${root}/.pi/`)); return report; } });
+		const ctx = { cwd: root } as any, signal = new AbortController().signal;
+		const missing = await definition.execute("missing", { procedure: "scout", request: "Where is the API?", invocation_id: "nested-missing" }, signal, () => {}, ctx);
+		assert.equal(missing.details.status, "target-refused"); assert.equal(missing.details.budgetCharged, false);
+		assert.match(missing.content[0].text, /not a Git repository; pass repo: with the nested repository to scout \(this task uses rin-docs, ringithub\)/);
+		for (const repo of ["../outside", "/etc", "missing", "rin-docs,ringithub", "."]) {
+			const refused = await definition.execute("bad", { procedure: "scout", request: "Where is the API?", invocation_id: `nested-bad-${charges}-${repo.length}`, repo }, signal, () => {}, ctx);
+			assert.equal(refused.details.status, "target-refused", repo); assert.equal(refused.details.budgetCharged, false, repo);
+		}
+		assert.equal(charges, 0);
+		const result = await definition.execute("scout", { procedure: "scout", request: "Where is the API?", invocation_id: "nested-scout-1", repo: "ringithub/" }, signal, () => {}, ctx);
+		assert.equal(result.details.flowAcceptance.accepted, true, JSON.stringify(result)); assert.equal(result.details.parentAcceptance.accepted, false);
+		assert.equal(result.details.snapshot.repository, "ringithub"); assert.equal(result.details.snapshot.workspaceRoot, root);
+		assert.match(result.content[0].text, /Scouted nested repository ringithub; paths in this result are relative to it\./);
+		assert.equal(configCwd, root, "scout configuration comes from the workspace root"); assert.equal(charges, 1); assert.equal(existsSync(childCwd), false);
+		const other = await definition.execute("other", { procedure: "scout", request: "Where is the API?", invocation_id: "nested-scout-1", repo: "rin-docs" }, signal, () => {}, ctx);
+		assert.equal(other.details.status, "stale-duplicate", "one invocation is bound to one repository");
+		assert.equal(readFileSync(join(root, "ringithub", "README.md"), "utf8"), "dirty ringithub\n");
+		assert.doesNotMatch(execFileSync("git", ["branch", "--list"], { cwd: join(root, "ringithub"), encoding: "utf8" }), /flow\//);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("plan 7.5: repo is refused where the workspace root is itself a repository", async () => {
+	const root = repo(); let charges = 0;
+	try {
+		mkdirSync(join(root, "nested")); execFileSync("git", ["init", "-q"], { cwd: join(root, "nested") });
+		const { definition } = harness({ sessionDir: () => join(root, ".pi/agent-sessions/sessions/hub"), taskId: () => "root-task", processObligations: () => ({ open: [] }), reserveBudget: async () => { charges++; return { charged: true, operation: "research", owner: "hub" }; }, effectiveScoutConfig: () => ({ model: "test/model", profile: null, tools: ["read"], fallback: null, allowlisted: true }), scoutAgent: async () => report });
+		const refused = await definition.execute("root", { procedure: "scout", request: "Locate README", invocation_id: "root-repo-1", repo: "nested" }, new AbortController().signal, () => {}, { cwd: root } as any);
+		assert.equal(refused.details.status, "target-refused"); assert.match(refused.content[0].text, /repo applies only when the workspace root is not a Git repository/); assert.equal(charges, 0);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});

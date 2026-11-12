@@ -1170,6 +1170,7 @@ export default function (pi: ExtensionAPI) {
 		sessionDir: () => sessionDir,
 		taskId: () => noProgress.taskId(),
 		processObligations: () => evaluateProcessObligations(processState, { writable: false, budgetTier: taskTier ?? DEFAULT_TASK_TIER }),
+		nestedRepositories: () => nestedRepositoriesInUse(processState),
 		effectiveScoutConfig: cwd => {
 			const persona = resolveFlowPersona("researcher", cwd);
 			const model = persona.model!;

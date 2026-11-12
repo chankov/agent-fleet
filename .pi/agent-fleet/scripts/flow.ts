@@ -9,7 +9,7 @@ import {loadSystem1Snapshot} from '../../harnesses/lib/system1/config-loader.js'
 import { parseFlowCommand, parseFlowMaintenanceCommand, type FlowCommand } from "./lib/flow-command.ts";
 import { runFlowMaintenance } from "./lib/flow-maintenance.ts";
 import { loadEnv } from "./workflows/lib/env.ts";
-import { createFlowBranch, recordFlowResult, requireCleanTree, StartRefusedError } from "./workflows/lib/git.ts";
+import { createFlowBranch, recordFlowResult, requireCleanTree, requireRepository, StartRefusedError } from "./workflows/lib/git.ts";
 import { snapshot } from "./workflows/lib/permissions.ts";
 import { Run, type FinishResult } from "./workflows/lib/run.ts";
 import { buildTestWorkflow, buildTestWorkflowPreflight } from "./workflows/wf-build-test.ts";
@@ -89,7 +89,7 @@ export async function executeFlow(command: FlowCommand, options: { cwd?: string;
 	// CLI keeps its clean-tree guard, but creates a branch only on explicit request.
 	// Hub scout runs only in a detached
 	// isolated snapshot and never creates or annotates a branch.
-	if (!options.hubScout) requireCleanTree(cwd, command.allowDirty);
+	if (!options.hubScout) { requireRepository(cwd); requireCleanTree(cwd, command.allowDirty); }
 	workflow.preflight?.(cwd, command);
 	const runId = command.runId ?? makeRunId();
 	const repositoryBaseline = snapshot(cwd);

@@ -1,7 +1,7 @@
 import {workspaceRoot,sessionRootsFromEnv,sessionGitEnv} from "../../../../harnesses/lib/workspace-context.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Run } from "./run.ts";
 
 export interface QualityResult { argv: string[]; exitCode: number; stdout: string; stderr: string; logPath: string; passed: boolean }
@@ -12,18 +12,31 @@ function splitArgv(value: string): string[] {
 	return matches.map(part => part.replace(/^("|')|("|')$/g, ""));
 }
 
+/** A flow selected into a repository nested in the workspace names it by its path from the workspace root. */
+function nestedRepositoryKey(): string | undefined {
+	const roots = sessionRootsFromEnv();
+	if (roots?.mode !== "targeted") return undefined;
+	const key = relative(roots.workspaceRoot, roots.repositoryRoot ?? roots.executionRoot);
+	return key && key !== ".." && !key.startsWith(`..${sep}`) && !isAbsolute(key) ? key.split(sep).join("/") : undefined;
+}
+function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
 export function qualityCommand(cwd = process.cwd()): string[] {
+	const repository = nestedRepositoryKey();
+	const keys = repository ? `\`quality.${repository}:\` or \`quality:\`` : "`quality:`";
 	const override = resolve(workspaceRoot(cwd), ".ai", "agent-fleet-overrides.md");
-	if (!existsSync(override)) throw Object.assign(new Error("Flow start refused: configure `quality:` under `## workflows` in .ai/agent-fleet-overrides.md."), { exitCode: 3 });
+	if (!existsSync(override)) throw Object.assign(new Error(`Flow start refused: configure ${keys} under \`## workflows\` in .ai/agent-fleet-overrides.md.`), { exitCode: 3 });
 	const text = readFileSync(override, "utf8");
 	const heading = text.match(/^## workflows\s*$/m);
 	const sectionStart = heading == null ? -1 : heading.index! + heading[0].length;
 	const tail = sectionStart < 0 ? "" : text.slice(sectionStart);
 	const nextHeading = tail.search(/^##\s/m);
 	const section = nextHeading < 0 ? tail : tail.slice(0, nextHeading);
-	const configured = section.match(/^quality\s*:\s*(.+)$/m)?.[1]?.trim();
+	// A nested repository's own command wins over the workspace-wide one.
+	const configured = (repository ? section.match(new RegExp(`^quality\\.${escapeRegExp(repository)}\\s*:\\s*(.+)$`, "m"))?.[1]?.trim() : undefined)
+		?? section.match(/^quality\s*:\s*(.+)$/m)?.[1]?.trim();
 	const argv = configured ? splitArgv(configured) : [];
-	if (!argv.length) throw Object.assign(new Error("Flow start refused: configure a non-empty `quality:` argv under `## workflows` in .ai/agent-fleet-overrides.md."), { exitCode: 3 });
+	if (!argv.length) throw Object.assign(new Error(`Flow start refused: configure a non-empty ${keys} argv under \`## workflows\` in .ai/agent-fleet-overrides.md.`), { exitCode: 3 });
 	return argv;
 }
 

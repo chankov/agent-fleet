@@ -2,8 +2,32 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { resolveSessionRoots, sessionGitEnv, withSessionRoots } from "../../../../harnesses/lib/workspace-context.ts";
 import { asEnvelope, executeQuality, qualityCommand } from "./quality.ts";
+
+test("a flow selected into a nested repository prefers that repository's quality key", () => {
+	const workspace = mkdtempSync(join(tmpdir(), "flow-quality-nested-"));
+	const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, ...args], { env: sessionGitEnv(), stdio: "pipe" });
+	try {
+		for (const name of ["rin-docs", "ringithub"]) {
+			mkdirSync(join(workspace, name)); git(join(workspace, name), "init", "-q");
+			writeFileSync(join(workspace, name, "marker"), name); git(join(workspace, name), "add", ".");
+			git(join(workspace, name), "-c", "user.name=F", "-c", "user.email=f@example.test", "-c", "commit.gpgsign=false", "commit", "-qm", "init");
+		}
+		mkdirSync(join(workspace, ".ai"));
+		const overrides = join(workspace, ".ai", "agent-fleet-overrides.md");
+		const ringithub = resolveSessionRoots(workspace, { worktree: "ringithub" }), docs = resolveSessionRoots(workspace, { worktree: "rin-docs" });
+		writeFileSync(overrides, "## workflows\nquality: npm test\nquality.ringithub: dotnet test 'UnitTests/All Tests.sln'\n");
+		assert.deepEqual(withSessionRoots(ringithub, () => qualityCommand(ringithub.executionRoot)), ["dotnet", "test", "UnitTests/All Tests.sln"]);
+		assert.deepEqual(withSessionRoots(docs, () => qualityCommand(docs.executionRoot)), ["npm", "test"], "a repository without its own key falls back to quality:");
+		assert.deepEqual(qualityCommand(workspace), ["npm", "test"], "an unselected flow never reads a repository key");
+		writeFileSync(overrides, "## workflows\nquality.ringithub: dotnet test\n");
+		assert.throws(() => withSessionRoots(docs, () => qualityCommand(docs.executionRoot)), (error: any) => error.exitCode === 3 && error.message.includes("`quality.rin-docs:` or `quality:`"));
+		assert.throws(() => qualityCommand(workspace), (error: any) => error.exitCode === 3 && !error.message.includes("quality.") && error.message.includes("`quality:`"));
+	} finally { rmSync(workspace, { recursive: true, force: true }); }
+});
 
 test("quality command reads the final workflows section and never substitutes npm test", () => {
 	const cwd = mkdtempSync(join(tmpdir(), "flow-quality-config-"));
