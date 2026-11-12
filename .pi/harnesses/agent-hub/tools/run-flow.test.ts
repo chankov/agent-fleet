@@ -148,7 +148,7 @@ test("plan 7.5: at a non-Git root, run_flow scouts a snapshot of the one nested 
 		const missing = await definition.execute("missing", { procedure: "scout", request: "Where is the API?", invocation_id: "nested-missing" }, signal, () => {}, ctx);
 		assert.equal(missing.details.status, "target-refused"); assert.equal(missing.details.budgetCharged, false);
 		assert.match(missing.content[0].text, /not a Git repository; pass repo: with the nested repository to scout \(this task uses rin-docs, ringithub\)/);
-		for (const repo of ["../outside", "/etc", "missing", "rin-docs,ringithub", "."]) {
+		for (const repo of ["../outside", "/etc", "missing", "rin-docs,ringithub", ".", "", "r".repeat(513)]) {
 			const refused = await definition.execute("bad", { procedure: "scout", request: "Where is the API?", invocation_id: `nested-bad-${charges}-${repo.length}`, repo }, signal, () => {}, ctx);
 			assert.equal(refused.details.status, "target-refused", repo); assert.equal(refused.details.budgetCharged, false, repo);
 		}

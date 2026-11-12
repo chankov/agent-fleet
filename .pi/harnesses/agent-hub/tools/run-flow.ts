@@ -40,6 +40,7 @@ function nestedTarget(roots: SessionRoots | undefined, cwd: string, repo: string
 	}
 	if (roots?.mode === "targeted") return { refusal: "repo is unavailable in a session already bound to a target checkout." };
 	if (insideRepository(cwd)) return { refusal: "repo applies only when the workspace root is not a Git repository." };
+	if (repo.length > 512) return { refusal: "repo must be at most 512 characters." };
 	const path = repo.trim().replaceAll("\\", "/").replace(/\/+$/, "");
 	if (!path || isAbsolute(path) || path.split("/").includes("..")) return { refusal: `repo must be a path inside the workspace: ${JSON.stringify(repo)}` };
 	let binding: SessionRoots;
@@ -66,12 +67,14 @@ export function registerRunFlow(pi: ExtensionAPI, deps: RunFlowDeps): void {
  let sessionEpoch=0;
 	pi.on("session_shutdown", () => {sessionEpoch++;for (const run of runs.values()) run.controller.abort("session shutdown");runs.clear();activeId=null;});
 	pi.registerTool({
-		name: "run_flow", label: "Run Flow", description: "Run the read-only scout workflow in an isolated no-branch snapshot. Initial T13 surface; writable flows are unavailable. When the workspace root is not a Git repository, name the nested repository with repo.",
+		name: "run_flow", label: "Run Flow", description: "Run the read-only scout workflow in an isolated no-branch snapshot; writable flows are unavailable.",
 		parameters: Type.Object({
 			procedure: Type.Literal("scout"),
 			request: Type.String({ minLength: 1, description: "Exact read-only reconnaissance question." }),
 			invocation_id: Type.String({ minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]+$", description: "Stable idempotency key; duplicates return the existing run." }),
-			repo: Type.Optional(Type.String({ minLength: 1, maxLength: 512, description: "Only when the workspace root is not a Git repository: the one nested repository to scout, as its path from the workspace root (for example `ringithub`)." })),
+			// Every workspace pays for this schema, so `repo` stays bare: the nested-workspace capsule
+			// line and the no-charge refusal at a non-Git root say when and how to pass it.
+			repo: Type.Optional(Type.String()),
 		}, { additionalProperties: false }),
 		execute(_toolCallId, raw, signal, onUpdate, ctx) {
 			const params = raw as RunFlowParams;

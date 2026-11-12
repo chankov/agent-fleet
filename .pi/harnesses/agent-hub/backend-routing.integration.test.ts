@@ -23,8 +23,8 @@ test("wiring contract: dispatch_agent exposes the explicit backend enum", () => 
 });
 
 test("wiring contract: requested backend and current task contract reach initial and resumed dispatches", () => {
-	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, dispatchedTask, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", false, p\.resumeContract\)/);
-	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, resume, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", true, p\.resumeContract\)/);
+	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, dispatchedTask, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", false, p\.resumeContract, p\.revisionScopes\)/);
+	assert.match(dispatchExecutionSource, /dispatchAgent\(p\.agent, resume, ctx, p\.inputArtifacts, p\.scopeGlobs, params\.watchdog, params\.backend \?\? "auto", true, p\.resumeContract, p\.revisionScopes\)/);
 });
 
 test("confirmation-required stage production routes natively with a restricted child tool surface", () => {
