@@ -1,15 +1,10 @@
-import {createRequire} from 'node:module';
 import {createConnection} from 'node:net';
 import {lstatSync,realpathSync,readlinkSync} from 'node:fs';
 import {dirname,isAbsolute,resolve} from 'node:path';
-import type {EventEmitter} from 'node:events';
 import {randomUUID} from 'node:crypto';
-import {CodexDaemonObserver} from './codex-daemon-observer.ts';
+import {CodexDaemonObserver,webSocket,type WsConnection} from './codex-daemon-observer.ts';
 import {compareCodexVersions,codexDaemonVersionFromUserAgent} from '../../../harnesses/lib/codex-compat.ts';
 
-interface WsConnection extends EventEmitter {send(data:string):void;terminate():void;}
-const require=createRequire(import.meta.url);
-const WebSocket=require('ws') as new(url:string,options:Record<string,unknown>)=>WsConnection;
 export type QueueMethod='thread/read'|'thread/loaded/list'|'thread/queue/list'|'thread/queue/add';
 export class QueueRpcError extends Error {
  readonly code:string;readonly attempted:boolean;
@@ -66,7 +61,7 @@ export class CodexUnixQueueRpc {
    const abort=()=>finish('CANCELLED');
    options.signal?.addEventListener('abort',abort,{once:true});
    try{
-    ws=new WebSocket('ws+unix://'+endpoint.path+':/',{createConnection:()=>createConnection(endpoint.path),maxPayload:32768,perMessageDeflate:false,followRedirects:false,handshakeTimeout:this.timeout});
+    ws=new (webSocket())('ws+unix://'+endpoint.path+':/',{createConnection:()=>createConnection(endpoint.path),maxPayload:32768,perMessageDeflate:false,followRedirects:false,handshakeTimeout:this.timeout});
     timer=setTimeout(()=>finish('TIMEOUT'),this.timeout);
     ws.on('open',()=>{
      try{const error=pinError();if(error){finish(error);return;}if(this.endpoint().epoch!==endpoint.epoch||options.signal?.aborted){finish('SOCKET_CHANGED');return;}

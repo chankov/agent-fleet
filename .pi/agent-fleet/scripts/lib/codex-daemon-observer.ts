@@ -6,9 +6,13 @@ import {createHash,randomUUID} from 'node:crypto';
 import type {EventEmitter} from 'node:events';
 import type {DaemonObservationRpc} from './codex-measurement.ts';
 
-interface WsConnection extends EventEmitter {send(data:string):void;terminate():void;}
+export interface WsConnection extends EventEmitter {send(data:string):void;terminate():void;}
 const require=createRequire(import.meta.url);
-const WebSocket=require('ws') as new(url:string,options:Record<string,unknown>)=>WsConnection;
+type WsConstructor=new(url:string,options:Record<string,unknown>)=>WsConnection;
+// Resolved on the first connection, not at import: the Hub imports this module at
+// startup, and a workspace without `ws` must still load the Hub.
+let WebSocket:WsConstructor|undefined;
+export const webSocket=():WsConstructor=>WebSocket??=require('ws') as WsConstructor;
 export class CodexObserverError extends Error {
  readonly code:string;
  constructor(code:string){super(code);this.code=code;}
@@ -93,7 +97,7 @@ export class CodexDaemonObserver implements DaemonObservationRpc {
    timer=setTimeout(()=>{if(closing)errorCode??='TIMEOUT';else finish('TIMEOUT');},Math.max(0,expires-performance.now()));
    try{
     if(!current())return;
-    ws=new WebSocket('ws+unix://'+endpoint.path+':/',{
+    ws=new (webSocket())('ws+unix://'+endpoint.path+':/',{
      createConnection:()=>{
       if(closing)throw new CodexObserverError(errorCode??'CANCELLED');
       const before=live();if(before)throw new CodexObserverError(before);
