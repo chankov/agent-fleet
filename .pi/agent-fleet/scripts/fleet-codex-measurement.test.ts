@@ -124,7 +124,8 @@ if(kind==='version'){
 }
 `;
  writeFileSync(binary, program, {mode: 0o700});
- return {root, binary, log, external, records: () => existsSync(log) ? readFileSync(log,'utf8').trim().split('\n').map(line => JSON.parse(line)) : [], cleanup: () => rmSync(root, {recursive: true, force: true})};
+ // The fixture appends while the test polls: a just-created log is briefly empty.
+ return {root, binary, log, external, records: () => existsSync(log) ? readFileSync(log,'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [], cleanup: () => rmSync(root, {recursive: true, force: true})};
 }
 function removed(records: any[]) { for (const row of records) assert.equal(existsSync(row.cwd), false, 'owned export sandbox must be removed'); }
 
