@@ -1,11 +1,13 @@
 import {createHash} from 'node:crypto';
+import {QueueRpcError} from './codex-unix-queue-rpc.ts';
 import {decodeQuestionReference,withinFleetReferenceLimit} from '../../../harnesses/lib/fleet-question-reference.ts';
 import {InstructionLedger,targetKey,validInstructionTarget} from './fleet-codex-instruction-store.ts';
 import type {ConversationKey,TargetEpoch} from './fleet-codex-allowlist.ts';
 import type {AddressedFleetEvent,CodexEventBinding,CodexEventHost,EventDelivery} from '../../../harnesses/lib/fleet-codex-event-bridge.ts';
 import type {CodexUnixQueueRpc} from './codex-unix-queue-rpc.ts';
 export {desktopQueuePin,matchesDesktopQueueTuple,type DesktopQueueApproval} from '../../../harnesses/lib/fleet-notification-validation.ts';
-import {matchesDesktopQueueTuple,type DesktopQueueApproval} from '../../../harnesses/lib/fleet-notification-validation.ts';
+import {matchesDesktopQueueTuple,type NotificationQueueApproval} from '../../../harnesses/lib/fleet-notification-validation.ts';
+import {bootstrapAdmissionCurrent,revokeBootstrapAdmission,type BootstrapAdmission,type BootstrapCompatibility} from '../../../harnesses/lib/fleet-notification-admission.ts';
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const sha=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const same=(a:unknown,b:unknown)=>sha(a)===sha(b);
@@ -16,13 +18,17 @@ const same=(a:unknown,b:unknown)=>sha(a)===sha(b);
 export class CodexDesktopQueueHost implements CodexEventHost {
  private readonly wire:Pick<CodexUnixQueueRpc,'request'>;
  private readonly ledger:InstructionLedger;
- private readonly approval:()=>DesktopQueueApproval|null;
- constructor(options:{rpc:Pick<CodexUnixQueueRpc,'request'>;stateRoot:string;currentApproval:()=>DesktopQueueApproval|null}){
-  this.wire=options.rpc;this.ledger=new InstructionLedger(options.stateRoot+'.desktop-events');this.approval=options.currentApproval;
+ private readonly approval:()=>NotificationQueueApproval|null;
+ private readonly bootstrap?:{admission:BootstrapAdmission;compat:BootstrapCompatibility};private readonly stateRoot:string;private readonly onContextInvalid?:()=>void;
+ constructor(options:{rpc:Pick<CodexUnixQueueRpc,'request'>;stateRoot:string;currentApproval:()=>NotificationQueueApproval|null;bootstrap?:{admission:BootstrapAdmission;compat:BootstrapCompatibility};onContextInvalid?:()=>void}){
+  this.wire=options.rpc;this.ledger=new InstructionLedger(options.stateRoot+'.desktop-events');this.approval=options.currentApproval;this.stateRoot=options.stateRoot;this.onContextInvalid=options.onContextInvalid;
+  if(options.bootstrap)this.bootstrap={admission:options.bootstrap.admission,compat:structuredClone(options.bootstrap.compat)};
  }
- private approved(binding:CodexEventBinding):DesktopQueueApproval|null{
+ private contextError(error:unknown){if(this.bootstrap&&error instanceof QueueRpcError&&['VERSION_CHANGED','SOCKET_CHANGED'].includes(error.code)){revokeBootstrapAdmission(this.bootstrap.admission);try{this.onContextInvalid?.();}catch{}}}
+ private pin(){return this.bootstrap?{pin:{daemonVersion:this.bootstrap.compat.daemonVersion,socketEpoch:this.bootstrap.compat.socketEpoch}}:{};}
+ private approved(binding:CodexEventBinding):NotificationQueueApproval|null{
   const a=this.approval();
-  if(!a||!same(a.binding,binding)||!uuid.test(binding.threadId)||!validInstructionTarget(a.target)||targetKey(a.target)!==binding.fleetOwner||!Number.isSafeInteger(a.authorityRevision)||a.authorityRevision<1||!Number.isSafeInteger(a.confirmedUntil)||a.confirmedUntil<=Date.now()||a.transportOrigin!=='user_input'||a.mappingEvidence!=='externally_confirmed_loaded_desktop'||!matchesDesktopQueueTuple(a))return null;
+  if(!a||!same(a.binding,binding)||!uuid.test(binding.threadId)||!validInstructionTarget(a.target)||targetKey(a.target)!==binding.fleetOwner||!Number.isSafeInteger(a.authorityRevision)||a.authorityRevision<1||!Number.isSafeInteger(a.confirmedUntil)||a.confirmedUntil<=Date.now()||a.transportOrigin!=='user_input'||!(this.bootstrap?a.mappingEvidence==='validated_native_host_context_and_read_only_probe'&&bootstrapAdmissionCurrent(this.bootstrap.admission,{approval:a,compat:this.bootstrap.compat,stateRoot:this.stateRoot}):a.mappingEvidence==='externally_confirmed_loaded_desktop'&&matchesDesktopQueueTuple(a)))return null;
   return structuredClone(a);
  }
  private context(binding:CodexEventBinding):ConversationKey{return {hostProfile:binding.hostInstance,principal:'fleet-event-queue',threadId:binding.threadId};}
@@ -30,11 +36,11 @@ export class CodexDesktopQueueHost implements CodexEventHost {
   if(signal.aborted||!this.approved(binding))return false;
   try{
    // Metadata read only; notLoaded on daemon is EXPECTED, never resume to fake wake.
-   const result:any=await this.wire.request('thread/read',{threadId:binding.threadId,includeTurns:false},{signal});
+   const result:any=await this.wire.request('thread/read',{threadId:binding.threadId,includeTurns:false},{signal,...this.pin(),...(this.bootstrap?{beforeWrite:()=>{if(!this.approved(binding))throw Error('bootstrap_context_changed');}}:{})});
    return !signal.aborted&&!!this.approved(binding)&&result?.thread?.id===binding.threadId&&result?.thread?.status?.type==='notLoaded';
-  }catch{return false;}
+  }catch(error){this.contextError(error);return false;}
  }
- private packet(binding:CodexEventBinding,event:AddressedFleetEvent,approval:DesktopQueueApproval){
+ private packet(binding:CodexEventBinding,event:AddressedFleetEvent,approval:NotificationQueueApproval){
   if(event.bindingId!==binding.id||event.bindingEpoch!==binding.epoch||event.fleetOwner!==binding.fleetOwner||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/.test(event.id)||!['message','question','permission'].includes(event.kind)||!withinFleetReferenceLimit(event.kind,event.reference)||!Number.isSafeInteger(event.createdAt)||!Number.isSafeInteger(event.deadline)||event.createdAt>event.deadline)throw Error('invalid_event');
   const probe=event.kind==='message'&&event.reference==='fleet:probe/'+event.id;
   if(!probe){
@@ -69,7 +75,7 @@ export class CodexDesktopQueueHost implements CodexEventHost {
   try{reserved=this.ledger.reserve(context,{requestId:event.id,target:approval.target,digest},{alias:binding.id,policyRevision:approval.authorityRevision});}catch{return {status:'unknown'};}
   if(!reserved.created)return {status:'unknown'};
   try{
-   const result:any=await this.wire.request('thread/queue/add',{threadId:binding.threadId,clientUserMessageId,input:[{type:'text',text,text_elements:[]}]},{signal,beforeWrite:()=>{
+   const result:any=await this.wire.request('thread/queue/add',{threadId:binding.threadId,clientUserMessageId,input:[{type:'text',text,text_elements:[]}]},{signal,...this.pin(),beforeWrite:()=>{
     if(signal.aborted||event.deadline<=Date.now()||!same(this.approved(binding),approval))throw Error('stale_before_write');
     this.ledger.markAttempt(context,event.id);
    }});
@@ -79,7 +85,8 @@ export class CodexDesktopQueueHost implements CodexEventHost {
    this.ledger.record(context,event.id,{state:'result',detail:'queue_ack_not_model_delivery',result:JSON.stringify(receipt),truncated:false});
    // A stale binding never inherits a late ACK. Durable history still records exactly what happened.
    return signal.aborted||event.deadline<=Date.now()||!same(this.approved(binding),approval)?{status:'unknown'}:receipt;
-  }catch{
+  }catch(error){
+   this.contextError(error);
    try{const r=this.ledger.lookup(context,event.id)!;this.ledger.record(context,event.id,{state:r.attempted?'unknown':'not_sent',detail:'queue_attempt_uncertain_no_replay',result:null,truncated:false});}catch{}
    return {status:'unknown'};
   }
@@ -93,13 +100,13 @@ export class CodexDesktopQueueHost implements CodexEventHost {
   const matches:any[]=[];let cursor:string|null=null;
   for(let page=0;page<4;page++){
    let result:any;
-   try{result=await this.wire.request('thread/queue/list',{threadId:binding.threadId,limit:100,cursor},{signal});}catch{return {status:'unknown',reason:'queue_read_unavailable',remote:'not_replayed'};}
+   try{result=await this.wire.request('thread/queue/list',{threadId:binding.threadId,limit:100,cursor},{signal,...this.pin(),...(this.bootstrap?{beforeWrite:()=>{if(!this.approved(binding))throw Error('bootstrap_context_changed');}}:{})});}catch(error){this.contextError(error);return {status:'unknown',reason:'queue_read_unavailable',remote:'not_replayed'};}
    if(!Array.isArray(result?.data))return {status:'unknown'};
    for(const item of result.data)if(item.clientUserMessageId===clientUserMessageId)matches.push(item);
    cursor=result.nextCursor??null;if(cursor===null)break;if(typeof cursor!=='string'||page===3)return {status:'unknown',reason:'incomplete_queue_read'};
   }
   if(!same(this.approved(binding),approval))return {status:'stale'};
-  if(matches.length===1&&matches[0].input?.length===1&&matches[0].input[0]?.text===text)return {status:'observed_in_queue',submissionId:matches[0].id,modelDelivery:'not_established',remote:'not_replayed'};
+  if(matches.length===1&&Array.isArray(matches[0].input)&&matches[0].input.length===1&&matches[0].input[0]?.type==='text'&&matches[0].input[0]?.text===text)return {status:'observed_in_queue',submissionId:matches[0].id,modelDelivery:'not_established',remote:'not_replayed'};
   // Empty queue can mean consumed, deleted, changed, or never enqueued: never infer model delivery.
   return {status:matches.length?'conflict':'unknown',modelDelivery:'not_established',remote:'not_replayed'};
  }

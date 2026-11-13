@@ -12,15 +12,24 @@ function fixture(t:any){const root=mkdtempSync(join(tmpdir(),'event-runtime-'));
  const make=(checkpoint?:(stage:string)=>void)=>new FleetCodexNotificationRuntime(config,()=>owner,host,checkpoint);const source={kind:'message' as const,owner,sourceId:'message',createdAt:Date.now(),deadline:null,contentDigest:fleetSourceDigest('fixture')};
  return {config,host,make,source,delivered,get sends(){return sends;},get reconciles(){return reconciles;},lose(){lost=true;}};
 }
-test('pure catalog validator tracks the exact public runtime catalog and assessment API',()=>{
- assert.deepEqual(notificationToolNames,TOOLS.map(t=>t.name));
+test('pure catalog validator tracks the required public subset and assessment decisions',()=>{
+ assert.ok(notificationToolNames.every(name=>TOOLS.some(t=>t.name===name)));
  const valid={identity:'host_context_validated',protocolVersion:'2025-06-18',tools:TOOLS.map(t=>({name:t.name}))};
  for(const observation of [null,{},valid,{...valid,identity:'unknown'},{...valid,protocolVersion:'unknown'},
   {...valid,tools:valid.tools.slice(1)},{...valid,tools:[...valid.tools,valid.tools[0]]},
   {...valid,tools:[...valid.tools,{name:'unexpected'}]},{...valid,tools:[{name:null}]},
   {...valid,tools:Array(129).fill({name:'fleet_discover'})}]) {
-  assert.deepEqual(pureCatalogAssessment(observation),assessLoadedFleetCatalog(observation));
+  const pure=pureCatalogAssessment(observation),local=assessLoadedFleetCatalog(observation);
+  assert.deepEqual({...local,sourceCount:pure.sourceCount},pure);
+  assert.equal(local.sourceCount,TOOLS.length);assert.equal(pure.sourceCount,notificationToolNames.length);
  }
+});
+test('valid additional tool reaches the fake-host runtime without implicit start or delivery',t=>{
+ const f=fixture(t);f.config.loadedCatalog.tools.push({name:'fleet_future_tool_v2'});
+ assert.equal(notificationPreview(f.config,owner).ready,true);
+ const runtime=f.make();t.after(()=>runtime.stop());
+ assert.equal(runtime.status().enabled,false);assert.equal(runtime.status().reason,'disabled');
+ assert.equal(f.sends,0);assert.equal(f.reconciles,0);
 });
 test('already-opened configuration byte parsing preserves private reader shape validation without activation',t=>{
  const f=fixture(t),path=f.config.stateRoot+'.json',raw=JSON.stringify(f.config);

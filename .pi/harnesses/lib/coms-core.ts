@@ -104,6 +104,9 @@ export interface CreateComsPeerDeps {
 	acceptInbound?: () => string | null;
  instructionReceipts?: boolean;
 	handleCustomEnvelope?: (socket: net.Socket, envelope: any) => boolean;
+	/** A true result transfers the socket and untouched trailing bytes to the
+	 * trusted handler. Ordinary COMS envelopes remain one-shot. */
+	handleCustomStream?: (socket: net.Socket, envelope: any, buffered: Buffer) => boolean;
 }
 
 export interface ConnectComsOptions {
@@ -331,28 +334,29 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 	}
 
 	function connectionHandler(socket: net.Socket): void {
-		let buffer = "";
+		let buffer = Buffer.alloc(0);
 		let handled = false;
 		const onData = (chunk: Buffer) => {
 			if (handled) return;
-			buffer += chunk.toString("utf8");
+			buffer = Buffer.concat([buffer, chunk]);
 			if (buffer.length > LINE_CAP_BYTES) {
 				handled = true;
 				socket.removeListener("data", onData);
 				nack(socket, "", "malformed envelope");
 				return;
 			}
-			const newline = buffer.indexOf("\n");
+			const newline = buffer.indexOf(10);
 			if (newline < 0) return;
 			handled = true;
 			socket.removeListener("data", onData);
 			let parsed: any;
-			try { parsed = JSON.parse(buffer.slice(0, newline)); } catch { nack(socket, "", "malformed envelope"); return; }
+			try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, newline))); } catch { nack(socket, "", "malformed envelope"); return; }
 			if (!parsed || typeof parsed !== "object" || typeof parsed.type !== "string" || typeof parsed.msg_id !== "string" || typeof parsed.sender_session !== "string" || typeof parsed.sender_endpoint !== "string") {
 				nack(socket, typeof parsed?.msg_id === "string" ? parsed.msg_id : "", "malformed envelope");
 				return;
 			}
 			try {
+				if (deps.handleCustomStream?.(socket, parsed, buffer.subarray(newline + 1))) return;
 				if (parsed.type === "prompt") handlePrompt(socket, parsed);
 				else if (parsed.type === "response") handleResponse(socket, parsed);
 				else if (parsed.type === "ping") handlePing(socket, parsed);

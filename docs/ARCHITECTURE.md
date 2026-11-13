@@ -1169,8 +1169,8 @@ The independently tested event pump covers explicitly addressed messages,
 questions and permissions, with exact binding/epoch checks and bounded deadlines.
 Production hooks in COMS prompt admission, ready question offers and permission
 holds publish reference/digest-only events into an explicitly enabled exact-owner
-runtime. `/af-codex-events prepare|enable <private-config>` and `disable` are the
-opt-in bootstrap; no configuration discovery or default activation occurs. Startup
+runtime. `/af-codex-events prepare|enable <private-config>` and `disable` remain the
+legacy/manual opt-in entry; no configuration discovery or default activation occurs. Startup
 validates all restart state and reconciles before accepting new ingress. Source ACK
 requires a synchronous durable admission result; async/void consumers are refused.
 The separate `<stateRoot>.event-ingress` journal preserves never-attempted events
@@ -1207,9 +1207,62 @@ remote clock uncertainty, recorded host input, actual model awareness and Pi
 one-use consumption; fixture timings are never model SLA evidence.
 See [the native contract](codex-local-mcp.md) for API and proof limits.
 
+## Guarded native Codex notification bootstrap (unreleased minor)
+
+`agent-hub/codex-bootstrap.ts` composes the shared `NotificationBootstrap` with
+`FleetCodexBootstrap` services and cached chat UI. Native MCP and Fleet View use the
+same coordinator. `BootstrapChannelServer` carries a bounded namespace/AF-owner-bound
+duplex stream; `CodexBootstrapProducer`, in the **Codex** process, is the only policy
+writer. AF reads exact revision/epoch/lease snapshots and never initializes or grants
+Codex rights. The singleton/quiescence/private-filesystem boundary is cooperative
+same-UID policy, not cryptographic host/human authentication.
+
+Preparation obtains real mapping/catalog/no-load evidence or blocks. Current
+`DesktopPreflightRegistry` mapping is explicitly operator-established for a selected
+owned PID/start/executable and true Desktop version; SDK clientInfo, daemon UA,
+served source catalog and schema cannot manufacture Desktop/loaded-consumer identity.
+A changed Desktop/native host can require factual preflight again. Eligibility floors
+(daemon 0.166.0, Desktop 0.166.0-alpha.5.1) and the bundled unqualified bootstrap
+schema reference are not host qualification or a new historical tuple.
+
+A native commit hands off `pending` so its initiating model/tool turn can end **before**
+that same chat must emit a terminal probe ACK; no long-held call waits on its own
+model turn. This follows the historical busy-turn boundary above, not a new live
+Desktop claim. The actual native Pi dialog reviews exact namespace/AF epoch/rights,
+one common deadline, revision, warnings and probe cost. Model booleans never replace
+that decision. Codex writes one explicit CAS transition, then `CodexBootstrapProbe`
+uses version/connection-epoch-pinned metadata requests, checkpoint-before-one-enqueue,
+exact new assistant `final_answer` ACK and before/after `notLoaded`. Missing/unsafe
+path or uncertain effects never activate or trigger replay/hydration.
+
+`issueBootstrapAdmission` seals the complete config/settings in a module-private
+WeakMap: serialized JSON, a kind marker or old receipt cannot restore authority.
+Activation publishes private config and claims a one-use current admission. Runtime
+pre-byte guards recheck owner, mapping, rights, lease and daemon context; pin drift
+revokes/pauses. A separate safety watcher/IO invalidation can perform bounded D7
+read-only recheck plus one probe **only** for the same nonempty fingerprint/level
+inside the original rights revision and wall/monotonic common deadline. At most four
+such automatic probes are authorized by the original Pi review. No periodic/status
+probes, new grant or lease renewal; unverified/different/unknown contracts stay paused.
+
+Continuation rotates notification binding epoch but retains stable journals and old
+unknown/source-ID evidence. Cold bootstrap also preserves persisted non-default
+journal roots; conflicts stop rather than silently resetting history. Disable/reset/
+shutdown cancel pending work; even a published config cannot resurrect a stopped
+runtime without the private admission. A new AF epoch needs explicit reconnect and
+new Pi consent, never automatic send/approve transfer.
+
+Fleet View chat selection/details read detached cached rows. e/d/p are explicit
+enable/disable/factual-preflight intents; the dashboard closes before the native Pi
+action. Rendering/status/cache refresh cannot confirm, grant, probe or activate.
+Historical low-level rights-only/manual tuple APIs remain separate, not a bypass of
+notification-bootstrap consent. This source integration and its owned synthetic tests
+are not actual Desktop/voice/historical qualification. See the [workflow and separately
+authorized live preflight](codex-notification-bootstrap.md).
+
 ## Local Codex human question actions and voice
 
-The current source catalog contains 24 native tools, including answer/journal-upgrade operations and local diagnostics/history/snapshot tools. Source availability is not loaded-host proof. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
+The current source catalog contains 28 native tools (including connection controls and bounded full-response reading), including answer/journal-upgrade operations and local diagnostics/history/snapshot tools. Source availability is not loaded-host proof. The bounded S6b native checkpoint exercised answers, selection, question-scoped refusal, explicit migration and cleanup. The S7 desktop voice check exercised native discovery and read-policy checks; it did not prove voice mutations, mobile or remote support. See the [native MCP guide](codex-local-mcp.md) and [voice workflow](fleet-native-voice.md).
 The exact owner/project/peer/sessionId/startedAt, pending questionId/toolCallId,
 full question/effective-flags digest and canonical human response digest bind each action.
 An actual human answer/refusal and a separate exact preview confirmation are required;

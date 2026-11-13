@@ -21,9 +21,11 @@ async function fixture(t:any){
  const directory=join(root,'control');await mkdir(directory,{mode:0o700});const path=join(directory,'daemon.sock');
  const server=createServer(),wss=new WebSocketServer({noServer:true,maxPayload:32768});
  const methods:string[]=[],queued:any[]=[];let upgrades=0,drop=false,hangInitialize=false,daemonLoaded=false,rejectAdd=false,denyUpgrade=false;
+ let override:((packet:any,ws:any)=>boolean)|undefined;
  server.on('upgrade',(request,socket,head)=>{upgrades++;if(denyUpgrade){socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}assert.equal(request.headers.upgrade,'websocket');assert.equal(request.headers.authorization,undefined);wss.handleUpgrade(request,socket,head,(ws:any)=>wss.emit('connection',ws));});
  wss.on('connection',(ws:any)=>ws.on('message',(raw:Buffer)=>{
   const m=JSON.parse(raw.toString('utf8'));methods.push(m.method??'unexpected-response');
+  if(override?.(m,ws))return;
   if(m.method==='initialize'){
    assert.equal(m.params.capabilities.experimentalApi,true);
    if(!hangInitialize)ws.send(JSON.stringify({id:m.id,result:{userAgent:'fixture-client-not-server-attestation',platformFamily:'unix',platformOs:'linux',codexHome:'/fixture'}}));
@@ -43,7 +45,7 @@ async function fixture(t:any){
  const rpc=new CodexUnixQueueRpc({socketPath:path,timeoutMs:300});
  let approval:DesktopQueueApproval|null={binding,target,authorityRevision:1,confirmedUntil:Date.now()+60000,transportOrigin:'user_input',mappingEvidence:'externally_confirmed_loaded_desktop',daemonVersion:desktopQueuePin.daemon,desktopVersion:desktopQueuePin.desktop,addSchema:desktopQueuePin.addSchema,responseSchema:desktopQueuePin.responseSchema};
  const makeHost=()=>new CodexDesktopQueueHost({rpc,stateRoot:join(root,'event-state'),currentApproval:()=>approval});
- return {rpc,makeHost,methods,queued,rejectAdd:()=>{rejectAdd=true;},denyUpgrade:()=>{denyUpgrade=true;},consume:()=>queued.splice(0),upgrades:()=>upgrades,dropNext:()=>{drop=true;},hangInitialize:()=>{hangInitialize=true;},daemonLoadsTarget:()=>{daemonLoaded=true;},setApproval:(a:DesktopQueueApproval|null)=>{approval=a;},approval:()=>approval!,path};
+ return {rpc,makeHost,methods,queued,override:(fn:(packet:any,ws:any)=>boolean)=>{override=fn;},rejectAdd:()=>{rejectAdd=true;},denyUpgrade:()=>{denyUpgrade=true;},consume:()=>queued.splice(0),upgrades:()=>upgrades,dropNext:()=>{drop=true;},hangInitialize:()=>{hangInitialize=true;},daemonLoadsTarget:()=>{daemonLoaded=true;},setApproval:(a:DesktopQueueApproval|null)=>{approval=a;},approval:()=>approval!,path};
 }
 
 test('WS-over-Unix initialize then queue/add; explicit user origin and ACK is NOT model delivery',async t=>{
@@ -142,7 +144,7 @@ test('two events reconnect serially to one exact thread; busy consumer wait is n
  assert.deepEqual(f.queued.map(q=>JSON.parse(q.input[0].text.split('\n')[1]).threadId),[binding.threadId,binding.threadId]);
  // Fixture holds both behind an already running Desktop turn until explicitly released.
  assert.equal(f.consume().length,2);const r=await host.reconcile(binding,event('unreserved','message'),signal());assert.equal(r.status,'unknown');
- assert.equal(pump.receipt('concurrent-a').turnId,undefined);
+ assert.equal((pump.receipt('concurrent-a') as {turnId?:unknown}).turnId,undefined);
 });
 test('queue overload is unknown/no resend; auth failure is unsupported without auth discovery',async t=>{
  const f=await fixture(t),host=f.makeHost(),e=event('overload');f.rejectAdd();
@@ -150,6 +152,42 @@ test('queue overload is unknown/no resend; auth failure is unsupported without a
  assert.equal((await f.makeHost().deliverExternal(binding,e,signal())).status,'unknown');assert.equal(f.methods.filter(m=>m==='thread/queue/add').length,1);
  f.denyUpgrade();assert.equal(await host.verify(binding,signal()),false);assert.equal(f.queued.length,0);
 });
+test('queue reconciliation only observes a text item, never a lookalike different variant',async t=>{
+ const f=await fixture(t),host=f.makeHost(),e=event('text-variant');
+ assert.equal((await host.deliverExternal(binding,e,signal())).status,'queue_accepted');
+ const input=f.queued[0].input[0];input.type='image';
+ assert.equal((await host.reconcile(binding,e,signal())).status,'conflict');
+ input.type='text';assert.equal((await host.reconcile(binding,e,signal())).status,'observed_in_queue');
+ assert.equal(f.methods.filter(m=>m==='thread/queue/add').length,1);
+});
+test('nonobject frames reject without an uncaught exception or queue write',async t=>{
+ for(const value of [null,[],0,'string',true]){
+  const f=await fixture(t);f.override((m,ws)=>{if(m.method!=='initialize')return false;ws.send(JSON.stringify(value));return true;});
+  await assert.rejects(f.rpc.request('thread/loaded/list',{}),(e:any)=>e.code==='INVALID_RESPONSE'&&e.attempted===false);
+  assert.equal(f.queued.length,0);assert.deepEqual(f.methods,['initialize']);
+ }
+});
+test('binary initialize and even false-valued own error fields cannot authorize continuation',async t=>{
+ for(const binary of [true,false]){
+  const f=await fixture(t);f.override((m,ws)=>{if(m.method!=='initialize')return false;ws.send(JSON.stringify({id:m.id,result:{userAgent:'fake'},...(!binary?{error:false}:{})}),{binary});return true;});
+  await assert.rejects(f.rpc.request('thread/loaded/list',{}),(e:any)=>e.code===(binary?'INVALID_RESPONSE':'INITIALIZE_REJECTED')&&e.attempted===false);
+  assert.deepEqual(f.methods,['initialize']);assert.equal(f.queued.length,0);
+ }
+});
+test('server requests with matching ID are ignored without any automatic approval reply',async t=>{
+ const f=await fixture(t);f.override((m,ws)=>{if(m.method!=='initialize')return false;
+  ws.send(JSON.stringify({id:m.id,method:'item/commandExecution/requestApproval',result:{userAgent:'not-a-response'}}));
+  ws.send(JSON.stringify({id:m.id,result:{userAgent:'fake-valid-initialize'}}));return true;
+ });
+ assert.deepEqual(await f.rpc.request('thread/loaded/list',{}),{data:[]});
+ assert.deepEqual(f.methods,['initialize','initialized','thread/loaded/list']);assert.equal(f.queued.length,0);
+});
+test('method response with own error and result rejects rather than accepting false error',async t=>{
+ const f=await fixture(t);f.override((m,ws)=>{if(m.method!=='thread/loaded/list')return false;ws.send(JSON.stringify({id:m.id,error:false,result:{data:[]}}));return true;});
+ await assert.rejects(f.rpc.request('thread/loaded/list',{}),(e:any)=>e.code==='RPC_REJECTED'&&e.attempted===true);
+ assert.equal(f.queued.length,0);
+});
+
 test('unbind aborts an ignored/hung verification promptly, without waiting for a long deadline',async()=>{
  const pump=new FleetCodexEventBridge({verify:()=>new Promise(()=>{}),deliverExternal:async()=>{assert.fail('must not deliver');}});pump.bind(binding);pump.accept({...event('stop-hung'),deadline:Date.now()+200});
  await new Promise(r=>setImmediate(r));pump.unbind(binding.id);await new Promise(r=>setTimeout(r,10));assert.equal(pump.receipt('stop-hung').status,'stale');

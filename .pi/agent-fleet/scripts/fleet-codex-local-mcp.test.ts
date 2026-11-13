@@ -170,7 +170,8 @@ test('actual entrypoint finite STDIO subprocess, temp registry and two fake thre
  assert.ok(responses.some(r=>r.error?.message==='INPUT_LIMIT'));
  assert.ok(responses.some(r=>r.error?.message==='PARSE_ERROR'));
  assert.equal(out.includes('SECRET'),false); assert.equal(out.includes(A),false); assert.equal(err,'');
- assert.deepEqual((await readdir(f.root)).sort(),['registry']);
+ const directories=(await readdir(f.root)).sort();assert.deepEqual(directories.filter(name=>name!=='policy.presence'),['registry']);
+ if(directories.includes('policy.presence'))assert.deepEqual(await readdir(f.policy+'.presence'),[],'EOF removes only owned native metadata; no policy/grant/config was created');
 });
 
 for (const change of ['disappeared','incarnation','regression'] as const) {
@@ -289,10 +290,18 @@ test('actual STDIO simulated A/B enrollment/check/forget pipeline with real temp
  assert.equal((await tool('fleet_check_read',q)).code,'NOT_ALLOWED');
  child.stdin.end();assert.equal(await ended,0,stderr);assert.equal(stderr,'');
 });
-test('dispatcher imports narrow observation leaf, not broad legacy Fleet operations',async()=>{
+test('native bootstrap metadata/config roots cannot alias registry or legacy archives even without installer',async t=>{
+ const f=await fixture(t);for(const suffix of ['.presence','.bootstrap']){assert.throws(()=>new LocalCodexMcp({registryRoot:f.policy+suffix,policyRoot:f.policy,...ctx()}),/UNSAFE_PATH/);assert.throws(()=>new LocalCodexMcp({registryRoot:join(f.root,'registry'),policyRoot:f.policy,legacyStateRoot:f.policy+suffix,...ctx()}),/UNSAFE_PATH/);}
+});
+test('dispatcher imports narrow observation/catalog leaves, not broad legacy Fleet operations',async()=>{
  const sources=[await readFile(resolve('.pi/agent-fleet/scripts/lib/fleet-codex-local-mcp.ts'),'utf8'),await readFile(resolve('.pi/agent-fleet/scripts/fleet-codex-local-mcp.ts'),'utf8')];
- const allowed=new Set(['./fleet-codex-response-read.ts','./fleet-codex-response-transport.ts','../../../harnesses/lib/coms-response-read.ts','./fleet-codex-connections.ts','./fleet-codex-permissions.ts','./fleet-codex-permission-transport.ts','node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts','./fleet-codex-native-history.ts']);
+ const allowed=new Set(['./codex-bootstrap-producer.ts','./codex-native-presence.ts','./fleet-codex-response-read.ts','./fleet-codex-response-transport.ts','../../../harnesses/lib/coms-response-read.ts','../../../harnesses/lib/fleet-codex-catalog.ts','./fleet-codex-connections.ts','./fleet-codex-permissions.ts','./fleet-codex-permission-transport.ts','node:crypto','node:path','./fleet-codex-allowlist.ts','./fleet-codex-allowlist-store.ts','./fleet-codex-readonly.ts','./lib/fleet-codex-local-mcp.ts','./fleet-codex-observe.ts','./fleet-codex-observe-transport.ts','./fleet-codex-overview.ts','./fleet-codex-observation-store.ts','./fleet-codex-resync.ts','./fleet-codex-instructions.ts','./fleet-codex-instruction-store.ts','./fleet-codex-instruction-transport.ts','./fleet-codex-answers.ts','./fleet-codex-answer-transport.ts','./fleet-codex-native-history.ts']);
  for(const s of sources) {for(const m of s.matchAll(/from ['"]([^'"]+)['"]/g))assert.ok(allowed.has(m[1]),m[1]);assert.equal(/\bimport\s*\(/.test(s),false);}
+ for(const file of ['codex-bootstrap-producer.ts','codex-native-presence.ts']){const leaf=await readFile(resolve('.pi/agent-fleet/scripts/lib',file),'utf8');assert.equal(/from ['"][^'"]*fleet-notification-validation\.ts['"]/.test(leaf),false,'native bootstrap uses the narrow identity leaf, not AF schema/admission machinery');}
+ const identity=await readFile(resolve('.pi/harnesses/lib/fleet-target-identity.ts'),'utf8');assert.equal(/(?:^|\n)\s*(?:import\b|export\b[^;]*\bfrom\s*['"])/.test(identity),false);assert.equal(/\bimport\s*\(/.test(identity),false);
+ const catalog=await readFile(resolve('.pi/harnesses/lib/fleet-codex-catalog.ts'),'utf8');
+ assert.equal(/(?:^|\n)\s*(?:import\b|export\b[^;]*\bfrom\s*['"])/.test(catalog),false);
+ assert.equal(/\bimport\s*\(/.test(catalog),false);
 });
 
 test('new observation tool reads real source only for enrolled caller and preserves post-read guards',async t=>{
@@ -513,7 +522,7 @@ test('instruction authorization is consistent in initialize and both tools, with
  const catalog:any=await p.handle({jsonrpc:'2.0',id:2,method:'tools/list'});
  const prepare=catalog.result.tools.find((x:any)=>x.name==='fleet_instruction_prepare');
  const commit=catalog.result.tools.find((x:any)=>x.name==='fleet_instruction_commit');
- const policy=prepare.description.match(/No second confirmation.*$/)?.[0];assert.ok(policy);
+ const policy=prepare.description.match(/For instruction delivery, no second confirmation.*$/)?.[0];assert.ok(policy);
  assert.ok(init.result.instructions.includes(policy));assert.ok(commit.description.includes(policy));
  for(const safeguard of [
   /ONLY for an explicit user request in this native chat/,
@@ -529,8 +538,14 @@ test('instruction authorization is consistent in initialize and both tools, with
   /humanProvenance: unknown/,
  ])assert.match(policy,safeguard);
  assert.match(init.result.instructions,/Present binding preview and wait for explicit user instruction before commit/);
- assert.match(init.result.instructions,/Human question answers\/refusals require an ACTUAL human response and NEW exact preview confirmation/);
- assert.match(catalog.result.tools.find((x:any)=>x.name==='fleet_answer_prepare').description,/NEW explicit human confirmation/);
+ assert.match(init.result.instructions,/ACTUAL human answer\/refusal/);
+ const answerPrepare=catalog.result.tools.find((x:any)=>x.name==='fleet_answer_prepare');
+ const answerCommit=catalog.result.tools.find((x:any)=>x.name==='fleet_answer_commit');
+ const answerPolicy=answerPrepare.description.match(/No additional confirmation.*$/)?.[0];assert.ok(answerPolicy);
+ assert.ok(init.result.instructions.includes(answerPolicy));assert.ok(answerCommit.description.includes(answerPolicy));
+ for(const safeguard of [/exact displayed pending question in this native chat/,/read\+send/,/Freshly inspect/,/prepare/,/normalized response/,/commit once/,/Clarify ambiguity/,/changed question or owner/,/Never choose an answer/,/withhold/,/not a refusal/,/Unknown outcomes never permit resend/,/humanProvenance: unknown/])assert.match(answerPolicy,safeguard);
+ assert.doesNotMatch(init.result.instructions,/ACTUAL human response and NEW exact preview confirmation/);
+ assert.deepEqual(Object.keys(answerCommit.inputSchema.properties),['proposalId']);
  for(const spec of [prepare,commit]){assert.equal(spec.annotations.readOnlyHint,false);assert.equal(spec.inputSchema.additionalProperties,false);}
  assert.deepEqual(commit.inputSchema.required,['proposalId']);
  assert.deepEqual(Object.keys(commit.inputSchema.properties),['proposalId']);

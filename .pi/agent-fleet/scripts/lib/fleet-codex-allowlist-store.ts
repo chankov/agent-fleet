@@ -1,10 +1,11 @@
 // S2: local POSIX persistence for D2-L cooperative-agent policy. No Fleet transport.
-import { constants, type Stats } from 'node:fs';
+import { constants, lstatSync, openSync, fstatSync, readSync, closeSync, type Stats } from 'node:fs';
 import { mkdir, lstat, open, rename, unlink, rmdir } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AllowedSessionsPolicy, AllowlistError, type BindingHandle, type ConversationKey, type TargetEpoch, type Right } from './fleet-codex-allowlist.ts';
+import {prepareSendLineage,verifySendLineage,retireFutureSendLineage} from './codex-send-lineage.ts';
 
 export type StoreCode = 'STATE_MISSING' | 'STATE_EXISTS' | 'STATE_INVALID' | 'STATE_VERSION_UNSUPPORTED'
   | 'NAMESPACE_MISMATCH' | 'STATE_CHANGED' | 'STATE_REGRESSED' | 'STORE_BUSY' | 'UNSAFE_PATH'
@@ -88,6 +89,7 @@ export class AllowedSessionsStore {
   readonly #now: () => number;
   readonly #checkpoint: NonNullable<StoreOptions['checkpoint']>;
   #seen?: { storeId: string; revision: number };
+  readonly #snapshots=new WeakMap<StoreSnapshot,State>();
   #issued = new WeakMap<object, Issued>();
   constructor(baseDir: string, context: ConversationKey, options: StoreOptions = {}) {
     if (process.platform === 'win32' || !process.getuid || !isAbsolute(baseDir) || resolve(baseDir) !== baseDir) fail('UNSAFE_PATH');
@@ -166,15 +168,17 @@ export class AllowedSessionsStore {
     } catch (e) { if (missing(e)) fail('STATE_MISSING'); throw e; }
     finally { await file?.close(); }
   }
-  async #write(state: State, initial = false): Promise<void> {
+  #notCancelled(signal?: AbortSignal): void { if (signal?.aborted) fail('STATE_CHANGED'); }
+  async #write(state: State, initial = false, signal?: AbortSignal): Promise<void> {
     const bytes = Buffer.from(canonical(state));
     decode(bytes, this.#context); // Same limits/invariants on outbound state, before any disk mutation.
     const temp = this.#path+'.'+randomUUID()+'.tmp';
     let file, owned: Stats | undefined, renamed = false;
     try {
+      this.#notCancelled(signal);
       file = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       owned = await file.stat(); this.#safe(owned, false);
-      await this.#checkpoint('beforeWrite'); await file.writeFile(bytes);
+      await this.#checkpoint('beforeWrite'); this.#notCancelled(signal); await file.writeFile(bytes);
       await this.#checkpoint('beforeFileSync'); await file.sync(); await file.close(); file = undefined;
       await this.#checkpoint('beforeRename'); await this.#rootReady(false);
       let dest: Stats | undefined;
@@ -182,10 +186,12 @@ export class AllowedSessionsStore {
       if (initial && dest) fail('STATE_EXISTS');
       if (!initial && !dest) fail('STATE_MISSING');
       if (dest) this.#safe(dest, false);
+      this.#notCancelled(signal);
       await rename(temp, this.#path); renamed = true;
       await this.#checkpoint('afterRename'); await this.#checkpoint('beforeDirectorySync');
       const directory = await open(this.#root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       try { this.#safe(await directory.stat(), true); await directory.sync(); } finally { await directory.close(); }
+      this.#notCancelled(signal);
       this.#seen = { storeId: state.storeId, revision: state.revision };
     } catch (e) { if (renamed) fail('COMMIT_UNCERTAIN'); throw normalize(e); }
     finally {
@@ -199,7 +205,7 @@ export class AllowedSessionsStore {
       }
     }
   }
-  #snapshot(s: State): StoreSnapshot { return structuredClone({ revision: s.revision, bindings: s.bindings }); }
+  #snapshot(s: State): StoreSnapshot { const result=structuredClone({revision:s.revision,bindings:s.bindings});this.#snapshots.set(result,structuredClone(s));return result; }
   #issue(s: State, alias: string): StoreHandle {
     const h = Object.freeze({ alias, revision: s.revision });
     this.#issued.set(h, { alias, revision: s.revision, storeId: s.storeId }); return h;
@@ -241,9 +247,11 @@ export class AllowedSessionsStore {
     return h;
   }
   async #run<T>(current: readonly TargetEpoch[] | undefined,
-    action: (s: State, p: Policy) => (committed: State) => T, mutation = false): Promise<T> {
+    action: (s: State, p: Policy) => (committed: State) => T, mutation = false, signal?: AbortSignal, send?:{alias:string;enabled:boolean}): Promise<T> {
+    this.#notCancelled(signal);
     return this.#withLock(false, async () => {
       const original = await this.#read(), baseline = structuredClone(original);
+      this.#notCancelled(signal);
       const p: Policy = current === undefined ? { policy: new AllowedSessionsPolicy(), handles: new Map<string, BindingHandle>(), blocked: new Map() }
         : this.#hydrate(baseline, current);
       const work = structuredClone(baseline);
@@ -251,16 +259,24 @@ export class AllowedSessionsStore {
       try { result = action(work, p); }
       catch (e) {
         // Persist positively observed staleness even when access/transition refuses.
-        if (canonical(baseline) !== canonical(original)) await this.#commit(baseline);
+        if (canonical(baseline) !== canonical(original)) await this.#commit(baseline,original);
         throw e;
       }
-      if (mutation || canonical(work) !== canonical(original)) await this.#commit(work);
+      if (mutation || canonical(work) !== canonical(original)) await this.#commit(work,original,signal,send);
       return result(work);
     });
   }
-  async #commit(s: State): Promise<void> {
+  async #commit(s: State,before:State,signal?:AbortSignal,send?:{alias:string;enabled:boolean}): Promise<void> {
     if (s.revision === Number.MAX_SAFE_INTEGER) fail('REVISION_EXHAUSTED');
-    s.revision++; await this.#write(s);
+    this.#notCancelled(signal);
+    s.revision++;
+    if(send){
+      // Continuity is optional; its failure must never prevent explicit revoke.
+      // The exact read guard rejects any missing/untrusted proof afterwards.
+      try{await prepareSendLineage(this.#path+'.send-lineage',before,s,send.alias,send.enabled,state=>createHash('sha256').update(canonical(state)).digest('hex'),signal);}catch{/* Policy authority remains independent of its continuity witness. */}
+    }else await retireFutureSendLineage(this.#path+'.send-lineage',before,s,signal);
+    this.#notCancelled(signal);
+    await this.#write(s, false, signal);
   }
   async initialize(): Promise<StoreSnapshot> {
     return this.#withLock(true, async () => {
@@ -268,6 +284,44 @@ export class AllowedSessionsStore {
       const s: State = { format: 'fleet-local-allowlist', version: 1, storeId: randomUUID(), namespace: { ...this.#context }, revision: 0, bindings: [] };
       await this.#write(s, true); return this.#snapshot(s);
     });
+  }
+  /** Bounded read-only pre-byte CAS check; never repairs state, locks, grants
+   * or treats an absent file as authority. Only snapshots issued by this store
+   * instance are current; caller separately checks rights/lease/current owner. */
+  snapshotCurrent(expected: StoreSnapshot | null): boolean {
+    let fd: number | undefined;
+    try {
+      if (expected === null) { if (this.#seen) return false; try { const root = lstatSync(this.#root); this.#safe(root, true); } catch (e) { if (!missing(e)) return false; } try { lstatSync(this.#path); return false; } catch (e) { return missing(e); } }
+      if (!this.#seen) return false;
+      const root = lstatSync(this.#root); this.#safe(root, true);
+      const before = lstatSync(this.#path); this.#safe(before, false);
+      fd = openSync(this.#path, constants.O_RDONLY | constants.O_NOFOLLOW); const held = fstatSync(fd); this.#safe(held, false);
+      if (held.dev !== before.dev || held.ino !== before.ino) return false;
+      const buffer = Buffer.alloc(MAX_BYTES + 1), count = readSync(fd, buffer, 0, buffer.length, 0); if (count > MAX_BYTES || count !== held.size) return false;
+      const state = decode(buffer.subarray(0, count), this.#context), after = fstatSync(fd), at = lstatSync(this.#path), parent = lstatSync(this.#root);
+      if (after.dev !== held.dev || after.ino !== held.ino || after.mtimeMs !== held.mtimeMs || after.ctimeMs !== held.ctimeMs || after.size !== held.size || at.dev !== held.dev || at.ino !== held.ino || parent.dev !== root.dev || parent.ino !== root.ino) return false;
+      this.#safe(after, false); this.#safe(at, false); this.#safe(parent, true);
+      return state.storeId === this.#seen.storeId && state.revision === this.#seen.revision && JSON.stringify(this.#snapshot(state)) === JSON.stringify(expected);
+    } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
+  }
+  /** Read-only advancement of an issued snapshot through explicit send writes.
+   * Exact snapshots stay the default; unproved/gapped/other mutations fail closed. */
+  advanceSendSnapshot(expected:StoreSnapshot|null,owner:TargetEpoch):StoreSnapshot|null{
+    if(!expected)return null;const before=this.#snapshots.get(expected);
+    if(!before||!this.#seen||this.#seen.storeId!==before.storeId||this.#seen.revision!==before.revision||JSON.stringify(expected)!==JSON.stringify({revision:before.revision,bindings:before.bindings}))return null;
+    let fd:number|undefined;
+    try{
+      const root=lstatSync(this.#root);this.#safe(root,true);const at=lstatSync(this.#path);this.#safe(at,false);
+      fd=openSync(this.#path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);const held=fstatSync(fd);this.#safe(held,false);
+      if(held.dev!==at.dev||held.ino!==at.ino||held.size>MAX_BYTES)return null;
+      const bytes=Buffer.alloc(MAX_BYTES+1);let count=0;while(count<bytes.length){const n=readSync(fd,bytes,count,bytes.length-count,null);if(!n)break;count+=n;}
+      if(count!==held.size)return null;const state=decode(bytes.subarray(0,count),this.#context);
+      if(!verifySendLineage(this.#path+'.send-lineage',before,state,owner,s=>createHash('sha256').update(canonical(s)).digest('hex')))return null;
+      const after=fstatSync(fd),linked=lstatSync(this.#path),parent=lstatSync(this.#root);this.#safe(after,false);this.#safe(linked,false);this.#safe(parent,true);
+      const stamp=(s:Stats)=>[s.dev,s.ino,s.mode,s.uid,s.nlink,s.size,s.mtimeMs,s.ctimeMs].join(':');
+      if(stamp(after)!==stamp(held)||stamp(linked)!==stamp(held)||parent.dev!==root.dev||parent.ino!==root.ino)return null;
+      this.#seen={storeId:state.storeId,revision:state.revision};return this.#snapshot(state);
+    }catch{return null;}finally{if(fd!==undefined)closeSync(fd);}
   }
   async open(): Promise<StoreSnapshot> { return this.#run(undefined, () => committed => this.#snapshot(committed)); }
   async list(current: readonly TargetEpoch[]): Promise<StoreSnapshot> { return this.#run(current, () => committed => this.#snapshot(committed)); }
@@ -285,8 +339,10 @@ export class AllowedSessionsStore {
     }, true);
   }
   /** Create-only atomic reviewed lease; existing bindings never change implicitly. */
-  async connect(proposal: { alias: string; target: TargetEpoch; rights: readonly Right[]; expiresAt: number }, current: readonly TargetEpoch[], expectedRevision: number): Promise<StoreSnapshot> {
-    return this.#run(current, (s, p) => {
+  async connect(proposal: { alias: string; target: TargetEpoch; rights: readonly Right[]; expiresAt: number }, current: readonly TargetEpoch[], expectedRevision: number, signal?: AbortSignal): Promise<StoreSnapshot> {
+    if (signal !== undefined && !(signal instanceof AbortSignal)) fail('STATE_INVALID');
+    proposal = structuredClone(proposal); current = Array.from(current, v => epoch(v));
+    const result = await this.#run(current, (s, p) => {
       this.#expected(s, expectedRevision);
       if (!keys(proposal, ['alias','target','rights','expiresAt']) || !text(proposal.alias) || !Number.isSafeInteger(proposal.expiresAt) || proposal.expiresAt <= this.#now()
         || !Array.isArray(proposal.rights) || JSON.stringify(proposal.rights) !== JSON.stringify(['read', ...(proposal.rights.includes('send') ? ['send'] : []), ...(proposal.rights.includes('approve') ? ['approve'] : [])])) fail('STATE_INVALID');
@@ -295,7 +351,37 @@ export class AllowedSessionsStore {
       s.version = 3;
       s.bindings.push({ alias: proposal.alias, target: epoch(proposal.target), rights: [...proposal.rights], status: 'active', expiresAt: proposal.expiresAt });
       return committed => this.#snapshot(committed);
-    }, true);
+    }, true, signal);
+    if (signal?.aborted) fail('COMMIT_UNCERTAIN');
+    return result;
+  }
+  /** Explicit reviewed replacement/renewal, never alias-based discovery or consent.
+   * Codex writer only: caller owns human authorization, fresh owner/presence and
+   * quiescent-writer checks. Old target and namespace revision are both CAS pins.
+   * Cancellation before rename leaves the old lease; after rename is uncertain. */
+  async reconnect(proposal: { alias: string; previousTarget: TargetEpoch; target: TargetEpoch; rights: readonly Right[]; expiresAt: number }, current: readonly TargetEpoch[], expectedRevision: number, signal: AbortSignal): Promise<StoreSnapshot> {
+    if (!(signal instanceof AbortSignal) || !keys(proposal, ['alias','previousTarget','target','rights','expiresAt']) || !text(proposal.alias)
+      || !Number.isSafeInteger(proposal.expiresAt) || !Array.isArray(proposal.rights) || proposal.rights.length > 3
+      || JSON.stringify(proposal.rights) !== JSON.stringify(['read', ...(proposal.rights.includes('send') ? ['send'] : []), ...(proposal.rights.includes('approve') ? ['approve'] : [])])
+      || !Array.isArray(current) || current.length > 128) fail('STATE_INVALID');
+    const owned = { alias: proposal.alias, previousTarget: epoch(proposal.previousTarget), target: epoch(proposal.target), rights: Array.from(proposal.rights), expiresAt: proposal.expiresAt };
+    const snapshots = Array.from(current, v => epoch(v));
+    const result = await this.#run(snapshots, s => {
+      this.#expected(s, expectedRevision);
+      const now = this.#now();
+      if (!Number.isSafeInteger(now) || now < 0 || owned.expiresAt <= now) fail('STATE_INVALID');
+      const binding = s.bindings.find(b => b.alias === owned.alias);
+      if (!binding) throw new AllowlistError('NOT_ALLOWED');
+      if (!same(binding.target, owned.previousTarget) || s.bindings.some(b => b !== binding && same(b.target, owned.target))) fail('STATE_CHANGED');
+      // A new policy validates the exact live replacement even if the old lease
+      // is expired or has already been marked needsRebind. No old rights migrate.
+      new AllowedSessionsPolicy().enroll(this.#context, { alias: owned.alias, target: owned.target }, snapshots);
+      s.version = 3;
+      binding.target = owned.target; binding.rights = owned.rights; binding.expiresAt = owned.expiresAt; binding.status = 'active';
+      return committed => this.#snapshot(committed);
+    }, true, signal);
+    if (signal.aborted) fail('COMMIT_UNCERTAIN');
+    return result;
   }
   async resolve(selector: string, current: readonly TargetEpoch[]): Promise<StoreHandle> {
     return this.#run(current, (s, p) => {
@@ -319,7 +405,7 @@ export class AllowedSessionsStore {
       const b = this.#entry(s, handle);
       p.policy.grantSend(this.#context, this.#active(b, p), current); b.rights = ['read', 'send', ...(b.rights.includes('approve') ? ['approve' as const] : [])];
       return committed => this.#issue(committed, b.alias);
-    }, true);
+    }, true,undefined,{alias:handle.alias,enabled:true});
   }
   /** Explicit upgrade-on-grant: v1 rights are preserved; old writers fail closed on v2. */
   async grantApprove(handle: StoreHandle, current: readonly TargetEpoch[]): Promise<StoreHandle> {
@@ -344,7 +430,7 @@ export class AllowedSessionsStore {
       this.#expected(s, expectedRevision);
       const b = s.bindings.find(b => b.alias === alias); if (!b) throw new AllowlistError('NOT_ALLOWED');
       b.rights = b.rights.filter(r => r !== 'send'); return committed => this.#snapshot(committed);
-    }, true);
+    }, true,undefined,{alias,enabled:false});
   }
   async revoke(alias: string, expectedRevision: number): Promise<StoreSnapshot> {
     return this.#run(undefined, s => {

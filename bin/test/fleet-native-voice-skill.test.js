@@ -22,7 +22,13 @@ test("native voice instruction policy permits faithful explicit relays but prese
 	assert.match(send, /Unknown outcomes never trigger an automatic resend/);
 	assert.match(send, /proposal expiry or server restart requires a new preview and confirmation/);
 	const answer = skill.split("## Relay a human answer or refusal\n")[1].split("## Send an instruction")[0];
-	assert.match(answer, /obtain NEW explicit confirmation/);
+	assert.match(answer, /actual human response authorizes its faithful delivery once/);
+	assert.match(answer, /without asking for a second confirmation/);
+	assert.match(answer, /Never choose an answer automatically/);
+	assert.match(answer, /Clarify ambiguity/);
+	assert.match(answer, /withhold delivery/);
+	assert.match(answer, /Unknown outcomes never permit resend/);
+	assert.doesNotMatch(answer, /obtain NEW explicit confirmation|A prior answer .* is not this confirmation/);
 });
 
 test("Codex native voice skill is available as source without installing Codex MCP instructions into Pi", () => {

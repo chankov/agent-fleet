@@ -12,7 +12,7 @@ This establishes that bounded desktop voice-to-agent route, not every action des
 
 - Installing a skill, using dictation, seeing a microphone button, or succeeding in text mode does not prove native voice compatibility.
 - Successful observations, instruction delivery, and question answers through the native tools are distinct from testing those actions through voice. Do not assume voice-driven mutations have been verified.
-- There is no mobile/remote compatibility promise, public endpoint, tunnel, background listener, or idle-chat wake in this workflow.
+- The skill/discovery workflow alone promises no mobile/remote compatibility, public endpoint, tunnel, background listener or idle-chat wake. Separately enabled notification bootstrap is a different, explicitly consented capability, not proof of voice delivery.
 - The recorded handoff does not attest synthesized-audio delivery, human origin, or compatibility with every Codex build or voice host.
 
 Use the availability check below in your own intended chat and host. If the native tools are missing, report the limitation rather than substituting another route.
@@ -42,6 +42,12 @@ In the same chat, use your host's normal voice UI to say something like:
 Confirm that the actual native `fleet_discover` and `fleet_check_read` calls occurred for those targets, and inspect the returned source statuses. `STATE_MISSING` or `NOT_ALLOWED` can be expected for a new or ungranted conversation; neither is permission to enroll automatically. Discovery reads registry candidates, and the read check is registry-only, not a transcript read or receiver capability test.
 
 A partial or stale registry result is a gap, not positive availability evidence. If the host uses a voice-to-agent handoff, distinguish that from direct voice execution when reporting the result. If tools or trusted host context are absent, stop the affected operation. Do not replace native calls with shell commands, another chat's metadata, another peer, or a remote service.
+
+## Combined notification connection (unreleased minor)
+
+The updated source skill also describes [notification bootstrap/reconnect](codex-notification-bootstrap.md). After real identity/catalog/no-load prerequisites, native prepare grants nothing, commit returns `pending` to release the initiating model turn, and one genuine Pi dialog authorizes exact common-deadline rights. Only Codex writes them; one fresh terminal ACK probe precedes private runtime admission. Do not add another chat consent loop, hold the turn open waiting for its own probe, or treat pending/cached/queue ACK as current readiness or delivery.
+
+An addressed `FLEET_BOOTSTRAP_PROBE_V1` receives only terminal `FLEET_PROBE_ACK <probeId>`, never a grant or permission answer. Missing factual preflight blocks. Same-fingerprint daemon continuation is bounded by the original Pi scope/lease and is not periodic or a rights renewal. This is source/synthetic functionality, **not** a new live voice, Desktop, historical-version or audio-delivery claim. The managed installer includes the updated archive; an already running host/old skill is not hot-patched by a repository edit.
 
 ## Name connections explicitly
 
@@ -114,7 +120,7 @@ The native question route requires current read+send rights and a compatible gua
 1. Obtain the full question, context, exact option titles/descriptions, and effective multiple-selection/freeform/comment flags. If several questions are pending, identify which one you are answering. Retain the exact target, question ID, and tool-call ID in the written chat.
 2. Give your actual response. Codex preserves option titles exactly and clarifies uncertain transcription; it does not choose a default or infer an answer from a blanket “continue.”
 3. Codex freshly checks the same pending question and calls `fleet_answer_prepare` for your exact answer or refusal.
-4. Review the complete returned question/flags, normalized response, target, effects, and expiry. Give a **new** explicit confirmation before one `fleet_answer_commit`. The answer you gave in step 2 is not this confirmation.
+4. Your actual response in step 2 authorizes its faithful delivery once. Codex checks the complete prepared question/flags, normalized response, exact target, effects and expiry against your reply, then calls `fleet_answer_commit` once **without a second confirmation**. Ambiguous speech or a differing normalized response needs clarification; a changed question/owner, missing rights, proposal expiry or server restart stops the stale action. No automatic choice, retargeting or invented human consent.
 5. Inspect the actual receipt. Accepted, late, expired, rejected, and unknown outcomes are different; no success is inferred from silence.
 
 These requests have distinct meanings:
@@ -124,11 +130,11 @@ These requests have distinct meanings:
 - **“Do not send my answer.”** Withhold delivery; do not turn it into a refusal sent to Pi.
 - **“Stop.”** If the intended effect is unclear, clarify rather than guessing between watch, question, permissions, or task cancellation.
 
-If you change your response during confirmation, leave the old proposal uncommitted and prepare the new response with its own confirmation. If the question resolves or the owner changes, do not redirect the old answer elsewhere. Keep pending decisions in the written chat as well as the voice exchange.
+If you change your response before commit, leave the old proposal uncommitted, freshly check the same question and prepare the new actual response under the same single-response authorization rule. If the question resolves or the owner changes, do not redirect the old answer elsewhere. Keep pending decisions in the written chat as well as the voice exchange.
 
 ## Handle uncertainty and finish safely
 
-- Proposals expire after 300 seconds and are lost on server restart. A new preview needs a new confirmation; do not reuse expired consent.
+- Proposals expire after 300 seconds and are lost on server restart. Stop the stale action and obtain the operation's required fresh authorization; do not reuse expired consent or redirect an old answer.
 - For an unknown instruction or answer outcome, keep the original request ID and inspect `fleet_instruction_receipt` or `fleet_answer_receipt`. Remote refresh requires current read authority. Do not resend automatically, switch IDs, guess a new target, or fall back to the CLI to force delivery.
 - Bounded/volatile receiver evidence may be missing after a restart or capacity limit. Missing evidence is not proof of failed delivery. Already-started actions are not promised rollback.
 - Missing/corrupt state and journal-upgrade requirements are operator conditions. Initialization or migration has a separate exact preview/confirmation workflow; migration also requires operator-confirmed writer quiescence. Connecting or invoking the skill does not authorize either.

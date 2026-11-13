@@ -45,7 +45,7 @@ export class AnswerBridge {
   this.#prune();const budget=this.#options.pendingBudget?.(key(c))??{total:0,context:0};if(this.#pending.size+budget.total>=64||this.pendingCount(key(c))+budget.context>=16)fail('BUSY');
   const proposalId=randomUUID(),qd=questionDigest(q),digest=answerDigest(args.operation,args.target,args.questionId,args.toolCallId,qd,args.response);
   this.#pending.set(proposalId,{context:key(c),expires:this.#time()+300000,args,access,questionDigest:qd,digest});
-  return {status:'prepared',source:'local_human_action_proposal',proposalId,expiresInSeconds:300,...args,question:structuredClone(q),questionDigest:qd,digest,expectedRevision:access.handle.revision,requiresHumanConfirmation:true,humanProvenance:'unknown',effect:args.operation==='refusal'?'one question-scoped human refusal; not Pi turn cancel':'one addressed human answer to this exact pending question; not an LLM instruction'};
+  return {status:'prepared',source:'local_human_action_proposal',proposalId,expiresInSeconds:300,...args,question:structuredClone(q),questionDigest:qd,digest,expectedRevision:access.handle.revision,requiresHumanConfirmation:false,requiresActualHumanResponse:true,humanProvenance:'unknown',effect:args.operation==='refusal'?'one question-scoped human refusal; not Pi turn cancel':'one addressed human answer to this exact pending question; not an LLM instruction'};
  }
  async commit(c:ConversationKey,id:string,signal?:AbortSignal):Promise<Record<string,unknown>>{
   this.#context(c);this.#prune();const p=this.#pending.get(id);if(!p||p.context!==key(c)||p.expires<=this.#time())fail('PROPOSAL_UNAVAILABLE');

@@ -350,6 +350,11 @@ test("validation refuses unsafe launchers and warns about nvm-managed Node paths
   assert.match(nested.errors.join("\n"), /overlap/);
   const suffix = validateLayout(layoutOf(f, { registryRoot: `${join(f.root, "policy")}.permissions`, policyRoot: join(f.root, "policy") }), { platform: "linux", nodeVersion: "v25.0.0" });
   assert.match(suffix.errors.join("\n"), /overlap.*\.permissions/);
+  for (const derived of ['.presence', '.bootstrap']) {
+    const overlap = validateLayout(layoutOf(f, { registryRoot: join(f.root, 'policy') + derived, policyRoot: join(f.root, 'policy') }), { platform: 'linux', nodeVersion: 'v25.0.0' });
+    assert.match(overlap.errors.join('\n'), /overlap/);
+    assert.ok(overlap.errors.join('\n').includes(derived));
+  }
   const legacy = validateLayout(layoutOf(f, { legacyStateRoot: f.registryRoot }), { platform: "linux", nodeVersion: "v25.0.0" });
   assert.match(legacy.errors.join("\n"), /overlap/);
 

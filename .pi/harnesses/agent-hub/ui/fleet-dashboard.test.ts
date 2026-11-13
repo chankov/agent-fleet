@@ -91,6 +91,22 @@ test("dashboard arrows change session thinking, clamp endpoints, and respect mod
 	assert.match(notices[0], /session only; applies on next dispatch/);
 });
 
+test('new cached chat UI selects exact namespace and closes dashboard before one explicit action, never on render/status',async()=>{
+ let actions=0,modal=false,filter='',confirmations=0;const notices:string[]=[],a={namespace:{hostProfile:'desktop',principal:'synthetic',threadId:'11111111-1111-4111-8111-111111111111'},producer:'fresh',rights:[],rightsStatus:'not_connected',notification:'disabled'},b={...a,namespace:{...a.namespace,threadId:'22222222-2222-4222-8222-222222222222'}};let chats=[a,b];
+ const dashboard=createFleetDashboard({getFleetRows:()=>[],getFilter:()=>filter,setFilter:(v:string)=>{filter=v;},getShowFinished:()=>true,setShowFinished(){},getComsLines:()=>[],getCodexChats:()=>structuredClone(chats),codexChatAction:async(kind:string,c:any)=>{assert.equal(modal,false,'nested dashboard must be closed first');actions++;assert.equal(kind,'enable');assert.equal(c.threadId,b.namespace.threadId);confirmations++;}} as any);
+ await dashboard.openFleetDashboard({ui:{notify:(m:string)=>notices.push(m),custom:async(factory:any)=>{modal=true;const panel=factory({requestRender(){},terminal:{rows:10,columns:100}},{},{},()=>{modal=false;});
+  await panel.handleInput('2');for(let i=0;i<10;i++)panel.render(100);assert.equal(actions,0);await panel.handleInput('\u001b[B');chats=[b,a];await panel.handleInput('\r');const text=panel.render(100).join('\n');assert.match(text,/22222222/);assert.match(text,/не Desktop/);assert.equal(confirmations,0);
+  await panel.handleInput('e');assert.equal(modal,false);assert.equal(actions,0);await panel.handleInput('e');panel.dispose();}}} as any);
+ assert.equal(actions,1);assert.equal(confirmations,1);assert.deepEqual(notices,[]);
+});
+
+test('missing fresh chat presence shows guidance, never starts confirmation or activation',async()=>{
+ let actions=0;const notices:string[]=[];const row={namespace:{hostProfile:'desktop',principal:'synthetic',threadId:'11111111-1111-4111-8111-111111111111'},producer:'stale',rights:[],rightsStatus:'unknown',notification:'disabled'};
+ const dashboard=createFleetDashboard({getFleetRows:()=>[],getFilter:()=>'',setFilter(){},getShowFinished:()=>true,setShowFinished(){},getComsLines:()=>[],getCodexChats:()=>[row],codexChatAction:async()=>{actions++;}} as any);
+ await dashboard.openFleetDashboard({ui:{notify:(m:string)=>notices.push(m),custom:async(factory:any)=>{const panel=factory({requestRender(){},terminal:{rows:10,columns:100}},{},{},()=>{});await panel.handleInput('2');await panel.handleInput('e');await panel.handleInput('p');panel.render(100);panel.dispose();}}} as any);assert.equal(actions,0);assert.equal(notices.length,2);assert.match(notices[0],/fleet_diagnostics/);
+ assert.doesNotMatch(root,/getConnectionLines:[^\n]*refreshConnections/);
+});
+
 test('chat panel is bounded, scrollable, sanitized and does not invoke Fleet actions',async()=>{
  let panel:any,actions=0,filter='';const lines=Array.from({length:80},(_,i)=>`chat line ${i} \u001b[31muntrusted\u001b[0m`);
  const dashboard=createFleetDashboard({getFleetRows:()=>[],getFilter:()=>filter,setFilter:(v:string)=>{filter=v;},getShowFinished:()=>true,setShowFinished(){},getComsLines:()=>[],getConnectionLines:()=>lines,actions:{execute:()=>{actions++;},open:()=>{actions++;}}} as any);

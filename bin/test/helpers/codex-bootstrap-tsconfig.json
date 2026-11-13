@@ -1,0 +1,32 @@
+{
+  "extends": "../../../.pi/harnesses/agent-hub/tsconfig.json",
+  "include": [],
+  "exclude": [],
+  "files": [
+    "../../../.pi/harnesses/lib/codex-compat.test.ts",
+    "../../../.pi/harnesses/lib/codex-contract.test.ts",
+    "../../../.pi/harnesses/lib/codex-notification-profile.test.ts",
+    "../../../.pi/harnesses/lib/codex-queue-compatibility.test.ts",
+    "../../../.pi/harnesses/lib/fleet-notification-bootstrap.test.ts",
+    "../../../.pi/harnesses/lib/fleet-codex-chat-view.test.ts",
+    "../../../.pi/harnesses/agent-hub/ui/fleet-dashboard.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-bootstrap.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-coms-stream.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-bootstrap-integration.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-bootstrap-probe.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-native-presence.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-desktop-preflight.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-desktop-discovery.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-preflight-diagnostics.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-send-lineage.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-probe-transcript.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-measurement.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-daemon-observer.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-desktop-queue.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-event-runtime.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-event-compatibility.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-catalog-readiness.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-connections.test.ts",
+    "../../../.pi/agent-fleet/scripts/fleet-codex-allowlist-store.test.ts"
+  ]
+}

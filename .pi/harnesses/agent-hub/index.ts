@@ -1,4 +1,4 @@
-import {FleetConnectionControl,connectionLines,connectionNamespaces} from '../lib/fleet-connection-control.ts';
+import {createCodexBootstrapControls} from './codex-bootstrap.ts';
 import {homedir} from 'node:os';
 import { privateDeclarationHash, type PrivateProofUse } from './private-config-review.ts';
 import { registerDiscoveryHub, configureDiscoveryHub, resetDiscoveryHub, discoveryHubEnabled, discoveryManagedReadbackAllowed, prepareDiscoveryNative } from './file-discovery/hub.ts';
@@ -277,42 +277,15 @@ export default function (pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null;
 	let refreshFleetUi = () => {};
  const permissionRelay=new PermissionRelay(()=>observationOwner(),()=>accessTaskIdentity());registerPermissionRelay(pi,permissionRelay);registerPermissionRelay(pi.events,permissionRelay);
- let codexNotifications:import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts').FleetCodexNotificationRuntime|undefined;
- let renewCodexNotifications:((until:number)=>unknown)|undefined;
- const codexPolicyRoot=process.env.AF_CODEX_POLICY_ROOT??path.join(homedir(),'.codex/agent-fleet/state/fleet-native');
- const codexNamespace={hostProfile:process.env.AF_CODEX_HOST_PROFILE??'desktop',principal:process.env.AF_CODEX_PRINCIPAL??'local-user'};
- const connectionControl=new FleetConnectionControl({owner:()=>observationOwner(),session:()=>codexNotifications?{status:()=>codexNotifications!.status(),renewUntil:until=>{if(!renewCodexNotifications)throw Error('renewal_unavailable');return renewCodexNotifications(until);}}:undefined,
-  defaultNamespace:codexNamespace,listNamespaces:async()=>(await connectionNamespaces(codexPolicyRoot)).filter(c=>c.hostProfile===codexNamespace.hostProfile&&c.principal===codexNamespace.principal),
-  readRights:async namespace=>{const owner=observationOwner();if(!owner)return {rights:[],status:'owner_unavailable'};
-   try{const {AllowedSessionsStore}=await import('../../agent-fleet/scripts/lib/fleet-codex-allowlist-store.ts');const state=await new AllowedSessionsStore(codexPolicyRoot,namespace).open();
-    const b=state.bindings.find(b=>b.target.project===owner.project&&b.target.peer===owner.peer);
-    return b?{rights:[...b.rights],expiresAt:b.expiresAt,status:b.target.sessionId===owner.sessionId&&b.target.startedAt===owner.startedAt?b.status:'target_changed',revision:state.revision}:{rights:[],status:'not_connected',revision:state.revision};
-   }catch{return {rights:[],status:'rights_unavailable'};}
-  }});
- let connectionRefreshAt=0,connectionRefreshBusy=false;
- const refreshConnections=()=>{if(connectionRefreshBusy||Date.now()-connectionRefreshAt<2000)return;connectionRefreshAt=Date.now();connectionRefreshBusy=true;void connectionControl.refresh().finally(()=>{connectionRefreshBusy=false;refreshFleetUi();});};
- // Explicit user command only: no configuration discovery or default host activation.
- pi.registerCommand('af-codex-events',{description:'prepare|enable <private config.json> or disable; never starts daemon or grants approve',handler:async(args,ctx)=>{
-  let started:typeof codexNotifications;
-  try{
-   const split=args.trim().indexOf(' '),operation=split<0?args.trim():args.trim().slice(0,split),path=split<0?'':args.trim().slice(split+1).trim();
-   if(operation==='disable'){codexNotifications?.stop();codexNotifications=undefined;ctx.ui.notify('Codex event runtime stopped; no grants changed.','info');return;}
-   if(!['prepare','enable'].includes(operation)||!path)throw Error('notification_command_invalid');
-   const {readNotificationConfiguration,notificationConfigurationUnchanged,notificationPreview,renewNotificationConfiguration,FleetCodexNotificationRuntime}=await import('../../agent-fleet/scripts/lib/fleet-codex-event-runtime.ts');
-   const config=readNotificationConfiguration(path),preview=notificationPreview(config,observationOwner());
-   if(operation==='prepare'||!preview.ready){ctx.ui.notify(JSON.stringify(preview),preview.ready?'info':'warning');return;}
-   if(codexNotifications)throw Error('notification_runtime_already_running');
-   const runtime=new FleetCodexNotificationRuntime(config,()=>notificationConfigurationUnchanged(path,config)?observationOwner():null);const startup=runtime.start();started=runtime;codexNotifications=runtime;await startup;
-   renewCodexNotifications=until=>runtime.renewUntil(until,()=>{const next=renewNotificationConfiguration(path,config,until);config.approval.confirmedUntil=next.approval.confirmedUntil;});refreshConnections();
-   ctx.ui.notify('Codex event ingress enabled explicitly; ACK is not model delivery, no approve granted.','info');
-  }catch{if(started){started.stop();if(codexNotifications===started)codexNotifications=undefined;}ctx.ui.notify('Codex event operation refused or uncertain; inspect private journal, do not replay.','error');}
- }});
- pi.on('session_shutdown',async()=>{codexNotifications?.stop();codexNotifications=undefined;});
+ const codexControls=createCodexBootstrapControls(pi,{owner:()=>observationOwner(),context:()=>currentCtx,changed:()=>refreshFleetUi()});
+ const connectionControl=codexControls.control;
+ const refreshConnections=()=>{void codexControls.refresh();};
 	const coms = createComsPeer({
 		pi,
 		getContext: () => currentCtx,
 		instructionReceipts: true,
 		onPeersChanged: () => refreshFleetUi(),
+		handleCustomStream: (socket, envelope, buffered) => codexControls.control.handleStream(socket, envelope, buffered),
 		handleCustomEnvelope: (socket, envelope) => {
    if(connectionControl.handle(socket,envelope))return true;
 			if (handleObservationEnvelope(socket, envelope, {
@@ -2115,7 +2088,9 @@ export default function (pi: ExtensionAPI) {
 		killSpecialistProcess: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		abortComs: state => { state.comsAbort?.(); },
 		getComsLines: (width, theme) => poolPresentation.render(width, theme),
-  getConnectionLines: (width) => {refreshConnections();const lines=connectionLines(connectionControl.rows());return ['Bounded private policy inventory; refresh every 2s',...(lines.length?lines:['No connection observed; absence is not proof of no saved grants'])].map(line=>truncateToWidth(line,width));},
+  getConnectionLines: width => codexControls.lines().map(line=>truncateToWidth(line,width)),
+  getCodexChats:()=>codexControls.rows(),
+  codexChatAction:async(kind,namespace)=>{if(!currentCtx)throw Error('native_pi_ui_unavailable');await codexControls.action(kind,namespace,currentCtx);},
 	});
 	const { fleetRows, openFleetDashboard: openFleetDashboardRaw } = fleetDashboard;
 	const openFleetDashboard = (ctx: any, startSubstitution = false) => gridUI.withSuspended(() => openFleetDashboardRaw(ctx, startSubstitution));
@@ -2455,7 +2430,7 @@ export default function (pi: ExtensionAPI) {
 		resetSession: async (_ctx) => { await resetDamageGuardHub(pi); resetHubSession(_ctx, {
 			registerVersion: registerVersionStatus, resetPressure: pressureLifecycle.reset,
 			captureBaselineTools: () => { baselineTools = pi.getActiveTools(); },
-			resetAccessApproval: () => {codexNotifications?.stop();codexNotifications=undefined;accessApprovalRouter.reset();permissionRelay.reset();accessEpochs.clear();},
+			resetAccessApproval: () => {codexControls.resetSession();accessApprovalRouter.reset();permissionRelay.reset();accessEpochs.clear();},
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
 			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);

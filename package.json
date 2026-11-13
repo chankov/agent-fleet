@@ -1,6 +1,6 @@
 {
   "name": "@chankov/agent-fleet",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Subagent orchestration for the pi coding agent — a thin dispatcher runs parallel subagents under a verification contract, keeping their output out of its context window. Multi-agent fleets, 15 personas, skills, herdr panes, peer coms, Hermes desktop.",
   "keywords": [
     "subagents",
@@ -95,6 +95,7 @@
     "!.pi/agent-fleet/scripts/hermes-monitor-scenario.test.ts",
     ".pi/agent-fleet/scripts/lib/*.ts",
     ".pi/agent-fleet/scripts/lib/*.js",
+    ".pi/agent-fleet/scripts/fixtures/codex-notification-contracts/bootstrap-profile-0.167.json",
     ".pi/agent-fleet/hermes/README.md",
     ".pi/agent-fleet/hermes/skills/",
     ".pi/agent-fleet/hermes/plugins/",
@@ -178,6 +179,7 @@
     "test:portability": "node bin/test/helpers/run-portability.js",
     "typecheck:workflows": "tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit",
     "typecheck:hub": "tsc -p .pi/harnesses/agent-hub/tsconfig.json --noEmit",
+    "typecheck:codex-bootstrap": "npm run typecheck:hub && tsc -p bin/test/helpers/codex-bootstrap-tsconfig.json --noEmit",
     "typecheck:system1": "tsc --noEmit --strict --allowJs --checkJs --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions --types node .pi/harnesses/lib/system1/config.js .pi/harnesses/lib/system1/contracts.ts .pi/harnesses/lib/system1/service.ts .pi/harnesses/lib/system1/jev.ts .pi/harnesses/lib/system1/demo.ts .pi/harnesses/lib/system1/service.test.ts .pi/harnesses/lib/system1/fake-provider.test.ts .pi/harnesses/lib/system1/jev.test.ts .pi/harnesses/lib/system1/demo.test.ts",
     "test:watchdog-py": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .pi/agent-fleet/hermes/watchdog-tests -p 'test_*.py'",
     "pack:dry": "npm pack --dry-run",

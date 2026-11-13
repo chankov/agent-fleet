@@ -1,3 +1,7 @@
+import {chatLines,chatTransition,type ChatView} from '../../lib/fleet-codex-chat-view.ts';
+import type {BootstrapChatRow} from '../../../agent-fleet/scripts/lib/fleet-codex-bootstrap.ts';
+import type {BootstrapNamespace} from '../../lib/fleet-notification-bootstrap.ts';
+import {namespaceKey} from '../../lib/fleet-codex-namespace.ts';
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { ChildProcess } from "node:child_process";
 import type { ModelPolicy } from "../policy/models.ts";
@@ -74,6 +78,8 @@ export interface FleetDashboardDeps<TDef extends DetailAgentDef, TAgent extends 
 	abortComs(state: TAgent): void;
 	getComsLines(width: number, theme: { fg(color: string, text: string): string }): string[];
  getConnectionLines?(width:number,theme:{fg(color:string,text:string):string}):string[];
+ getCodexChats?():BootstrapChatRow[];
+ codexChatAction?(kind:'enable'|'disable'|'preflight',namespace:BootstrapNamespace,ctx:DetailUiContext):Promise<void>;
 }
 
 type SubstitutionPicker = { stage: "source" | "target"; source?: string; choices: FleetModelChoice[]; index: number; scrollOffset: number };
@@ -113,6 +119,7 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 	async function openFleetDashboard(ctx: DetailUiContext, startSubstitution = false): Promise<void> {
 		const resources = createPanelResources(), selection: Selection = { index: 0 };
   let connections=false,connectionOffset=0;
+  const chats:ChatView={detail:false,offset:0},chatAction:{afterClose?:()=>Promise<void>}={};
 		let scrollOffset = 0, filtering = false, detailVerbose = false, confirm: DashboardConfirm = null;
 		let reviewHistory = false, historyIndex = 0, findingIndex = 0, historyOffset = 0, evidence: string | null | undefined, evidenceFinding: ProactiveFindingView | undefined, evidenceOffset = 0;
 		const history = () => deps.getProactive?.()?.owners.flatMap(owner => owner.history.map(review => ({ owner, review }))) ?? [];
@@ -121,6 +128,7 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 		try { await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (result?: unknown) => void) => {
 			attachFleetDashboardTicker(resources, () => tui.requestRender());
 			return { render: (w: number) => { const now = Date.now(), rows = fleetRows(false, now); reconcileSelection(selection, rows);
+    if(connections&&deps.getCodexChats){const items=deps.getCodexChats(),height=Math.max(4,tui.terminal?.rows??24),content=chatLines(chats,items),body=height-3,index=items.findIndex(r=>namespaceKey(r.namespace)===chats.selected);if(!chats.detail){if(index<chats.offset)chats.offset=Math.max(0,index);if(index>=chats.offset+body)chats.offset=index-body+1;}chats.offset=clampScroll(chats.offset,content.length,body);return fitToHeight(['Codex чатове — cached данни, не live delivery proof',...content.slice(chats.offset,chats.offset+body),chats.detail?'↑↓ scroll · e включи/reconnect · d изключи · p preflight · Esc списък':'↑↓ избери чат · Enter детайли · e включи/reconnect · d изключи · p preflight · Esc назад'].map(line=>truncateToWidth(safeTerminalText(line),w)),height);}
     if(connections){const height=Math.max(4,tui.terminal?.rows??24),content=deps.getConnectionLines?.(w,theme)??['Connection status unavailable'];connectionOffset=clampScroll(connectionOffset,content.length,height-3);return fitToHeight(['Chat connections — observed state, not delivery proof',...content.slice(connectionOffset,connectionOffset+height-3),'↑↓ / PgUp/PgDn/Home/End scroll · Esc back'].map(line=>truncateToWidth(safeTerminalText(line),w)),height);}
     const comsLines = deps.getComsLines(w, theme); const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS + comsLines.length, 0); if (evidence !== undefined) return fitToHeight(evidenceLines(evidence, w, body, evidenceOffset, evidenceFinding), body + FLEET_CHROME_ROWS + comsLines.length);
 				if (picker) return renderFleetSubstitutionPicker(picker.stage, picker.source, picker.choices, picker, w, body, theme);
@@ -128,9 +136,10 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 				const taskTriage = deps.getTaskTriage?.(), listBody = fleetDashboardListBody(body, rows.length, taskTriage);
 				if (listBody > 0 && rows.length) { if (selection.index < scrollOffset) scrollOffset = selection.index; else if (selection.index >= scrollOffset + listBody) scrollOffset = selection.index - listBody + 1; }
 				scrollOffset = clampScroll(scrollOffset, rows.length, listBody); const summary = summarise(rows); const lines = renderFleetDashboard({ rows, selection, scrollOffset, filterQuery: deps.getFilter(), showFinished: deps.getShowFinished(), confirmation: confirm && confirm.until > now ? `press ${confirm.action === "kill" ? "x" : "r"} again to ${confirm.action} ${rows.find(row => row.key === confirm!.key && row.runToken === confirm!.runToken)?.name ?? "agent"}` : undefined, summary: { ...summary, wallMs: unionMs(summary.intervals) }, proactive: deps.getProactive?.(), taskTriage, comsLines }, w, body, theme, { visibleWidth, truncateToWidth }); if (deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" ←→ thinking · 1 System 1 communication · p reviews · h history · Enter detail · Esc close", w); if (deps.openSystem1 && !deps.getProactive?.()?.owners.some(owner => owner.history.length)) lines[body + 3] = truncateToWidth(" ←→ thinking · 1 System 1 communication · h history · Enter detail · Esc close", w); lines[body+3]=truncateToWidth(' 2 chats · '+lines[body+3],w);return lines; },
-				handleInput: async (data: string) => { const now = Date.now(), rows = fleetRows(false, now); reconcileSelection(selection, rows); const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS + deps.getComsLines(tui.terminal?.columns ?? 80, theme).length, 0), input = toInput(data);
+				handleInput: async (data: string) => { if(chatAction.afterClose)return;const now = Date.now(), rows = fleetRows(false, now); reconcileSelection(selection, rows); const body = bodyRows(tui.terminal?.rows, FLEET_CHROME_ROWS + deps.getComsLines(tui.terminal?.columns ?? 80, theme).length, 0), input = toInput(data);
+     if(connections&&deps.getCodexChats){const intent=chatTransition(input,chats,deps.getCodexChats());if(intent==='back')connections=false;else if(intent==='presence_required')ctx.ui.notify('Липсва еднозначна прясна native presence; извикай fleet_diagnostics в точния Codex чат. Няма автоматичен probe/start/replay.','warning');else if(intent&&deps.codexChatAction){chatAction.afterClose=()=>deps.codexChatAction!(intent.action,intent.namespace,ctx);done();return;}tui.requestRender();return;}
      if(connections){if(input==='\u001b'||input==='q')connections=false;else connectionOffset=evidenceScroll(input,connectionOffset,deps.getConnectionLines?.(tui.terminal?.columns??80,theme).length??0,Math.max(1,(tui.terminal?.rows??24)-3));tui.requestRender();return;}
-     if(input==='2'&&!filtering&&!picker&&!reviewHistory&&evidence===undefined){connections=true;connectionOffset=0;confirm=null;tui.requestRender();return;}
+     if(input==='2'&&!filtering&&!picker&&!reviewHistory&&evidence===undefined){connections=true;connectionOffset=0;chats.offset=0;chats.detail=false;confirm=null;tui.requestRender();return;}
 					if (evidence !== undefined) { if (input === "\u001b" || input === "q") { evidence = undefined; evidenceFinding = undefined; } else evidenceOffset = evidenceScroll(input, evidenceOffset, proactiveEvidenceContent(evidence, evidenceFinding, tui.terminal?.columns ?? 80).length, body); tui.requestRender(); return; }
 					if (reviewHistory) {
 						const entries = history();
@@ -157,6 +166,7 @@ export function createFleetDashboard<TDef extends DetailAgentDef, TAgent extends
 					if (intent === "close") done(); else if (intent === "history") { confirm = null; await deps.openHistory(ctx); } else if (intent === "config") { confirm = null; if (deps.openConfig) await deps.openConfig(ctx); else ctx.ui.notify("Run /af-config or press Alt+, for the Fleet config screen.", "info"); } else if (intent === "substitute") { confirm = null; const choices = substitutionSourceChoices(); if (!choices.length) ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning"); else picker = { stage: "source", choices, index: 0, scrollOffset: 0 }; } else if (intent && typeof intent === "object" && "open" in intent) { const selected = rows.find(row => row.key === intent.open); confirm = null; if (selected) detailVerbose = await deps.actions.open(selected.key, selected.runToken, ctx, detailVerbose); } else if (intent && typeof intent === "object" && "kill" in intent) { const selected = rows.find(row => row.key === intent.kill); if (selected) await deps.actions.execute("kill", selected.key, selected.runToken, ctx); else ctx.ui.notify("Selected fleet row no longer exists.", "warning"); } else if (intent && typeof intent === "object" && "restart" in intent) { const selected = rows.find(row => row.key === intent.restart); if (selected) await restartRow(selected, ctx); } tui.requestRender(); },
 				invalidate() {}, dispose: () => resources.dispose() };
 		}, FULLSCREEN_OVERLAY); } finally { resources.dispose(); }
+  if(chatAction.afterClose)await chatAction.afterClose();
 	}
 
 	return { fleetRows, openFleetDashboard };

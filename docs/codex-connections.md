@@ -1,6 +1,14 @@
 # Native chat connections (explicit preview/commit)
 
-## 2.1.1 patch scope and verification boundaries
+## Unreleased minor: notification bootstrap / reconnect
+
+The current source integrates [native one-Pi-confirm bootstrap](codex-notification-bootstrap.md): read-only prepare, asynchronous `pending` commit handoff (end the initiating model turn), Codex-only CAS rights writer, one exact no-load ACK probe, private process-local admission and cached per-chat controls. Rights and notifications use one common deadline. Existing source, packaged schemas and tests do **not** qualify the current Desktop; explicit factual identity/capability preflight remains required. A changed Desktop/native host may invalidate that mapping.
+
+Read the new flow for conditional same-fingerprint daemon rechecks, no-replay/journal preservation, Fleet View e/d/p actions and separately authorized live steps. `desktopConfirmed`/`quiescentWritersConfirmed` model booleans are not native Pi consent. A native MCP disconnect stops the bootstrap consumer; the historical reload/renewal notes below do not promise uninterrupted bootstrap delivery.
+
+**The following 2.1.1 sections describe the retained legacy rights-only/manual-mapping contracts and historical evidence, not the new bootstrap's grant/confirmation semantics.**
+
+## Historical 2.1.1 patch scope and verification boundaries
 
 The pending 2.1.1 patch includes the three connection tools, separate default 12-hour leases for new connections, live-safe renewal of an already configured mapping, the Fleet View chat panel, bounded opaque question references, and the separate private-configuration verification mode. See [operator current-state verification](operator-current-state.md#private-codex-notification-configuration-current-state) for the private mode's constraints; its whole-feature independent review is still a release-readiness obligation, not completed by a changeset.
 
@@ -12,7 +20,7 @@ Full final-response reading appends `fleet_response_read` as the 28th source too
 
 A fresh 28-tool runtime and managed registration are not proof that a running Desktop host has refreshed its cached 24/27-tool catalog. The deployment steps below remain necessary where the old catalog or skill is loaded. This is a verification boundary, not a promise of automatic publication, refresh, binding, activation or renewal.
 
-## Scope and acceptance
+## Legacy scope and acceptance
 
 The native MCP workflow removes Fleet command/copy-paste steps for **rights enrollment** and for **renewal of an already configured, active exact notification mapping**. It does not implement or claim automatic first-time Desktop mapping, daemon start, background delivery after restart, host reload, or model delivery from a queue ACK.
 
@@ -23,7 +31,7 @@ Approved product decisions:
 - Existing policy entries and legacy binding tools retain their prior contract. Existing rights are neither silently shortened nor extended. Use the explicit binding transition tools to change them; expired leases require explicit forget/re-enrollment.
 - `message`, `question`, and `permission` are three notification kinds, not three rights. A question still requires an actual human answer. A permission event still requires full fresh inspection and an independently justified one-use Codex machine decision with separate `approve` authority.
 
-## UX
+## Legacy UX (not the new notification bootstrap)
 
 The optional repository skill is `skills/fleet-connect/SKILL.md`. Its installation/availability depends on the host's supported skill loader; it is not automatically installed by this change.
 
@@ -42,7 +50,7 @@ New `connect` grants use canonical private allowlist schema v3, adding per-bindi
 
 Rights and notification deadlines are distinct. A notification renewal never grants/extends rights, changes recipients, resets epoch/revision, creates a namespace, or clears receipts. The receiver rechecks fresh read authority and refuses a notification extension beyond an existing rights lease. Legacy unleased rights are explicitly reported as such. Revocation and expiry do not erase historical receipts.
 
-## Receiver control and live-safe renewal
+## Legacy receiver control and live-safe renewal
 
 `connection_request` / `connection_response` v1 use the bounded, exact-owner COMS transport with the same socket/registry/correlation/before-write checks as permission RPC. They are cooperative same-UID interfaces, not human authentication or attested host origin.
 
@@ -70,7 +78,7 @@ These optional process settings are source-level integration points, not install
 
 The panel refreshes on demand every two seconds, reports both deadlines and remaining time, stored rights, expiry/staleness/mapping/configuration reasons, and unknown delivery. Cached policy older than five seconds is marked unverified. Missing/unreadable inventory is not proof of no saved grants. A stopped consumer, expired confirmation, or changed mapping is not reported as enabled. Queue ACKs never become model-delivery proof.
 
-## Restart and first-time bootstrap limits
+## Legacy restart and first-time bootstrap limits
 
 - A new AF `sessionId`/`startedAt` is a different target; rebind explicitly. No automatic retargeting.
 - Native host restart preserves policy but loses uncommitted proposals; no implicit confirmation refresh.
@@ -106,6 +114,14 @@ Install the published package through the normal [npm workflow](npm-install.md),
 The release includes the updated voice skill archive, unlike a local runtime-only snapshot that deliberately preserves an older installed skill. Updating only the server without the skill, or only the skill without actual host adoption, does not prove that the double-confirmation UX is fixed. After the reviewed update, wait for affected work to finish, use the supported host MCP/skill reload procedure, and inspect the actual tool catalog and discovered skill. No AF reload, permission re-grant, policy reset or notification deadline extension is implied.
 
 Do not run `version:changeset`, publish, overwrite an existing local release, or refresh a live host as an incidental documentation task. The normal Changesets release PR generates the package/lockfile/changelog versions; this pending patch targets 2.1.0 → 2.1.1.
+
+## Bootstrap implementation boundaries
+
+The notification bootstrap coordinator, native duplex producer/control, explicit Desktop mapping, pinned no-load probe, local rollout ACK reader, CAS reconnect and private admission now form an integrated source flow; see [the current contract and live-preflight limits](codex-notification-bootstrap.md). This integration has synthetic runtime evidence, not current-host qualification. See the [bootstrap evidence index](../.pi/agent-fleet/scripts/fixtures/codex-notification-contracts/bootstrap.md).
+The Codex store's `reconnect` requires a reviewed namespace revision and exact old/new AF
+epochs, replaces rights with one common deadline, and reports post-publication cancellation
+as uncertain. It does not itself authenticate human consent or create an AF-side rights writer.
+The notification-enabled tools now use one genuine Pi confirmation and explicit CAS reconnect, with a shared deadline and no automatic old-rights transfer. Legacy rights-only/binding tools retain their prior semantics. No source change starts a daemon, hydrates a transcript, reloads a host, qualifies a version or activates a real connection.
 
 ## Verification
 
