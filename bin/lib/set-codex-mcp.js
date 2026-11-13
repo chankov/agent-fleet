@@ -24,7 +24,7 @@ const ACTIONS = ["status", "install", "update", "uninstall"];
 const DEFAULT_HOST_PROFILE = "desktop";
 const DEFAULT_PRINCIPAL = "local-user";
 /** Sibling namespaces the server derives from `--policy-root`; they must stay disjoint from every other root. */
-const STATE_SUFFIXES = [".observations", ".instructions", ".reports", ".permissions"];
+const STATE_SUFFIXES = [".observations", ".instructions", ".reports", ".permissions", ".presence", ".bootstrap"];
 const PROBE_TIMEOUT_MS = 10000;
 
 function usage() {

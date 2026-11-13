@@ -27,10 +27,10 @@ function fixture(t:TestContext,desktopVersion:string){
  let duringRead=()=>{};
  let result:unknown={thread:{id:binding.threadId,status:{type:'notLoaded'}}};
  const rpc:Pick<CodexUnixQueueRpc,'request'>={async request(method,params,options){
-  calls.push({method,params});
+  assert.ok(params&&typeof params==='object'&&!Array.isArray(params));const request=params as Record<string,unknown>;calls.push({method,params:request});
   if(method==='thread/queue/add'){
    options?.beforeWrite?.();
-   return {queuedSubmission:{id:'offline-text-submission',clientUserMessageId:params.clientUserMessageId,input:params.input}};
+   return {queuedSubmission:{id:'offline-text-submission',clientUserMessageId:request.clientUserMessageId,input:request.input}};
   }
   duringRead();
   return result;

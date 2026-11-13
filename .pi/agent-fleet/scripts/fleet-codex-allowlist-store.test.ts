@@ -393,6 +393,77 @@ for (const stage of ['beforeRename', 'afterRename']) {
   });
 }
 
+test('reviewed reconnect atomically replaces an expired old epoch with exactly the new common lease', async t => {
+ const root=await fixture(t);let now=100;const store=new AllowedSessionsStore(root,A,{now:()=>now});await store.initialize();
+ await store.connect({alias:'shop',target,rights:['read','send','approve'],expiresAt:200},[target],0);
+ const old=await store.resolve('shop',[target]),other=new AllowedSessionsStore(root,B);await other.initialize();const otherBefore=await other.open();
+ now=201;await denied('RIGHTS_EXPIRED',()=>store.resolve('shop',[target]));const before=await store.open();
+ const result=await store.reconnect({alias:'shop',previousTarget:target,target:restarted,rights:['read','send'],expiresAt:300},[restarted],before.revision,new AbortController().signal);
+ assert.equal(result.revision,before.revision+1);assert.deepEqual(result.bindings,[{alias:'shop',target:restarted,rights:['read','send'],status:'active',expiresAt:300}]);
+ await denied('STATE_CHANGED',()=>store.authorize(old,'approve',[restarted]));
+ const handle=await store.resolve('shop',[restarted]);assert.deepEqual(await store.authorize(handle,'send',[restarted]),restarted);await denied('APPROVE_NOT_GRANTED',()=>store.authorize(handle,'approve',[restarted]));
+ now=300;for(const right of ['read','send','approve'] as const)await denied('RIGHTS_EXPIRED',()=>store.authorize(handle,right,[restarted]));
+ assert.deepEqual(await other.open(),otherBefore);
+});
+
+test('same-epoch reconnect is explicit rights replacement, not inherited grants or replay', async t => {
+ const {store,handle}=await setup(t);let h=await store.grantSend(handle,[target]);h=await store.grantApprove(h,[target]);const before=await store.open();
+ const proposal={alias:'shop',previousTarget:target,target,rights:['read'] as const,expiresAt:Date.now()+60000};
+ const next=await store.reconnect(proposal,[target],before.revision,new AbortController().signal);
+ assert.deepEqual(next.bindings[0].rights,['read']);assert.equal(next.bindings[0].expiresAt,proposal.expiresAt);await denied('STATE_CHANGED',()=>store.authorize(h,'read',[target]));
+ await denied('STATE_CHANGED',()=>store.reconnect(proposal,[target],before.revision,new AbortController().signal));assert.deepEqual(await store.open(),next);
+});
+
+test('reconnect CAS pins old exact target, new live target, alias, revision and unique binding', async t => {
+ const {store}=await setup(t),other={...target,peer:'other'};await store.enroll({alias:'other',target:other},[target,other]);const before=await store.open();
+ const proposal={alias:'shop',previousTarget:target,target,rights:['read','approve'] as const,expiresAt:Date.now()+60000};
+ for(const [change,current,revision,code] of [
+  [{previousTarget:restarted},[target,other],before.revision,'STATE_CHANGED'],
+  [{alias:'missing'},[target,other],before.revision,'NOT_ALLOWED'],
+  [{target:other},[target,other],before.revision,'STATE_CHANGED'],
+  [{},[target,other],before.revision-1,'STATE_CHANGED'],
+  [{target:{...target,peer:'offline'}},[target,other],before.revision,'TARGET_UNAVAILABLE'],
+  [{},[target,target,other],before.revision,'AMBIGUOUS_TARGET'],
+ ] as const){await denied(code,()=>store.reconnect({...proposal,...change},current,revision,new AbortController().signal));assert.deepEqual(await store.open(),before);}
+});
+
+test('reconnect validates bounded detached inputs before awaiting the namespace lock', async t => {
+ const {root}=await setup(t);let release!:()=>void,entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});let block=false;
+ const store=new AllowedSessionsStore(root,A,{checkpoint:async stage=>{if(block&&stage==='locked'){entered();await new Promise<void>(resolve=>{release=resolve;});}}});
+ const before=await store.open(),until=Date.now()+60000;
+ const proposal={alias:'shop',previousTarget:{...target},target:{...target},rights:['read','send'] as Array<'read'|'send'>,expiresAt:until},current=[{...target}];
+ block=true;const work=store.reconnect(proposal,current,before.revision,new AbortController().signal);await waiting;
+ proposal.alias='mutated';proposal.previousTarget.sessionId='changed-old';proposal.target.sessionId='changed-new';proposal.rights.pop();proposal.expiresAt=1;current[0].sessionId='changed-current';release();
+ const result=await work;assert.equal(result.bindings[0].alias,'shop');assert.deepEqual(result.bindings[0].target,target);assert.deepEqual(result.bindings[0].rights,['read','send']);assert.equal(result.bindings[0].expiresAt,until);
+});
+
+test('concurrent reconnect commits exactly one reviewed revision', async t => {
+ const {root,store}=await setup(t),before=await store.open(),proposal={alias:'shop',previousTarget:target,target,rights:['read','send'] as const,expiresAt:Date.now()+60000};
+ const results=await Promise.allSettled([store,new AllowedSessionsStore(root,A)].map(s=>s.reconnect(proposal,[target],before.revision,new AbortController().signal)));
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal((results.find(r=>r.status==='rejected') as PromiseRejectedResult).reason.code,'STATE_CHANGED');
+ assert.equal((await store.open()).revision,before.revision+1);
+});
+
+for(const stage of ['beforeWrite','beforeRename','afterRename','beforeDirectorySync'] as const)test(`reconnect cancellation at ${stage} never gives a false successful grant`,async t=>{
+ const {root,store}=await setup(t),before=await store.open(),controller=new AbortController();
+ const writer=new AllowedSessionsStore(root,A,{checkpoint:at=>{if(at===stage)controller.abort();}});
+ const proposal={alias:'shop',previousTarget:target,target,rights:['read','send','approve'] as const,expiresAt:Date.now()+60000};
+ const published=stage==='afterRename'||stage==='beforeDirectorySync';
+ await denied(published?'COMMIT_UNCERTAIN':'STATE_CHANGED',()=>writer.reconnect(proposal,[target],before.revision,controller.signal));
+ const actual=await store.open();if(published){assert.equal(actual.revision,before.revision+1);assert.deepEqual(actual.bindings[0].rights,proposal.rights);}else assert.deepEqual(actual,before);
+ assert.equal((await readdir(root)).some(n=>n.endsWith('.tmp')||n.endsWith('.lock')),false);
+});
+
+test('malformed or pre-cancelled reconnect does not grant or initialize missing state',async t=>{
+ const {store}=await setup(t),before=await store.open(),proposal={alias:'shop',previousTarget:target,target,rights:['read'] as const,expiresAt:Date.now()+60000};
+ for(const rights of [[],['send'],['read','read'],['read','unknown'],['approve','read'],['read',,]])await denied('STATE_INVALID',()=>store.reconnect({...proposal,rights} as never,[target],before.revision,new AbortController().signal));
+ for(const expiresAt of [0,NaN,1.5,Number.MAX_SAFE_INTEGER+1])await denied('STATE_INVALID',()=>store.reconnect({...proposal,expiresAt},[target],before.revision,new AbortController().signal));
+ await denied('STATE_INVALID',()=>store.reconnect(proposal,[target,,] as never,before.revision,new AbortController().signal));
+ const controller=new AbortController();controller.abort();await denied('STATE_CHANGED',()=>store.reconnect(proposal,[target],before.revision,controller.signal));
+ assert.deepEqual(await store.open(),before);
+ const root=await fixture(t),missing=new AllowedSessionsStore(root,A);await denied('STATE_MISSING',()=>missing.reconnect(proposal,[target],0,new AbortController().signal));assert.deepEqual(await readdir(root),[]);
+});
+
 test('one namespace lock does not block another; no lock service or stale lock stealing', async t => {
   const { root } = await setup(t), b = new AllowedSessionsStore(root, B); await b.initialize();
   const c = await child(t, root, 'hold'); assert.equal((await c.next()).stage, 'locked');

@@ -18,7 +18,7 @@ async function fixture(fn:(f:{bridge:AnswerBridge;store:AllowedSessionsStore;roo
 }
 const proposal=(p:Record<string,unknown>)=>p.proposalId as string;
 test('B3 prepare has full normalized exact preview but no durable attempt; same commit/history only once',()=>fixture(async f=>{
- const p=await f.bridge.prepare(c,input);assert.equal(p.status,'prepared');assert.equal(p.humanProvenance,'unknown');assert.equal(fs.existsSync(join(f.root,'policy.instructions')),false);
+ const p=await f.bridge.prepare(c,input);assert.equal(p.status,'prepared');assert.equal(p.humanProvenance,'unknown');assert.equal(p.requiresHumanConfirmation,false);assert.equal(p.requiresActualHumanResponse,true);assert.equal(fs.existsSync(join(f.root,'policy.instructions')),false);
  const r=await f.bridge.commit(c,proposal(p));assert.equal((r.receipt as {state:string}).state,'accepted');assert.equal(f.sends(),1);assert.deepEqual(await f.bridge.commit(c,proposal(p)),r);
  assert.equal((await f.bridge.prepare(c,input)).status,'historical');assert.equal(f.sends(),1);
  const state=await f.store.open();await f.store.revoke('fixture',state.revision);assert.equal((await f.bridge.prepare(c,input)).status,'historical');

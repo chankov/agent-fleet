@@ -6,11 +6,12 @@ import type { QuestionSnapshot } from './lib/fleet-codex-answer-transport.ts';
 const meta={threadId:'11111111-1111-4111-8111-111111111111'},c={hostProfile:'fixture',principal:'owner',threadId:meta.threadId},t={project:'fixture',peer:'orchestrator',sessionId:'S1',startedAt:'2026-01-01T00:00:00.000Z'},at=Date.parse(t.startedAt);
 const q:QuestionSnapshot={id:'Q1',toolCallId:'TC1',owner:t,question:'Fixture?',options:[],allowMultiple:false,allowFreeform:true,allowComment:false,createdAt:t.startedAt,expiresAt:null,state:'pending'};
 const args={requestId:'fixture-action',target:t,questionId:'Q1',toolCallId:'TC1',operation:'answer',response:{kind:'freeform',text:'fixture only'}};
-async function fixture(fn:(s:LocalCodexMcp,root:string)=>Promise<void>){const root=fs.mkdtempSync(join(tmpdir(),'s6b-mcp-')),policyRoot=join(root,'policy');try{const store=new AllowedSessionsStore(policyRoot,c);await store.initialize();const h=await store.enroll({alias:'fixture',target:t},[t]);await store.grantSend(h,[t]);const reader:RegistryReader=async()=>({status:'complete',partial:false,reasons:[],observedAt:t.startedAt,entriesSeen:1,candidates:[{target:t,heartbeatAt:t.startedAt,presence:'fresh'}]});const answerTransport={inspect:async()=>structuredClone(q),send:async()=>{throw Error('not authorized fixture commit');},receipt:async()=>null};const service=new LocalCodexMcp({registryRoot:join(root,'registry'),policyRoot,hostProfile:c.hostProfile,principal:c.principal,registryReader:reader,now:()=>at,answerTransport,instructionTransport:{capability:async()=>true,send:async()=>{throw Error('not authorized fixture commit');},receipt:async()=>null}});await fn(service,root);}finally{fs.rmSync(root,{recursive:true,force:true});}}
+async function fixture(fn:(s:LocalCodexMcp,root:string)=>Promise<void>,override?:ConstructorParameters<typeof LocalCodexMcp>[0]['answerTransport']){const root=fs.mkdtempSync(join(tmpdir(),'s6b-mcp-')),policyRoot=join(root,'policy');try{const store=new AllowedSessionsStore(policyRoot,c);await store.initialize();const h=await store.enroll({alias:'fixture',target:t},[t]);await store.grantSend(h,[t]);const reader:RegistryReader=async()=>({status:'complete',partial:false,reasons:[],observedAt:t.startedAt,entriesSeen:1,candidates:[{target:t,heartbeatAt:t.startedAt,presence:'fresh'}]});const answerTransport={inspect:async()=>structuredClone(q),send:async()=>{throw Error('not authorized fixture commit');},receipt:async()=>null};const service=new LocalCodexMcp({registryRoot:join(root,'registry'),policyRoot,hostProfile:c.hostProfile,principal:c.principal,registryReader:reader,now:()=>at,answerTransport:override??answerTransport,instructionTransport:{capability:async()=>true,send:async()=>{throw Error('not authorized fixture commit');},receipt:async()=>null}});await fn(service,root);}finally{fs.rmSync(root,{recursive:true,force:true});}}
 test('B4 extended source catalog; strict typed human action descriptions, not loaded-catalog proof',()=>{assert.equal(TOOLS.length,28);for(const name of ['fleet_answer_prepare','fleet_answer_commit','fleet_answer_receipt']){const tool=TOOLS.find(t=>t.name===name)!;assert.ok(tool);assert.equal(tool.inputSchema.additionalProperties,false);}assert.match(TOOLS.find(t=>t.name==='fleet_answer_commit')!.description,/human/i);});
 test('B4 exact host context/schema rejects model identity and foreign context sees no proposal',()=>fixture(async s=>{
- const p=await s.call('fleet_answer_prepare',args,meta);assert.equal(p.status,'prepared');assert.equal(p.humanProvenance,'unknown');
+ const p=await s.call('fleet_answer_prepare',args,meta);assert.equal(p.status,'prepared');assert.equal(p.humanProvenance,'unknown');assert.equal(p.requiresHumanConfirmation,false);assert.equal(p.requiresActualHumanResponse,true);
  await assert.rejects(()=>s.call('fleet_answer_prepare',{...args,hostProfile:'spoof'},meta),/INVALID_ARGUMENTS/);
+ await assert.rejects(()=>s.call('fleet_answer_prepare',{...args,confirmed:true},meta),/INVALID_ARGUMENTS/);
  await assert.rejects(()=>s.call('fleet_answer_commit',{proposalId:p.proposalId},{threadId:'22222222-2222-4222-8222-222222222222'}),/PROPOSAL_UNAVAILABLE/);
  await assert.rejects(()=>s.call('fleet_answer_receipt',{requestId:args.requestId},meta),/INTENT_UNAVAILABLE/);
 }));
@@ -26,3 +27,28 @@ test('B4 protocol errors do not echo input bodies; receipt uncertainty is not re
  const p=new McpProtocol(s);await p.handle({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'fixture',version:'0'}}});await p.handle({jsonrpc:'2.0',method:'notifications/initialized'});
  const reply=await p.handle({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'fleet_answer_prepare',arguments:{...args,response:{kind:'freeform',text:'DO_NOT_ECHO_FIXTURE'},unexpected:true},_meta:meta}});assert.match(JSON.stringify(reply),/INVALID_ARGUMENTS/);assert.equal(JSON.stringify(reply).includes('DO_NOT_ECHO_FIXTURE'),false);
 }));
+
+test('native direct human reply prepares and commits once without an extra confirmation flag or rights change',async()=>{
+ let sends=0;const replies:unknown[]=[];
+ await fixture(async(s,root)=>{
+  const p=new McpProtocol(s);
+  await p.handle({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'fixture',version:'0'}}});
+  await p.handle({jsonrpc:'2.0',method:'notifications/initialized'});
+  const rpc=async(id:number,name:string,arguments_:unknown)=>{
+   const result:any=await p.handle({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:arguments_,_meta:meta}});
+   assert.equal(result.result.isError,false);return JSON.parse(result.result.content[0].text);
+  };
+  const before=await new AllowedSessionsStore(join(root,'policy'),c).open();
+  const prepared=await rpc(2,'fleet_answer_prepare',args);
+  assert.equal(prepared.requiresHumanConfirmation,false);assert.equal(prepared.requiresActualHumanResponse,true);
+  assert.equal(prepared.humanProvenance,'unknown');assert.deepEqual(prepared.response,args.response);assert.equal(sends,0);
+  const committed=await rpc(3,'fleet_answer_commit',{proposalId:prepared.proposalId});
+  assert.equal(committed.receipt.state,'accepted');assert.equal(committed.receipt.result.outcome,'answered');
+  assert.deepEqual(await rpc(4,'fleet_answer_commit',{proposalId:prepared.proposalId}),committed);
+  assert.equal((await rpc(5,'fleet_answer_prepare',args)).status,'historical');assert.equal(sends,1);
+  assert.deepEqual(replies,[args.response]);assert.deepEqual(await new AllowedSessionsStore(join(root,'policy'),c).open(),before);
+ },{inspect:async()=>structuredClone(q),receipt:async()=>null,send:async(_target,binding,response,options)=>{
+  await options.beforeWrite();sends++;replies.push(structuredClone(response));
+  return {state:'accepted',detail:null,result:{outcome:binding.operation==='answer'?'answered':'declined',decisionAt:t.startedAt,observedAt:t.startedAt,source:'pi_question_rpc_v2'}};
+ }});
+});

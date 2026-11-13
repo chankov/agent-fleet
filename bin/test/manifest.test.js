@@ -398,8 +398,14 @@ test("the workflow runtime installs every module its entry points load", () => {
       ".pi/harnesses/agent-hub/context-window.js",
       ".pi/harnesses/lib/context-budget-child-prompt.ts",
       ".pi/harnesses/damage-control-continue/index.ts",
+      ".pi/agent-fleet/scripts/lib/fleet-codex-bootstrap.ts",
+      ".pi/harnesses/agent-hub/codex-bootstrap.ts",
     ].map((path) => join(root, path)),
   ];
+  const reference = '.pi/agent-fleet/scripts/fixtures/codex-notification-contracts/bootstrap-profile-0.167.json';
+  assert.ok(installed.has(join(root, reference)), 'the bootstrap schema reference JSON is an installed runtime dependency, not qualification');
+  assert.ok(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).files.includes(reference), 'npm must publish the same runtime JSON resource');
+  assert.equal(JSON.parse(readFileSync(join(root, reference), 'utf8')).qualification, 'not_qualified');
   const imports = /(?:^|\n)\s*(?:import|export)\s+(type\s+)?(?:[^;'"]*?from\s+)?["'](\.[^"']+)["']|import\(\s*["'](\.[^"']+)["']\s*\)|new URL\(\s*["'](\.[^"']+\.(?:ts|js|mjs))["']\s*,\s*import\.meta\.url\)/g;
   const seen = new Set();
   const missing = [];

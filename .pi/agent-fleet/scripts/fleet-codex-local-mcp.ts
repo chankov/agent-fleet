@@ -52,8 +52,12 @@ async function main() {
    }
   }
   if (buffered.length && !dropping && !failed) await schedule(buffered);
+  // Native host EOF invalidates bootstrap presence/rights writes immediately;
+  // unrelated legacy requests retain their existing bounded drain behavior.
+  protocol.stopBootstrap();
   await Promise.all(tasks);
   if (failed) throw new Error('STDIO_FAILED');
  } catch { process.stderr.write('LOCAL_MCP_IO_FAILED\n'); process.exitCode = 1; }
+ finally { protocol.close(); }
 }
 await main();

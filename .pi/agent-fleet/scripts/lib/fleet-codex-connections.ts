@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {AllowedSessionsStore,StoreError,type StoreOptions} from './fleet-codex-allowlist-store.ts';
 import type {ConversationKey,TargetEpoch,Right} from './fleet-codex-allowlist.ts';
 import {PermissionTransport} from './fleet-codex-permission-transport.ts';
+import type {CodexBootstrapProducer} from './codex-bootstrap-producer.ts';
 import {validInstructionTarget,targetKey} from '../../../harnesses/lib/fleet-notification-validation.ts';
 export class ConnectionError extends Error {readonly code:string;constructor(code:string){super(code);this.code=code;}}
 function fail(code:string):never{throw new ConnectionError(code);}
@@ -18,7 +19,7 @@ export function parseConnection(v:any,operation:'prepare'|'commit'|'status'){
 type Candidate={target:TargetEpoch;current:TargetEpoch[]};
 type Pending={context:string;target:TargetEpoch;rights:Right[];until:number;revision:number|null;existing:boolean;alias:string;remoteProposal?:string;expires:number;promise?:Promise<any>;outcome?:any};
 /** Native UX orchestration. Cooperative explicit-review contract, not human attestation. */
-type ConnectionOptions={policyRoot:string;candidate:(c:ConversationKey,t:TargetEpoch)=>Promise<Candidate>;transport:Pick<PermissionTransport,'rpc'>;now?:()=>number;monotonic?:()=>number;storeOptions?:StoreOptions;pendingBudget?:(context:string)=>{total:number;context:number}};
+type ConnectionOptions={policyRoot:string;candidate:(c:ConversationKey,t:TargetEpoch)=>Promise<Candidate>;transport:Pick<PermissionTransport,'rpc'>;now?:()=>number;monotonic?:()=>number;storeOptions?:StoreOptions;pendingBudget?:(context:string)=>{total:number;context:number};bootstrap?:CodexBootstrapProducer};
 export class ConnectionBridge {
  private pending=new Map<string,Pending>();
  private options:ConnectionOptions;
@@ -31,12 +32,16 @@ export class ConnectionBridge {
  async status(c:ConversationKey,a:any,signal?:AbortSignal){
   const selected=await this.options.candidate(c,a.target);if(targetKey(selected.target)!==targetKey(a.target))fail('TARGET_CHANGED');
   const state=await this.state(c),b=state?.bindings.find(b=>targetKey(b.target)===targetKey(a.target));
-  let remote:any;try{remote=await this.remote(c,a.target,'status',{},signal);}catch(e){remote={status:'unavailable',reason:(e as any).code??'control_unavailable'};}
+  let remote:any;try{const bootstrap=this.options.bootstrap?await this.options.bootstrap.status(c,a.target,signal):undefined;remote=bootstrap?.status==='cached'?bootstrap:await this.remote(c,a.target,'status',{},signal);}catch(e){remote={status:'unavailable',reason:(e as any).code??'control_unavailable'};}
   return {status:'observed',target:a.target,namespace:c,rights:b?{stored:b.rights,effective:b.status==='active'&&(b.expiresAt===undefined||b.expiresAt>this.now()),expiresAt:b.expiresAt??null,reason:b.expiresAt!==undefined&&b.expiresAt<=this.now()?'rights_expired':b.status}:{stored:[],effective:false,reason:'not_connected'},notifications:remote.notifications??{enabled:false,reason:remote.reason??remote.status},delivery:'not_established_by_status'};
  }
- pendingCount(context?:string){for(const [id,p] of this.pending)if(!p.promise&&p.expires<=this.mono())this.pending.delete(id);return context===undefined?this.pending.size:[...this.pending.values()].filter(p=>p.context===context).length;}
+ legacyPendingCount(context?:string){for(const [id,p] of this.pending)if(!p.promise&&p.expires<=this.mono())this.pending.delete(id);return context===undefined?this.pending.size:[...this.pending.values()].filter(p=>p.context===context).length;}
+ pendingCount(context?:string){return this.legacyPendingCount(context)+(this.options.bootstrap?.pendingCount(context)??0);}
+ observe(c:ConversationKey){this.options.bootstrap?.observe(c);}
+ stop(){this.options.bootstrap?.stop();}
  async prepare(c:ConversationKey,a:any,signal?:AbortSignal){
   const other=this.options.pendingBudget?.(key(c))??{total:0,context:0};if(this.pendingCount()+other.total>=64||this.pendingCount(key(c))+other.context>=16)fail('BUSY');
+  if(this.options.bootstrap&&a.notifications!==false)return this.options.bootstrap.prepare(c,a,signal);
   const selected=await this.options.candidate(c,a.target);if(targetKey(selected.target)!==targetKey(a.target))fail('TARGET_CHANGED');
   const state=await this.state(c),existing=state?.bindings.find(b=>b.target.project===a.target.project&&b.target.peer===a.target.peer);
   if(existing&&(targetKey(existing.target)!==targetKey(a.target)||existing.status!=='active'))fail('REBIND_REQUIRED');
@@ -55,6 +60,7 @@ export class ConnectionBridge {
   return {status:'prepared',proposalId,expiresInSeconds:300,target:selected.target,namespace:c,proposedRights:rights,rightsUntil:existing?existing.expiresAt??null:until,existingRightsPreserved:!!existing,notificationsUntil:remote?until:null,eventKinds:remote?['message','question','permission']:[],requiresExplicitConfirmation:true,humanProvenance:'unknown',compatibility:existing?'existing_policy_unchanged':'policy_v3_old_writers_fail_closed',requiresQuiescentWriters:!existing,delivery:'not_attempted'};
  }
  async commit(c:ConversationKey,id:string,signal?:AbortSignal,quiescentWritersConfirmed=false){
+  if(this.options.bootstrap?.has(c,id))return this.options.bootstrap.beginCommit(c,id,signal);
   const p=this.pending.get(id);if(!p||p.context!==key(c)||p.expires<=this.mono())fail('PROPOSAL_UNAVAILABLE');if(p.outcome)return structuredClone(p.outcome);if(!p.existing&&!quiescentWritersConfirmed)fail('QUIESCENT_WRITERS_CONFIRMATION_REQUIRED');if(p.promise)return p.promise;
   p.promise=(async()=>{let rightsCommitted=false;try{
    if(signal?.aborted)fail('REQUEST_CANCELLED');

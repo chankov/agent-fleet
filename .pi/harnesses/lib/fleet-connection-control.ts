@@ -5,6 +5,8 @@ import {join,isAbsolute} from 'node:path';
 import type {Socket} from 'node:net';
 import {targetKey,validInstructionTarget} from './fleet-notification-validation.ts';
 import type {ConversationKey} from '../../agent-fleet/scripts/lib/fleet-codex-allowlist.ts';
+import {BootstrapChannelServer,namespaceKey} from './fleet-bootstrap-channel.ts';
+import type {NotificationBootstrap,BootstrapServices} from './fleet-notification-bootstrap.ts';
 export type ConnectionRights={rights:readonly string[];expiresAt?:number;status:string;revision?:number};
 export type NotificationSession={status():{threadId:string;enabled:boolean;expiresAt:number;reason:string;[key:string]:unknown};renewUntil(until:number):unknown};
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
@@ -27,13 +29,27 @@ export async function connectionNamespaces(root:string):Promise<ConversationKey[
 export class FleetConnectionControl {
  private proposals=new Map<string,{context:string;threadId:string;until:number;before:number;owner:string;expires:number;outcome?:unknown;attempted?:boolean}>();
  private observed=new Map<string,{namespace:ConversationKey;rights:ConnectionRights;observedAt:number}>();
- private options:{owner:()=>unknown;session:()=>NotificationSession|undefined;readRights:(c:ConversationKey)=>Promise<ConnectionRights>;now?:()=>number;defaultNamespace?:{hostProfile:string;principal:string};listNamespaces?:()=>Promise<ConversationKey[]>};
- constructor(options:FleetConnectionControl['options']){this.options=options;}
+ readonly bootstrapChannel:BootstrapChannelServer;
+ private options:{owner:()=>unknown;session:()=>NotificationSession|undefined;readRights:(c:ConversationKey)=>Promise<ConnectionRights>;now?:()=>number;defaultNamespace?:{hostProfile:string;principal:string};listNamespaces?:()=>Promise<ConversationKey[]>;bootstrap?:NotificationBootstrap;bootstrapStatus?:(c:ConversationKey)=>unknown};
+ constructor(options:FleetConnectionControl['options']){this.options={...options};this.bootstrapChannel=new BootstrapChannelServer({
+  owner:()=>{const o=this.options.owner();return validInstructionTarget(o)?o:null;},now:options.now,
+  acceptNamespace:c=>!!this.options.bootstrap&&(!this.options.defaultNamespace||c.hostProfile===this.options.defaultNamespace.hostProfile&&c.principal===this.options.defaultNamespace.principal),
+  request:async(operation,payload,signal)=>{const bootstrap=this.options.bootstrap;if(!bootstrap)return {status:'blocked',reason:'bootstrap_unavailable'};
+   if(operation==='status'&&exact(payload,['namespace']))return {status:'cached',namespace:payload.namespace,bootstrap:bootstrap.rows().find(r=>namespaceKey(r.namespace)===namespaceKey(payload.namespace))??null,notifications:this.options.bootstrapStatus?.(payload.namespace)??{enabled:false,reason:'cached_runtime_unavailable'},delivery:'not_established_by_status'};
+   if(operation==='prepare'&&exact(payload,['namespace','until','rights']))return bootstrap.prepare(payload.namespace,payload.until,payload.rights,signal);
+   if(operation==='commit'&&exact(payload,['namespace','proposalId'])&&uuid(payload.proposalId))return bootstrap.commit(payload.proposalId,payload.namespace,signal);
+   return {status:'rejected',reason:'invalid_bootstrap_operation'};
+  },onDisconnect:c=>{void this.options.bootstrap?.disable(c).catch(()=>{});},
+ });}
+ writeBootstrapRights(request:Parameters<BootstrapServices['codexWriteRights']>[0],signal:AbortSignal){return this.bootstrapChannel.writeRights(request.scope.namespace,request,signal);}
+ bootstrapRows(){return this.options.bootstrap?.rows()??[];}
+ stop(){this.options.bootstrap?.stop();this.bootstrapChannel.stop();}
  private now(){return (this.options.now??Date.now)();}
  async request(operation:string,payload:unknown){
   if(!object(payload)||!exact(payload.namespace,['hostProfile','principal','threadId'])||!uuid(payload.namespace.threadId)||!['hostProfile','principal'].every(k=>typeof payload.namespace[k]==='string'&&/^[A-Za-z0-9._-]{1,128}$/.test(payload.namespace[k])))return {status:'rejected'};
   const c=payload.namespace as ConversationKey,now=this.now(),session=this.options.session();
   if(this.options.defaultNamespace&&(c.hostProfile!==this.options.defaultNamespace.hostProfile||c.principal!==this.options.defaultNamespace.principal))return {status:'blocked',reason:'host_namespace_mismatch'};
+  if(this.options.bootstrap&&['prepare','commit'].includes(operation))return {status:'blocked',reason:'bootstrap_protocol_required',activation:'not_performed'};
   const notification=session?.status(),matches=notification?.threadId===c.threadId;
   if(this.observed.size>=64&&!this.observed.has(c.threadId))return {status:'blocked',reason:'connection_inventory_full'};
   const rights=await this.options.readRights(c);this.observed.set(c.threadId,{namespace:c,rights,observedAt:now});
@@ -65,7 +81,8 @@ export class FleetConnectionControl {
   return {threadId,rights:rights?.rights??[],rightsExpiresAt:rights?.expiresAt??null,rightsReason:stale?'rights_not_freshly_observed':rights?.expiresAt!==undefined&&rights.expiresAt<=now?'rights_expired':rights?.status??'unknown',rightsObservedAt:observation?.observedAt??null,notifications:session?.threadId===threadId?session:{enabled:false,expiresAt:null,reason:'host_mapping_required'}};
  });}
  async refresh(){if(this.options.listNamespaces)try{for(const namespace of await this.options.listNamespaces()){if(this.observed.size>=64)break;if(!this.observed.has(namespace.threadId))this.observed.set(namespace.threadId,{namespace,rights:{rights:[],status:'unknown'},observedAt:0});}}catch{}const session=this.options.session()?.status();if(session&&this.options.defaultNamespace&&!this.observed.has(session.threadId))this.observed.set(session.threadId,{namespace:{...this.options.defaultNamespace,threadId:session.threadId},rights:{rights:[],status:'unknown'},observedAt:0});for(const row of this.observed.values()){try{row.rights=await this.options.readRights(row.namespace);row.observedAt=this.now();}catch{row.rights={rights:[],status:'rights_unavailable'};}}}
- handle(socket:Socket,envelope:any){if(envelope?.type!=='connection_request')return false;
+ handleStream(socket:Socket,envelope:any,buffered:Buffer){return this.bootstrapChannel.handleStream(socket,envelope,buffered);}
+ handle(socket:Socket,envelope:any){if(this.bootstrapChannel.handle(socket,envelope))return true;if(envelope?.type!=='connection_request')return false;
   const reply=(body:unknown)=>{try{socket.end(JSON.stringify({type:'connection_response',version:1,msg_id:envelope.msg_id,owner:this.options.owner(),...body as object})+'\n');}catch{}};
   if(!exact(envelope,['type','version','msg_id','owner','operation','payload','sender_session','sender_endpoint','hops','timestamp'])||envelope.version!==1||typeof envelope.msg_id!=='string'||envelope.msg_id.length>96||!validInstructionTarget(envelope.owner)||!validInstructionTarget(this.options.owner())||targetKey(envelope.owner)!==targetKey(this.options.owner() as any)||JSON.stringify(envelope).length>32768){reply({status:'rejected'});return true;}
   void this.request(envelope.operation,envelope.payload).then(reply,()=>reply({status:'unavailable'}));return true;

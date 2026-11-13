@@ -27,7 +27,8 @@ test('measured over-capacity context preserves COMS registration and native bind
   const identity=await peer.connect({ctx,defaultNamePrefix:'fixture',defaultPurpose:''});
   assert.ok(identity.endpoint.startsWith(registry+'/'));
   const target={project:identity.project,peer:identity.name,sessionId:identity.session_id,startedAt:identity.started_at};
-  const service=new LocalCodexMcp({registryRoot:registry,policyRoot:policy,hostProfile:'fixture',principal:'fixture'}),protocol=new McpProtocol(service);
+  // This fixture tests registry/read binding preview, not the asynchronous bootstrap publisher.
+  const service=new LocalCodexMcp({registryRoot:registry,policyRoot:policy,hostProfile:'fixture',principal:'fixture',bootstrapTransport:false}),protocol=new McpProtocol(service);
   await protocol.handle({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'fixture',version:'1'}}});
   await protocol.handle({jsonrpc:'2.0',method:'notifications/initialized'});
   let id=1;
@@ -62,6 +63,7 @@ test('measured over-capacity context preserves COMS registration and native bind
     const denied=await tool('fleet_check_read',selectors);
     assert.equal(denied.isError,true);assert.equal(denied.value.code,'STATE_MISSING');
     await assert.rejects(()=>stat(policy),(e:unknown)=>(e as NodeJS.ErrnoException).code==='ENOENT');
+    await assert.rejects(()=>stat(policy+'.presence'),(e:unknown)=>(e as NodeJS.ErrnoException).code==='ENOENT');
   });
   await t.test('unavailable measurement cannot invalidate initial registration',async child=>{
     const unknownContext={...ctx,getContextUsage:()=>{throw Error('fixture measurement unavailable');}};
