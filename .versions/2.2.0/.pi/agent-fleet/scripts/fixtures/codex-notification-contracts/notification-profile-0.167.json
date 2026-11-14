@@ -1,0 +1,2679 @@
+{
+  "format": "fleet-codex-notification-profile-reference/v1",
+  "surfaceId": "fleet-codex-notification/v1",
+  "qualification": "not_qualified",
+  "sourceHashes": {
+    "ClientRequest.json": "2d629aaaceea335d7e58ab19ce5908c8dd75ca3f3a6161a5f015bf59aadd3295",
+    "ServerNotification.json": "df09d283cc8fa8d52eb2499091bb69d082a40a7d45dce9441533cb4036ec0b74",
+    "v1/InitializeResponse.json": "62ad689c2cb6379913c1d72749cfd8de5089d35760214123518eb92eef11acc9",
+    "v2/ThreadReadParams.json": "dfe040c6ac71d30795b8be3f3ff232e66f362a37f883b491e5d1ea367f470db4",
+    "v2/ThreadReadResponse.json": "4ee5071cf8c7245189e5bd0819e459b9d974d5949708372fee68b6fc5329f90d",
+    "v2/ThreadLoadedListParams.json": "42c2d124ab2b2998d84f0126daae2d32b0bf9c5a7ea7266e3a0814e5e37cf00d",
+    "v2/ThreadLoadedListResponse.json": "1ea02c4710083e552b2a3a89b931b9049d5bf05b7db46278b8352cf9fd80cd52",
+    "v2/ThreadQueueAddParams.json": "f6466a8f06cd4e68ec1999d06a0d70a1ddc339c0cb1baf12ee966a999fead17c",
+    "v2/ThreadQueueAddResponse.json": "896a82716b432a8aa4d190591bcfa86adacdacb91ec5ec2c9c75ff6562561256",
+    "v2/ThreadQueueListParams.json": "b4c889089eee8a0f785ff85e0128a4d3f347353870fa848221096a472223773b",
+    "v2/ThreadQueueListResponse.json": "7a320613604095eef93247b395dafeeb6d05b26256c4055b6a5bad05eff74ab5",
+    "ClientNotification.json": "706cf248d75027c84a3c63348d0ed507182e8eba40069dd17541793de029145a",
+    "JSONRPCResponse.json": "4796738c04c74288213a08fb8d820c7b4df19e0977cdcd35b65ffcb43cfc93ab",
+    "JSONRPCError.json": "d7ea353d4875ae204625da5a00a1ecb5afc69101d5778b9acc253a49f8932992"
+  },
+  "referenceDocuments": {
+    "ClientRequest.json": {
+      "oneOf": [
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "initialize"
+              ],
+              "title": "InitializeRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/InitializeParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "InitializeRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/queue/add"
+              ],
+              "title": "Thread/queue/addRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadQueueAddParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/queue/addRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/queue/list"
+              ],
+              "title": "Thread/queue/listRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadQueueListParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/queue/listRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/loaded/list"
+              ],
+              "title": "Thread/loaded/listRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadLoadedListParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/loaded/listRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/read"
+              ],
+              "title": "Thread/readRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/ThreadReadParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/readRequest",
+          "type": "object"
+        }
+      ],
+      "definitions": {
+        "RequestId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "int64",
+              "type": "integer"
+            }
+          ]
+        },
+        "InitializeParams": {
+          "properties": {
+            "capabilities": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/InitializeCapabilities"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clientInfo": {
+              "$ref": "#/definitions/ClientInfo"
+            }
+          },
+          "required": [
+            "clientInfo"
+          ],
+          "type": "object"
+        },
+        "InitializeCapabilities": {
+          "description": "Client-declared capabilities negotiated during initialize.",
+          "properties": {
+            "experimentalApi": {
+              "default": false,
+              "description": "Opt into receiving experimental API methods and fields.",
+              "type": "boolean"
+            },
+            "explicitGatewayOauth": {
+              "description": "Use explicit gateway OAuth login instead of automatic browser authorization. Applies to this app-server's gateway runtime; later connections cannot undo it.",
+              "type": "boolean"
+            },
+            "extensions": {
+              "additionalProperties": true,
+              "description": "MCP extension settings declared by the app-server client.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "mcpServerOpenaiFormElicitation": {
+              "description": "Legacy opt-in for the `openai/form` MCP extension.\n\nNew clients should declare `openai/form` in [`Self::extensions`].",
+              "type": "boolean"
+            },
+            "optOutNotificationMethods": {
+              "description": "Exact notification method names that should be suppressed for this connection (for example `thread/started`).",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "requestAttestation": {
+              "default": false,
+              "description": "Opt into `attestation/generate` requests for upstream `x-oai-attestation`.",
+              "type": "boolean"
+            },
+            "requiredHumanApproval": {
+              "description": "Present `humanCommand` approvals to a person and return only a one-time decision. Requires `experimentalApi`. Pending requests can be replayed to compatible clients.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "ClientInfo": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ],
+          "type": "object"
+        },
+        "ThreadReadParams": {
+          "properties": {
+            "includeTurns": {
+              "description": "When true, include turns and their items from rollout history. Full-history hydration is deprecated for paginated threads; prefer a metadata-only read and page with `thread/turns/list` and `thread/items/list`.",
+              "type": "boolean"
+            },
+            "threadId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "type": "object"
+        },
+        "ThreadLoadedListParams": {
+          "properties": {
+            "cursor": {
+              "description": "Opaque pagination cursor returned by a previous call.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "description": "Optional page size; defaults to no limit.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "ThreadQueueAddParams": {
+          "properties": {
+            "clientUserMessageId": {
+              "type": "string"
+            },
+            "input": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": "array"
+            },
+            "threadId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "clientUserMessageId",
+            "input",
+            "threadId"
+          ],
+          "type": "object"
+        },
+        "ThreadQueueListParams": {
+          "properties": {
+            "cursor": {
+              "description": "Opaque pagination cursor returned by a previous call.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "description": "Optional page size; defaults to the standard thread-list page size.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "threadId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "type": "object"
+        },
+        "UserInput": {
+          "oneOf": [
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "text_elements": {
+                  "default": [],
+                  "description": "UI-defined spans within `text` used to render or persist special elements.",
+                  "items": {
+                    "$ref": "#/definitions/TextElement"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "enum": [
+                    "text"
+                  ],
+                  "title": "TextUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "type"
+              ],
+              "title": "TextUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "type": {
+                  "enum": [
+                    "image"
+                  ],
+                  "title": "ImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "ImageUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localImage"
+                  ],
+                  "title": "LocalImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalImageUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "audio"
+                  ],
+                  "title": "AudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "AudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localAudio"
+                  ],
+                  "title": "LocalAudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalAudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "skill"
+                  ],
+                  "title": "SkillUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "SkillUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mention"
+                  ],
+                  "title": "MentionUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "MentionUserInput",
+              "type": "object"
+            }
+          ]
+        },
+        "TextElement": {
+          "properties": {
+            "byteRange": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ByteRange"
+                }
+              ],
+              "description": "Byte range in the parent `text` buffer that this element occupies."
+            },
+            "placeholder": {
+              "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "byteRange"
+          ],
+          "type": "object"
+        },
+        "ByteRange": {
+          "properties": {
+            "end": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "end",
+            "start"
+          ],
+          "type": "object"
+        },
+        "ImageDetail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "original"
+          ],
+          "type": "string"
+        }
+      }
+    },
+    "v1/InitializeResponse.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "AbsolutePathBuf": {
+          "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "codexHome": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Absolute path to the server's $CODEX_HOME directory."
+        },
+        "platformFamily": {
+          "description": "Platform family for the running app-server target, for example `\"unix\"` or `\"windows\"`.",
+          "type": "string"
+        },
+        "platformOs": {
+          "description": "Operating system for the running app-server target, for example `\"macos\"`, `\"linux\"`, or `\"windows\"`.",
+          "type": "string"
+        },
+        "userAgent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "codexHome",
+        "platformFamily",
+        "platformOs",
+        "userAgent"
+      ],
+      "title": "InitializeResponse",
+      "type": "object"
+    },
+    "v2/ThreadReadParams.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "includeTurns": {
+          "description": "When true, include turns and their items from rollout history. Full-history hydration is deprecated for paginated threads; prefer a metadata-only read and page with `thread/turns/list` and `thread/items/list`.",
+          "type": "boolean"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadReadParams",
+      "type": "object"
+    },
+    "v2/ThreadReadResponse.json": {
+      "type": "object",
+      "required": [
+        "thread"
+      ],
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        }
+      },
+      "definitions": {
+        "Thread": {
+          "type": "object",
+          "required": [
+            "cliVersion",
+            "createdAt",
+            "cwd",
+            "ephemeral",
+            "id",
+            "modelProvider",
+            "preview",
+            "projectId",
+            "sessionId",
+            "source",
+            "status",
+            "turns",
+            "updatedAt"
+          ],
+          "properties": {
+            "id": {
+              "description": "Identifier for this thread. Codex-generated thread IDs are UUIDv7.",
+              "type": "string"
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadStatus"
+                }
+              ],
+              "description": "Current runtime status for the thread."
+            }
+          }
+        },
+        "ThreadStatus": {
+          "oneOf": [
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "notLoaded"
+                  ],
+                  "title": "NotLoadedThreadStatusType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "NotLoadedThreadStatus",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "idle"
+                  ],
+                  "title": "IdleThreadStatusType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "IdleThreadStatus",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "systemError"
+                  ],
+                  "title": "SystemErrorThreadStatusType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "SystemErrorThreadStatus",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "activeFlags": {
+                  "items": {
+                    "$ref": "#/definitions/ThreadActiveFlag"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "enum": [
+                    "active"
+                  ],
+                  "title": "ActiveThreadStatusType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "activeFlags",
+                "type"
+              ],
+              "title": "ActiveThreadStatus",
+              "type": "object"
+            }
+          ]
+        },
+        "ThreadActiveFlag": {
+          "enum": [
+            "waitingOnApproval",
+            "waitingOnUserInput"
+          ],
+          "type": "string"
+        }
+      }
+    },
+    "v2/ThreadLoadedListParams.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Optional page size; defaults to no limit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "title": "ThreadLoadedListParams",
+      "type": "object"
+    },
+    "v2/ThreadLoadedListResponse.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "data": {
+          "description": "Thread ids for sessions currently loaded in memory.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "description": "Opaque cursor to pass to the next call to continue after the last item. if None, there are no more items to return.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "ThreadLoadedListResponse",
+      "type": "object"
+    },
+    "v2/ThreadQueueAddParams.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ByteRange": {
+          "properties": {
+            "end": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "end",
+            "start"
+          ],
+          "type": "object"
+        },
+        "ImageDetail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "original"
+          ],
+          "type": "string"
+        },
+        "TextElement": {
+          "properties": {
+            "byteRange": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ByteRange"
+                }
+              ],
+              "description": "Byte range in the parent `text` buffer that this element occupies."
+            },
+            "placeholder": {
+              "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "byteRange"
+          ],
+          "type": "object"
+        },
+        "UserInput": {
+          "oneOf": [
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "text_elements": {
+                  "default": [],
+                  "description": "UI-defined spans within `text` used to render or persist special elements.",
+                  "items": {
+                    "$ref": "#/definitions/TextElement"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "enum": [
+                    "text"
+                  ],
+                  "title": "TextUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "type"
+              ],
+              "title": "TextUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "type": {
+                  "enum": [
+                    "image"
+                  ],
+                  "title": "ImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "ImageUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localImage"
+                  ],
+                  "title": "LocalImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalImageUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "audio"
+                  ],
+                  "title": "AudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "AudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localAudio"
+                  ],
+                  "title": "LocalAudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalAudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "skill"
+                  ],
+                  "title": "SkillUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "SkillUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mention"
+                  ],
+                  "title": "MentionUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "MentionUserInput",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "clientUserMessageId": {
+          "type": "string"
+        },
+        "input": {
+          "items": {
+            "$ref": "#/definitions/UserInput"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientUserMessageId",
+        "input",
+        "threadId"
+      ],
+      "title": "ThreadQueueAddParams",
+      "type": "object"
+    },
+    "v2/ThreadQueueAddResponse.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ByteRange": {
+          "properties": {
+            "end": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "end",
+            "start"
+          ],
+          "type": "object"
+        },
+        "ImageDetail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "original"
+          ],
+          "type": "string"
+        },
+        "QueuedSubmission": {
+          "properties": {
+            "clientUserMessageId": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "input": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "clientUserMessageId",
+            "id",
+            "input"
+          ],
+          "type": "object"
+        },
+        "TextElement": {
+          "properties": {
+            "byteRange": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ByteRange"
+                }
+              ],
+              "description": "Byte range in the parent `text` buffer that this element occupies."
+            },
+            "placeholder": {
+              "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "byteRange"
+          ],
+          "type": "object"
+        },
+        "UserInput": {
+          "oneOf": [
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "text_elements": {
+                  "default": [],
+                  "description": "UI-defined spans within `text` used to render or persist special elements.",
+                  "items": {
+                    "$ref": "#/definitions/TextElement"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "enum": [
+                    "text"
+                  ],
+                  "title": "TextUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "type"
+              ],
+              "title": "TextUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "type": {
+                  "enum": [
+                    "image"
+                  ],
+                  "title": "ImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "ImageUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localImage"
+                  ],
+                  "title": "LocalImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalImageUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "audio"
+                  ],
+                  "title": "AudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "AudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localAudio"
+                  ],
+                  "title": "LocalAudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalAudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "skill"
+                  ],
+                  "title": "SkillUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "SkillUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mention"
+                  ],
+                  "title": "MentionUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "MentionUserInput",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "queuedSubmission": {
+          "$ref": "#/definitions/QueuedSubmission"
+        }
+      },
+      "required": [
+        "queuedSubmission"
+      ],
+      "title": "ThreadQueueAddResponse",
+      "type": "object"
+    },
+    "v2/ThreadQueueListParams.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Optional page size; defaults to the standard thread-list page size.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadQueueListParams",
+      "type": "object"
+    },
+    "v2/ThreadQueueListResponse.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "ByteRange": {
+          "properties": {
+            "end": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "end",
+            "start"
+          ],
+          "type": "object"
+        },
+        "ImageDetail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "original"
+          ],
+          "type": "string"
+        },
+        "QueuedSubmission": {
+          "properties": {
+            "clientUserMessageId": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "input": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "clientUserMessageId",
+            "id",
+            "input"
+          ],
+          "type": "object"
+        },
+        "TextElement": {
+          "properties": {
+            "byteRange": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ByteRange"
+                }
+              ],
+              "description": "Byte range in the parent `text` buffer that this element occupies."
+            },
+            "placeholder": {
+              "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "byteRange"
+          ],
+          "type": "object"
+        },
+        "UserInput": {
+          "oneOf": [
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "text_elements": {
+                  "default": [],
+                  "description": "UI-defined spans within `text` used to render or persist special elements.",
+                  "items": {
+                    "$ref": "#/definitions/TextElement"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "enum": [
+                    "text"
+                  ],
+                  "title": "TextUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "type"
+              ],
+              "title": "TextUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "type": {
+                  "enum": [
+                    "image"
+                  ],
+                  "title": "ImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "ImageUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "detail": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/ImageDetail"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localImage"
+                  ],
+                  "title": "LocalImageUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalImageUserInput",
+              "type": "object"
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "title": "UrlUserInput",
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "fileId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "fileId"
+                  ],
+                  "title": "FileIdUserInput",
+                  "type": "object"
+                }
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "audio"
+                  ],
+                  "title": "AudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "title": "AudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "localAudio"
+                  ],
+                  "title": "LocalAudioUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "type"
+              ],
+              "title": "LocalAudioUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "skill"
+                  ],
+                  "title": "SkillUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "SkillUserInput",
+              "type": "object"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mention"
+                  ],
+                  "title": "MentionUserInputType",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "type"
+              ],
+              "title": "MentionUserInput",
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/QueuedSubmission"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "description": "Opaque cursor for the next page, or `null` when no submissions remain.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "ThreadQueueListResponse",
+      "type": "object"
+    },
+    "ClientNotification.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "oneOf": [
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "initialized"
+              ],
+              "title": "InitializedNotificationMethod",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "title": "InitializedNotification",
+          "type": "object"
+        }
+      ],
+      "title": "ClientNotification"
+    },
+    "JSONRPCResponse.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "RequestId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "int64",
+              "type": "integer"
+            }
+          ]
+        }
+      },
+      "description": "A successful (non-error) response to a request.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "result": true
+      },
+      "required": [
+        "id",
+        "result"
+      ],
+      "title": "JSONRPCResponse",
+      "type": "object"
+    },
+    "JSONRPCError.json": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "definitions": {
+        "JSONRPCErrorError": {
+          "properties": {
+            "code": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "data": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "RequestId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "format": "int64",
+              "type": "integer"
+            }
+          ]
+        }
+      },
+      "description": "A response to a request that indicates an error occurred.",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/JSONRPCErrorError"
+        },
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        }
+      },
+      "required": [
+        "error",
+        "id"
+      ],
+      "title": "JSONRPCError",
+      "type": "object"
+    }
+  },
+  "projection": {
+    "format": "fleet-codex-projection/v1",
+    "roots": {
+      "fleet-codex-notification/v1/initialize/observer/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            },
+            "method": {
+              "constraints": {
+                "const": "initialize"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {
+                "capabilities": {
+                  "constraints": {},
+                  "properties": {
+                    "experimentalApi": {
+                      "constraints": {
+                        "const": false,
+                        "default": false
+                      },
+                      "type": [
+                        "boolean"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "experimentalApi"
+                  ],
+                  "type": [
+                    "object"
+                  ]
+                },
+                "clientInfo": {
+                  "constraints": {},
+                  "properties": {
+                    "name": {
+                      "constraints": {
+                        "const": "agent_fleet_contract_observer"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "title": {
+                      "constraints": {
+                        "const": "Fleet contract observer"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "version": {
+                      "constraints": {
+                        "const": "1"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "title",
+                    "version"
+                  ],
+                  "type": [
+                    "object"
+                  ]
+                }
+              },
+              "required": [
+                "capabilities",
+                "clientInfo"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/initialize/queue/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            },
+            "method": {
+              "constraints": {
+                "const": "initialize"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {
+                "capabilities": {
+                  "constraints": {},
+                  "properties": {
+                    "experimentalApi": {
+                      "constraints": {
+                        "const": true,
+                        "default": false
+                      },
+                      "type": [
+                        "boolean"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "experimentalApi"
+                  ],
+                  "type": [
+                    "object"
+                  ]
+                },
+                "clientInfo": {
+                  "constraints": {},
+                  "properties": {
+                    "name": {
+                      "constraints": {
+                        "const": "agent_fleet_queue_bridge"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "title": {
+                      "constraints": {
+                        "const": "Fleet queue bridge"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "version": {
+                      "constraints": {
+                        "const": "1"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "title",
+                    "version"
+                  ],
+                  "type": [
+                    "object"
+                  ]
+                }
+              },
+              "required": [
+                "capabilities",
+                "clientInfo"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/initialize/response": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "userAgent": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "userAgent"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/initialized/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "method": {
+              "constraints": {
+                "const": "initialized"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {},
+              "required": [],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/jsonrpc/error": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "error": {
+              "constraints": {},
+              "properties": {},
+              "required": [],
+              "type": [
+                "object"
+              ]
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "constraints": {
+                    "format": "int64"
+                  },
+                  "type": [
+                    "integer"
+                  ]
+                },
+                {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                }
+              ],
+              "constraints": {},
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "error",
+            "id"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/jsonrpc/response": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "constraints": {
+                    "format": "int64"
+                  },
+                  "type": [
+                    "integer"
+                  ]
+                },
+                {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                }
+              ],
+              "constraints": {},
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "result": {
+              "constraints": {},
+              "type": [
+                "opaque"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "result"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/queue/add/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            },
+            "method": {
+              "constraints": {
+                "const": "thread/queue/add"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {
+                "clientUserMessageId": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                },
+                "input": {
+                  "constraints": {},
+                  "items": {
+                    "constraints": {},
+                    "properties": {
+                      "text": {
+                        "constraints": {},
+                        "type": [
+                          "string"
+                        ]
+                      },
+                      "text_elements": {
+                        "constraints": {
+                          "const": [],
+                          "default": []
+                        },
+                        "type": [
+                          "array"
+                        ]
+                      },
+                      "type": {
+                        "constraints": {
+                          "const": "text"
+                        },
+                        "type": [
+                          "string"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "text_elements",
+                      "type"
+                    ],
+                    "type": [
+                      "object"
+                    ]
+                  },
+                  "type": [
+                    "array"
+                  ]
+                },
+                "threadId": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "clientUserMessageId",
+                "input",
+                "threadId"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/queue/add/response": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "queuedSubmission": {
+              "constraints": {},
+              "properties": {
+                "clientUserMessageId": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                },
+                "id": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                },
+                "input": {
+                  "constraints": {},
+                  "items": {
+                    "constraints": {},
+                    "properties": {
+                      "text": {
+                        "constraints": {},
+                        "type": [
+                          "string"
+                        ]
+                      },
+                      "type": {
+                        "constraints": {
+                          "const": "text"
+                        },
+                        "type": [
+                          "string"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "type"
+                    ],
+                    "type": [
+                      "object"
+                    ]
+                  },
+                  "type": [
+                    "array"
+                  ]
+                }
+              },
+              "required": [
+                "clientUserMessageId",
+                "id",
+                "input"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "queuedSubmission"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/queue/list/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            },
+            "method": {
+              "constraints": {
+                "const": "thread/queue/list"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {
+                "cursor": {
+                  "constraints": {},
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "limit": {
+                  "constraints": {
+                    "const": 100,
+                    "format": "uint32",
+                    "minimum": 0
+                  },
+                  "type": [
+                    "integer"
+                  ]
+                },
+                "threadId": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "cursor",
+                "limit",
+                "threadId"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/queue/list/response": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "data": {
+              "constraints": {},
+              "items": {
+                "constraints": {},
+                "properties": {
+                  "clientUserMessageId": {
+                    "constraints": {},
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "id": {
+                    "constraints": {},
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "input": {
+                    "constraints": {},
+                    "items": {
+                      "constraints": {},
+                      "properties": {
+                        "text": {
+                          "constraints": {},
+                          "type": [
+                            "string"
+                          ]
+                        },
+                        "type": {
+                          "constraints": {
+                            "const": "text"
+                          },
+                          "type": [
+                            "string"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "text",
+                        "type"
+                      ],
+                      "type": [
+                        "object"
+                      ]
+                    },
+                    "type": [
+                      "array"
+                    ]
+                  }
+                },
+                "required": [
+                  "clientUserMessageId",
+                  "id",
+                  "input"
+                ],
+                "type": [
+                  "object"
+                ]
+              },
+              "type": [
+                "array"
+              ]
+            },
+            "nextCursor": {
+              "constraints": {},
+              "type": [
+                "null",
+                "string"
+              ]
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/read/request": {
+        "direction": "request",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "id": {
+              "constraints": {},
+              "type": [
+                "string"
+              ]
+            },
+            "method": {
+              "constraints": {
+                "const": "thread/read"
+              },
+              "type": [
+                "string"
+              ]
+            },
+            "params": {
+              "constraints": {},
+              "properties": {
+                "includeTurns": {
+                  "constraints": {
+                    "const": false
+                  },
+                  "type": [
+                    "boolean"
+                  ]
+                },
+                "threadId": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "includeTurns",
+                "threadId"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      },
+      "fleet-codex-notification/v1/thread/read/response": {
+        "direction": "response",
+        "schema": {
+          "constraints": {},
+          "properties": {
+            "thread": {
+              "constraints": {},
+              "properties": {
+                "id": {
+                  "constraints": {},
+                  "type": [
+                    "string"
+                  ]
+                },
+                "status": {
+                  "constraints": {},
+                  "properties": {
+                    "type": {
+                      "constraints": {
+                        "const": "notLoaded"
+                      },
+                      "type": [
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": [
+                    "object"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "status"
+              ],
+              "type": [
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "thread"
+          ],
+          "type": [
+            "object"
+          ]
+        }
+      }
+    },
+    "surfaceKey": "fa6b077567fca8c475eb5d9e837694ca4747d83f3af30692baf9b86d9add138c"
+  },
+  "fingerprint": "aac9af961f496998b8cccd4f1eeecd2a40985733011073c5b6d589815adafb99"
+}
