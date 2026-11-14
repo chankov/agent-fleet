@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync,symlinkSync,statSync} from 'node:fs';
 import promises from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
-import {tmpdir} from 'node:os';
+import {physicalTempRoot} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import type {ExtensionAPI,ExtensionContext} from '@mariozechner/pi-coding-agent';
 import {createCodexBootstrapControls} from '../../harnesses/agent-hub/codex-bootstrap.ts';
@@ -16,7 +16,7 @@ const owner={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-83
 /** Production UI action and mapping writer; only the attach boundary, UI and
  * /proc tree are synthetic. No live Fleet/Codex/socket or user files are used. */
 function fixture(t:any,options:{onConfirm?:()=>unknown;inputs?:string[];confirmed?:boolean}={}){
- const root=mkdtempSync(join(tmpdir(),'af-ui-preflight-')),procRoot=join(root,'proc'),processDir=join(procRoot,'123'),mappingRoot=join(root,'mappings'),executable=join(root,'SYNTHETIC-NEVER-EXECUTED');
+ const root=mkdtempSync(join(physicalTempRoot(),'af-ui-preflight-')),procRoot=join(root,'proc'),processDir=join(procRoot,'123'),mappingRoot=join(root,'mappings'),executable=join(root,'SYNTHETIC-NEVER-EXECUTED');
  mkdirSync(processDir,{recursive:true,mode:0o700});writeFileSync(executable,'SYNTHETIC-BINARY',{mode:0o700});symlinkSync(executable,join(processDir,'exe'));
  const processStat=(ticks='55555')=>'123 (synthetic) '+['S',...Array(18).fill('0'),ticks].join(' ')+'\n';writeFileSync(join(processDir,'stat'),processStat(),{mode:0o600});
  const notices:{text:string;type:string}[]=[],inputs=options.inputs??['123','26.1106.51428',join(root,'daemon.sock'),join(root,'home'),''];let confirmations=0,captures=0,forbidden=0;

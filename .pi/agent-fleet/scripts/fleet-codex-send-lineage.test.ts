@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,readFileSync,writeFileSync,chmodSync,unlinkSync,symlinkSync,statSync} from 'node:fs';
 import {join} from 'node:path';
-import {tmpdir} from 'node:os';
+import {physicalTempRoot} from '../../../bin/test/helpers/test-temp.js';
 import {createHash} from 'node:crypto';
 import {AllowedSessionsStore} from './lib/fleet-codex-allowlist-store.ts';
 const c={hostProfile:'desktop',principal:'synthetic',threadId:'11111111-1111-4111-8111-111111111111'};
 const owner={project:'af-test',peer:'synthetic',sessionId:'22222222-2222-4222-8222-222222222222',startedAt:'2026-11-13T00:00:00.000Z'};
 const alias='synthetic',hash=createHash('sha256').update(JSON.stringify([c.hostProfile,c.principal,c.threadId])).digest('hex');
 async function fixture(t:any,other=false,name=alias){
- const dir=mkdtempSync(join(tmpdir(),'af-send-proof-')),root=join(dir,'policy'),writer=new AllowedSessionsStore(root,c),until=Date.now()+60000;
+ const dir=mkdtempSync(join(physicalTempRoot(),'af-send-proof-')),root=join(dir,'policy'),writer=new AllowedSessionsStore(root,c),until=Date.now()+60000;
  t.after(()=>rmSync(dir,{recursive:true,force:true}));await writer.initialize();await writer.connect({alias:name,target:owner,rights:['read'],expiresAt:until},[owner],0);
  const second={...owner,peer:'other',sessionId:'33333333-3333-4333-8333-333333333333'};
  if(other)await writer.connect({alias:'other',target:second,rights:['read'],expiresAt:until},[owner,second],1);

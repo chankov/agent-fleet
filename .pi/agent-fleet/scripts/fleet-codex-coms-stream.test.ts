@@ -2,7 +2,7 @@ import test,{after,type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,access} from 'node:fs/promises';
 import {readFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import type {Socket} from 'node:net';
@@ -10,7 +10,7 @@ import type {TargetEpoch} from './lib/fleet-codex-allowlist.ts';
 
 // Set the production COMS root before any runtime import. Every endpoint,
 // registry entry and policy path in this file is owned synthetic test data.
-const root=await mkdtemp(join(process.platform==='darwin'?'/tmp':tmpdir(),'afcs-'));
+const root=await mkdtemp(join(socketTempBase(),'afcs-'));
 const oldComs=process.env.PI_COMS_DIR,oldHerdr=process.env.HERDR_ENV;
 process.env.PI_COMS_DIR=root;process.env.HERDR_ENV='0';
 after(async()=>{if(oldComs===undefined)delete process.env.PI_COMS_DIR;else process.env.PI_COMS_DIR=oldComs;if(oldHerdr===undefined)delete process.env.HERDR_ENV;else process.env.HERDR_ENV=oldHerdr;await rm(root,{recursive:true,force:true});});

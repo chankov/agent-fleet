@@ -5,7 +5,7 @@ import {createServer} from 'node:http';
 import {mkdtemp,mkdir,chmod,rm,symlink} from 'node:fs/promises';
 import {unlinkSync,symlinkSync} from 'node:fs';
 import {join,dirname} from 'node:path';
-import {tmpdir} from 'node:os';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
 import {CodexUnixQueueRpc} from './lib/codex-unix-queue-rpc.ts';
 import {CodexDesktopQueueHost,desktopQueuePin,type DesktopQueueApproval} from './lib/codex-desktop-queue-host.ts';
 import {targetKey} from './lib/fleet-codex-instruction-store.ts';
@@ -17,7 +17,7 @@ const binding={id:'fixture',epoch:'binding-1',hostInstance:'verified-fixture-des
 const event=(id:string,kind:AddressedFleetEvent['kind']='permission'):AddressedFleetEvent=>({id,kind,bindingId:binding.id,bindingEpoch:binding.epoch,fleetOwner:binding.fleetOwner,createdAt:Date.now(),deadline:Date.now()+30000,reference:'fleet:'+kind+'/fixture-reference'+(kind==='question'?'/tool':'')});
 const signal=()=>new AbortController().signal;
 async function fixture(t:any){
- const root=await mkdtemp(join(tmpdir(),'codex-queue-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const root=await mkdtemp(join(socketTempBase(),'codex-queue-'));t.after(()=>rm(root,{recursive:true,force:true}));
  const directory=join(root,'control');await mkdir(directory,{mode:0o700});const path=join(directory,'daemon.sock');
  const server=createServer(),wss=new WebSocketServer({noServer:true,maxPayload:32768});
  const methods:string[]=[],queued:any[]=[];let upgrades=0,drop=false,hangInitialize=false,daemonLoaded=false,rejectAdd=false,denyUpgrade=false;
@@ -118,7 +118,7 @@ test('a daemon-loaded target is refused, not mistaken for the already opened Des
 });
 
 test('missing daemon never starts one; handshake timeout cannot send an add; aborted prewrite cannot queue',async t=>{
- const f=await fixture(t);const missing=new CodexUnixQueueRpc({socketPath:join(tmpdir(),'fleet-nonexistent-daemon.sock')});
+ const f=await fixture(t);const missing=new CodexUnixQueueRpc({socketPath:join(socketTempBase(),'fleet-nonexistent-daemon.sock')});
  await assert.rejects(missing.request('thread/loaded/list',{}),(e:any)=>e.code==='DAEMON_UNAVAILABLE'&&e.attempted===false);
  await assert.rejects(f.rpc.request('thread/queue/add',{}, {beforeWrite(){throw Error('cancel');}}),(e:any)=>e.attempted===false);
  f.hangInitialize();await assert.rejects(f.rpc.request('thread/queue/add',{}),(e:any)=>e.code==='TIMEOUT'&&e.attempted===false);assert.equal(f.queued.length,0);

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,rm,chmod,symlink,link,writeFile,readFile,readdir} from 'node:fs/promises';
 import {existsSync,readdirSync,readFileSync,unlinkSync,writeFileSync,symlinkSync} from 'node:fs';
 import {join} from 'node:path';
-import {tmpdir} from 'node:os';
+import {physicalTempRoot} from '../../../bin/test/helpers/test-temp.js';
 import {NativePresenceDirectory} from './lib/codex-native-presence.ts';
 import {privateDirectory,readPrivateJson,writePrivateJson} from './lib/codex-bootstrap-files.ts';
 const namespace={hostProfile:'desktop',principal:'synthetic-only',threadId:'11111111-1111-4111-8111-111111111111'};
 const owner={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-8333-333333333333',startedAt:'2026-11-12T00:00:00.000Z'};
 const observed={namespace,hostInstance:'22222222-2222-4222-8222-222222222222',protocolVersion:'2025-06-18',clientInfo:{name:'SYNTHETIC SDK NOT DESKTOP IDENTITY',version:'not-a-desktop-version'},catalog:[]};
-async function fixture(t:any){const root=await mkdtemp(join(tmpdir(),'af-presence-'));t.after(()=>rm(root,{recursive:true,force:true}));let now=1000000;const presence=new NativePresenceDirectory(join(root,'presence'),()=>now);return {root,presence,advance:(n:number)=>{now+=n;}};}
+async function fixture(t:any){const root=await mkdtemp(join(physicalTempRoot(),'af-presence-'));t.after(()=>rm(root,{recursive:true,force:true}));let now=1000000;const presence=new NativePresenceDirectory(join(root,'presence'),()=>now);return {root,presence,advance:(n:number)=>{now+=n;}};}
 
 test('metadata is detached, private and has no inferred identity, catalog readiness, consent or rights',async t=>{
  const f=await fixture(t),input=structuredClone(observed),saved=await f.presence.publish(input);input.namespace.principal='changed';saved.observation.catalog.push('changed');

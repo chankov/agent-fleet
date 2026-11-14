@@ -35,11 +35,15 @@ try {
   if (aliasResult.error) throw aliasResult.error;
   // Run all release fast-lane fixtures through an aliased temp root too. This
   // reproduces macOS /var -> /private/var comparisons on Linux instead of
-  // protecting only the older proactive tests.
-  const fastAlias = spawnSync(process.execPath, [join(root,'bin/test/run-fast.js')], {
+  // protecting only the older proactive tests. macOS needs no reproduction: its
+  // own temp root already sits under /var, and the release workflow's Fast suite
+  // step runs the whole lane there. Repeating it here doubled the slowest job
+  // past its timeout.
+  const fastAlias = process.platform === 'darwin' ? {status:0} : spawnSync(process.execPath, [join(root,'bin/test/run-fast.js')], {
     cwd: root, env: {...process.env,TMPDIR:alias,TMP:alias,TEMP:alias}, stdio:'inherit',
   });
   if(fastAlias.error)throw fastAlias.error;
+  if(process.platform === 'darwin') console.log('Fast lane under an aliased temp root: skipped on macOS, where the Fast suite step already runs under /var -> /private/var.');
   process.exitCode = (result.status ?? 1) || (aliasResult.status ?? 1) || (fastAlias.status ?? 1);
   } finally {
     unlinkSync(alias);

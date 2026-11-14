@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,appendFileSync,readFileSync,rmSync,renameSync,symlinkSync,linkSync,unlinkSync,chmodSync,statSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {physicalTempRoot} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {CodexProbeTranscript,codexProbeReaderVersion,type ProbeCheckpoint} from './lib/codex-probe-transcript.ts';
@@ -11,7 +11,7 @@ const line=(v:unknown)=>JSON.stringify(v)+'\n';
 const metadata=(id=A)=>line({type:'session_meta',payload:{id,cwd:'SYNTHETIC-NOT-REAL-TRANSCRIPT'}});
 const message=(role='assistant',text='FLEET_PROBE_ACK '+N,phase='final_answer')=>({type:'response_item',payload:{type:'message',role,phase,content:[{type:'output_text',text}]}});
 function fixture(t:any,timeoutMs=1000){
- const root=mkdtempSync(join(tmpdir(),'codex-rollout-fake-'));const dir=join(root,'sessions','2026','11','11');mkdirSync(dir,{recursive:true,mode:0o700});const path=join(dir,'rollout-2026-11-11T12-00-00-'+A+'.jsonl');
+ const root=mkdtempSync(join(physicalTempRoot(),'codex-rollout-fake-'));const dir=join(root,'sessions','2026','11','11');mkdirSync(dir,{recursive:true,mode:0o700});const path=join(dir,'rollout-2026-11-11T12-00-00-'+A+'.jsonl');
  writeFileSync(path,metadata()+line(message('assistant','old private fixture text')),{mode:0o600});const reader=new CodexProbeTranscript({codexHome:root,timeoutMs,pollMs:2});
  t.after(async()=>{await reader.stop();rmSync(root,{recursive:true,force:true});});
  return {root,dir,path,reader,append:(record:unknown)=>appendFileSync(path,line(record))};
@@ -115,7 +115,7 @@ test('stop while checkpoint opens are pending rejects every acquisition and late
 });
 
 test('symlinks at the Codex home or above it cannot redirect a checkpoint outside lexical ancestry',async t=>{
- const f=fixture(t),outer=mkdtempSync(join(tmpdir(),'codex-rollout-ancestor-fake-'));t.after(()=>rmSync(outer,{recursive:true,force:true}));
+ const f=fixture(t),outer=mkdtempSync(join(physicalTempRoot(),'codex-rollout-ancestor-fake-'));t.after(()=>rmSync(outer,{recursive:true,force:true}));
  const alias=join(outer,'alias');symlinkSync(f.root,alias);
  const nested=join(f.root,'nested'),dir=join(nested,'sessions');mkdirSync(dir,{recursive:true,mode:0o700});
  const filename='rollout-synthetic-'+A+'.jsonl';writeFileSync(join(dir,filename),metadata(),{mode:0o600});

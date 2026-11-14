@@ -75,7 +75,8 @@ test('current-state origin is explicit, revision-bound and does not waive indepe
 
 test('runtime receipt journal anchors survive roundtrip; missing anchors, foreign files, scope/generation/session/epoch and crash overlap fail closed', async t => {
  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } = await import('node:fs');
- const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+ // Receipt anchors compare physical paths, so start from the physical temp root.
+ const { physicalTempRoot: tmpdir } = await import('../../../bin/test/helpers/test-temp.js'); const { join } = await import('node:path');
  const { anchorRuntimeReceipt, beginReceiptCapture, normalizeRuntimeReceipts, receiptDeclarationHash, reusableRuntimeChecks } = await import('./runtime-receipts.ts');
  const { latestProcessState, processAuditRecord, normalizeProcessState } = await import('./process-obligations.ts');
  const sessionDir = mkdtempSync(join(tmpdir(), 'receipt-anchors-')); t.after(() => rmSync(sessionDir, {recursive:true,force:true}));

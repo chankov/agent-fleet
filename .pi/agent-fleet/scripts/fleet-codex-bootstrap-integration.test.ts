@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,appendFileSync,chmodSync,rmSync,symlinkSync,readFileSync,readdirSync,existsSync,statSync} from 'node:fs';
-import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer as createHttpServer} from 'node:http';
 import {createServer as createNetServer,type Socket} from 'node:net';
@@ -16,7 +15,10 @@ import {TOOLS} from './lib/fleet-codex-local-mcp.ts';
 import {publishFleetSourceEvent,fleetSourceDigest} from '../../harnesses/lib/fleet-event-source.ts';
 import {parseNotificationConfiguration,notificationPreview} from './lib/fleet-codex-event-runtime.ts';
 import {chatLines} from '../../harnesses/lib/fleet-codex-chat-view.ts';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
 const require=createRequire(import.meta.url),{WebSocketServer}=require('ws');
+// The deepest bound socket is <root>/r/sockets/<sessionId>.sock, 67 bytes below the base.
+const SOCKET_BASE=socketTempBase();
 const A={hostProfile:'desktop',principal:'synthetic-only',threadId:'11111111-1111-4111-8111-111111111111'};
 const OWNER={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-8333-333333333333',startedAt:'2026-11-12T00:00:00.000Z'};
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
@@ -25,7 +27,7 @@ async function until(check:()=>boolean){for(let i=0;i<1000&&!check();i++)await t
  * use owned temp sockets; Desktop executable bytes/proc and model output are
  * explicit fixtures, never production identity/qualification evidence. */
 async function fixture(t:any,options:{confirm?:boolean;loaded?:boolean;missingPath?:boolean;cancelProbe?:AbortController;contract?:boolean;holdProbeAfter?:number;legacyRoot?:boolean;badEventEcho?:boolean;automatic?:boolean;confirmEffect?:(root:string)=>void}={}){
- const root=mkdtempSync(join(tmpdir(),'af-full-')),policyRoot=join(root,'policy'),registryRoot=join(root,'r'),procRoot=join(root,'fake-proc'),home=join(root,'home');
+ const root=mkdtempSync(join(SOCKET_BASE,'af-full-')),policyRoot=join(root,'policy'),registryRoot=join(root,'r'),procRoot=join(root,'fake-proc'),home=join(root,'home');
  mkdirSync(join(registryRoot,'sockets'),{recursive:true,mode:0o700});mkdirSync(join(procRoot,'123'),{recursive:true,mode:0o700});mkdirSync(join(home,'sessions'),{recursive:true,mode:0o700});mkdirSync(join(root,'d'),{mode:0o700});
  const desktop=join(root,'SYNTHETIC-NOT-EXECUTED');writeFileSync(desktop,'OWNED FAKE DESKTOP BYTES',{mode:0o700});writeFileSync(join(procRoot,'123','stat'),'123 (synthetic) '+['S',...Array(18).fill('0'),'55555',...Array(5).fill('0')].join(' ')+'\n',{mode:0o600});symlinkSync(desktop,join(procRoot,'123','exe'));
  if(options.automatic){mkdirSync(join(root,'resources'),{mode:0o700});const body=Buffer.from(JSON.stringify({name:'openai-codex-electron',version:'0.167.0-alpha.3.2'})),json=Buffer.from(JSON.stringify({files:{'package.json':{size:body.length,offset:'0'}}})),header=Buffer.alloc(8+json.length),size=Buffer.alloc(8);header.writeUInt32LE(json.length+4,0);header.writeUInt32LE(json.length,4);json.copy(header,8);size.writeUInt32LE(4,0);size.writeUInt32LE(header.length,4);writeFileSync(join(root,'resources','app.asar'),Buffer.concat([size,header,body]),{mode:0o600});}
@@ -46,7 +48,10 @@ async function fixture(t:any,options:{confirm?:boolean;loaded?:boolean;missingPa
  const bootstrapStatus=()=>{const row=backend.rows()[0];return row?{enabled:row.notification==='enabled',reason:row.reason??row.notification}:{enabled:false,reason:'cached_runtime_unavailable'};};
  control=new FleetConnectionControl({owner:()=>OWNER,session:()=>undefined,defaultNamespace:{hostProfile:A.hostProfile,principal:A.principal},readRights:async()=>({status:'not_connected',rights:[],revision:0}),bootstrap:backend.coordinator,bootstrapStatus});
  const netSockets=new Set<Socket>(),server=createNetServer(socket=>{netSockets.add(socket);socket.once('close',()=>netSockets.delete(socket));let pending='';socket.on('data',bytes=>{pending+=bytes.toString('utf8');let end;while((end=pending.indexOf('\n'))>=0){const line=pending.slice(0,end);pending=pending.slice(end+1);try{control.handle(socket,JSON.parse(line));}catch{socket.destroy();}}});});
- await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(join(registryRoot,'sockets',OWNER.sessionId+'.sock'),resolve);});chmodSync(join(registryRoot,'sockets',OWNER.sessionId+'.sock'),0o600);
+ // Cleanup is registered below; a failed bind must not leave the daemon listening,
+ // or the test process never exits and the run hangs until its job timeout.
+ try{await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(join(registryRoot,'sockets',OWNER.sessionId+'.sock'),resolve);});chmodSync(join(registryRoot,'sockets',OWNER.sessionId+'.sock'),0o600);}
+ catch(error){backend.stop();control.stop();if(server.listening)await new Promise<void>(resolve=>server.close(()=>resolve()));await new Promise<void>(resolve=>wss.close(()=>resolve()));await new Promise<void>(resolve=>daemon.close(()=>resolve()));rmSync(root,{recursive:true,force:true});throw error;}
  const producer=new CodexBootstrapProducer({policyRoot,transport:new PermissionTransport({registryRoot,channel:'connection'}),presence:new NativePresenceDirectory(policyRoot+'.presence'),candidate:async()=>({target:{...OWNER},current:[{...OWNER}]}),observation:()=>({protocolVersion:'2025-06-18',clientInfo:{name:'SYNTHETIC SDK NOT DESKTOP',version:'client-sdk-not-desktop-version'},catalog:TOOLS.map(t=>t.name)})});
  t.after(async()=>{producer.stop();backend.stop();control.stop();for(const socket of netSockets)socket.destroy();for(const socket of wsSockets)socket.terminate();await new Promise<void>(resolve=>server.close(()=>resolve()));await new Promise<void>(resolve=>wss.close(()=>resolve()));await new Promise<void>(resolve=>daemon.close(()=>resolve()));await new Promise(resolve=>setTimeout(resolve,15));rmSync(root,{recursive:true,force:true});});
  producer.observe(A);for(let i=0;i<200;i++){if((await backend.native.list()).length)break;await tick();}

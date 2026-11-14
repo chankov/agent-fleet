@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,chmod,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer,type Socket} from 'node:net';
 import {readFileSync} from 'node:fs';
@@ -14,6 +13,9 @@ import {PermissionTransport} from './lib/fleet-codex-permission-transport.ts';
 import {TOOLS} from './lib/fleet-codex-local-mcp.ts';
 import {assessQueueCompatibility} from '../../harnesses/lib/fleet-notification-validation.ts';
 import {codexNotificationBootstrapPolicy} from '../../harnesses/lib/codex-notification-profile.ts';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
+// The bound socket is <root>/r/sockets/<sessionId>.sock, 66 bytes below the base.
+const SOCKET_BASE=socketTempBase();
 const A={hostProfile:'desktop',principal:'synthetic-only',threadId:'11111111-1111-4111-8111-111111111111'};
 const B={...A,threadId:'22222222-2222-4222-8222-222222222222'};
 const OWNER={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-8333-333333333333',startedAt:'2026-11-12T00:00:00.000Z'};
@@ -23,7 +25,7 @@ const reference=JSON.parse(readFileSync(new URL('./fixtures/codex-notification-c
 const assessment=assessQueueCompatibility({...context,contract:{state:'available',...context,documents:reference.referenceDocuments}},codexNotificationBootstrapPolicy(reference.referenceDocuments));
 const deferred=()=>{let resolve!:(v?:any)=>void;const promise=new Promise<any>(r=>{resolve=r;});return {promise,resolve};};
 async function fixture(t:any,options:{confirm?:(signal:AbortSignal)=>Promise<boolean>;capability?:'verified_without_loading'|'unavailable';storeOptions?:StoreOptions}={}){
- const root=await mkdtemp(join(tmpdir(),'af-boot-')),registry=join(root,'r'),policy=join(root,'p');await mkdir(join(registry,'sockets'),{recursive:true,mode:0o700});await chmod(registry,0o700);
+ const root=await mkdtemp(join(SOCKET_BASE,'af-boot-')),registry=join(root,'r'),policy=join(root,'p');await mkdir(join(registry,'sockets'),{recursive:true,mode:0o700});await chmod(registry,0o700);
  const calls:string[]=[],sockets=new Set<Socket>();let owner={...OWNER},control:FleetConnectionControl;let producer:CodexBootstrapProducer;
  const state=async(c=A)=>{try{return await new AllowedSessionsStore(policy,c).open();}catch(e){if(e instanceof StoreError&&e.code==='STATE_MISSING')return null;throw e;}};
  const bootstrap=new NotificationBootstrap({owner:()=>owner,

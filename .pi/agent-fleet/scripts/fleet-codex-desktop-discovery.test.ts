@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync,chmodSync,statSync} from 'node:fs';
 import {createServer} from 'node:net';
-import {tmpdir} from 'node:os';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import promises from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
@@ -12,7 +12,7 @@ function asar(version='26.1111.21308',name='openai-codex-electron'){
  const header=Buffer.alloc(8+json.length);header.writeUInt32LE(json.length+4,0);header.writeUInt32LE(json.length,4);json.copy(header,8);const size=Buffer.alloc(8);size.writeUInt32LE(4,0);size.writeUInt32LE(header.length,4);return Buffer.concat([size,header,body]);
 }
 async function fixture(t:any){
- const root=mkdtempSync(join(tmpdir(),'auto-desktop-')),procRoot=join(root,'proc'),desktopExecutable=join(root,'app','ChatGPT'),codexHome=join(root,'home'),socketRoot=join(root,'sockets');
+ const root=mkdtempSync(join(socketTempBase(),'auto-desktop-')),procRoot=join(root,'proc'),desktopExecutable=join(root,'app','ChatGPT'),codexHome=join(root,'home'),socketRoot=join(root,'sockets');
  for(const p of [procRoot,join(root,'app','resources'),join(codexHome,'packages','standalone','releases','fixture','bin'),socketRoot])mkdirSync(p,{recursive:true,mode:0o700});
  writeFileSync(desktopExecutable,'FAKE DESKTOP, NEVER EXECUTED',{mode:0o700});const packagePath=join(root,'app','resources','app.asar');writeFileSync(packagePath,asar(),{mode:0o600});
  const binary=join(codexHome,'packages','standalone','releases','fixture','bin','codex');writeFileSync(binary,'FAKE CLI, NEVER EXECUTED',{mode:0o700});symlinkSync('releases/fixture',join(codexHome,'packages','standalone','current'));

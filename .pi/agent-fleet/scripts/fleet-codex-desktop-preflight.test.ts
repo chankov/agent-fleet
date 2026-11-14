@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync,chmodSync,readdirSync,statSync,linkSync,unlinkSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {physicalTempRoot} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import promises from 'node:fs/promises';
@@ -10,7 +10,7 @@ import {DesktopPreflightRegistry} from './lib/codex-desktop-preflight.ts';
 const signal=()=>new AbortController().signal;
 const observation={namespace:{hostProfile:'desktop',principal:'synthetic-only',threadId:'11111111-1111-4111-8111-111111111111'},hostInstance:'22222222-2222-4222-8222-222222222222',protocolVersion:'2025-06-18',clientInfo:{name:'SYNTHETIC-CLIENT-NOT-DESKTOP-IDENTITY',version:'client-sdk-version-is-not-desktop-version'},catalog:['synthetic_only']};
 function fixture(t:any,confirm:ConstructorParameters<typeof DesktopPreflightRegistry>[0]['confirm']=async()=>true){
- const dir=mkdtempSync(join(tmpdir(),'af-proc-fake-')),proc=join(dir,'fake-proc'),processDir=join(proc,'123'),root=join(dir,'mappings'),exe=join(dir,'SYNTHETIC-NOT-EXECUTED');mkdirSync(processDir,{recursive:true,mode:0o700});writeFileSync(exe,'SYNTHETIC-BINARY-BYTES-NEVER-EXECUTED',{mode:0o700});
+ const dir=mkdtempSync(join(physicalTempRoot(),'af-proc-fake-')),proc=join(dir,'fake-proc'),processDir=join(proc,'123'),root=join(dir,'mappings'),exe=join(dir,'SYNTHETIC-NOT-EXECUTED');mkdirSync(processDir,{recursive:true,mode:0o700});writeFileSync(exe,'SYNTHETIC-BINARY-BYTES-NEVER-EXECUTED',{mode:0o700});
  const processStat=(ticks='55555')=>'123 (synthetic comm with ) spaces) '+['S',...Array(18).fill('0'),ticks,...Array(5).fill('0')].join(' ')+'\n';writeFileSync(join(processDir,'stat'),processStat(),{mode:0o600});symlinkSync(exe,join(processDir,'exe'));
  const registry=new DesktopPreflightRegistry({root,procRoot:proc,confirm}),options={desktopPid:123,desktopVersion:'0.167.0-alpha.3.2',socketPath:join(dir,'daemon.sock'),codexHome:join(dir,'codex-home')};
  t.after(()=>rmSync(dir,{recursive:true,force:true}));return {dir,proc,processDir,root,exe,registry,options,processStat};

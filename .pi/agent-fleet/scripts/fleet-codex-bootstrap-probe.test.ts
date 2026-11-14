@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {createRequire} from 'node:module';
 import {mkdtempSync,mkdirSync,writeFileSync,appendFileSync,chmodSync,rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {socketTempBase} from '../../../bin/test/helpers/test-temp.js';
 import {join} from 'node:path';
 import {CodexUnixQueueRpc,QueueRpcError} from './lib/codex-unix-queue-rpc.ts';
 import {CodexDaemonObserver} from './lib/codex-daemon-observer.ts';
@@ -14,7 +14,7 @@ const require=createRequire(import.meta.url),{WebSocketServer}=require('ws');
 const THREAD='11111111-1111-4111-8111-111111111111',NONCE='22222222-2222-4222-8222-222222222222';
 const owner={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-8333-333333333333',startedAt:'2026-11-12T00:00:00.000Z'};
 async function fixture(t:any,options:{metadata?:(count:number,path:string)=>any;ua?:string;badQueue?:boolean;noAck?:boolean;mutateSocketAt?:'initialize'|'result'}={}){
- const root=mkdtempSync(join(tmpdir(),'af-probe-')),socketPath=join(root,'d.sock'),home=join(root,'home'),sessions=join(home,'sessions');mkdirSync(sessions,{recursive:true,mode:0o700});
+ const root=mkdtempSync(join(socketTempBase(),'af-probe-')),socketPath=join(root,'d.sock'),home=join(root,'home'),sessions=join(home,'sessions');mkdirSync(sessions,{recursive:true,mode:0o700});
  const path=join(sessions,'rollout-SYNTHETIC-'+THREAD+'.jsonl');writeFileSync(path,JSON.stringify({type:'session_meta',payload:{id:THREAD}})+'\n',{mode:0o600});
  const server=createServer(),wss=new WebSocketServer({server}),sockets=new Set<any>(),calls:any[]=[];let reads=0;
  wss.on('connection',(socket:any)=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));socket.on('message',(bytes:Buffer)=>{
