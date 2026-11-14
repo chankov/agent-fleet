@@ -1,5 +1,5 @@
 ---
-"@chankov/agent-fleet": major
+"@chankov/agent-fleet": minor
 # release: keep-bump
 ---
 
