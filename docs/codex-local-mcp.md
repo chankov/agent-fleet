@@ -407,7 +407,10 @@ legitimate request, only an isolated mock-producer test is possible under this s
 Preserve the original deadline: remaining budgets of 10 seconds or less are
 unsupported, not a reason to extend a hold, change IDs or resend an unknown event.
 
-The direct dependency remains pinned **ws@8.22.0**, already locally available. It
+The direct dependency remains pinned **ws@8.22.0**, already locally available. In
+a workspace it comes from the workflow runtime npm root `.pi/agent-fleet/scripts`
+(`npm ci --prefix .pi/agent-fleet/scripts`, run by `setup --allow-exec` or
+`just fleet deps`), next to the daemon client that loads it. It
 provides the tested Unix connection hook, early frame limits, UTF-8/fragment/close
 handling and disabled redirects. The built-in browser-compatible WebSocket API
 does not expose these same direct `socketPath/createConnection/maxPayload` controls;

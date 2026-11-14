@@ -53,6 +53,7 @@ const fastTestFiles = [
   ".pi/agent-fleet/scripts/fleet-codex-measurement.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-probe-transcript.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-daemon-observer.test.ts",
+  "bin/test/codex-ws-installed.test.js",
   ".pi/harnesses/lib/codex-queue-compatibility.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-catalog-readiness.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-desktop-queue.test.ts",
