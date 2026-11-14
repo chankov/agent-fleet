@@ -140,7 +140,8 @@ test('real fake executable exports exactly nine bounded docs with raw hashes, is
   const rows = f.records(); assert.deepEqual(rows.map(row => row.kind), ['version','export']);
   for (const row of rows) {
    assert.equal(row.mode, 0o700); assert.equal(row.sentinel, undefined); assert.equal(row.home.startsWith(row.cwd+'/'), true); assert.equal(row.codexHome.startsWith(row.cwd+'/'), true);
-   assert.deepEqual(row.envKeys.sort(), ['PATH','HOME','CODEX_HOME','TMPDIR','TMP','TEMP','LANG','LC_ALL','TERM','NO_COLOR'].sort());
+   // macOS adds __CF_USER_TEXT_ENCODING to every child process's environment itself.
+   assert.deepEqual(row.envKeys.filter((key: string) => key !== '__CF_USER_TEXT_ENCODING').sort(), ['PATH','HOME','CODEX_HOME','TMPDIR','TMP','TEMP','LANG','LC_ALL','TERM','NO_COLOR'].sort());
   }
   removed(rows);
  } finally { if (previous === undefined) delete process.env.FLEET_SCHEMA_TEST_SENTINEL; else process.env.FLEET_SCHEMA_TEST_SENTINEL = previous; f.cleanup(); }

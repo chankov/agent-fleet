@@ -12,7 +12,8 @@ function asar(version='26.1111.21308',name='openai-codex-electron'){
  const header=Buffer.alloc(8+json.length);header.writeUInt32LE(json.length+4,0);header.writeUInt32LE(json.length,4);json.copy(header,8);const size=Buffer.alloc(8);size.writeUInt32LE(4,0);size.writeUInt32LE(header.length,4);return Buffer.concat([size,header,body]);
 }
 async function fixture(t:any){
- const root=mkdtempSync(join(socketTempBase(),'auto-desktop-')),procRoot=join(root,'proc'),desktopExecutable=join(root,'app','ChatGPT'),codexHome=join(root,'home'),socketRoot=join(root,'sockets');
+ // A short prefix: the managed socket name is 64 bytes, and macOS sun_path holds 103.
+ const root=mkdtempSync(join(socketTempBase(),'ad-')),procRoot=join(root,'proc'),desktopExecutable=join(root,'app','ChatGPT'),codexHome=join(root,'home'),socketRoot=join(root,'sockets');
  for(const p of [procRoot,join(root,'app','resources'),join(codexHome,'packages','standalone','releases','fixture','bin'),socketRoot])mkdirSync(p,{recursive:true,mode:0o700});
  writeFileSync(desktopExecutable,'FAKE DESKTOP, NEVER EXECUTED',{mode:0o700});const packagePath=join(root,'app','resources','app.asar');writeFileSync(packagePath,asar(),{mode:0o600});
  const binary=join(codexHome,'packages','standalone','releases','fixture','bin','codex');writeFileSync(binary,'FAKE CLI, NEVER EXECUTED',{mode:0o700});symlinkSync('releases/fixture',join(codexHome,'packages','standalone','current'));

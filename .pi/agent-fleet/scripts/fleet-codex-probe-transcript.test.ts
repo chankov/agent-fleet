@@ -169,7 +169,8 @@ test('permission drift after strict checkpoint and identity drift before securin
  await assert.rejects(f.reader.waitForAck(token,N,signal()),/unsafe_file/);
  chmodSync(f.dir,0o775);let calls=0;
  await assert.rejects(f.reader.securePermissions(f.path,A,signal(),()=>{
-  if(++calls===2){renameSync(f.path,f.path+'.old');writeFileSync(f.path,metadata(),{mode:0o664});}
+  // writeFileSync's mode is masked by umask (022 on macOS), so set it explicitly.
+  if(++calls===2){renameSync(f.path,f.path+'.old');writeFileSync(f.path,metadata(),{mode:0o664});chmodSync(f.path,0o664);}
  }),/probe_reader_changed/);
  assert.equal(statSync(f.dir).mode&0o777,0o775);assert.equal(statSync(f.path).mode&0o777,0o664);
 });

@@ -67,7 +67,8 @@ test('build-test at a non-Git workspace root builds, verifies and commits inside
  const root=mkdtempSync(join(tmpdir(),'fleet-nested-build-')),bin=mkdtempSync(join(tmpdir(),'fleet-fake-pi-')),calls=join(bin,'calls.jsonl');const git=(cwd:string,...args:string[])=>execFileSync('git',['-C',cwd,...args],{env:sessionGitEnv(),stdio:'pipe'}).toString().trim();
  const cli=(...args:string[])=>spawnSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(source,'.pi/agent-fleet/scripts/flow.ts'),...args],{cwd:root,encoding:'utf8',env:{...process.env,PATH:`${bin}:${process.env.PATH}`,FAKE_PI_CALLS:calls,AF_SESSION_ROOTS:undefined,AF_TARGET_BASE_PROJECT:undefined,AF_TARGET_EFFECTIVE_PROJECT:undefined,PI_OFFLINE:'1'},timeout:20000});
  try{
-  for(const name of ['rin-docs','ringithub']){const repo=join(root,name);mkdirSync(repo);git(repo,'init','-q');writeFileSync(join(repo,'marker'),name);git(repo,'add','.');git(repo,'-c','user.name=Fixture','-c','user.email=f@example.test','-c','commit.gpgsign=false','commit','-qm','initial');}
+  // The flow commits in the repository, so each one carries its own identity: CI runners have none.
+  for(const name of ['rin-docs','ringithub']){const repo=join(root,name);mkdirSync(repo);git(repo,'init','-q');for(const [key,value] of [['user.name','Fixture'],['user.email','f@example.test'],['commit.gpgsign','false']])git(repo,'config',key,value);writeFileSync(join(repo,'marker'),name);git(repo,'add','.');git(repo,'commit','-qm','initial');}
   // An installed workspace: Fleet resources at the root, never inside a nested repository.
   mkdirSync(join(root,'.ai'));mkdirSync(join(root,'.pi/agents/personas'),{recursive:true});
   copyFileSync(join(source,'agents/builder.md'),join(root,'.pi/agents/personas/builder.md'));copyFileSync(join(source,'.pi/damage-control-rules.yaml'),join(root,'.pi/damage-control-rules.yaml'));symlinkSync(join(source,'.pi/harnesses'),join(root,'.pi/harnesses'));
