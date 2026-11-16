@@ -1,5 +1,25 @@
 # Agent Fleet changelog
 
+## 2.2.1
+
+### Patch Changes
+
+- c51acbf: Fleet view's Codex chats screen, its enable/reconnect and preflight confirmation dialogs, and the related notifications are now fully in English.
+- c51acbf: Allow bounded delayed bootstrap ACK delivery to busy Codex chats and retain safe failure reasons without replaying unknown probes.
+- c51acbf: Expose cached bootstrap stages and deadlines with private bounded diagnostic history across reloads. Keep historical evidence separate from current rights and notification delivery proof.
+- c51acbf: Fix unnecessary `/af-task-triage-recover` requests for native Fleet tasks:
+
+  - Permit initial read-only classification and a read-only-to-edit scope change
+    after reload when no interactive triage input exists.
+  - Preserve baseline requirements, persisted review and exact-action confirmation
+    obligations, and refusal on missing pending input or actual persistence failures.
+  - Report a post-commit process block instead of successful task classification.
+  - Include the connection-history runtime dependency in workspace installations
+    so the installed Hub can load the existing connection diagnostics.
+
+  Existing workspaces must update their installed Fleet runtime and reload Pi to
+  use the fix; updating the package alone does not replace a running harness.
+
 ## 2.2.0
 
 ### Minor Changes

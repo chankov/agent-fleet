@@ -1,0 +1,11 @@
+[
+  {"name":"greeting","plane":"hub","prompt":"stable core policy","tools":["ask_user"]},
+  {"name":"direct-coding","plane":"hub","prompt":"stable direct coding policy","tools":["read","edit","write","bash"]},
+  {"name":"fleet","plane":"hub","prompt":"stable fleet policy","tools":["dispatch_agent","spawn_research","set_task_tier"]},
+  {"name":"verification","plane":"hub","prompt":"stable verification policy","tools":["set_assertions","update_assertion","get_assertions"]},
+  {"name":"peer","plane":"hub","prompt":"stable peer policy","tools":["coms_list","coms_send","coms_await"]},
+  {"name":"workspace","plane":"hub","prompt":"stable workspace policy","tools":["herdr_spawn_peer","herdr_read_pane","herdr_close_pane"]},
+  {"name":"compaction-full-fleet","plane":"hub","prompt":"stable full fleet policy","tools":["dispatch_agent","spawn_research","request_compaction","coms_send","herdr_spawn_pane"]},
+  {"name":"research-helper","plane":"research","prompt":"read-only research policy","tools":["read","grep","find","ls"]},
+  {"name":"specialist","plane":"specialist","prompt":"specialist policy","tools":["read","edit","write","bash"]}
+]
