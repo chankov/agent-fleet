@@ -133,3 +133,21 @@ test('D6 warning is explicit in the one Pi review; absent transcript proof still
  const port=f.make(),p=await prepared(f,port);assert.equal((p as any).warning,'schema_not_verified');
  assert.equal((await port.commit(p.proposalId)).status,'partially_applied_or_unknown');assert.equal(f.state.review.warning,'schema_not_verified');assert.equal(f.state.calls.includes('activate'),false);
 });
+
+test('diagnostics correlate ordered phases and deadlines without causing adapter effects',async()=>{
+ const f=fixture(),events:any[]=[];f.services.diagnostic=e=>events.push(e);
+ const port=f.make(),p=await prepared(f,port);await port.commit(p.proposalId);
+ assert.deepEqual(events.map(e=>e.stage),['inspecting','prepared','confirming','writing_rights','probing','activating','enabled']);
+ assert.ok(events.every(e=>e.attemptId===p.proposalId));assert.equal(events.find(e=>e.stage==='probing').deadline,f.state.now+125000);
+ const calls=f.state.calls.length;port.rows();port.rows();assert.equal(f.state.calls.length,calls);
+ const diagnostic=port.rows()[0].diagnostic;assert.ok(diagnostic);assert.equal(diagnostic.stage,'enabled');
+});
+
+test('proposal retirement does not relabel an active connection as expired',async()=>{
+ const f=fixture(),port=f.make(),p=await prepared(f,port);await port.commit(p.proposalId);
+ f.state.now+=300001;f.state.mono+=300001;
+ // Preparing an unrelated chat prunes old proposals, not active connection evidence.
+ await port.prepare({...namespace,threadId:B},f.until());
+ const row=port.rows().find(r=>r.namespace.threadId===namespace.threadId)!;
+ assert.equal(row.state,'enabled');assert.equal(row.diagnostic?.stage,'enabled');
+});

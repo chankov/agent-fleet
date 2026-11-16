@@ -129,6 +129,8 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		}
 		setProcessState(adopted);
 		d.setTaskTier(change.tier); d.setTaskTierAssumed(false); d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
+		const postCommitBlock = d.processBlock?.();
+		if (postCommitBlock) return { content: [{ type: "text", text: postCommitBlock.message }], details: { status: "refused", reason: postCommitBlock.reason, classificationCommitted: true } };
 		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} The tier sizes the apparatus and child deadlines; it cannot erase correctness obligations.\nThis task so far: ${d.getTaskDispatchCount()} dispatches, ${d.getTaskResearchCount()} research (usage, not quotas).` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 

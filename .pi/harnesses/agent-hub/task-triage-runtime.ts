@@ -53,7 +53,9 @@ export function createTaskTriageRuntime(options: { service?: System1Service; ser
    stop(); scope = null; current = bound;
    if (!bound) pending = null;
   },
-  scope(value: string) { if (scope === value) return false; scope = value; stop(); current = null; return true; },
+  // Return whether there is an accepted input to re-evaluate. Native/extension
+  // turns and a restored runtime may have none; baseline obligations still apply.
+  scope(value: string) { if (scope === value) return false; scope = value; stop(); current = null; return pending !== null; },
   invalidate() { stop(); current = null; },
   async evaluate(taskId: string, successor = false): Promise<TaskTriageCurrent | null> {
    if (!pending || !taskId) return successor ? null : current;

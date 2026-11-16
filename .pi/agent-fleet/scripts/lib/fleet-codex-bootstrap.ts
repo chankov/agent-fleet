@@ -1,3 +1,5 @@
+import {ConnectionHistory} from './codex-connection-history.ts';
+import type {ConnectionDiagnostic,ConnectionHistorySnapshot} from '../../../harnesses/lib/fleet-connection-diagnostics.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {readFileSync,lstatSync} from 'node:fs';
 import {join,dirname} from 'node:path';
@@ -24,7 +26,7 @@ import {FleetCodexNotificationRuntime,parseNotificationConfiguration} from './fl
 type DesktopConfirmation=Parameters<BootstrapServices['confirm']>[0]&{desktopMapping?:Pick<DesktopPreflightRecord,'desktop'|'desktopVersion'|'versionSource'|'socketPath'|'codexHome'|'binaryPath'>};
 type Eligible=Exclude<QueueCompatibilityAssessment,{level:'blocked'}>;
 type Snapshot={namespace:BootstrapNamespace;owner:TargetEpoch;record:DesktopPreflightRecord;observation:BootstrapPresence;store:AllowedSessionsStore;state:StoreSnapshot|null;observer:CodexDaemonObserver;measurement:DaemonMeasurement;assessment:Eligible;catalog:any;wall:number;transcriptPath?:string};
-export type BootstrapChatRow={namespace:BootstrapNamespace;producer:'fresh'|'missing'|'stale'|'ambiguous';hostInstance?:string;clientInfo?:BootstrapPresence['clientInfo'];rights:readonly string[];rightsStatus:string;expiresAt?:number;notification:string;reason?:string;compatibility?:string;daemonVersion?:string;desktopVersion?:string;socketEpoch?:string;bindingEpoch?:string;lastProbe?:{id:string;receiptId:string};lastNotification?:unknown;proposalState?:string};
+export type BootstrapChatRow={diagnostic?:ConnectionDiagnostic;history?:ConnectionHistorySnapshot;namespace:BootstrapNamespace;producer:'fresh'|'missing'|'stale'|'ambiguous';hostInstance?:string;clientInfo?:BootstrapPresence['clientInfo'];rights:readonly string[];rightsStatus:string;expiresAt?:number;notification:string;reason?:string;compatibility?:string;daemonVersion?:string;desktopVersion?:string;socketEpoch?:string;bindingEpoch?:string;lastProbe?:{id:string;receiptId:string};lastNotification?:unknown;proposalState?:string};
 type Activation=Parameters<BootstrapServices['activate']>[0];
 type Active={runtime:FleetCodexNotificationRuntime;config:NotificationConfig;path:string;identity:string;parentIdentity:string;guard:()=>boolean;request:Activation;snapshot:Snapshot;controller:AbortController;monoUntil:number;wall:number;rechecking:boolean;attempted:boolean;recheckFailure?:string;autoBudget:{remaining:number}};
 const clone=<T>(v:T):T=>structuredClone(v);
@@ -32,20 +34,21 @@ const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 // Cached diagnostics only: exact internal codes, never raw exceptions/UA/paths.
 const recheckFailures=new Set(['daemon_version_unavailable','daemon_observation_failed','measurement_timeout','measurement_cancelled','invalid_socket_epoch','initialize_epoch_mismatch','socket_epoch_changed','schema_binary_changed','native_presence_required','desktop_preflight_required','catalog_not_ready','continuation_scope_changed','continuation_rights_changed','continuation_config_changed','compat_recheck_failed','compat_recheck_changed','bootstrap_cancelled','bootstrap_context_changed','daemon_context_changed','bootstrap_rights_changed','bootstrap_probe_not_sent','bootstrap_probe_unknown_no_replay','compat_recheck_probe_unknown','bootstrap_activation_cancelled','bootstrap_activation_changed','bootstrap_config_scope_mismatch','bootstrap_config_changed','notification_journal_root_conflict','bootstrap_file_changed','bootstrap_file_publication_unknown']);
-function recheckFailure(stage:'inspect'|'probe'|'verify'|'activate',error:unknown,cancelled:boolean){return 'd7_'+stage+'_'+(cancelled?'cancelled':error instanceof Error&&recheckFailures.has(error.message)?error.message:'failed');}
+function recheckFailure(stage:'inspect'|'probe'|'verify'|'activate',error:unknown,cancelled:boolean){return 'd7_'+stage+'_'+(cancelled?'cancelled':error instanceof Error&&(recheckFailures.has(error.message)||/^bootstrap_probe_(?:unknown_no_replay|not_sent)_(?:timeout|cancelled|bootstrap_probe_(?:stale|path_changed|enqueue_unknown|ack_invalid|metadata_unavailable)|probe_reader_(?:timeout|cancelled|changed))$/.test(error.message))?error.message:'failed');}
 /** Production AF services. All status/render data is cached. No active services
  * are created until explicit native prepare/UI enable; raw presence is never
  * promoted to Desktop identity or no-load capability. Only Codex writes rights.
  * Missing operator-observed Desktop/process/catalog mapping fails closed and is
  * a live-preflight prerequisite, not fabricated offline qualification. */
 export class FleetCodexBootstrap {
- readonly coordinator:NotificationBootstrap;readonly native:NativePresenceDirectory;readonly preflight:DesktopPreflightRegistry;
+ readonly history:ConnectionHistory;readonly coordinator:NotificationBootstrap;readonly native:NativePresenceDirectory;readonly preflight:DesktopPreflightRegistry;
  private readonly options:{policyRoot:string;namespace:{hostProfile:string;principal:string};owner:()=>TargetEpoch|null;presence:(c:BootstrapNamespace,lease?:boolean)=>BootstrapPresence|null;writeRights:BootstrapServices['codexWriteRights'];confirm:(review:DesktopConfirmation,signal:AbortSignal)=>Promise<boolean>;discoverDesktop?:(signal:AbortSignal)=>Promise<AutomaticDesktopData>;confirmPreflight:ConstructorParameters<typeof DesktopPreflightRegistry>[0]['confirm'];procRoot?:string;referenceDocuments?:unknown;legacy?:()=>{config:NotificationConfig;runtime?:FleetCodexNotificationRuntime;release:()=>void}|undefined};
  readonly #automatic=new Map<string,DesktopPreflightRecord>();readonly #root:string;readonly #stop=new AbortController();#epoch=new AbortController();readonly #snapshots=new Map<string,Snapshot>();readonly #active=new Map<string,Active>();readonly #rows=new Map<string,BootstrapChatRow>();readonly #schemas=new Map<string,Awaited<ReturnType<typeof exportSchema>>>();readonly #exports=new Map<string,Promise<Awaited<ReturnType<typeof exportSchema>>>>();readonly #busy=new Set<string>();#refreshing=false;
  constructor(options:FleetCodexBootstrap['options']){
   this.options={...options,namespace:{...options.namespace}};this.#root=options.policyRoot+'.bootstrap';this.native=new NativePresenceDirectory(options.policyRoot+'.presence');
   this.preflight=new DesktopPreflightRegistry({root:join(this.#root,'desktop-mappings'),procRoot:options.procRoot,confirm:async(review,signal)=>{const accepted=await options.confirmPreflight(review,signal);if(accepted===true&&!signal.aborted)await privateDirectory(this.#root,true);return accepted;}});
-  this.coordinator=new NotificationBootstrap({owner:options.owner,inspect:(c,s)=>this.#inspect(c,s),confirm:(r,s)=>this.#confirm(r,s),codexWriteRights:options.writeRights,probe:(r,s)=>this.#probe(r,s),activate:(r,s)=>this.#activate(r,s),disable:(c,s)=>this.#disable(c,s)});
+  this.history=new ConnectionHistory(join(this.#root,'connection-history'));
+  this.coordinator=new NotificationBootstrap({diagnostic:e=>{void this.history.record(e);},owner:options.owner,inspect:(c,s)=>this.#inspect(c,s),confirm:(r,s)=>this.#confirm(r,s),codexWriteRights:options.writeRights,probe:(r,s)=>this.#probe(r,s),activate:(r,s)=>this.#activate(r,s),disable:(c,s)=>this.#disable(c,s)});
  }
  async #confirm(review:Parameters<BootstrapServices['confirm']>[0],signal:AbortSignal){
   const key=namespaceKey(review.scope.namespace),snapshot=this.#snapshots.get(key);if(!snapshot)throw Error('bootstrap_inspection_required');this.#guard(snapshot);
@@ -111,7 +114,7 @@ export class FleetCodexBootstrap {
  }
  async #probe(request:Parameters<BootstrapServices['probe']>[0],signal:AbortSignal,lease=false){
   const snapshot=this.#snapshots.get(namespaceKey(request.scope.namespace));if(!snapshot)throw Error('bootstrap_inspection_required');this.#guard(snapshot,request.scope,request.assessment,lease);
-  const reader=new CodexProbeTranscript({codexHome:snapshot.record.codexHome}),driver=new CodexBootstrapProbe({rpc:new CodexUnixQueueRpc({socketPath:snapshot.record.socketPath}),reader,guard:()=>this.#guard(snapshot,request.scope,request.assessment,lease)});
+  const reader=new CodexProbeTranscript({codexHome:snapshot.record.codexHome}),driver=new CodexBootstrapProbe({rpc:new CodexUnixQueueRpc({socketPath:snapshot.record.socketPath}),reader,progress:(stage,deadline)=>this.coordinator.progress(request.scope.namespace,request.probeId,stage,deadline),guard:()=>this.#guard(snapshot,request.scope,request.assessment,lease)});
   try{return await driver.run(request,signal);}finally{await reader.stop();}
  }
  async #activate(request:Activation,signal:AbortSignal,continuation?:Active){
@@ -164,7 +167,7 @@ export class FleetCodexBootstrap {
   void this.#recheck(key,active).catch(()=>{}).finally(()=>{active.rechecking=false;});
  }
  async #recheck(key:string,active:Active){
-  const deadline=new AbortController(),timer=setTimeout(()=>deadline.abort(),60000),signal=AbortSignal.any([deadline.signal,active.controller.signal,this.#epoch.signal,this.#stop.signal]);
+  const deadline=new AbortController(),timer=setTimeout(()=>deadline.abort(),150000),signal=AbortSignal.any([deadline.signal,active.controller.signal,this.#epoch.signal,this.#stop.signal]);
   let stage:'inspect'|'probe'|'verify'|'activate'='inspect';
   try{
    this.#continuationCurrent(key,active);const inspection=await this.#inspect(active.request.scope.namespace,signal,true);this.#continuationCurrent(key,active);
@@ -195,7 +198,7 @@ export class FleetCodexBootstrap {
    for(const [key,c]of [...keys].slice(0,32)){
     const rows=presences.filter(p=>namespaceKey(p.observation.namespace)===key),attached=this.options.presence(c),fresh=rows.filter(p=>p.fresh&&(!attached||p.observation.hostInstance===attached.hostInstance)),seen=fresh.length===1?fresh[0].observation:rows[0]?.observation,active=this.#active.get(key),snapshot=this.#snapshots.get(key),phase=this.coordinator.rows().find(r=>namespaceKey(r.namespace)===key);
     const status=active?.runtime.status();let rights:ReturnType<typeof codexRightsSnapshot>;try{rights=codexRightsSnapshot((await this.#rights(c)).state,this.#owner());}catch{rights={revision:0,rights:[],status:'unavailable'};}
-    this.#rows.set(key,{namespace:clone(c),producer:fresh.length>1?'ambiguous':fresh.length===1?'fresh':rows.length?'stale':'missing',hostInstance:seen?.hostInstance,clientInfo:seen?.clientInfo,rights:rights.rights,rightsStatus:rights.status,expiresAt:rights.expiresAt,notification:active?.rechecking?'rechecking_context':status?.enabled?'enabled':status?.reason??'disabled',reason:active?.recheckFailure??status?.reason??phase?.reason,proposalState:phase?.state,compatibility:active?.config.compat?.level??snapshot?.assessment.level,daemonVersion:active?.config.compat?.daemonVersion??snapshot?.measurement.version,desktopVersion:active?.config.compat?.desktopVersion??snapshot?.record.desktopVersion,socketEpoch:active?.config.compat?.socketEpoch??snapshot?.measurement.socketEpoch,bindingEpoch:active?.config.approval.binding.epoch,lastProbe:active?.config.compat?.probe,lastNotification:status?.lastNotification});
+    this.#rows.set(key,{diagnostic:phase?.diagnostic,history:await this.history.read(c),namespace:clone(c),producer:fresh.length>1?'ambiguous':fresh.length===1?'fresh':rows.length?'stale':'missing',hostInstance:seen?.hostInstance,clientInfo:seen?.clientInfo,rights:rights.rights,rightsStatus:rights.status,expiresAt:rights.expiresAt,notification:active?.rechecking?'rechecking_context':status?.enabled?'enabled':status?.reason??'disabled',reason:active?.recheckFailure??status?.reason??phase?.reason,proposalState:phase?.state,compatibility:active?.config.compat?.level??snapshot?.assessment.level,daemonVersion:active?.config.compat?.daemonVersion??snapshot?.measurement.version,desktopVersion:active?.config.compat?.desktopVersion??snapshot?.record.desktopVersion,socketEpoch:active?.config.compat?.socketEpoch??snapshot?.measurement.socketEpoch,bindingEpoch:active?.config.approval.binding.epoch,lastProbe:active?.config.compat?.probe,lastNotification:status?.lastNotification});
    }
   }finally{this.#refreshing=false;}
  }

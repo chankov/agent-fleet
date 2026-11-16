@@ -1,3 +1,4 @@
+import type {ConnectionDiagnostic} from './fleet-connection-diagnostics.ts';
 import {randomUUID,createHash} from 'node:crypto';
 import {assessLoadedFleetCatalog} from './fleet-codex-catalog.ts';
 import {validInstructionTarget,targetKey,type QueueCompatibilityAssessment} from './fleet-notification-validation.ts';
@@ -20,6 +21,7 @@ export type ProbeReceipt=Readonly<{
  daemonVersion:string;desktopVersion:string;socketEpoch:string;notLoadedBefore:true;notLoadedAfter:true;receiptId:string;
 }>;
 export type BootstrapServices={
+ diagnostic?:(event:ConnectionDiagnostic)=>void;
  owner:()=>Owner|null;now?:()=>number;monotonic?:()=>number;operationTimeoutMs?:number;
  inspect:(namespace:BootstrapNamespace,signal:AbortSignal)=>Promise<BootstrapInspection>;
  confirm:(review:BootstrapConfirmation,signal:AbortSignal)=>Promise<boolean>;
@@ -33,7 +35,7 @@ export type BootstrapServices={
 type Inspection=Omit<BootstrapInspection,'assessment'|'catalog'|'rights'> & {assessment:Eligible;catalog:{identity:string;protocolVersion:string;tools:{name:string}[]};rights:BootstrapRights};
 type Result=Readonly<{status:string;reason?:string;rightsCommitted?:true|'unknown';expiresAt?:number;compatibility?:string;activation:'not_performed'|'enabled'|'unknown';startsDaemon:false;grantsApproveAutomatically:false}>;
 type Guarded={scope:Pick<BootstrapScope,'owner'|'until'>;wall:number;mono:number;cancelled:boolean;controllers:Set<AbortController>};
-type Pending=Guarded & {id:string;scope:BootstrapScope;before:Inspection;key:string;state:string;result?:Result;running?:Promise<Result>};
+type Pending=Guarded & {id:string;scope:BootstrapScope;before:Inspection;key:string;state:string;probeId?:string;result?:Result;running?:Promise<Result>};
 const object=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const text=(v:unknown,max=512):v is string=>typeof v==='string'&&v.length>0&&v.length<=max&&!/[\u0000-\u0020\u007f]/.test(v);
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
@@ -52,8 +54,8 @@ const outcome=(status:string,reason?:string,committed?:true|'unknown',activation
 export class NotificationBootstrap {
  readonly #services:BootstrapServices;readonly #now:()=>number;readonly #mono:()=>number;readonly #timeout:number;
  #stopped=false;
- readonly #pending=new Map<string,Pending>();readonly #rows=new Map<string,{namespace:BootstrapNamespace;ownerKey:string;state:string;reason?:string;expiresAt?:number;validUntil:number}>();
- constructor(services:BootstrapServices){this.#services={...services};if(['owner','inspect','confirm','codexWriteRights','probe','activate','disable'].some(k=>typeof (this.#services as any)[k]!=='function'))throw Error('bootstrap_options_invalid');this.#now=services.now??Date.now;this.#mono=services.monotonic??(()=>performance.now());this.#timeout=services.operationTimeoutMs??60000;if(!Number.isInteger(this.#timeout)||this.#timeout<1||this.#timeout>60000)throw Error('bootstrap_options_invalid');}
+ readonly #pending=new Map<string,Pending>();readonly #rows=new Map<string,{namespace:BootstrapNamespace;ownerKey:string;state:string;diagnostic?:ConnectionDiagnostic;reason?:string;expiresAt?:number;validUntil:number}>();
+ constructor(services:BootstrapServices){this.#services={...services};if(['owner','inspect','confirm','codexWriteRights','probe','activate','disable'].some(k=>typeof (this.#services as any)[k]!=='function'))throw Error('bootstrap_options_invalid');this.#now=services.now??Date.now;this.#mono=services.monotonic??(()=>performance.now());this.#timeout=services.operationTimeoutMs??150000;if(!Number.isInteger(this.#timeout)||this.#timeout<1||this.#timeout>150000)throw Error('bootstrap_options_invalid');}
  #owner(){const owner=this.#services.owner();if(!validInstructionTarget(owner))throw Error('owner_unavailable');return structuredClone(owner);}
  #rights(value:BootstrapRights):BootstrapRights{
   if(!object(value)||!Number.isSafeInteger(value.revision)||value.revision<0||!Array.isArray(value.rights)||(value.rights.length&&!rights(value.rights))||!text(value.status,128)||(value.expiresAt!==undefined&&(!Number.isSafeInteger(value.expiresAt)||value.expiresAt<=0)))throw Error('rights_invalid');
@@ -78,8 +80,23 @@ export class NotificationBootstrap {
   try{const result=await Promise.race([Promise.resolve().then(()=>fn(controller.signal)),stopped]);if(performance.now()>=deadline)throw Error('bootstrap_timeout');this.#guard(p);return result;}
   finally{if(timer)clearTimeout(timer);controller.signal.removeEventListener('abort',abort);p.controllers.delete(controller);controller.abort();}
  }
- #remember(p:Pending,state:string,reason?:string){if(this.#stopped||p.cancelled)return;p.state=state;this.#rows.set(key(p.scope.namespace),{namespace:structuredClone(p.scope.namespace),ownerKey:targetKey(p.scope.owner),state,...(reason?{reason}:{}),expiresAt:p.scope.until,validUntil:state==='enabled'?p.scope.until:Math.min(p.scope.until,p.wall+300000)});}
- #prune(){const now=this.#now(),mono=this.#mono();let owner='';try{owner=targetKey(this.#owner());}catch{}for(const [id,p]of this.#pending)if(targetKey(p.scope.owner)!==owner||now<p.wall||mono<p.mono||now-p.wall>=300000||mono-p.mono>=300000){p.cancelled=true;for(const c of p.controllers)c.abort();this.#pending.delete(id);}for(const [id,row]of this.#rows)if(row.ownerKey!==owner||row.state!=='enabled'&&row.validUntil<=now)this.#rows.delete(id);}
+ #remember(p:Pending,state:string,reason?:string,deadline?:number){
+  if(this.#stopped||p.cancelled)return;
+  const previous=this.#rows.get(key(p.scope.namespace));
+  if(state!=='inspecting'&&previous?.diagnostic&&previous.diagnostic.attemptId!==p.id)return;
+  p.state=state;
+  const budgets:Record<string,number>={inspecting:30000,confirming:60000,writing_rights:5000,probing:125000,activating:5000};
+  const at=this.#now(),limit=deadline??(budgets[state]?Math.min(at+Math.min(budgets[state],this.#timeout),p.wall+300000,p.scope.until):undefined);
+  const diagnostic:ConnectionDiagnostic={namespace:structuredClone(p.scope.namespace),owner:structuredClone(p.scope.owner),attemptId:p.id,stage:state,at,...(limit===undefined?{}:{deadline:limit}),...(reason?{reason}:{}),...(p.probeId?{probeId:p.probeId}:{})};
+  this.#rows.set(key(p.scope.namespace),{namespace:structuredClone(p.scope.namespace),ownerKey:targetKey(p.scope.owner),state,diagnostic,...(reason?{reason}:{}),expiresAt:p.scope.until,validUntil:state==='enabled'?p.scope.until:Math.min(p.scope.until,p.wall+300000)});
+  try{this.#services.diagnostic?.(structuredClone(diagnostic));}catch{/* Diagnostics cannot grant or prevent authorization. */}
+ }
+ progress(c:BootstrapNamespace,probeId:string,stage:'queue_submission'|'waiting_ack'|'validating_ack',deadline:number){
+  const p=[...this.#pending.values()].find(p=>key(p.scope.namespace)===key(c)&&p.probeId===probeId&&!p.result&&!p.cancelled);
+  if(!p)return;try{this.#guard(p);this.#remember(p,stage,undefined,deadline);}catch{}
+ }
+
+ #prune(){const now=this.#now(),mono=this.#mono();let owner='';try{owner=targetKey(this.#owner());}catch{}for(const [id,p]of this.#pending)if(targetKey(p.scope.owner)!==owner||now<p.wall||mono<p.mono||now-p.wall>=300000||mono-p.mono>=300000){if(!p.result)this.#remember(p,'expired','proposal_context_changed');p.cancelled=true;for(const c of p.controllers)c.abort();this.#pending.delete(id);}for(const [id,row]of this.#rows)if(row.ownerKey!==owner||row.state!=='enabled'&&row.validUntil<=now)this.#rows.delete(id);}
  rows(){const now=this.#now();let current='';try{current=targetKey(this.#owner());}catch{}return structuredClone([...this.#rows.values()].map(({ownerKey,...row})=>({...row,...(ownerKey!==current?{state:'owner_changed'}:row.validUntil<=now?{state:'expired'}:{})})));}
  async prepare(c:BootstrapNamespace,until:number,requestedRights?:readonly BootstrapRight[],signal?:AbortSignal){
   if(signal?.aborted)return {status:'blocked',reason:'bootstrap_cancelled',activation:'not_performed'};
@@ -93,22 +110,22 @@ export class NotificationBootstrap {
   const placeholder={owner,namespace:structuredClone(c),binding:{id:'notification-'+randomUUID(),epoch:randomUUID(),hostInstance:'pending',threadId:c.threadId,fleetOwner:targetKey(owner)},until,rights:['read'] as BootstrapRight[]};
   const p:Pending={id,scope:placeholder,before:null as unknown as Inspection,key:'',wall,mono,state:'inspecting',cancelled:false,controllers:new Set()};
   // Reserve capacity before yielding, including concurrently inspecting jobs.
-  this.#pending.set(id,p);this.#rows.set(key(c),{namespace:structuredClone(c),ownerKey:targetKey(owner),state:'inspecting',expiresAt:until,validUntil:Math.min(until,wall+300000)});
-  const cancelled=()=>{p.cancelled=true;for(const controller of p.controllers)controller.abort();};signal?.addEventListener('abort',cancelled,{once:true});if(signal?.aborted)cancelled();
+  this.#pending.set(id,p);this.#remember(p,'inspecting');
+  const cancelled=()=>{this.#remember(p,'cancelled','bootstrap_cancelled');p.cancelled=true;for(const controller of p.controllers)controller.abort();};signal?.addEventListener('abort',cancelled,{once:true});if(signal?.aborted)cancelled();
   try{
    const seen=this.#inspection(await this.#call(p,30000,s=>this.#services.inspect(structuredClone(c),s)));
    p.before=seen;p.key=this.#inspectionKey(seen);
    p.scope={...placeholder,binding:{...placeholder.binding,hostInstance:seen.hostInstance},rights:[...(requestedRights??(seen.rights.rights.length?seen.rights.rights:['read']))]};
    this.#pending.set(id,p);this.#remember(p,'prepared');
    return {status:'prepared',proposalId:id,namespace:structuredClone(c),owner:structuredClone(owner),expiresAt:until,rights:[...p.scope.rights],compatibility:seen.assessment.level,...(seen.assessment.level==='contract_unverified'?{warning:'schema_not_verified'}:{}),requiresPiConfirmation:true,activation:'not_performed',startsDaemon:false,grantsApproveAutomatically:false};
-  }catch(error){const reason=failure(error,'inspection_failed');this.#pending.delete(id);if(!p.cancelled)this.#rows.set(key(c),{namespace:structuredClone(c),ownerKey:targetKey(owner),state:'blocked',reason,expiresAt:until,validUntil:Math.min(until,wall+300000)});return {status:'blocked',reason,activation:'not_performed'};}
+  }catch(error){const reason=failure(error,'inspection_failed');this.#pending.delete(id);this.#remember(p,'blocked',reason);return {status:'blocked',reason,activation:'not_performed'};}
   finally{signal?.removeEventListener('abort',cancelled);}
  }
  async #fresh(p:Pending,expectedRights:BootstrapRights){
   const seen=this.#inspection(await this.#call(p,30000,s=>this.#services.inspect(structuredClone(p.scope.namespace),s)));
   if(this.#inspectionKey(seen)!==p.key||JSON.stringify(seen.rights)!==JSON.stringify(expectedRights))throw Error('observed_context_changed');return seen;
  }
- cancel(proposalId:string,c:BootstrapNamespace){const p=this.#pending.get(proposalId);if(!p||key(p.scope.namespace)!==key(c)||p.result)return false;p.cancelled=true;for(const controller of p.controllers)controller.abort();return true;}
+ cancel(proposalId:string,c:BootstrapNamespace){const p=this.#pending.get(proposalId);if(!p||key(p.scope.namespace)!==key(c)||p.result)return false;this.#remember(p,'cancelled','bootstrap_cancelled');p.cancelled=true;for(const controller of p.controllers)controller.abort();return true;}
  commit(proposalId:string,c?:BootstrapNamespace,signal?:AbortSignal):Promise<Result>{
   const p=this.#pending.get(proposalId);if(!p||c&&key(c)!==key(p.scope.namespace))return Promise.resolve(outcome('rejected','proposal_unavailable'));
   if(signal?.aborted){this.cancel(proposalId,p.scope.namespace);return Promise.resolve(outcome('rejected','bootstrap_cancelled'));}
@@ -128,8 +145,8 @@ export class NotificationBootstrap {
    const written=this.#rights(await this.#call(p,5000,s=>this.#services.codexWriteRights({scope:structuredClone(p.scope),expected:structuredClone(p.before.rights)},s)));
    if(written.revision<=p.before.rights.revision||written.status!=='active'||written.expiresAt!==p.scope.until||JSON.stringify(written.rights)!==JSON.stringify(p.scope.rights))throw Error('rights_commit_uncertain');
    writtenConfirmed=true;
-   const seen=await this.#fresh(p,written),probeId=randomUUID();this.#remember(p,'probing');
-   const receipt=structuredClone(await this.#call(p,30000,s=>this.#services.probe({scope:structuredClone(p.scope),assessment:structuredClone(seen.assessment),probeId},s)));
+   const seen=await this.#fresh(p,written),probeId=randomUUID();p.probeId=probeId;this.#remember(p,'probing');
+   const receipt=structuredClone(await this.#call(p,125000,s=>this.#services.probe({scope:structuredClone(p.scope),assessment:structuredClone(seen.assessment),probeId},s)));
    if(receipt.status!=='acknowledged')throw Error('probe_'+receipt.status);
    const context=seen.assessment.context;
    if(receipt.source!=='read_only_assistant_transcript'||receipt.probeId!==probeId||receipt.threadId!==p.scope.namespace.threadId||receipt.hostInstance!==seen.hostInstance||receipt.daemonVersion!==context.daemonVersion||receipt.desktopVersion!==context.desktopVersion||receipt.socketEpoch!==context.socketEpoch||receipt.notLoadedBefore!==true||receipt.notLoadedAfter!==true||!text(receipt.receiptId))throw Error('probe_context_mismatch');
@@ -139,14 +156,17 @@ export class NotificationBootstrap {
    return p.result={status:'enabled',rightsCommitted:true,expiresAt:p.scope.until,compatibility:seen.assessment.level,activation:'enabled',startsDaemon:false,grantsApproveAutomatically:false};
   }catch(error){const reason=failure(error,'bootstrap_failed');this.#remember(p,changed?'unknown':'rejected',reason);return p.result=outcome(changed?'partially_applied_or_unknown':'rejected',reason,changed?(writtenConfirmed?true:'unknown'):undefined,activationAttempted?'unknown':'not_performed');}
  }
- reset(){for(const p of this.#pending.values()){p.cancelled=true;for(const controller of p.controllers)controller.abort();}this.#pending.clear();this.#rows.clear();}
- stop(){this.#stopped=true;for(const p of this.#pending.values()){p.cancelled=true;for(const controller of p.controllers)controller.abort();}this.#pending.clear();for(const row of this.#rows.values()){row.state='disabled';row.reason='owner_stopped';}}
+ reset(){for(const p of this.#pending.values()){if(!p.result)this.#remember(p,'cancelled','bootstrap_cancelled');p.cancelled=true;for(const controller of p.controllers)controller.abort();}this.#pending.clear();this.#rows.clear();}
+ stop(){for(const p of this.#pending.values()){if(!p.result)this.#remember(p,'cancelled','bootstrap_cancelled');p.cancelled=true;for(const controller of p.controllers)controller.abort();}this.#stopped=true;this.#pending.clear();for(const row of this.#rows.values()){row.state='disabled';row.reason='owner_stopped';}}
  async disable(c:BootstrapNamespace){
   if(this.#stopped)return outcome('rejected','bootstrap_stopped');
   if(!namespace(c)||!this.#rows.has(key(c)))return outcome('rejected','unknown_namespace');c=structuredClone(c);let owner:Owner;try{owner=this.#owner();}catch{return outcome('rejected','owner_unavailable');}
-  for(const p of this.#pending.values())if(key(p.scope.namespace)===key(c)){p.cancelled=true;for(const controller of p.controllers)controller.abort();}
+  for(const p of this.#pending.values())if(key(p.scope.namespace)===key(c)&&!p.result){this.#remember(p,'cancelled','bootstrap_cancelled');p.cancelled=true;for(const controller of p.controllers)controller.abort();}
   const budget:Guarded={scope:{owner,until:this.#now()+5001},wall:this.#now(),mono:this.#mono(),cancelled:false,controllers:new Set()};
-  try{await this.#call(budget,5000,s=>this.#services.disable(structuredClone(c),s));this.#rows.set(key(c),{namespace:structuredClone(c),ownerKey:targetKey(owner),state:'disabled',validUntil:this.#now()+300000});return outcome('disabled');}
+  try{await this.#call(budget,5000,s=>this.#services.disable(structuredClone(c),s));const previous=this.#rows.get(key(c))?.diagnostic;
+   const diagnostic=previous?{...previous,stage:'disabled',at:this.#now(),deadline:undefined,reason:undefined}:undefined;
+   if(diagnostic)try{this.#services.diagnostic?.(structuredClone(diagnostic));}catch{}
+   this.#rows.set(key(c),{namespace:structuredClone(c),ownerKey:targetKey(owner),state:'disabled',diagnostic,validUntil:this.#now()+300000});return outcome('disabled');}
   catch{return outcome('unknown','disable_failed',undefined,'unknown');}
  }
 }

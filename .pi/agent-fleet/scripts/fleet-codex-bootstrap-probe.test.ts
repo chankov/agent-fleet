@@ -104,3 +104,40 @@ test('checkpoint ignores a preexisting matching ACK and cancellation never retur
  try{await assert.rejects(work,/unknown_no_replay/);}finally{clearInterval(timer);}
  assert.equal(f.calls.filter(c=>c.method==='thread/queue/add').length,1);
 });
+
+test('busy chat may deliver a final ACK after the former 29 second deadline',async t=>{
+ const f=await fixture(t,{noAck:true});f.request.scope.until=Date.now()+240000;
+ const original=performance.now.bind(performance);let elapsed=0;
+ t.mock.method(performance,'now',()=>original()+elapsed);
+ const reader={checkpoint:f.reader.checkpoint.bind(f.reader),close:f.reader.close.bind(f.reader),waitForAck:async (...args:Parameters<CodexProbeTranscript['waitForAck']>)=>{
+  elapsed=35000;
+  appendFileSync(f.path,JSON.stringify({type:'response_item',payload:{type:'message',role:'assistant',phase:'final_answer',content:[{type:'output_text',text:'FLEET_PROBE_ACK '+NONCE}]}})+'\n');
+  return f.reader.waitForAck(...args);
+ }};
+ const result=await new CodexBootstrapProbe({rpc:f.rpc,reader,guard:()=>{}}).run(f.request,new AbortController().signal);
+ assert.equal(result.status,'acknowledged');assert.equal(f.calls.filter(c=>c.method==='thread/queue/add').length,1);
+});
+
+test('missing ACK retains timeout reason and prohibits replay',async t=>{
+ const f=await fixture(t,{noAck:true}),probe=new CodexBootstrapProbe({rpc:f.rpc,reader:f.reader,guard:()=>{}});
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/bootstrap_probe_unknown_no_replay_probe_reader_timeout/);
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/not_replayable/);
+ assert.equal(f.calls.filter(c=>c.method==='thread/queue/add').length,1);
+});
+
+test('changed rollout retains a safe reason without replay',async t=>{
+ const f=await fixture(t,{noAck:true});
+ const reader={checkpoint:f.reader.checkpoint.bind(f.reader),close:f.reader.close.bind(f.reader),waitForAck:async()=>{throw Error('probe_reader_changed');}};
+ const probe=new CodexBootstrapProbe({rpc:f.rpc,reader,guard:()=>{}});
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/bootstrap_probe_unknown_no_replay_probe_reader_changed/);
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/not_replayable/);
+});
+
+test('ACK after the new deadline cannot produce success even before timer callback',async t=>{
+ const f=await fixture(t,{noAck:true});f.request.scope.until=Date.now()+240000;
+ const original=performance.now.bind(performance);let elapsed=0;t.mock.method(performance,'now',()=>original()+elapsed);
+ const reader={checkpoint:f.reader.checkpoint.bind(f.reader),close:f.reader.close.bind(f.reader),waitForAck:async()=>{elapsed=121000;return {source:'local_codex_rollout_jsonl' as const,readerVersion:'codex-local-rollout-ack/v1' as const,threadId:THREAD,probeId:NONCE,receiptId:'rollout:'+'a'.repeat(64)};}};
+ const probe=new CodexBootstrapProbe({rpc:f.rpc,reader,guard:()=>{}});
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/bootstrap_probe_unknown_no_replay_bootstrap_probe_stale/);
+ await assert.rejects(probe.run(f.request,new AbortController().signal),/not_replayable/);
+});

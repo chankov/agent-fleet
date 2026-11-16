@@ -27,8 +27,8 @@ export class CodexProbeTranscript {
  readonly #openingTasks=new Set<Promise<ProbeCheckpoint>>();readonly #closing=new Set<Promise<void>>();#opening=0;
  constructor(options:{codexHome:string;timeoutMs?:number;pollMs?:number}){
   if(typeof options?.codexHome!=='string'||options.codexHome.length>4096||/[\u0000-\u001f\u007f]/.test(options.codexHome)||!isAbsolute(options.codexHome)||resolve(options.codexHome)!==options.codexHome||options.codexHome===sep||typeof process.getuid!=='function')fail('probe_reader_options_invalid');
-  this.#home=options.codexHome;this.#sessions=join(this.#home,'sessions');this.#uid=BigInt(process.getuid());this.#timeout=options.timeoutMs??30000;this.#poll=options.pollMs??100;
-  if(!Number.isInteger(this.#timeout)||this.#timeout<1||this.#timeout>30000||!Number.isInteger(this.#poll)||this.#poll<1||this.#poll>1000)fail('probe_reader_options_invalid');
+  this.#home=options.codexHome;this.#sessions=join(this.#home,'sessions');this.#uid=BigInt(process.getuid());this.#timeout=options.timeoutMs??120000;this.#poll=options.pollMs??100;
+  if(!Number.isInteger(this.#timeout)||this.#timeout<1||this.#timeout>120000||!Number.isInteger(this.#poll)||this.#poll<1||this.#poll>1000)fail('probe_reader_options_invalid');
  }
  #check(signal:AbortSignal,deadline:number){if(signal.aborted||this.#stop.signal.aborted)fail('probe_reader_cancelled');if(performance.now()>=deadline)fail('probe_reader_timeout');}
  #signal(signal:AbortSignal,extra?:AbortSignal){if(!(signal instanceof AbortSignal))fail('probe_reader_options_invalid');try{return AbortSignal.any([signal,this.#stop.signal,...(extra?[extra]:[])]);}catch{fail('probe_reader_options_invalid');}}

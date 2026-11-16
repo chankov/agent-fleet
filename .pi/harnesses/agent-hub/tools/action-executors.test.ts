@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createActionExecutors } from "./action-executors.ts";
 import { applyProcessClassification, createProcessState, noteProcessStage } from "../process-obligations.ts";
-import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { adoptTaskTriageState, applyTaskTriageAdditions } from "../task-triage-obligations.ts";
+import { createTaskTriageRuntime } from "../task-triage-runtime.ts";
 import { PROFILE_ENV, setActiveProfile } from "../policy/profile-runtime.ts";
 
 const allowProfile: any = {
@@ -60,6 +61,49 @@ function comsDeps(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	};
 }
+
+for (const restored of [false, true]) test(`native task scope classification ${restored ? "after reload permits editing" : "initially permits reading"} without manual recovery`, async () => {
+ let state = restored ? applyProcessClassification(createProcessState(), { risk: "low", scope: "read-only", reason: "prior task" }).state : createProcessState();
+ const runtime = createTaskTriageRuntime({ root: process.cwd(), persist() {} });
+ if (restored) runtime.restore([]);
+ // coms-inbound is delivered by sendMessage, not as interactive human input.
+ runtime.input("Native task message", "extension");
+ let blocked = false, writes = 0;
+ const deps = comsDeps({
+  getTaskTier: () => "small", getTaskTierAssumed: () => !restored,
+  getProcessState: () => state, setProcessState: (value: typeof state) => { state = value; }, persistProcessState() {},
+  processBlock: () => blocked ? { reason: "process_state_corrupt", message: "recovery required" } : null,
+  budget: { currentBudget: () => ({ agentTurnMs: 600_000 }), updateModeStatus() {} },
+  adoptTaskTriage: (taskId: string, newTask: boolean, expandedScope?: string) => adoptTaskTriageState({
+   runtime, taskId, newTask, expandedScope, pendingTransition: false, state,
+   persist() { writes++; }, onPostCommitFailure() { blocked = true; },
+  }),
+ });
+ const result = await createActionExecutors(deps as any).executeSetTaskTier("native", {
+  tier: "small", risk: "low", scope: restored ? "small" : "read-only", reason: "authorized native task",
+ } as any, undefined, undefined, {} as any);
+ assert.equal(blocked, false, "missing interactive input is not a persistence failure");
+ assert.equal(result.details?.status, "ok");
+ assert.equal(state.scope, restored ? "small" : "read-only");
+ assert.ok(writes > 0);
+ assert.equal(runtime.inputRevision, undefined, "native text must not acquire human-input authority");
+ assert.equal(runtime.calls, 0);
+});
+
+test("classification reports a post-commit process block instead of success", async () => {
+ let blocked = false;
+ const deps = comsDeps({
+  getTaskTier: () => "small", getProcessState: () => createProcessState(),
+  processBlock: () => blocked ? { reason: "process_state_corrupt", message: "checked recovery required" } : null,
+  adoptTaskTriage: async () => { blocked = true; return createProcessState(); },
+  budget: { currentBudget: () => ({ agentTurnMs: 600_000 }), updateModeStatus() {} },
+ });
+ const result = await createActionExecutors(deps as any).executeSetTaskTier("blocked", {
+  tier: "small", risk: "low", scope: "small", reason: "scope change",
+ } as any, undefined, undefined, {} as any);
+ assert.equal(result.details?.status, "refused");
+ assert.equal(result.details?.reason, "process_state_corrupt");
+});
 
 test("coms_send refuses process transitions and unbound action confirmation before sending", async () => {
  await withProfile(allowProfile, "local-duo", async () => {

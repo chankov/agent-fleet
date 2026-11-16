@@ -109,3 +109,30 @@ reject both group and world writes; preparation alone cannot acknowledge a probe
 A partial securing failure can leave already tightened modes in place, but does
 not widen them back, grant rights or trigger a probe. Reload the Pi extension to
 load this correction; it does not require a Desktop or daemon restart.
+
+### Busy-chat probe budget
+
+The one-shot bootstrap probe allows 120 seconds for queue delivery and the terminal
+ACK, bounded by the original lease and cancellation. Its outer operation allows
+125 seconds; conditional rechecks allow 150 seconds including inspection. The
+five-minute proposal validity and native Pi approval remain unchanged. A late ACK
+never reactivates a failed probe. Known failure codes are retained as a suffix of
+`bootstrap_probe_unknown_no_replay` (or `bootstrap_probe_not_sent`); arbitrary
+exception text is not exposed, and the suffix never authorizes replay.
+
+### Connection diagnostics
+
+Cached status now includes `notifications.diagnostic` for the current bootstrap
+attempt and `notifications.history` for bounded local evidence. Fleet View shows
+stage, attempt id, stage start/deadline and remaining time, safe failure code, and
+recent transitions. Stages distinguish queue submission, waiting for a terminal
+ACK, ACK validation, activation and completion. A completed bootstrap is not proof
+that an ordinary notification was read by the model.
+
+History is stored under the existing `.bootstrap/connection-history` root using
+private atomic JSON files: at most 20 attempts per chat, 32 transitions per attempt,
+and a 30 KiB payload budget (older attempts may be removed sooner). It contains
+identifiers, epochs, timestamps and reason codes, never message bodies. Missing or
+corrupt history is explicit. Reloaded history is historical-only and cannot
+restore rights, consent, a pending operation or notification activation. Status
+and render do not trigger probes or retries.

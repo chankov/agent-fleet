@@ -10,6 +10,24 @@ import { stageProducerToolGate, stageProducerTools } from "./task-triage-stage-g
 import { TASK_TRIAGE_QUESTIONS, TASK_TRIAGE_QUESTION_VERSION } from "./task-triage-contract.ts";
 const binding = { taskId: "task-1", evaluationId: "eval-1", inputRevision: "input-1" };
 const assessment = (...reasons: ("security_change" | "wide_change" | "irreversible_execution")[]) => ({ status: "applied" as const, reasons });
+test("scope changes without interactive input preserve restored safeguards and still refuse failed writes", async () => {
+ const prior = applyTaskTriageAdditions(applyProcessClassification(createProcessState(), { risk: "low", scope: "read-only", reason: "prior" }).state, assessment("security_change", "irreversible_execution"), binding);
+ const entries = [{ customType: "agent-hub-process-state", data: processAuditRecord(prior, evaluateProcessObligations(prior, { writable: true, budgetTier: "small" })) }];
+ const runtime = createTaskTriageRuntime({ root: process.cwd(), persist() {} });
+ runtime.restore(entries);
+ const state = latestProcessState(entries);
+ const options = { runtime, taskId: binding.taskId, newTask: false, expandedScope: "small", pendingTransition: false, state,
+  persist(value: typeof state) { entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: "small" })) }); },
+  onPostCommitFailure() { assert.fail("no evaluation was requested"); },
+ };
+ const next = await adoptTaskTriageState(options);
+ assert.deepEqual(next, state);
+ assert.deepEqual(latestProcessState(entries).additions, prior.additions);
+ assert.equal(processPreEffectGate(next, "write")?.reason, "action_confirmation_unsupported");
+ assert.ok(processPreEffectGate(next, "prove"), "review is still required");
+ await assert.rejects(adoptTaskTriageState({ ...options, expandedScope: "wide", persist() { throw Error("disk full"); } }), /disk full/);
+ await assert.rejects(adoptTaskTriageState({ ...options, pendingTransition: true }), /pending input was not evaluated/, "an expected pending input cannot be silently skipped");
+});
 test("saved process task identity permits the valid resume but refuses corrupt and ambiguous bindings", () => {
  const valid = applyTaskTriageAdditions(createProcessState(), assessment("security_change"), binding);
  assert.equal(processTaskIdentityConflicts(valid, binding.taskId), false);

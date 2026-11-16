@@ -1098,6 +1098,7 @@
             ".pi/agent-fleet/scripts/lib/codex-daemon-observer.ts",
             ".pi/agent-fleet/scripts/lib/codex-bootstrap-files.ts",
             ".pi/agent-fleet/scripts/lib/codex-bootstrap-probe.ts",
+            ".pi/agent-fleet/scripts/lib/codex-connection-history.ts",
             ".pi/agent-fleet/scripts/lib/codex-bootstrap-producer.ts",
             ".pi/agent-fleet/scripts/lib/codex-desktop-preflight.ts",
             ".pi/agent-fleet/scripts/lib/codex-desktop-discovery.ts",

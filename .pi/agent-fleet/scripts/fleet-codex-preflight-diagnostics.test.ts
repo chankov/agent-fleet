@@ -33,7 +33,7 @@ function fixture(t:any,options:{onConfirm?:()=>unknown;inputs?:string[];confirme
 }
 function errorNotice(f:ReturnType<typeof fixture>,code:string){
  assert.equal(f.notices.length,1);assert.equal(f.notices[0].type,'error');assert.ok(f.notices[0].text.includes('Desktop preflight: '+code+'.'),f.notices[0].text);
- assert.match(f.notices[0].text,/не повтаряй сляпо/);assert.doesNotMatch(f.notices[0].text,/private-secret|SENSITIVE|Error:|\n\s+at /);assert.equal(f.forbidden,0);
+ assert.match(f.notices[0].text,/do not retry blindly/);assert.doesNotMatch(f.notices[0].text,/private-secret|SENSITIVE|Error:|\n\s+at /);assert.equal(f.forbidden,0);
 }
 
 test('UI exposes post-confirmation identity change without retry or a false mapping success',async t=>{
@@ -54,7 +54,7 @@ test('UI preserves publication uncertainty after rename and does not repeat capt
  syncBuiltinESMExports();t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
  await f.run();errorNotice(f,'bootstrap_file_publication_unknown');assert.equal(f.confirmations,1);assert.equal(f.captures,1);
  const files=readdirSync(f.mappingRoot);assert.equal(files.length,1);assert.equal(JSON.parse(readFileSync(join(f.mappingRoot,files[0]),'utf8')).desktop.pid,123);assert.equal(statSync(join(f.mappingRoot,files[0])).mode&0o777,0o600);
- assert.doesNotMatch(f.notices[0].text,/не е записан|няма промени/i);
+ assert.doesNotMatch(f.notices[0].text,/not written|no changes/i);
 });
 
 test('UI never reflects unknown exception messages, code suffixes or thrown values',async t=>{
@@ -73,9 +73,9 @@ test('native decline has a distinct preflight code and creates no mapping',async
 });
 
 test('successful synthetic mapping retains the existing success message and one publication',async t=>{
- const f=fixture(t);await f.run();assert.equal(f.notices.length,1);assert.equal(f.notices[0].type,'info');assert.match(f.notices[0].text,/Desktop mapping policy е записана/);assert.equal(f.confirmations,1);assert.equal(f.captures,1);assert.equal(f.forbidden,0);assert.equal(readdirSync(f.mappingRoot).length,1);
+ const f=fixture(t);await f.run();assert.equal(f.notices.length,1);assert.equal(f.notices[0].type,'info');assert.match(f.notices[0].text,/Desktop mapping policy written/);assert.equal(f.confirmations,1);assert.equal(f.captures,1);assert.equal(f.forbidden,0);assert.equal(readdirSync(f.mappingRoot).length,1);
 });
 
 test('other actions retain generic errors and do not expose preflight exception details',async t=>{
- const f=fixture(t);await f.controls.action('disable',namespace,f.ctx);assert.equal(f.notices.length,1);assert.equal(f.notices[0].type,'error');assert.match(f.notices[0].text,/Операцията е отказана/);assert.doesNotMatch(f.notices[0].text,/Desktop preflight:|forbidden live effect/);assert.equal(f.forbidden,1);assert.equal(f.captures,0);
+ const f=fixture(t);await f.controls.action('disable',namespace,f.ctx);assert.equal(f.notices.length,1);assert.equal(f.notices[0].type,'error');assert.match(f.notices[0].text,/The operation was refused/);assert.doesNotMatch(f.notices[0].text,/Desktop preflight:|forbidden live effect/);assert.equal(f.forbidden,1);assert.equal(f.captures,0);
 });

@@ -42,6 +42,14 @@ tier/model/roster, increase spend or authorize effects. Review is before task
 acceptance, not a blanket authoring ban. Low probability is never safety clearance.
 Baseline and source additions persist through failures, disable and resume.
 
+Native/coms messages do not become interactive human input for this consumer.
+When no accepted input is available, including after reload, scope classification
+retains the baseline and persisted additions without requesting a scoped assessment.
+This does not require `/af-task-triage-recover`. A pending transition with missing
+input, cancelled assessment, or failed process write still refuses dependent work.
+If classification commits but a process block remains, `set_task_tier` reports
+the block rather than success.
+
 Missing review roles require the human `/af-agents-add code-reviewer` (or a
 permitted reviewer), or `/af-agents-team` path. Planner and plan review are optional;
 wide/high-risk tasks can start without them. Gaps use focused research and

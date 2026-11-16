@@ -45,7 +45,7 @@ async function fixture(t:any,options:{confirm?:boolean;loaded?:boolean;missingPa
  await new Promise<void>((resolve,reject)=>{daemon.once('error',reject);daemon.listen(socketPath,resolve);});chmodSync(socketPath,0o600);
  const reviews:any[]=[];let control:FleetConnectionControl;const backendOptions:ConstructorParameters<typeof FleetCodexBootstrap>[0]={policyRoot,namespace:{hostProfile:A.hostProfile,principal:A.principal},owner:()=>{if(ownerFailure&&ownerFailure.remaining-->0)throw Error(ownerFailure.message);return OWNER;},procRoot,
   presence:(c,lease)=>lease?control.bootstrapChannel.leaseObservation(c):control.bootstrapChannel.observation(c),writeRights:(r,s)=>control.writeBootstrapRights(r,s),confirm:async review=>{reviews.push(structuredClone(review));confirmations++;options.confirmEffect?.(root);return options.confirm!==false;},confirmPreflight:async()=>{preflightConfirmations++;return true;},...(options.automatic?{discoverDesktop:async()=>({desktopPid:123,desktopVersion:'0.167.0-alpha.3.2',socketPath,codexHome:home,...(options.contract?{binaryPath}:{})})}:{}),...(options.legacyRoot?{legacy:()=>({config:{stateRoot:join(root,'retained-legacy-journal'),approval:{target:OWNER,binding:{threadId:A.threadId}}} as any,release(){}})}:{})};let backend=new FleetCodexBootstrap(backendOptions);
- const bootstrapStatus=()=>{const row=backend.rows()[0];return row?{enabled:row.notification==='enabled',reason:row.reason??row.notification}:{enabled:false,reason:'cached_runtime_unavailable'};};
+ const bootstrapStatus=()=>{const row=backend.rows()[0];return row?{enabled:row.notification==='enabled',reason:row.reason??row.notification,diagnostic:row.diagnostic,history:row.history}:{enabled:false,reason:'cached_runtime_unavailable'};};
  control=new FleetConnectionControl({owner:()=>OWNER,session:()=>undefined,defaultNamespace:{hostProfile:A.hostProfile,principal:A.principal},readRights:async()=>({status:'not_connected',rights:[],revision:0}),bootstrap:backend.coordinator,bootstrapStatus});
  const netSockets=new Set<Socket>(),server=createNetServer(socket=>{netSockets.add(socket);socket.once('close',()=>netSockets.delete(socket));let pending='';socket.on('data',bytes=>{pending+=bytes.toString('utf8');let end;while((end=pending.indexOf('\n'))>=0){const line=pending.slice(0,end);pending=pending.slice(end+1);try{control.handle(socket,JSON.parse(line));}catch{socket.destroy();}}});});
  // Cleanup is registered below; a failed bind must not leave the daemon listening,
@@ -201,7 +201,7 @@ test('D7 unknown failures expose only stage plus fixed fallback, never arbitrary
 
 test('D7 unknown probe publication retains the safe probe-stage reason without another attempt',async t=>{
  const f=await fixture(t,{contract:true});await f.capture();const p=await f.producer.prepare(A,{target:OWNER,rights:['read','send']});assert.equal((await f.producer.commit(A,p.proposalId)).activation,'enabled');const original=f.config(),policy=await f.state();
- f.failProbeEcho();await f.restartDaemon();f.backend.checkContexts();await expectRecheckFailure(f,'d7_probe_bootstrap_probe_unknown_no_replay');assert.equal(f.probes,2);assert.equal(f.confirmations,1);assert.deepEqual(f.config(),original);assert.deepEqual(await f.state(),policy);
+ f.failProbeEcho();await f.restartDaemon();f.backend.checkContexts();await expectRecheckFailure(f,'d7_probe_bootstrap_probe_unknown_no_replay_bootstrap_probe_enqueue_unknown');assert.equal(f.probes,2);assert.equal(f.confirmations,1);assert.deepEqual(f.config(),original);assert.deepEqual(await f.state(),policy);
 });
 
 test('disable cancels an automatic attempted probe without late activation, grant change or automatic replay',async t=>{
@@ -249,4 +249,18 @@ test('production new-chat umask 0002 permissions change only after one Pi approv
   if(accept){assert.equal(result.activation,'enabled',JSON.stringify(result));assert.equal(f.probes,1);assert.deepEqual((await f.state())!.bindings[0].rights,['read','send','approve']);}
   else{assert.equal(await f.state(),null);assert.equal(f.probes,0);}
  }
+});
+
+
+test('native cached diagnostics expose probe phases and history survives reload without activation',async t=>{
+ const f=await fixture(t);await f.capture();const p=await f.producer.prepare(A,{target:OWNER,rights:['read']});
+ assert.equal((await f.producer.commit(A,p.proposalId)).activation,'enabled');await f.backend.refreshCached();
+ const status=await f.producer.status(A,OWNER);assert.equal(status.notifications.diagnostic.attemptId,p.proposalId);
+ const stages=status.notifications.history.attempts.at(-1).transitions.map((x:any)=>x.stage);
+ for(const stage of ['queue_submission','waiting_ack','validating_ack','enabled'])assert.ok(stages.includes(stage),stage);
+ const before=f.calls.length;await f.producer.status(A,OWNER);assert.equal(f.calls.length,before);
+ await f.restart();await f.backend.refreshCached();const after=f.backend.rows()[0];
+ assert.notEqual(after.notification,'enabled');assert.equal(after.diagnostic,undefined);
+ assert.equal(after.history!.scope,'historical_only');assert.equal(after.history!.attempts.at(-1)!.attemptId,p.proposalId);
+ assert.ok(chatLines({detail:true,offset:0},f.backend.rows()).some(line=>line.includes(p.proposalId)));
 });
