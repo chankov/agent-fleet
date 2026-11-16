@@ -65,7 +65,9 @@ test('a flow at a non-Git workspace root runs only inside the nested repository 
 // flow CLI, persona, quality command, branch and commit are the installed ones.
 test('build-test at a non-Git workspace root builds, verifies and commits inside one nested repository',{timeout:90000},async()=>{
  const root=mkdtempSync(join(tmpdir(),'fleet-nested-build-')),bin=mkdtempSync(join(tmpdir(),'fleet-fake-pi-')),calls=join(bin,'calls.jsonl');const git=(cwd:string,...args:string[])=>execFileSync('git',['-C',cwd,...args],{env:sessionGitEnv(),stdio:'pipe'}).toString().trim();
- const cli=(...args:string[])=>spawnSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(source,'.pi/agent-fleet/scripts/flow.ts'),...args],{cwd:root,encoding:'utf8',env:{...process.env,PATH:`${bin}:${process.env.PATH}`,FAKE_PI_CALLS:calls,AF_SESSION_ROOTS:undefined,AF_TARGET_BASE_PROJECT:undefined,AF_TARGET_EFFECTIVE_PROJECT:undefined,PI_OFFLINE:'1'},timeout:20000});
+ // Full build-test launches Pi, quality checks and Git; macOS CI can exceed
+ // the lightweight CLI fixtures' 20s limit. Keep a bounded integration budget.
+ const cli=(...args:string[])=>spawnSync(process.execPath,['--import',join(source,'bin/test/helpers/system1-no-network.js'),join(source,'.pi/agent-fleet/scripts/flow.ts'),...args],{cwd:root,encoding:'utf8',env:{...process.env,PATH:`${bin}:${process.env.PATH}`,FAKE_PI_CALLS:calls,AF_SESSION_ROOTS:undefined,AF_TARGET_BASE_PROJECT:undefined,AF_TARGET_EFFECTIVE_PROJECT:undefined,PI_OFFLINE:'1'},timeout:60000});
  try{
   // The flow commits in the repository, so each one carries its own identity: CI runners have none.
   for(const name of ['rin-docs','ringithub']){const repo=join(root,name);mkdirSync(repo);git(repo,'init','-q');for(const [key,value] of [['user.name','Fixture'],['user.email','f@example.test'],['commit.gpgsign','false']])git(repo,'config',key,value);writeFileSync(join(repo,'marker'),name);git(repo,'add','.');git(repo,'commit','-qm','initial');}
@@ -79,7 +81,9 @@ test('build-test at a non-Git workspace root builds, verifies and commits inside
    const refused=cli('build-test',...args,'--branch','--run-id','two-repositories','add the feature');assert.equal(refused.status,status,refused.stderr);assert.match(refused.stderr,message);
   }
   assert.equal(existsSync(calls),false,'a flow over two repositories never starts the builder');
-  const built=cli('build-test','--worktree','ringithub','--branch','--run-id','nested-build','add the feature');assert.equal(built.status,0,built.stdout+built.stderr);assert.match(built.stdout+built.stderr,/FLOW ACCEPTED/);
+  const built=cli('build-test','--worktree','ringithub','--branch','--run-id','nested-build','add the feature');
+  const diagnostics=JSON.stringify({error:built.error?.message,status:built.status,signal:built.signal,stdout:built.stdout,stderr:built.stderr});
+  assert.equal(built.error,undefined,diagnostics);assert.equal(built.signal,null,diagnostics);assert.equal(built.status,0,diagnostics);assert.match(built.stdout+built.stderr,/FLOW ACCEPTED/,diagnostics);
   assert.deepEqual(readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line).cwd),[ringithub],'the builder ran once, inside ringithub');
   assert.equal(git(ringithub,'branch','--show-current'),'flow/build-test-nested-build');assert.equal(git(ringithub,'rev-parse','HEAD~1'),before);
   assert.equal(git(ringithub,'log','-1','--format=%s'),'feat: add the feature');assert.equal(git(ringithub,'show','--name-only','--format=','HEAD'),'feature.txt');assert.equal(git(ringithub,'status','--porcelain'),'');
