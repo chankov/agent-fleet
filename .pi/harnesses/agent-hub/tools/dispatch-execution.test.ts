@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { createDispatchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent } from "./dispatch-execution.ts";
+import { createDispatchExecutor, createRecoveryResearchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent } from "./dispatch-execution.ts";
 import { applyProcessClassification, createProcessState, noteProcessStage, processPreEffectGate, evaluateProcessObligations, processAuditRecord, latestProcessState, normalizeProcessState } from "../process-obligations.ts";
 import { adoptTaskTriageState, applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { createActionExecutors } from "./action-executors.ts";
@@ -2139,4 +2139,70 @@ test('regression marker cannot replace evidence or approve a partial regression'
  for (const marker of ['partial regression', 'full regressionish', 'tests_run: fullish']) {
   assert.equal(reviewMayClose({ ...input, output: '**Verdict:** APPROVE\n' + marker, evidenceRef: 'evidence:current' }), false);
  }
+});
+
+// A reviewer appended `; echo ...:$?` in the reported incident. That is a different
+// shell command whose success can mask a failed test; prose cannot repair it.
+test('current-state review explains wrapped check rejection and recovers only with an exact check', async t => {
+ const f=await operatorStateFixture(t);
+ const dispatch=f.d.dispatchAgent; let wrapped=true; let childTask='';
+ f.d.dispatchAgent=async(...args:any[])=>{
+  childTask=JSON.stringify(args);
+  const result=await (dispatch as any)(...args);
+  result.dispatchId=wrapped?'wrapped-check':'exact-check';
+  if(wrapped)result.runtimeTests=result.runtimeTests.map((record:any)=>({...record,command:record.command+'; echo TEST_EXIT:$?'}));
+  return result;
+ };
+ const params={agent:'code-reviewer',task:'A2 current-state verification',scope:['a.ts'],backend:'native' as const,review_mode:'operator-current-state' as const};
+ const first=await f.run('wrapped',params,undefined,undefined,{cwd:f.cwd} as any);
+ const detail=first.details as any;
+ assert.equal(detail.operatorStateVerification.status,'unproven');
+ assert.deepEqual(detail.verificationResult.checks,[]);
+ assert.equal(f.state().review.evidenceRef,null);
+ assert.deepEqual(detail.verificationDiagnostics.missingExactCommands,[{command:'node --test candidate.test.js',requirementIds:['A2']}]);
+ assert.equal(detail.verificationDiagnostics.observedCommandCount,1);
+ assert.deepEqual(JSON.parse(readFileSync(detail.assessmentPath,'utf8')).verificationDiagnostics,detail.verificationDiagnostics);
+ assert.match(first.content.map((part:any)=>part.text??'').join('\n'),/Exact declared verification commands were not observed/);
+ assert.match(childTask,/unchanged, one bash call per command/);
+ assert.match(childTask,/Do not append.*echo/);
+ wrapped=false;
+ const second=await f.run('exact',{...params,task:'A2 recover with exact declared checks after wrapped command was rejected'},undefined,undefined,{cwd:f.cwd} as any);
+ assert.equal((second.details as any).operatorStateVerification?.status,'accepted',JSON.stringify(second));
+ assert.equal(f.state().review.evidenceRef!==null,true);
+ assert.deepEqual((second.details as any).verificationDiagnostics.missingExactCommands,[]);
+ assert.equal(f.d.state.getAssertions()[1].status,'open','manual requirement is never promoted by recovery');
+});
+
+test("only a consumed continuation permit may repeat a same-turn watchdog-stopped dispatch", () => {
+	const fingerprints = new Set<string>();
+	const d = prepareDeps();
+	d.state.getTurnDispatchFingerprints = () => fingerprints;
+	const params = { agent: "builder", task: "Implement plan step 2: finish the adapter.", scope: ["package.json"] } as any;
+	const first = prepareDispatch(d as any, params, { cwd: process.cwd() } as any) as any;
+	// finishDispatch records exit 124/125 (turn_timeout/drift_stop) fingerprints for this turn.
+	fingerprints.add(first.fingerprint);
+	const duplicate = prepareDispatch(d as any, structuredClone(params), { cwd: process.cwd() } as any) as any;
+	assert.equal(duplicate.details?.reason, "duplicate_refused", "an ordinary model re-dispatch stays refused");
+	const guard = d.noProgress as any;
+	(d as any).noProgress = { ...guard, continuing: () => true };
+	const continued = prepareDispatch(d as any, structuredClone(params), { cwd: process.cwd() } as any) as any;
+	assert.equal(continued.details, undefined, "the human-confirmed continuation is prepared");
+	assert.equal(continued.fingerprint, first.fingerprint);
+});
+
+test("recovery analysis is not fenced by an earlier crashed analysis and refuses escaping read scope before spawn", async () => {
+	const d = prepareDeps();
+	let spawned = 0;
+	d.research = { anonymousDef: () => ({ name: "research" }), resolveModel: () => "local/model", createState: () => ({ id: spawned + 1 }), spawn: async () => { spawned++; return { output: "SYNTHETIC failure", exitCode: 1, elapsed: 0, dispatchId: `analysis-${spawned}` }; } } as any;
+	const params = { task: "Analyse the interrupted task", read_scope: ["src/adapter.ts"] } as any;
+	const guarded = createResearchExecutor(d as any);
+	await guarded("first", params, undefined, undefined, {} as any);
+	assert.equal(((await guarded("second", params, undefined, undefined, {} as any)).details as any).status, "no_progress_refused", "ordinary spawn_research keeps its fence");
+	const analysis = createRecoveryResearchExecutor(d as any);
+	await analysis("analysis-1", params, undefined, undefined, {} as any);
+	await analysis("analysis-2", params, undefined, undefined, {} as any);
+	assert.equal(spawned, 3, "each explicit recovery analysis reaches the read-only researcher");
+	const escaping = await analysis("analysis-3", { ...params, read_scope: ["/etc/passwd"] }, undefined, undefined, {} as any);
+	assert.equal((escaping.details as any).status, "invalid_input");
+	assert.equal(spawned, 3);
 });

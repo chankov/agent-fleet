@@ -4,11 +4,259 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createNoProgressGuard, normalizeResearchContract, withNoProgress } from "./no-progress.ts";
+import { canonicalExecutor, createNoProgressGuard, normalizeResearchContract, processRecoveryAttempts, RECOVER_ENTRY, withNoProgress } from "./no-progress.ts";
+import { runRecoverCommand } from "./commands/recover.ts";
 
 function failed(id: string, category: any, reason = category) {
 	return { dispatchId: id, reason, category };
 }
+
+test("restoring an orphaned start releases the executor but fences the original contract with its real dispatch", () => {
+	const entries: any[] = [];
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const original = createNoProgressGuard(persist);
+	const ticket = original.begin("orphan-contract", "before-crash", "builder", ["src.ts"]);
+	const dispatchId = original.inspect(ticket.operationId!)!.attempts[0].dispatchId;
+	const restored = createNoProgressGuard(persist);
+	restored.restore(entries);
+	const attempt = restored.inspect(ticket.operationId!)!.attempts[0];
+	assert.equal(attempt.category, "indeterminate");
+	assert.equal(attempt.completed, undefined);
+	assert.equal(attempt.settled, undefined, "a dead owner is not process-settlement evidence");
+	assert.equal(restored.canAuthorize(ticket.operationId!, ticket.attemptId!), false);
+	const refused = restored.begin("orphan-contract", "changed", "builder", ["src.ts"]);
+	assert.equal(refused.allowed, false);
+	assert.equal(refused.failure?.category, "indeterminate");
+	assert.equal(refused.failure?.dispatchId, dispatchId);
+	const other = restored.begin("other-contract", "changed", "builder", ["other.ts"]);
+	assert.equal(other.allowed, true, "the orphan must not reserve the executor for unrelated contracts");
+	restored.finish(other, "changed");
+	assert.ok(entries.some(row => row.customType === RECOVER_ENTRY && row.data.kind === "ledger" && row.data.event.type === "failure" && row.data.event.operationId === ticket.operationId && row.data.event.attemptId === ticket.attemptId && row.data.event.category === "indeterminate"));
+	assert.ok(entries.some(row => row.customType === RECOVER_ENTRY && row.data.kind === "guard" && row.data.event.type === "failure" && row.data.event.failure.dispatchId === dispatchId && row.data.event.failure.category === "indeterminate"));
+	const beforeReplay = structuredClone(entries);
+	const again = createNoProgressGuard(persist);
+	assert.doesNotThrow(() => again.restore(entries));
+	assert.deepEqual(entries, beforeReplay, "a second restore must append neither a duplicate ledger failure nor a duplicate guard failure");
+	assert.equal(again.begin("orphan-contract", "changed-again", "builder").failure?.dispatchId, dispatchId);
+});
+
+test("restoring an orphaned cancellation retry supersedes its earlier unconsumed authorization", () => {
+	const entries: any[] = [];
+	let interruptConsume = false;
+	const guard = createNoProgressGuard((type, data: any) => {
+		if (interruptConsume && data.kind === "guard" && data.event.type === "consume") throw new Error("interrupted before consuming cancellation authorization");
+		entries.push({ customType: type, data });
+	});
+	const first = guard.begin("contract", "before", "builder");
+	guard.finish(first, "before", failed("cancelled-dispatch", "operator_cancelled"));
+	assert.equal(guard.authorize("cancelled-dispatch"), true);
+	interruptConsume = true;
+	assert.throws(() => guard.begin("contract", "retry", "builder"), /interrupted/);
+	const starts = entries.filter(row => row.data.kind === "ledger" && row.data.event.type === "start");
+	const orphan = starts.at(-1).data.event;
+	assert.equal(starts.length, 2, "the next attempt was durably started before the consume append failed");
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const restored = createNoProgressGuard(persist);
+	restored.restore(entries);
+	const refused = restored.begin("contract", "changed-again", "builder");
+	assert.equal(refused.allowed, false, "the old cancellation authorization must not replay the new indeterminate attempt");
+	assert.equal(refused.failure?.category, "indeterminate");
+	assert.equal(refused.failure?.dispatchId, orphan.dispatchId);
+	const other = restored.begin("other-contract", "revision", "builder");
+	assert.equal(other.allowed, true, "the superseded cancellation must not fence unrelated contracts");
+	restored.finish(other, "revision");
+	const replay = createNoProgressGuard(persist);
+	const beforeReplay = structuredClone(entries);
+	replay.restore(entries);
+	assert.deepEqual(entries, beforeReplay);
+	assert.equal(replay.begin("contract", "another-change", "builder").failure?.category, "indeterminate");
+});
+
+test("restored orphan on another contract consumes the executor's superseded cancellation authorization", () => {
+	const entries: any[] = [];
+	let interruptConsume = false;
+	const guard = createNoProgressGuard((type, data: any) => {
+		if (interruptConsume && data.kind === "guard" && data.event.type === "consume") throw new Error("interrupted cancellation consume");
+		entries.push({ customType: type, data });
+	});
+	const first = guard.begin("cancelled-contract", "before", "builder");
+	guard.finish(first, "before", failed("cancelled-dispatch", "operator_cancelled"));
+	assert.equal(guard.authorize("cancelled-dispatch"), true);
+	interruptConsume = true;
+	assert.throws(() => guard.begin("orphan-contract", "revision", "builder"), /interrupted cancellation consume/);
+	const orphan = entries.filter(row => row.data.kind === "ledger" && row.data.event.type === "start").at(-1).data.event;
+	assert.notEqual(orphan.operationId, first.operationId);
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const restored = createNoProgressGuard(persist);
+	restored.restore(entries);
+	const refused = restored.begin("orphan-contract", "changed", "builder");
+	assert.equal(refused.allowed, false, "a different contract's old cancellation authorization must not override this orphan's indeterminate fence");
+	assert.equal(refused.failure?.category, "indeterminate");
+	assert.equal(refused.failure?.dispatchId, orphan.dispatchId);
+	const other = restored.begin("unrelated-contract", "revision", "builder");
+	assert.equal(other.allowed, true, "the superseded cancellation must release the executor for other contracts");
+	restored.finish(other, "revision");
+	const replay = createNoProgressGuard(persist);
+	const beforeReplay = structuredClone(entries);
+	replay.restore(entries);
+	assert.deepEqual(entries, beforeReplay, "cancellation repair and orphan closure must remain idempotent");
+	assert.equal(replay.begin("orphan-contract", "changed-again", "builder").failure?.dispatchId, orphan.dispatchId);
+	const next = replay.begin("another-contract", "revision", "builder");
+	assert.equal(next.allowed, true);
+	replay.finish(next, "revision");
+});
+
+test("restore repairs a closing ledger failure whose matching guard append was interrupted", () => {
+	const entries: any[] = [];
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const original = createNoProgressGuard(persist);
+	const first = original.begin("orphan-contract", "revision", "builder");
+	const dispatchId = original.inspect(first.operationId!)!.attempts[0].dispatchId;
+	const interrupted = createNoProgressGuard((type, data: any) => {
+		if (data.kind === "guard" && data.event.type === "failure") throw new Error("interrupted guard append");
+		persist(type, data);
+	});
+	assert.throws(() => interrupted.restore(entries), /interrupted guard append/);
+	assert.equal(entries.filter(row => row.data.kind === "ledger" && row.data.event.type === "failure").length, 1);
+	assert.equal(entries.filter(row => row.data.kind === "guard" && row.data.event.type === "failure").length, 0);
+	const restored = createNoProgressGuard(persist);
+	restored.restore(entries);
+	const guardFailures = entries.filter(row => row.data.kind === "guard" && row.data.event.type === "failure");
+	assert.equal(guardFailures.length, 1, "replay must durably repair the interrupted guard failure append");
+	assert.equal(guardFailures[0].data.event.failure.dispatchId, dispatchId);
+	assert.equal(guardFailures[0].data.event.failure.category, "indeterminate");
+	assert.ok(guardFailures[0].data.event.fingerprint, "the repair must remain valid guard history on replay");
+	assert.equal(restored.begin("orphan-contract", "changed", "builder").allowed, false);
+	const beforeReplay = structuredClone(entries);
+	const again = createNoProgressGuard(persist);
+	assert.doesNotThrow(() => again.restore(entries));
+	assert.deepEqual(entries, beforeReplay, "repair must not append a duplicate ledger or guard failure");
+	assert.equal(again.begin("orphan-contract", "changed-again", "builder").failure?.dispatchId, dispatchId);
+});
+
+test("failed restore persistence blocks dispatch across task reset until durable history is restored", () => {
+	const entries: any[] = [];
+	const original = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const first = original.begin("orphan-contract", "revision", "builder");
+	let storageUnavailable = true;
+	const guard = createNoProgressGuard((type, data: any) => {
+		if (storageUnavailable && data.kind === "guard" && data.event.type === "failure") throw new Error("storage unavailable");
+		entries.push({ customType: type, data });
+	});
+	assert.throws(() => guard.restore(entries), /storage unavailable/);
+	assert.equal(guard.begin("orphan-contract", "changed", "builder").allowed, false, "failed restore must not expose the initially empty guard as a fresh contract");
+	guard.reset();
+	assert.equal(guard.begin("other-contract", "changed", "builder").allowed, false, "reset must not bypass failed-restore fencing");
+	storageUnavailable = false;
+	assert.doesNotThrow(() => guard.restore(entries));
+	assert.equal(guard.inspect(first.operationId!)!.attempts[0].category, "indeterminate");
+	assert.equal(guard.begin("orphan-contract", "changed-again", "builder").failure?.category, "indeterminate");
+	const other = guard.begin("other-contract", "changed", "builder");
+	assert.equal(other.allowed, true, "a successful reload clears the temporary storage fence");
+	guard.finish(other, "changed");
+});
+
+test("restore refuses while this process owns an attempt and preserves its completion callback", () => {
+	const entries: any[] = [];
+	const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const ticket = guard.begin("live-contract", "revision", "builder");
+	const beforeRestore = structuredClone(entries);
+	assert.throws(() => guard.restore(entries), /live|running|owned|in.flight|pending/i);
+	assert.deepEqual(entries, beforeRestore, "a live attempt must not be closed or persisted as failed");
+	assert.equal(guard.inspect(ticket.operationId!)!.attempts[0].category, undefined);
+	assert.equal(guard.begin("other-contract", "revision", "builder").refusal, "busy");
+	guard.finish(ticket, "revision");
+	assert.equal(guard.inspect(ticket.operationId!)!.attempts[0].completed, true);
+	assert.doesNotThrow(() => guard.restore(entries));
+});
+
+test("task reset cannot hide current-process ownership from restore", () => {
+	const entries: any[] = [];
+	const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const ticket = guard.begin("live-contract", "revision", "builder");
+	guard.reset();
+	const beforeRestore = structuredClone(entries);
+	assert.throws(() => guard.restore(entries), /live|running|owned|in.flight|pending/i);
+	assert.deepEqual(entries, beforeRestore);
+	guard.finish(ticket, "revision");
+	assert.doesNotThrow(() => guard.restore(entries), "the stale callback must still release runtime ownership");
+	assert.equal(guard.inspect(ticket.operationId!)!.attempts[0].category, "indeterminate", "restore may close the old attempt only after its owner callback returns");
+});
+
+test("extension reload cannot close an attempt owned by the previous guard in this process", async t => {
+	const entries: any[] = [];
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const owners = processRecoveryAttempts();
+	const original = createNoProgressGuard(persist, owners);
+	const ticket = original.begin("live-contract", "revision", "builder");
+	t.after(() => owners.delete(ticket.id));
+	const moduleAfterReload = await import(`${new URL('./no-progress.ts', import.meta.url)}?reload-test`);
+	assert.equal(moduleAfterReload.processRecoveryAttempts(), owners);
+	const reloaded = moduleAfterReload.createNoProgressGuard(persist, moduleAfterReload.processRecoveryAttempts());
+	const beforeRestore = structuredClone(entries);
+	assert.throws(() => reloaded.restore(entries), /live|running|owned|in.flight|pending/i);
+	assert.deepEqual(entries, beforeRestore);
+	assert.equal(reloaded.begin("other-contract", "revision", "builder").allowed, false, "the host can swallow a session_start error, so the new guard must stay fenced");
+	original.finish(ticket, "revision");
+	assert.doesNotThrow(() => reloaded.restore(entries));
+	assert.equal(reloaded.inspect(ticket.operationId!)!.attempts[0].completed, true);
+	const other = reloaded.begin("other-contract", "revision", "builder");
+	assert.equal(other.allowed, true);
+	reloaded.finish(other, "revision");
+});
+
+test("restored orphan refusal renders only ledger identities and never launches a retry", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "orphan-refusal-"));
+	t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q", cwd]);
+	const entries: any[] = [];
+	const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+	const original = createNoProgressGuard(persist);
+	const key = JSON.stringify(["dispatch", cwd, "builder", ["src.ts"], [], ["src.ts"]]);
+	const ticket = original.begin(key, "revision", canonicalExecutor(cwd, "builder"), ["src.ts"]);
+	const params = { agent: "builder", task: "original task", scope: ["src.ts"], deliverables: ["src.ts"] };
+	assert.equal(original.recordInvocation(ticket.operationId!, key, { tool: "dispatch_agent", params }), true);
+	const guard = createNoProgressGuard(persist);
+	guard.restore(entries);
+	let calls = 0;
+	const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => { calls++; return { content: [] }; });
+	for (const id of ["first-refusal", "second-refusal"]) {
+		const result = await run(id, params, undefined, undefined, { cwd } as any);
+		assert.equal((result.details as any).recoveryCategory, "indeterminate");
+		const text = (result.content[0] as any).text as string;
+		assert.ok(text.includes(ticket.operationId!));
+		assert.ok(text.includes(ticket.attemptId!));
+		assert.match(text, /\/af-recover inspect /);
+		assert.match(text, /\/af-recover abandon /);
+		const durable = JSON.stringify(entries);
+		for (const uuid of text.match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/gi) ?? []) assert.ok(durable.includes(uuid), `refusal fabricated ${uuid}`);
+		assert.equal((result.details as any).previousDispatchId, guard.inspect(ticket.operationId!)!.attempts[0].dispatchId);
+	}
+	assert.equal(calls, 0);
+});
+
+test("unterminated reservation refusal reports its real operation and attempt instead of a fabricated previous dispatch", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "held-reservation-"));
+	t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q", cwd]);
+	const entries: any[] = [];
+	const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+	const key = JSON.stringify(["dispatch", cwd, "builder", ["src.ts"], [], ["src.ts"]]);
+	const ticket = guard.begin(key, "revision", canonicalExecutor(cwd, "builder"), ["src.ts"]);
+	guard.reset();
+	let calls = 0;
+	const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => { calls++; return { content: [] }; });
+	const result = await run("refused", { agent: "builder", task: "work", scope: ["src.ts"], deliverables: ["src.ts"] }, undefined, undefined, { cwd } as any);
+	const text = (result.content[0] as any).text as string;
+	assert.match(text, /unterminated|pending|in.flight/i);
+	assert.ok(text.includes(ticket.operationId!));
+	assert.ok(text.includes(ticket.attemptId!));
+	assert.match(text, /\/af-recover inspect /);
+	assert.doesNotMatch(text, /Previous attempt:/);
+	const durable = JSON.stringify(entries);
+	for (const uuid of text.match(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/gi) ?? []) assert.ok(durable.includes(uuid), `refusal fabricated ${uuid}`);
+	assert.equal(calls, 0);
+});
 
 test("production re-dispatch resumes only with a USER_ANSWER marker", async () => {
 	const cwd = mkdtempSync(join(tmpdir(), "user-answer-"));
@@ -574,4 +822,32 @@ test('acknowledged external blocker changes preflight conditions without resetti
  const params:any={agent:'builder',task:'task'};
  await run('1',params,undefined,undefined,{} as any);acknowledged=true;
  await run('2',params,undefined,undefined,{} as any);assert.equal(calls,2);
+});
+
+test('a second process restoring an unlocked session cannot poison history when the original owner finishes later', async () => {
+	const entries: any[] = [];
+	const persist = (customType: string, data: unknown) => entries.push({ customType, data });
+	const key = JSON.stringify(["dispatch", "/w", "builder", ["x"], [], ["x"]]);
+	for (const outcome of ["complete", "failure"] as const) {
+		entries.length = 0;
+		const owner = createNoProgressGuard(persist, new Set());
+		const ticket = owner.begin(key, "fp", canonicalExecutor("/w", "builder"), ["x"]);
+		assert.equal(owner.recordInvocation(ticket.operationId!, key, { tool: "dispatch_agent", params: { agent: "builder", task: "original" } }), true);
+		const second = createNoProgressGuard(persist, new Set());
+		second.restore(structuredClone(entries));
+		assert.equal(second.inspect(ticket.operationId!)!.attempts.at(-1)!.category, "indeterminate");
+		owner.finish(ticket, "fp", outcome === "failure" ? failed("late-dispatch", "verification_failed") : undefined);
+		const later = createNoProgressGuard(persist, new Set());
+		assert.doesNotThrow(() => later.restore(structuredClone(entries)), `late ${outcome} must replay`);
+		const attempt = later.inspect(ticket.operationId!)!.attempts.at(-1)!;
+		assert.equal(attempt.category, "indeterminate");
+		assert.equal(attempt.lateOutcome, outcome === "complete" ? "completed" : "verification_failed");
+		const notices: string[] = [];
+		await runRecoverCommand(`inspect ${ticket.operationId}`, { cwd: "/w", ui: { notify: (text: string) => notices.push(text) } } as any, { noProgress: later } as any);
+		const inspected = JSON.parse(notices[0]).attempts.at(-1);
+		assert.deepEqual([inspected.category, inspected.interrupted, inspected.lateOutcome, inspected.settled], ["indeterminate", true, attempt.lateOutcome, false]);
+		assert.equal(later.canContinue(ticket.operationId!, attempt.attemptId), true, "the fence stays until research and human approval");
+		assert.equal(later.begin(key, "fp", canonicalExecutor("/w", "builder"), ["x"]).allowed, false, "unchanged replay stays fenced");
+		assert.equal(later.begin(JSON.stringify(["dispatch", "/w", "planner", [], [], []]), "fp", canonicalExecutor("/w", "planner"), []).allowed, true, "unrelated dispatch is not blocked");
+	}
 });

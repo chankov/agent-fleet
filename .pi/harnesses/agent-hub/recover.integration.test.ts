@@ -99,6 +99,39 @@ type RecoverAsk = (id: string, q: any) => Promise<unknown>;
 const approveAsk: RecoverAsk = async (id, q) => respond(id, q);
 const denyAsk: RecoverAsk = async (id, q) => ({ details:{runtimeAsk:{requestId:id},response:{kind:'selection',selections:[q.options[1]]}} });
 
+test('restored orphan can be inspected and abandoned by its original IDs but cannot be retried or auto-settled', async () => {
+ const entries: any[] = [];
+ const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+ const original = createNoProgressGuard(persist);
+ const ticket = original.begin('orphan-contract', 'before-crash', 'builder');
+ const dispatchId = original.inspect(ticket.operationId!)!.attempts[0].dispatchId;
+ const guard = createNoProgressGuard(persist);
+ guard.restore(entries);
+ const notices: string[] = [];
+ let asks = 0;
+ const deps = handlerDeps(guard, async (id, q) => { asks++; return approveAsk(id, q); });
+ await runRecoverCommand(`inspect ${ticket.operationId}`, ctx(notices), deps);
+ const inspection = JSON.parse(notices.at(-1)!);
+ assert.equal(inspection.operationId, ticket.operationId);
+ assert.deepEqual(inspection.attempts, [{ attemptId: ticket.attemptId, dispatchId, category: 'indeterminate', settled: false, interrupted: true }]);
+ assert.match(inspection.missingPrerequisites, /independent_process_settlement/);
+ assert.match(inspection.commands, new RegExp(`/af-recover abandon ${ticket.operationId} ${ticket.attemptId}`));
+ await runRecoverCommand(`retry ${ticket.operationId} ${ticket.attemptId}`, ctx(notices), deps);
+ assert.match(notices.at(-1)!, /Retry refused/);
+ assert.equal(asks, 0, 'missing settlement must refuse before asking for retry authorization');
+ await runRecoverCommand(`abandon ${ticket.operationId} ${ticket.attemptId}`, ctx(notices), deps);
+ assert.equal(asks, 1);
+ assert.equal(notices.at(-1), 'Operation abandoned; parent obligations remain open.');
+ assert.equal(guard.inspect(ticket.operationId!)?.abandoned, true);
+ assert.equal(guard.inspect(ticket.operationId!)?.attempts[0].settled, undefined);
+ assert.equal(guard.inspect(ticket.operationId!)?.indeterminateGrantUsed, false);
+ const replay = createNoProgressGuard();
+ replay.restore(entries);
+ assert.equal(replay.inspect(ticket.operationId!)?.abandoned, true);
+ assert.equal(replay.begin('orphan-contract', 'changed', 'builder').allowed, false);
+ assert.equal(replay.begin('other-contract', 'changed', 'builder').allowed, true);
+});
+
 test('runRecoverCommand grant emits original-contract invocation once and refuses live pending duplicate decline', async () => {
  const guard = createNoProgressGuard();
  const ticket = guard.begin('contract','before','builder');

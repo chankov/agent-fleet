@@ -11,7 +11,7 @@ export const RETIRED_WORK_MODE = "orchestrator";
 export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
 const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
 
-export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "poll_panel", "set_task_tier", "team_adjust"] as const;
+export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "recover_task", "poll_panel", "set_task_tier", "team_adjust"] as const;
 export const VERIFICATION_TOOLS = ["set_assertions", "update_assertion", "get_assertions"] as const;
 /** Compatibility export for callers that need every orchestration-owned tool. */
 export const ORCHESTRATION_TOOLS = [...FLEET_TOOLS, ...VERIFICATION_TOOLS] as const;
@@ -156,6 +156,8 @@ export function resolveWorkModeTools(options: {
 	deterministicTools?: boolean;
 	/** Omit dispatch_triage unless the consumer can evaluate. Default off. */
 	triageEnabled?: boolean;
+ /** Recovery is exposed only while the guard has a continuable operation. */
+ recoveryAvailable?: boolean;
 	/** Approved parent-only advisory consumer; default off. */
 	agenticAskEnabled?: boolean;
  fileDiscoveryEnabled?: boolean;
@@ -167,7 +169,7 @@ export function resolveWorkModeTools(options: {
 		? options.baselineTools.filter(name => !HUB_OWNED_TOOLS.has(name))
 		: [];
 
-	if (packs.has("fleet")) tools.push(...(options.triageEnabled ? FLEET_TOOLS : FLEET_TOOLS.filter(name => name !== "dispatch_triage")));
+	if (packs.has("fleet")) tools.push(...FLEET_TOOLS.filter(name => (name !== 'dispatch_triage' || options.triageEnabled === true) && (name !== 'recover_task' || options.recoveryAvailable === true)));
 	// Verification can require explicit risk classification even for direct
 	// operator work. Expose the trusted setter without leasing fleet dispatch.
 	if (packs.has("verification")) tools.push("set_task_tier", ...VERIFICATION_TOOLS);

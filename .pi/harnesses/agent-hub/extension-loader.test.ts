@@ -388,6 +388,35 @@ const budgetProfiles = [
 		{ name: "compaction", message: "Please compact the conversation.", maxChars: 22_000, expectedTool: "request_compaction", extraArgs: ["-e", join(repoRoot, ".pi/extensions/compact-and-continue/index.ts")] },
 ] as const;
 const offProfileChars = new Map<string, number>();
+test('real Hub exposes recovery only after restoring an interrupted operation', async () => {
+ const workspace = mkdtempSync(join(tmpdir(), 'hub-recovery-catalog-'));
+ mkdirSync(join(workspace, '.ai'));
+ mkdirSync(join(workspace, '.pi', 'agents'), { recursive: true });
+ mkdirSync(join(workspace, 'home'));
+ symlinkSync(join(repoRoot, 'node_modules'), join(workspace, 'node_modules'), 'dir');
+ symlinkSync(join(repoRoot, '.pi/agents/personas'), join(workspace, '.pi/agents/personas'), 'dir');
+ writeFileSync(join(workspace, '.pi/agents/teams.yaml'), 'default:\n  - builder\n');
+ writeFileSync(join(workspace, '.ai/agent-fleet-overrides.md'), '## agent-hub\nlanguage: English\n');
+ writeFileSync(join(workspace, '.ai/agent-fleet.json'), JSON.stringify({ features: { system1: false } }));
+ const probe = join(workspace, 'recovery-catalog-probe.ts');
+ writeFileSync(probe, `export default function(pi) {
+  pi.registerCommand('probe-active-tools', {handler: async (_args,ctx) => ctx.ui.notify('ACTIVE_TOOLS:'+JSON.stringify(pi.getActiveTools()),'info')});
+  pi.registerCommand('seed-recovery-and-reload', {handler: async (_args,ctx) => {
+   const cwd=${JSON.stringify(workspace)};
+   const contract=JSON.stringify(['dispatch',cwd,'builder',['src.ts'],[],['src.ts']]);
+   pi.appendEntry('agent-hub-recover-event',{kind:'ledger',event:{type:'start',operationId:'recovery-catalog-op',attemptId:'recovery-catalog-attempt',taskId:'recovery-catalog-task',contract,executor:JSON.stringify([cwd,'builder']),dispatchId:'recovery-catalog-dispatch'}});
+   pi.appendEntry('agent-hub-recover-event',{kind:'guard',event:{type:'invocation',operationId:'recovery-catalog-op',key:contract,invocation:{tool:'dispatch_agent',params:{agent:'builder',task:'Finish the original interrupted task.',scope:['src.ts'],deliverables:['src.ts']}}}});
+   await ctx.reload();
+  }});
+ }`);
+ const rpc = startRpcProbe(probe, [], { cwd: workspace, env: { ...process.env, HOME: join(workspace, 'home'), PI_CODING_AGENT_DIR: join(workspace, 'home/.pi/agent'), PI_COMS_DIR: join(workspace, 'coms') } });
+ try {
+  assert.equal((await rpc.activeTools()).includes('recover_task'), false);
+  const seeded = await rpc.request({ type: 'prompt', message: '/seed-recovery-and-reload' });
+  assert.equal(seeded.success, true, JSON.stringify(seeded));
+  assert.equal((await rpc.activeTools()).includes('recover_task'), true);
+ } finally { await rpc.close(); rmSync(workspace, { recursive: true, force: true }); }
+});
 for (const mode of ["off", "recommended"] as const) {
 	for (const profile of budgetProfiles) {
 		test(`effective Hub profiles: ${mode}/${profile.name} stays within budget`, async () => {

@@ -107,7 +107,7 @@ test("operator preserves coding and approved extension tools while gating Hub ca
 		askUserAvailable: true,
 	});
 
-	for (const tool of ["read", "bash", "edit", "write", "bowser", "ask_user", ...ORCHESTRATION_TOOLS.filter(name => name !== "dispatch_triage")]) {
+	for (const tool of ["read", "bash", "edit", "write", "bowser", "ask_user", ...ORCHESTRATION_TOOLS.filter(name => name !== "dispatch_triage" && name !== 'recover_task')]) {
 		assert.ok(tools.includes(tool), `${tool} should be active`);
 	}
 	assert.ok(!tools.includes("dispatch_triage"), "dispatch_triage stays hidden until the consumer can evaluate");

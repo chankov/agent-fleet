@@ -16,6 +16,7 @@
     "herdr_spawn_pane",
     "herdr_spawn_peer",
     "poll_panel",
+    "recover_task",
     "run_flow",
     "set_assertions",
     "set_task_tier",

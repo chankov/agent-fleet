@@ -25,7 +25,7 @@ const absent = (tools: readonly string[], names: readonly string[]) => names.eve
 
 test("end-to-end deterministic capability matrix exposes only the intended profile surfaces", () => {
 	// The operator always holds its delegation tools (PHILOSOPHY, 2026-11-11).
-	const visibleFleet = FLEET_TOOLS.filter(tool => tool !== "dispatch_triage");
+	const visibleFleet = FLEET_TOOLS.filter(tool => tool !== "dispatch_triage" && tool !== 'recover_task');
 	const greeting = surface();
 	assert.deepEqual(greeting.resolution.active, ["core", "fleet"]);
 	assert.ok(baseline.every(tool => greeting.tools.includes(tool)));

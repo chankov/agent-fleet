@@ -32,7 +32,7 @@
  * Usage: pi -e .pi/harnesses/damage-control-continue/index.ts
  */
 
-import {permissionRelayFor,raceExactPermission} from '../lib/exact-permission-port.ts';
+import {permissionRelayFor,raceExactPermission,type PermissionFailure} from '../lib/exact-permission-port.ts';
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createSessionTargetGuard } from '../lib/session-target.ts';
 import { readDamagePolicy } from '../lib/damage-policy.ts';
@@ -360,12 +360,14 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
     const next=relay.actionIdentity?.();return !!next&&next.taskId===identity.taskId&&next.inputRevision===identity.inputRevision&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd&&targetPolicyCurrent(cwd)&&authority===JSON.stringify(activeExemptions());
    };
    const action={...identity,operation:event.toolName as 'bash'|'write'|'edit',target:crypto.createHash('sha256').update(JSON.stringify(event.input)).digest('hex'),cwd,actionId:String(event.toolCallId),owner:'hub',attempt:String(epoch),requestContext:{source:matchedPattern?'baseline_path' as const:'baseline_bash' as const,category:matchedCategory??'bash_pattern',pattern:matchedPattern??violationReason??'',digest:crypto.createHash('sha256').update(exactCall).digest('hex'),epoch:String(epoch)}};
+   let failure:PermissionFailure='unavailable';
    const result=await raceExactPermission(relay,action,event.input,current,Date.now()+timeout,async signal=>{
     const value=ctx.hasUI?await local(signal):await new Promise<T>(()=>{});const d=decision(value);return d?{decision:d,value}:null;
-   },record=>pi.appendEntry('damage-permission-decision',record));
-   if(!result)return {value:undefined,source:'not_decided'};
+   },record=>pi.appendEntry('damage-permission-decision',record),reason=>{failure=reason;});
+   if(!result)return {value:undefined,source:'not_decided',failure};
    if(result.decision==='deny')return {value:result.localValue,source:result.source};
-   return {value:result.consume()?(result.source==='codex_machine'?machineValue:result.localValue):undefined,source:result.source};
+   if(!result.consume())return {value:undefined,source:'not_decided',failure:'stale' as const};
+   return {value:result.source==='codex_machine'?machineValue:result.localValue,source:result.source};
   };
 
 		const checkPaths = (pathsToCheck: string[]) => {
@@ -552,7 +554,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					 }catch(error){finish({status:'failed'});throw error;}
 					}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice===KEEP?'deny':choice?'allow_once':null,ONCE,PROMPT_TIMEOUT_MS);
      const choice=selected.value;
-     if(!choice&&selected.source!=='local_human')return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':'permission cancelled, expired or stale'}; no human denial is inferred.`};
+     if(!choice&&selected.source!=='local_human')return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':`permission ${selected.failure??'stale'}; rule: ${matchedPattern}; request fresh authorization for this exact action`}; no human denial is inferred.`};
 					if (choice === ONCE) {
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern,decisionSource:selected.source });
 						return semanticAllow();

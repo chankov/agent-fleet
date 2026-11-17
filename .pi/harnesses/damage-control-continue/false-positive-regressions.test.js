@@ -6,6 +6,7 @@ import { registerHooks } from 'node:module';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PermissionRelay, registerPermissionRelay } from '../agent-hub/permission-relay.ts';
 import { createExecutionTrace, projectExecutionTrace, registerExecutionTrace } from '../agent-hub/execution-trace.ts';
 
 registerHooks({
@@ -20,7 +21,7 @@ registerHooks({
 const install = (await import('./index.ts')).default;
 const shippedRules = readFileSync(new URL('../../damage-control-rules.yaml', import.meta.url), 'utf8');
 
-async function guard(t, { interactive = false, trace = false } = {}) {
+async function guard(t, { interactive = false, trace = false, relay = false, selection = 'Keep blocked' } = {}) {
  const cwd = mkdtempSync(join(tmpdir(), 'fleet-dc-false-positive-'));
  t.after(() => rmSync(cwd, { recursive: true, force: true }));
  mkdirSync(join(cwd, '.pi'));
@@ -34,10 +35,11 @@ async function guard(t, { interactive = false, trace = false } = {}) {
   appendEntry: (type, data) => entries.push({ type, data }),
  };
  install(api);
+ if(relay)t.after(registerPermissionRelay(api.events,new PermissionRelay(()=>({project:'fixture',peer:'hub',sessionId:'session',startedAt:'2026-11-17T00:00:00Z'}),()=>({taskId:'task',inputRevision:'revision'}))));
  if(trace)registerExecutionTrace(api,createExecutionTrace({identity:()=>({taskId:'test',inputRevision:'test'}),persist:data=>entries.push({customType:'agent-hub-execution-trace',data})}));
  const ctx = { cwd, hasUI: interactive, ui: {
   setStatus() {}, notify() {}, confirm: async () => false,
-  select: async (...args) => { uiAsks.push(args); return 'Keep blocked'; },
+  select: async (...args) => { uiAsks.push(args); return selection; },
  } };
  // Session loading must not use real hub escalation or session exemptions.
  const saved = ['AGENT_HUB_ASK_ENDPOINT', 'AGENT_HUB_EXEMPTIONS_FILE', 'AGENT_HUB_AGENT_ID']
@@ -164,4 +166,15 @@ test('an explicit denial of a protected write remains effective on a repeated re
  assert.equal((await g.call(command)).block, true);
  assert.equal(g.uiAsks.length, 1);
  assert.ok(g.entries.some(entry => entry.data.action === 'blocked_by_user'));
+});
+
+
+test('cancelled baseline permission names the exact outcome and protected rule without inferring denial', async t => {
+ const g = await guard(t, {interactive:true, relay:true, selection:null});
+ const result = await g.call("printf x > package-lock.json");
+ assert.equal(result.block, true);
+ assert.match(result.reason, /permission cancelled; rule: package-lock.json/);
+ assert.match(result.reason, /no human denial is inferred/);
+ assert.doesNotMatch(result.reason, /expired or stale/);
+ assert.equal(g.entries.some(entry => entry.data?.action === 'blocked_by_user'), false);
 });

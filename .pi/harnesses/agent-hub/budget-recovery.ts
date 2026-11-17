@@ -82,7 +82,35 @@ export interface RecoverAuthorizationPorts extends Omit<RetryAuthorizationPorts,
  valid(): boolean;
  consume(nonce: string): boolean;
 }
+export interface TaskContinuationInput { taskId: string; operationId: string; attemptId: string; report: string; processSettled: boolean }
+export interface TaskContinuationPorts extends RecoverAuthorizationPorts { signal?: AbortSignal }
 const pendingRecovery = new Set<string>();
+/** Review the concrete research report; operator attestation never becomes runtime settlement. */
+export async function confirmTaskContinuation(input: TaskContinuationInput, ctx: ExtensionContext, ports: TaskContinuationPorts): Promise<boolean> {
+ if (pendingRecovery.has(input.operationId) || !ports.valid() || ports.taskId() !== input.taskId || ports.signal?.aborted) return false;
+ pendingRecovery.add(input.operationId);
+ const nonce = randomUUID(), controller = new AbortController();
+ const abort = () => controller.abort();
+ ports.signal?.addEventListener('abort', abort, { once: true });
+ const bg = /bulgarian|българ/i.test(ports.language());
+ const affirmative = input.processSettled
+  ? (bg ? 'Продължи същата задача веднъж по този анализ' : 'Continue this same task once using this analysis')
+  : (bg ? 'Потвърждавам, че старото изпълнение е спряно; продължи веднъж' : 'I confirm the old execution is stopped; continue once');
+ const question: RuntimeQuestion = {
+  question: bg ? 'Да продължа ли прекъснатата задача след research анализа?' : 'Continue the interrupted task after this research analysis?',
+  context: `${input.processSettled
+   ? (bg ? 'Има автоматичен запис за приключилото старо изпълнение.' : 'Runtime process settlement is recorded.')
+   : (bg ? 'Няма надеждно доказателство, че старото изпълнение е спряно. Потвърди само след проверка. Твоето потвърждение се записва отделно от автоматично доказателство.' : 'The old process has no reliable settlement evidence. Only confirm after verifying it is stopped. Your statement is recorded separately from runtime evidence.')}\n${bg ? 'Задача' : 'Task'}: ${input.taskId}\n${bg ? 'Операция' : 'Operation'}: ${input.operationId}\n${bg ? 'Опит' : 'Attempt'}: ${input.attemptId}\n${bg ? 'Research находки за преглед; те не са разрешение' : 'Research findings for review; not authorization'}:\n${input.report}`,
+  options: [affirmative, bg ? 'Не продължавай' : 'Do not continue'], allowMultiple: false, allowFreeform: false, allowComment: false,
+ };
+ const correlation: BudgetCorrelation = { taskId: input.taskId, tranche: 0, requestId: nonce, operation: 'retry' };
+ try {
+  ports.startWait(nonce);
+  const response = await ports.ask(nonce, question, ctx, controller.signal);
+  return !controller.signal.aborted && ports.taskId() === input.taskId && ports.valid() && isAffirmative(response, question, correlation) && ports.consume(nonce);
+ } catch { return false; }
+ finally { ports.signal?.removeEventListener('abort', abort); pendingRecovery.delete(input.operationId); ports.endWait(nonce, ports.taskId() === input.taskId); }
+}
 /** A direct slash command cannot grant itself: only a correlated human selection consumes the nonce. */
 export async function confirmRecoverAction(input: { taskId: string; operationId: string; attemptId: string; action: 'retry' | 'abandon'; category: string }, ctx: ExtensionContext, ports: RecoverAuthorizationPorts): Promise<boolean> {
  const key = input.operationId;

@@ -122,8 +122,16 @@ export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
  const finish = (): boolean => {
   if (!words.length) return !reads.length && !writes.length;
   const name = basename(words[0]), args = words.slice(1), paths = operands(args);
+  // A literal absolute Python module invocation can be operand-classified as
+  // opaque (all arguments may be writes), without treating its executable as a
+  // write destination. Other path executables and inline source stay conservative.
+  const moduleIndex = args.indexOf("-m");
+  const absolutePythonModule = isAbsolute(words[0]) && /^python(?:3(?:\.\d+)?)?$/.test(name)
+   && moduleIndex >= 0 && args.slice(0, moduleIndex).every(arg => ["-I", "-B", "-E", "-s", "-S", "-u"].includes(arg))
+   && /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(args[moduleIndex + 1] ?? "")
+   && args.every(arg => /^[A-Za-z0-9_./:=+,@%-]+$/.test(arg));
   // A repository executable named cat/printf/etc need not behave like a utility.
-  if (words[0] !== name || ["if", "then", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "function", "eval", "exec", "source", ".", "cd", "pushd", "popd"].includes(name)
+  if (words[0] !== name && !absolutePythonModule || ["if", "then", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "function", "eval", "exec", "source", ".", "cd", "pushd", "popd"].includes(name)
    || args.some(arg => /^(?:-exec|-execdir|-ok|-okdir|-delete|-fprint|-fprintf|-fls|--pre)(?:=|$)/.test(arg))
    || /^[A-Za-z_]\w*=/.test(words[0]) || ["bash", "sh", "zsh"].includes(name)
    || ["sed", "file"].includes(name)

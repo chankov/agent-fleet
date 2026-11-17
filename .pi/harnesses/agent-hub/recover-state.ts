@@ -1,17 +1,33 @@
 import { randomUUID } from 'node:crypto';
 import type { RecoveryCategory } from './recovery-contract.ts';
 
+export interface ContinuationRecord { nonce: string; revision: string; reportRef: string; reportHash: string; settlement: 'runtime' | 'operator_attested'; uncertaintyAttemptId?: string }
 export type RecoverEvent =
  | { type: 'start'; operationId: string; attemptId: string; taskId: string; contract: string; executor: string; dispatchId: string }
  | { type: 'complete'; operationId: string; attemptId: string }
- | { type: 'failure'; operationId: string; attemptId: string; category: RecoveryCategory }
+ | { type: 'failure'; operationId: string; attemptId: string; category: RecoveryCategory; /** Written by a restoring process for another owner's unfinished attempt. */ interrupted?: true }
  | { type: 'settled'; operationId: string; attemptId: string; evidence: string }
  | { type: 'dispatch'; operationId: string; attemptId: string; dispatchId: string }
  | { type: 'abandon'; operationId: string; attemptId: string; nonce: string }
  | { type: 'grant'; operationId: string; attemptId: string; nonce: string }
+ | { type: 'continuation'; operationId: string; attemptId: string; record: ContinuationRecord }
  | { type: 'technical'; operationId: string; attemptId: string; revision: string; status: 'open' | 'cleared'; evidence: string };
-type Attempt = { attemptId: string; dispatchId: string; category?: RecoveryCategory; completed?: boolean; settled?: string }; 
+/** `interrupted` marks restore-time uncertainty; the original owner may still append its own
+ * outcome later (sessions are not locked). That late outcome is retained for inspection only
+ * and never turns the uncertainty into settlement or completion. */
+type Attempt = { attemptId: string; dispatchId: string; category?: RecoveryCategory; completed?: boolean; settled?: string; continuations?: ContinuationRecord[]; interrupted?: boolean; lateDispatchId?: string; lateOutcome?: RecoveryCategory | 'completed' };
 type Operation = { operationId: string; taskId: string; contract: string; executor: string; attempts: Attempt[]; indeterminateGrantUsed: boolean; grantedAttemptId?: string; abandoned?: boolean; technical?: { status: 'open' | 'cleared'; revision: string; evidence: string } };
+
+/** No-launch successors retain the earlier uncertainty; other outcomes keep their own recovery policy. */
+function continuationBasis(op: Operation | undefined, attemptId: string): Attempt | null {
+ if (!op || op.attempts.at(-1)?.attemptId !== attemptId) return null;
+ for (let index = op.attempts.length - 1; index >= 0; index--) {
+  const attempt = op.attempts[index];
+  if (attempt.category === 'not_started' || attempt.category === 'invalid_input') continue;
+  return attempt.category === 'indeterminate' ? attempt : null;
+ }
+ return null;
+}
 
 /** Pure replay plus a validated append seam. The caller owns durable session-entry storage. */
 export function createRecoverState(history: readonly RecoverEvent[] = [], append?: (event: RecoverEvent) => void) {
@@ -43,23 +59,34 @@ export function createRecoverState(history: readonly RecoverEvent[] = [], append
   if (!op || !attempt) throw new Error('Invalid recovery history');
   switch (event.type) {
    case 'dispatch':
+    if (attempt.interrupted && !attempt.lateDispatchId && !attempt.lateOutcome && nonempty(event.dispatchId) && !usedIds.has(event.dispatchId)) { attempt.lateDispatchId = event.dispatchId; usedIds.add(event.dispatchId); return; }
     if (!nonempty(event.dispatchId) || usedIds.has(event.dispatchId) || attempt.category || attempt.completed || active.get(op.executor) !== attempt.attemptId) throw new Error('Invalid recovery history');
     attempt.dispatchId = event.dispatchId; usedIds.add(event.dispatchId); return;
    case 'abandon':
     if (!attempt.category || op.abandoned || op.attempts.at(-1) !== attempt || !nonempty(event.nonce) || usedNonces.has(event.nonce)) throw new Error('Invalid recovery history');
     usedNonces.add(event.nonce); op.abandoned = true; return;
    case 'complete':
+    if (attempt.interrupted && !attempt.lateOutcome) { attempt.lateOutcome = 'completed'; return; }
     if (attempt.category || attempt.completed || active.get(op.executor) !== attempt.attemptId) throw new Error('Invalid recovery history');
     attempt.completed = true; active.delete(op.executor); return;
-   case 'failure':
-    if (attempt.category || active.get(op.executor) !== attempt.attemptId || !['not_started','invalid_input','resource_exhausted','operator_cancelled','verification_failed','blocked_on_user','tool_protocol_error','unknown_tool','indeterminate'].includes(event.category)) throw new Error('Invalid recovery history');
-    attempt.category = event.category; active.delete(op.executor); return;
+   case 'failure': {
+    const known = ['not_started','invalid_input','resource_exhausted','operator_cancelled','verification_failed','blocked_on_user','tool_protocol_error','unknown_tool','indeterminate'].includes(event.category);
+    if (attempt.interrupted && !attempt.lateOutcome && known && !event.interrupted) { attempt.lateOutcome = event.category; return; }
+    if (attempt.category || active.get(op.executor) !== attempt.attemptId || !known || (event.interrupted !== undefined && (event.interrupted !== true || event.category !== 'indeterminate'))) throw new Error('Invalid recovery history');
+    attempt.category = event.category; if (event.interrupted) attempt.interrupted = true; active.delete(op.executor); return;
+   }
    case 'settled':
     if (!attempt.category || attempt.settled || !nonempty(event.evidence)) throw new Error('Invalid recovery history');
     attempt.settled = event.evidence; return;
    case 'grant':
     if (attempt.category !== 'indeterminate' || !attempt.settled || active.has(op.executor) || op.indeterminateGrantUsed || op.attempts.at(-1) !== attempt || !nonempty(event.nonce) || usedNonces.has(event.nonce)) throw new Error('Invalid recovery history');
     usedNonces.add(event.nonce); op.indeterminateGrantUsed = true; op.grantedAttemptId = attempt.attemptId; return;
+   case 'continuation': {
+    const record = event.record, basis = continuationBasis(op, attempt.attemptId);
+    if (!basis || op.abandoned || active.has(op.executor) || !record || ![record.nonce, record.revision, record.reportRef].every(nonempty) || !/^[a-f0-9]{64}$/.test(record.reportHash) || !['runtime', 'operator_attested'].includes(record.settlement) || (record.settlement === 'runtime' && !basis.settled) || (record.uncertaintyAttemptId !== undefined && record.uncertaintyAttemptId !== basis.attemptId) || usedNonces.has(record.nonce)) throw new Error('Invalid recovery history');
+    usedNonces.add(record.nonce);
+    (attempt.continuations ??= []).push(structuredClone(record)); return;
+   }
    case 'technical':
     if (!attempt.category || !nonempty(event.revision) || !nonempty(event.evidence) || !['open','cleared'].includes(event.status) || (op.technical?.status === 'cleared' && event.status === 'cleared' && op.technical.revision === event.revision)) throw new Error('Invalid recovery history');
     op.technical = { status: event.status, revision: event.revision, evidence: event.evidence }; return;
@@ -86,13 +113,26 @@ export function createRecoverState(history: readonly RecoverEvent[] = [], append
   },
   bindDispatch(operationId: string, attemptId: string, dispatchId: string) { return record({ type: 'dispatch', operationId, attemptId, dispatchId }); },
   abandon(operationId: string, attemptId: string, nonce: string) { return record({ type: 'abandon', operationId, attemptId, nonce }); },
-  byDispatch(dispatchId: string) { for (const op of operations.values()) if (op.attempts.some(a => a.dispatchId === dispatchId)) return this.inspect(op.operationId); return null; },
+  byDispatch(dispatchId: string) { for (const op of operations.values()) if (op.attempts.some(a => a.dispatchId === dispatchId || a.lateDispatchId === dispatchId)) return this.inspect(op.operationId); return null; },
   complete(operationId: string, attemptId: string) { return record({ type: 'complete', operationId, attemptId }); },
   fail(operationId: string, attemptId: string, category: RecoveryCategory) { return record({ type: 'failure', operationId, attemptId, category }); },
+  /** Restore-only: another owner's unfinished attempt becomes uncertainty without settlement. */
+  interrupt(operationId: string, attemptId: string) { return record({ type: 'failure', operationId, attemptId, category: 'indeterminate', interrupted: true }); },
   settle(operationId: string, attemptId: string, evidence: string) { return record({ type: 'settled', operationId, attemptId, evidence }); },
   grant(operationId: string, attemptId: string, nonce: string) { return record({ type: 'grant', operationId, attemptId, nonce }); },
+  continuationBasis(operationId: string, attemptId: string) { return structuredClone(continuationBasis(operations.get(operationId), attemptId)); },
+  recordContinuation(operationId: string, attemptId: string, continuation: ContinuationRecord) {
+   const basis = continuationBasis(operations.get(operationId), attemptId);
+   return !!basis && record({ type: 'continuation', operationId, attemptId, record: { ...structuredClone(continuation), uncertaintyAttemptId: basis.attemptId } });
+  },
   assess(operationId: string, attemptId: string, revision: string, status: 'open' | 'cleared', evidence: string) { return record({ type: 'technical', operationId, attemptId, revision, status, evidence }); },
   events(): RecoverEvent[] { return structuredClone(journal); },
+  activeAttempt(executor: string) {
+   const attemptId = active.get(executor);
+   if (!attemptId) return null;
+   for (const op of operations.values()) if (op.executor === executor && op.attempts.at(-1)?.attemptId === attemptId) return { operationId: op.operationId, attemptId };
+   return null;
+  },
   inspect(operationId: string): Readonly<Operation> | null {
    const op = operations.get(operationId);
    return op ? structuredClone(op) : null;

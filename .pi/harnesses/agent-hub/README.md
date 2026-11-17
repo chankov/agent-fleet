@@ -1475,6 +1475,17 @@ An existing `AF-MIN-CHANGE` ledger row remains valid: dispatch keeps its declara
 and conditions, adds the runtime minimum conditions, and does not append a duplicate.
 A bound command on that row is not silently replaced by unrelated compiler success.
 
+Run each declared command unchanged in its own approved bash call, sequentially,
+without overlapping tool calls. Do not append `; echo $?`, pipes, redirections or
+wrappers: they change the observed command and can mask the test exit code. The
+runtime already records exit codes. A delivered native result with missing exact
+commands now lists them in `verificationDiagnostics` and the acceptance artifact;
+it does not infer success from the reviewer report or automatically retry.
+For an unproven `operator-current-state` review, use a separately authorized fresh
+review of the same current scope with the exact checks. Registration still requires
+current, exclusive runtime evidence and independent review; manual criteria remain
+open. Do not reset the task or remove its review obligation to recover.
+
 Native same-task, same-revision continuation may retain up to 64 successful checks
 (256 KiB journal metadata) via the existing process-state journal. Capture anchors
 bind task/generation/session, exact scope and revision, accepted input and input-artifact

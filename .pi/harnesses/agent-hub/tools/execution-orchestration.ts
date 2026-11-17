@@ -1,5 +1,5 @@
 import type { ToolContext } from "./context.ts";
-import { createDispatchExecutor, createResearchExecutor, type DispatchExecutorDeps } from "./dispatch-execution.ts";
+import { createDispatchExecutor, createRecoveryResearchExecutor, createResearchExecutor, type DispatchExecutorDeps } from "./dispatch-execution.ts";
 import { createActionExecutors, type ActionExecutorDeps } from "./action-executors.ts";
 import { createHerdrExecutors, type HerdrExecutorDeps } from "./herdr-executors.ts";
 
@@ -15,6 +15,7 @@ export function createToolExecutionOrchestration(ctx: DispatchExecutionContext):
 	return {
 		executeDispatchAgent: createDispatchExecutor(ctx.dispatch),
 		executeSpawnResearch: createResearchExecutor(ctx.dispatch),
+		executeRecoveryResearch: createRecoveryResearchExecutor(ctx.dispatch),
 		...createActionExecutors(ctx.actions),
 		...createHerdrExecutors(ctx.herdr),
 		getAssertionCount: () => ctx.actions.getAssertions().length,

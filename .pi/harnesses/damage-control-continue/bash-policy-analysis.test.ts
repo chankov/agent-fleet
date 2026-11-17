@@ -52,3 +52,27 @@ test('node script options ending in e do not become inline interpreter source',a
 for (const command of ['node --eval "require(\'fs\').writeFileSync(\'/bin/x\', \'x\')"', 'node -e "require(\'fs\').writeFileSync(\'/bin/x\', \'x\')"', 'node script.js --output /bin/x']) test(`node protected writes remain blocked: ${command}`,async t=>{
  assert.equal(await blocked(t,command),true);
 });
+
+for (const command of [
+ '/opt/az/bin/python3 -I -B -m unittest discover -s privatale/ptapi/tests/sync -p test_cosmos_probe_workflow.py',
+ '/usr/bin/python3 -m unittest discover -s tests',
+]) test(`absolute interpreter execution is not a write to its executable directory: ${command}`, async t => {
+ assert.equal(await blocked(t, command), false);
+});
+for (const command of [
+ '/opt/az/bin/python3 -m unittest --output=/bin/example',
+ '/opt/az/bin/python3 -m unittest > /bin/example',
+ '/opt/az/bin/python3 -m unittest /etc/example',
+ '/opt/az/bin/python3.14 -m unittest /etc/example',
+ '/opt/az/bin/python3 -m unittest package-lock.json',
+ '/opt/az/bin/python3 script.py --output /bin/example',
+ '/opt/az/bin/python3 script.py > /bin/example',
+ '/opt/az/bin/python3 -c "open(\'/bin/example\', \'w\')"',
+ '/opt/az/bin/python3 -m unittest .env',
+ '/opt/az/bin/python3 -m unittest; rm -- README.md',
+ '/tmp/cat package-lock.json',
+ '/tmp/printf .env',
+ '/tmp/tool --output=/etc/example',
+]) test(`absolute executables retain protected operand and source checks: ${command}`, async t => {
+ assert.equal(await blocked(t, command), true);
+});

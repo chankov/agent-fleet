@@ -8,15 +8,17 @@ export function permissionAuditOutcome(outcome:PermissionOutcome){
 }
 const relayKey=Symbol.for('fleet.permission-relays.v1');
 const relays:WeakMap<object,PermissionRelay>=(globalThis as any)[relayKey]??((globalThis as any)[relayKey]=new WeakMap());
+export type PermissionFailure = 'expired'|'cancelled'|'stale'|'unavailable'|'audit_failed';
 /** Shared baseline/triage one-winner path. Local UI produces values, never side effects
  * before winner selection. Machine answers never enter identical-dialog/semantic memory. */
-export async function raceExactPermission<T>(relay:PermissionRelay,action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number,local:(signal:AbortSignal)=>Promise<{decision:'allow_once'|'deny';value:T}|null>,audit:(record:unknown)=>void){
- const request=relay.open(action,input,current,expiresAt);if(!request)return null;
+export async function raceExactPermission<T>(relay:PermissionRelay,action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number,local:(signal:AbortSignal)=>Promise<{decision:'allow_once'|'deny';value:T}|null>,audit:(record:unknown)=>void,onFailure?:(reason:PermissionFailure)=>void){
+ const fail=(reason:PermissionFailure)=>{try{onFailure?.(reason);}catch{}return null;};
+ const request=relay.open(action,input,current,expiresAt);if(!request)return fail('unavailable');
  const controller=new AbortController();let localValue:T|undefined;
  void local(controller.signal).then(answer=>{if(answer){if(request.human(answer.decision,'local-ui'))localValue=answer.value;}else request.cancel();},()=>request.cancel());
  const outcome=await request.result;controller.abort();
- if(outcome.status!=='decided')return null;
- try{audit({schema:'permission-surface-decision/v1',permissionId:request.id,actionDigest:request.actionDigest,taskId:action.taskId,inputRevision:action.inputRevision,...permissionAuditOutcome(outcome)});}catch{request.applied(false);return null;}
+ if(outcome.status!=='decided')return fail(outcome.status);
+ try{audit({schema:'permission-surface-decision/v1',permissionId:request.id,actionDigest:request.actionDigest,taskId:action.taskId,inputRevision:action.inputRevision,...permissionAuditOutcome(outcome)});}catch{request.applied(false);return fail('audit_failed');}
  let used=false;
  return {decision:outcome.decision,source:outcome.source,localValue:outcome.source==='local_human'?localValue:undefined,consume(){
   if(used)return false;used=true;let valid=false;try{valid=outcome.decision==='allow_once'&&request.valid()&&current();}catch{}request.applied(valid);return valid;

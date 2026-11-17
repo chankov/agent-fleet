@@ -131,6 +131,8 @@ export type ToolExecutor<TParams> = (
 export interface ToolContext {
 	executeDispatchAgent: ToolExecutor<DispatchAgentParams>;
 	executeSpawnResearch: ToolExecutor<SpawnResearchParams>;
+	/** Read-only recovery analysis without the research no-progress fence. */
+	executeRecoveryResearch: ToolExecutor<SpawnResearchParams>;
 	executeSetTaskTier: ToolExecutor<SetTaskTierParams>;
 	executeTeamAdjust: ToolExecutor<TeamAdjustParams>;
 	executeSetAssertions: ToolExecutor<SetAssertionsParams>;

@@ -27,12 +27,12 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {registerHooks} from 'node:module';
 import {fileURLToPath} from 'node:url';
-const harness=new URL('./harnesses/',import.meta.url);
+const runtimeRoots=[new URL('./harnesses/',import.meta.url),new URL('./agent-fleet/scripts/',import.meta.url)];
 registerHooks({resolve(s,c,next){
  const alias=s.replace('@mariozechner/pi-coding-agent','@earendil-works/pi-coding-agent').replace('@mariozechner/pi-tui','@earendil-works/pi-tui');
  const resolved=next(alias,c);
- if(c.parentURL?.startsWith(harness.href)&&s.startsWith('.')){
-  assert.ok(resolved.url.startsWith(harness.href),'relative runtime import escaped extracted tree: '+s);
+ if(runtimeRoots.some(root=>c.parentURL?.startsWith(root.href))&&s.startsWith('.')){
+  assert.ok(runtimeRoots.some(root=>resolved.url.startsWith(root.href)),'relative runtime import escaped extracted tree: '+s);
   assert.doesNotMatch(resolved.url,/\/fixtures\/|\.test\.|\.test-support\./);
  }
  return resolved;
@@ -144,7 +144,7 @@ test('F12 offline packed artifact contains guide and runtime-only import closure
   for(const file of files.filter(f=>f.startsWith('.pi/harnesses/')||f.startsWith('bin/test/')))assert.equal(forbidden.test(file),false,`excluded project test artifact shipped: ${file}`);
   assert.equal(files.some(f=>f.startsWith('bin/test/')),false);
   execFileSync('tar',['-xzf',join(temp,packed[0].filename),'-C',join(temp,'unpacked')],{env,timeout:30000});
-  const extracted=join(temp,'unpacked/package'),fixture=join(temp,'fixture'),harness=join(fixture,'harnesses');
+  const extracted=join(temp,'unpacked/package'),fixture=join(temp,'fixture'),harness=join(fixture,'harnesses'),scripts=join(fixture,'agent-fleet/scripts');
   assert.match(readFileSync(join(extracted,'docs/system1-damage-guard.md'),'utf8'),/Damage|damage/);
   // Third-party bytes are not runtime harness bytes; use local dependencies only.
   cpSync(join(extracted,'.pi/harnesses'),harness,{recursive:true,filter:path=>!path.split('/').includes('node_modules')});
@@ -155,7 +155,15 @@ test('F12 offline packed artifact contains guide and runtime-only import closure
   symlinkSync(join(repo,'.pi/harnesses/node_modules'),join(harness,'node_modules'),'dir');
   const visited=new Set<string>();
   function closure(file:string){
-   assert.ok(file.startsWith(harness+'/'));assert.equal(forbidden.test(file),false,`runtime imported test infrastructure: ${file}`);
+   const fromScripts=file.startsWith(scripts+'/');
+   assert.ok(file.startsWith(harness+'/')||fromScripts,`runtime import escaped shipped roots: ${file}`);assert.equal(forbidden.test(file),false,`runtime imported test infrastructure: ${file}`);
+   // Copy only the reached scripts closure from packed bytes, preserving the installed
+   // .pi/harnesses <-> .pi/agent-fleet/scripts layout. No repository runtime fallback.
+   if(fromScripts&&!visited.has(file)){
+    const packedSource=join(extracted,'.pi/agent-fleet/scripts',file.slice(scripts.length+1));
+    assert.ok(existsSync(packedSource),`missing packed runtime import: ${packedSource}`);
+    mkdirSync(dirname(file),{recursive:true});cpSync(packedSource,file);
+   }
    assert.ok(existsSync(file),`missing extracted runtime import: ${file}`);if(visited.has(file))return;visited.add(file);
    const source=readFileSync(file,'utf8');
    for(const dep of ts.preProcessFile(source,true,true).importedFiles){if(!dep.fileName.startsWith('.'))continue;const target=resolve(dirname(file),dep.fileName);closure(target);}
@@ -167,6 +175,6 @@ test('F12 offline packed artifact contains guide and runtime-only import closure
   console.log(output.trim());
   // Also inspect copied bytes, independently of npm's JSON listing.
   function inspect(dir:string){for(const entry of readdirSync(dir,{withFileTypes:true})){const file=join(dir,entry.name);assert.equal(forbidden.test(file),false,file);if(entry.isDirectory())inspect(file);}}
-  inspect(harness);
+  inspect(harness);if(existsSync(scripts))inspect(scripts);
  }finally{rmSync(temp,{recursive:true,force:true});}
 });

@@ -26,3 +26,17 @@ test('audit failure and changed input burn baseline/triage authority without bec
  const result=await raceExactPermission(relay,action,input,()=>current,Date.now()+1000,async()=>({decision:'allow_once',value:'once'}),()=>{if(fail==='audit')throw Error('fixture audit');});
  if(fail==='audit')assert.equal(result,null);else{current=false;assert.equal(result?.consume(),false);current=true;assert.equal(result?.consume(),false);}}
 });
+
+test('undecided exact permissions retain expiry, cancellation, stale and admission diagnostics', async () => {
+ for (const expected of ['expired', 'cancelled', 'stale', 'unavailable', 'audit_failed']) {
+  const relay = new PermissionRelay(() => expected === 'unavailable' ? null : owner);
+  let failure: string | undefined;
+  const pending = raceExactPermission(relay, action, input, () => true, Date.now() + 30,
+   async () => expected === 'cancelled' ? null : expected === 'audit_failed' ? {decision: 'allow_once' as const, value: 'once'} : await new Promise<never>(() => {}),
+   () => { if (expected === 'audit_failed') throw Error('fixture audit failure'); },
+   reason => { failure = reason; });
+  if (expected === 'stale') relay.reset();
+  assert.equal(await pending, null);
+  assert.equal(failure, expected);
+ }
+});

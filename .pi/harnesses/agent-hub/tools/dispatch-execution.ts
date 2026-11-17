@@ -1,3 +1,4 @@
+import { verificationDiagnostics, verificationDiagnosticNotice } from '../verification-diagnostics.ts';
 import { basePersonaName, parallelInstanceName } from "../run-budget.js";
 import { privateRequirements, privateDeclarationHash, privateClassification, type PrivateProofUse } from '../private-config-review.ts';
 import { capturePrivateConfig, privateConfigRevision, type PrivateConfigBinding } from '../private-config-current-state.ts';
@@ -214,7 +215,7 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 		const critical = requirement.criticalConditions?.length ? ` Critical: ${requirement.criticalConditions.join("; ")}.` : "";
 		return `- ${requirement.id} [${requirement.tag}]: ${requirement.text} (source: ${origin}).${critical}${requirement.compilerCommand ? ` Explicit compiler command: ${JSON.stringify(requirement.compilerCommand)} (execute only through approved bash).` : ""}${requirement.testCommand ? ` Explicit verification command: ${JSON.stringify(requirement.testCommand)} (execute only through approved bash).` : ""}`;
 	});
-	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance.\n${lines.join("\n")}`;
+	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance. Run explicit commands unchanged, one bash call per command, sequentially with no overlapping tool calls. Do not append echo, pipe, redirect, or wrap them; runtime captures exit codes, and altered command strings cannot satisfy the declaration.\n${lines.join("\n")}`;
 }
 
 const SCOPE_GLOB = /[*?[\]{}!]/;
@@ -299,7 +300,9 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
   }catch(e){return refusal(d,agent,task,'operator_state_preflight_failed',e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable');}
  }
  const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${review_reason ?? ""}\n${JSON.stringify(scope ?? [])}${operatorMode?'\noperator-current-state':''}` : task);
-	if (s.getTurnDispatchFingerprints().has(fingerprint)) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
+	// A consumed continuation permit is the explicit, human-confirmed repeat of an
+	// interrupted attempt (e.g. a watchdog stop this turn), not a model re-dispatch.
+	if (s.getTurnDispatchFingerprints().has(fingerprint) && !d.noProgress.continuing?.()) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
 	let inputArtifacts: InputArtifactPreview[];
 	try { inputArtifacts = d.artifacts.loadInputArtifacts(artifacts, ctx); }
 	catch (err: any) { return { content: [{ type: "text", text: `⚠ Dispatch NOT sent and NOT counted — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and dispatch again.` }], details: { agent, task, status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none" } }; }
@@ -607,6 +610,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		changes, requirements: p.requirements, deliverables: readback, checks,
 		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
 	});
+ const checkDiagnostics = captureExpected && disposition.delivered ? verificationDiagnostics(p.requirements, observations, checks) : null;
 	if (submission && (submission.status !== "completed" || submission.requires_user_decision.some(question => question.trim().toLowerCase() !== "none"))) {
   runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...runtimeResult.acceptance.reasons, "specialist_" + submission.status] };
   runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
@@ -728,7 +732,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const contractGap = acceptanceStatus === "deliverable_failed" ? "missing_deliverable" : !parsedReturn && questions.length ? "missing_structured_return" : null;
 	const blockedOnUser = questions.length > 0 && !protocolDiagnostic && executionStatus === "completed";
 	const status = protocolDiagnostic ? "tool_protocol_error" : blockedOnUser ? "blocked_on_user" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
-	const assessment = { ...runtimeResult,
+	const assessment = { ...runtimeResult, verificationDiagnostics: checkDiagnostics,
 		executionStatus, acceptanceStatus, accepted, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
 		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath, protocolDiagnostic, protocolEvidencePath };
 	const assessmentPath = disposition.pending ? null : d.artifacts.writeRunArtifact(`${key}-acceptance`, state?.runCount ?? 0, JSON.stringify(assessment, null, 2), "evidence", assessmentId, p.sessionDir);
@@ -736,6 +740,8 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (sameTask) { s.getTurnReport().dispatches.push({ agent: p.agent, status, elapsed: result.elapsed, billed: run.billed, out: run.out }); s.getSessionTotals().billed += run.billed; s.getSessionTotals().out += run.out; }
 	const unresolved = d.extractNeedsResearch(result.output); const answered = researchRounds.reduce((n, r) => n + r.questions.length, 0);
 	const notices: string[] = [];
+ const checkNotice = checkDiagnostics && verificationDiagnosticNotice(checkDiagnostics);
+ if (checkNotice) notices.push(checkNotice);
 	if (!sameTask) notices.push("Late result from a prior task/session: evidence retained in its original namespace; current-task counters and blockers were not changed.");
 	if (disposition.delivered) notices.push(accepted
 		? `Execution and current-state verification accepted by the runtime contract. Acceptance check: ${assessmentPath}`
@@ -769,7 +775,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(operatorStateVerification?{operatorStateVerification}:{}), ...(privateConfigVerification?{privateConfigVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(operatorStateVerification?{operatorStateVerification}:{}), ...(privateConfigVerification?{privateConfigVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, verificationDiagnostics: checkDiagnostics, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -896,7 +902,23 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 }
 
 export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchParams> {
-	return withNoProgress(d, "research", async (_id, params, signal, onUpdate, ctx) => {
+	return withNoProgress(d, "research", researchExecution(d), (params, ctx) => researchExecutionConditions(d, params, ctx));
+}
+
+/** Recovery analysis is read-only and each run is an explicit operator request bounded by the
+ * coordinator. It must not inherit the research no-progress fence: a crashed analysis would
+ * otherwise permanently refuse every later re-analysis of the same interrupted task. */
+export function createRecoveryResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchParams> {
+	const execute = researchExecution(d);
+	return async (id, params, signal, onUpdate, ctx) => {
+		try { normalizeResearchContract(params); }
+		catch (error) { return { content: [{ type: "text", text: String(error) }], details: { status: "invalid_input", reason: "invalid_read_scope", recoveryCategory: "invalid_input", started: false, exitCode: 1 } }; }
+		return execute(id, params, signal, onUpdate, ctx);
+	};
+}
+
+function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchParams> {
+	return async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability; const s = d.state; d.budget.ensureTaskTier();
 		const preflight = preflightGate(d, params.persona || ""); if (preflight) return refusal(d, "", params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`, preflight.reason);
 		if (signal?.aborted) return refusal(d, "", params.task, "cancelled", "Operation cancelled before research.");
@@ -912,7 +934,7 @@ export function createResearchExecutor(d: DispatchExecutorDeps): ToolExecutor<Sp
   onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
 		try { const result = await d.research.spawn(state, structuredResearchPrompt(params), ctx, artifacts, signal, {readScope:normalizeResearchContract(params).readScope,admit}); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, lifecycle: (result as any).lifecycle ?? null, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
 		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, model, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
-	}, (params, ctx) => researchExecutionConditions(d, params, ctx));
+	};
 }
 
 function hasWriteCapability(tools: string): boolean { const set = new Set(String(tools || "").split(",").map(x => x.trim()).filter(Boolean)); return ["write", "edit", "bash"].some(x => set.has(x)); }

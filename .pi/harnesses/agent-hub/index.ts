@@ -27,7 +27,9 @@ import { loadProactiveConfig, isCaptureEnabled } from "./proactive-config.ts";
 import { createProactiveRuntime, createHubCapture, composeHubProactive } from "./proactive-runtime.ts";
 import type { ProactiveConfig } from "./proactive-types.ts";
 import { registerRecover, runRecoverCommand } from "./commands/recover.ts";
-import { createNoProgressGuard } from "./no-progress.ts";
+import { createRecoveryContinuation } from './recovery-continuation.ts';
+import { registerRecoverTask } from './tools/recover-task.ts';
+import { createNoProgressGuard, processRecoveryAttempts } from "./no-progress.ts";
 import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts';
 import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
 import { hasExplicitDispatcher, isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
@@ -62,7 +64,7 @@ import {
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
 import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
-import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
+import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, basePersonaName, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
@@ -134,7 +136,7 @@ import { createToolExecutionOrchestration } from "./tools/execution-orchestratio
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
 import { contextPressureDiagnostic, createContextPressureState, pressureCapabilityState, transitionContextPressure, type ContextPressureState } from "./context-pressure.ts";
 import { confirmationOutcome, capabilityConfirmationPack, capabilityConfirmationQuestion, type ConfirmableCapabilityPack } from "./capability-confirmation.ts";
-import { confirmRecoverAction, confirmTaskSupersession, createReservedTaskIdentityReset } from "./budget-recovery.ts";
+import { confirmRecoverAction, confirmTaskContinuation, confirmTaskSupersession, createReservedTaskIdentityReset } from "./budget-recovery.ts";
 import { requestRuntimeAsk } from "../ask-user-remote/runtime-ask.ts";
 import { observeAskUserResults } from "../ask-user-remote/index.ts";
 import {PermissionRelay,registerPermissionRelay,handlePermissionEnvelope} from './permission-relay.ts';
@@ -552,7 +554,7 @@ export default function (pi: ExtensionAPI) {
 	// surfaced in the status line. Resets on session_start.
 	let delegatedTokens = 0;
 
-	const noProgress = createNoProgressGuard((type, data) => pi.appendEntry(type, data));
+	const noProgress = createNoProgressGuard((type, data) => pi.appendEntry(type, data), processRecoveryAttempts());
 	const executionTrace = createExecutionTrace({
 		identity: () => ({ taskId: noProgress.taskId(), inputRevision: hubTaskText ?? "" }),
 		persist: row => pi.appendEntry(EXECUTION_TRACE_ENTRY, row),
@@ -1008,6 +1010,7 @@ export default function (pi: ExtensionAPI) {
 		getAgenticAskEnabled: () => agenticHubEnabled(pi),
    getFileDiscoveryEnabled: () => discoveryHubEnabled(pi),
 		getDispatchTriageEnabled: () => triageRuntime?.available === true,
+  getRecoveryAvailable: () => noProgress.hasRecoverableOperations(),
 		getActiveTeamName: () => activeTeamName, getComsReady: () => comsReady,
 		getHerdrReady: () => herdrFleetReady, getAskUserAvailable: () => askUserAvailable,
 		getIdentityLabel: () => identity ? `${identity.name}@${identity.project}` : null,
@@ -1022,6 +1025,16 @@ export default function (pi: ExtensionAPI) {
 	} = workModePolicy;
 
 
+	function addParallelAgentInstance(base: string, instance: string): boolean {
+		const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === base);
+		if (!def) return false;
+		// The instance keeps the base persona's prompt file, tools and the model and
+		// thinking it resolves to now, so project model overrides still apply.
+		const clone: AgentDef = { ...def, name: instance, model: resolvedModel(def) ?? def.model, thinking: resolvedThinking(def) ?? def.thinking };
+		const result = rosterPolicy.addInstance(clone);
+		if (result.ok) widgetCtx?.ui?.notify?.(`dispatch_agent: ${result.message}`, "info");
+		return result.ok;
+	}
 	const toolCtx: ToolContext = createToolExecutionOrchestration({
 		dispatch: {
 			state: {
@@ -1042,16 +1055,7 @@ export default function (pi: ExtensionAPI) {
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
 				getActiveWriters: () => Array.from(activeWriters.values()),
-				addAgentInstance: (base, instance) => {
-					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === base);
-					if (!def) return false;
-					// The instance keeps the base persona's prompt file, tools and the model and
-					// thinking it resolves to now, so project model overrides still apply.
-					const clone: AgentDef = { ...def, name: instance, model: resolvedModel(def) ?? def.model, thinking: resolvedThinking(def) ?? def.thinking };
-					const result = rosterPolicy.addInstance(clone);
-					if (result.ok) widgetCtx?.ui?.notify?.(`dispatch_agent: ${result.message}`, "info");
-					return result.ok;
-				},
+				addAgentInstance: (base, instance) => addParallelAgentInstance(base, instance),
 				beginWriter: entry => {
 					const id = ++writerSequence;
 					activeWriters.set(id, entry);
@@ -1072,7 +1076,9 @@ export default function (pi: ExtensionAPI) {
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
 			budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
-			provisionalCapabilityRefusal, dispatchAgent, runReturnExtraction,
+			provisionalCapabilityRefusal,
+   dispatchAgent: (agent, task, ...args) => dispatchAgent(agent, noProgress.recoveryTask(task), ...args),
+   runReturnExtraction,
 			returnExtractionAssist: () => resolveAssist(readActiveProfile()?.profile.assist)['return-extraction'],
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
 			resolvedAgentModel: (def, ctx) => resolvedModel(def as AgentDef) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
@@ -1122,6 +1128,33 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+ const continueTask = createRecoveryContinuation({
+  guard: noProgress, research: toolCtx.executeRecoveryResearch, execute: toolCtx.executeDispatchAgent,
+  sessionDir: () => sessionDir,
+  // A recorded parallel instance (builder--p2) does not survive a restart; re-create it
+  // from its base persona so the continuation keeps the original executor identity.
+  prepareAgent: agent => {
+   const name = normalizeAgentInput(agent), base = basePersonaName(name);
+   if (base === name || agentStates.has(name)) return true;
+   try { addParallelAgentInstance(base, name); } catch { return false; }
+   return agentStates.has(name);
+  },
+  revision: (ctx, invocation) => {
+   const cwd = ctx.cwd || process.cwd();
+   const revision = revisionOf(cwd, revisionScopes(cwd, [...(invocation?.scope ?? []), ...processState.changedFiles]));
+   if (revision === 'unavailable') return revision;
+   const inputs = assertionsArtifactsCtx.loadInputArtifacts(invocation?.artifacts, ctx).map(input => [input.path, createHash('sha256').update(readFileSync(input.path)).digest('hex')]);
+   return createHash('sha256').update(JSON.stringify({ revision, inputs })).digest('hex');
+  },
+  contextIdentity: () => createHash('sha256').update(JSON.stringify({ input: hubTaskText, assertions, assessment: taskTriage?.current?.revision, profile: readActiveProfile() })).digest('hex'),
+  confirm: (input, ctx, ports) => confirmTaskContinuation(input, ctx, {
+   ...ports, taskId: () => noProgress.taskId(), language: () => userLanguage,
+   ask: (id, params, askCtx, signal) => requestRuntimeAsk(pi.events, id, params, askCtx, signal),
+   startWait: id => executionHistory.startAskUser(id),
+   endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
+  }),
+ });
+ registerRecoverTask(pi, continueTask);
 	function triageInput(task: string, scope: string[], language: string, domain: string): TriageInput {
   const candidates = [...agentStates.values()].map(s => {
    const name = s.def.name.toLowerCase();
@@ -1357,6 +1390,8 @@ export default function (pi: ExtensionAPI) {
         handleRecover: async (args, ctx) => {
             await runRecoverCommand(args, ctx, {
                 noProgress,
+                continueTask,
+                reportContinuation: (content, details) => pi.sendMessage({ customType: 'agent-hub-recovery-continuation', content, display: true, details }, { deliverAs: 'followUp', triggerTurn: false }),
                 currentRevision: cwd => scopes => revisionOf(cwd, [...scopes]),
                 confirm: confirmRecoverAction,
                 askPorts: (op, attempt, action) => ({
@@ -2375,6 +2410,7 @@ export default function (pi: ExtensionAPI) {
 			latestUnknownToolNotice = unknownToolNotice(diagnostic);
 			try { pi.appendEntry(UNKNOWN_TOOL_COUNTER_ENTRY_TYPE, { snapshot: unknownToolCounter.snapshot(), diagnostic }); } catch {}
 		}
+  if (event.message.role === 'toolResult' && noProgress.hasRecoverableOperations() !== pi.getActiveTools().includes('recover_task')) applyWorkModeTools();
 		pressureLifecycle.messageEnd(event, ctx);
 	});
 	pi.on("turn_start", event => { toolCatalogRuntime.beginModelRequest(); hubCapture.start(event.turnIndex); });
@@ -2583,7 +2619,10 @@ export default function (pi: ExtensionAPI) {
 			catch { processState = createProcessState(); processPersistenceBlocked = true; }
 			taskTriage?.restore(sessionEntries);
             const savedTaskIds = new Set(processState.additions?.map(addition => addition.taskId));
-            noProgress.restore(sessionEntries, savedTaskIds.size === 1 ? [...savedTaskIds][0] : undefined);
+            // A rejected history keeps the guard's restore fence (dispatch refuses with
+            // recovery_restore_failed) but must not abort the rest of session start.
+            try { noProgress.restore(sessionEntries, savedTaskIds.size === 1 ? [...savedTaskIds][0] : undefined); }
+            catch { _ctx.ui?.notify?.('Recovery history could not be restored; dispatch stays refused until it is repaired. Inspect the session recovery entries.', 'error'); }
             if (processTaskIdentityConflicts(processState, noProgress.taskId())) processPersistenceBlocked = true;
               await configureDamageGuardHub(pi, { snapshot: system1Snapshot, service: watchdogSystem1?.sharedService, ctx: _ctx, taskId: () => noProgress.taskId(), childAuthority: { taskToken: () => noProgress.taskToken(), admit: () => !processBlock() } });
             if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {

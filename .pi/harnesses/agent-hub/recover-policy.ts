@@ -40,5 +40,5 @@ export function describeInvocationAvailability(guard: NoProgressGuard, operation
 export function renderRecoverCommands(guard: NoProgressGuard, operationId: string, attemptId: string): string | null {
  const op = guard.inspect(operationId);
  if (!op || !ID.test(operationId) || !ID.test(attemptId) || !op.attempts.some(a => a.attemptId === attemptId)) return null;
- return [`/af-recover inspect ${operationId}`, `/af-recover retry ${operationId} ${attemptId}`, `/af-recover reconcile ${operationId} ${attemptId}`, `/af-recover abandon ${operationId} ${attemptId}`].join('; ');
+ return [`/af-recover inspect ${operationId}`, `/af-recover continue ${operationId} ${attemptId}`, `/af-recover retry ${operationId} ${attemptId}`, `/af-recover reconcile ${operationId} ${attemptId}`, `/af-recover abandon ${operationId} ${attemptId}`].join('; ');
 }

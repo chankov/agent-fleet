@@ -16,6 +16,7 @@ export interface WorkModePolicyPorts {
 	getAskUserAvailable(): boolean;
 	getDeterministicToolsEnabled?(): boolean;
 	getDispatchTriageEnabled?(): boolean;
+ getRecoveryAvailable?(): boolean;
 	getAgenticAskEnabled?(): boolean;
  getFileDiscoveryEnabled?(): boolean;
 	getIdentityLabel(): string | null;
@@ -83,7 +84,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts): WorkModePolicy
 	}
 	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
 		const previous = [...(ports.getActiveTools?.() ?? [])];
-		const requested = resolveWorkModeTools({ baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, fileDiscoveryEnabled: ports.getFileDiscoveryEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
+		const requested = resolveWorkModeTools({ baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, recoveryAvailable: ports.getRecoveryAvailable?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, fileDiscoveryEnabled: ports.getFileDiscoveryEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
 		ports.setActiveTools(requested);
 		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}

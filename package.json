@@ -124,6 +124,7 @@
     "docs/hermes-watchdog-supervisor.md",
     "docs/workflows.md",
     "docs/session-worktree-targeting.md",
+    "docs/hub-task-continuation.md",
     "docs/pi-setup.md",
     ".versions/",
     "vendor/agent-skills-upstream/",
