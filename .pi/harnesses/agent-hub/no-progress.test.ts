@@ -705,7 +705,7 @@ test('registered tool schemas retain runtime optional fields and provider compat
  for (const name of ['private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {
   assert.equal(fields[name].type, 'array'); assert.equal(fields[name].items.type, 'string');
  }
- for (const [name, values] of Object.entries({ review_mode: ['changes','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], scope_mode: ['existing','create'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] })) {
+ for (const [name, values] of Object.entries({ review_mode: ['changes','run-checks','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], scope_mode: ['existing','create'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] })) {
   assert.deepEqual(fields[name].anyOf.map((v: any) => v.const), values);
   assert.equal(Object.hasOwn(fields[name], 'default'), false, 'runtime, not schema, owns defaults');
  }

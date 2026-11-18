@@ -117,7 +117,7 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
   if (typeof params[key] !== 'string') add(key, 'nonblank string', params[key]);
   else if (!(params[key] as string).trim()) add(key, 'nonblank string', params[key], 'blank');
  }
- const enums: Record<string, string[]> = { scope_mode: ['existing','create'], review_mode: ['changes','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] };
+ const enums: Record<string, string[]> = { scope_mode: ['existing','create'], review_mode: ['changes','run-checks','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] };
  for (const [key, item] of Object.entries(params)) {
   if (!keys.includes(key)) { add('params.<unknown-key>', 'supported field', item, 'unknown key (redacted)'); continue; }
   if (item === undefined || key === 'task' || key === 'agent') continue;
@@ -471,7 +471,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             const currentReadback = readBackDeliverables({ files: original.readback.map(row => ({ input: row.path, path: row.path, before: row.sha256 ?? null })), scopeRoots: [] }, roots);
             if (original.readback.some((row, i) => row.status !== 'read' || !row.sha256 || currentReadback[i]?.status !== 'read' || currentReadback[i]?.sha256 !== row.sha256)) return { cleared: false as const, reason: 'readback_changed_or_unsafe' };
             const verifiedReadback = original.readback.map((row, i) => ({ ...row, path: relative(roots.cwd, row.path).replace(/\\/g, '/'), sha256: currentReadback[i]!.sha256 }));
-            const reviewer = [...dispatchEvidence.values()].find(row => row.taskId === op.taskId && row.executor !== op.executor && row.completed && row.revision === currentRevision && (row.revisionScopes ?? []).join('\n') === basis.join('\n') && !row.edited && row.blockingFindings === 0 && row.changedScope.length === 0 && original.changedScope.every(path => row.coveredScope.includes(path)));
+            const reviewer = [...dispatchEvidence.values()].find(row => row.taskId === op.taskId && row.executor !== op.executor && row.completed && !row.concurrentWriters && row.revision === currentRevision && (row.revisionScopes ?? []).join('\n') === basis.join('\n') && !row.edited && row.blockingFindings === 0 && row.changedScope.length === 0 && original.changedScope.every(path => row.coveredScope.includes(path)));
             return reconcileTechnical(recovery, { taskId: op.taskId, operationId, attemptId, currentRevision, observedRevision: original.revision, originalExecutor: original.executor, changedScope: original.changedScope, readback: verifiedReadback, concurrentWriters: original.concurrentWriters, effectsRef: original.effectsRef, reviewer: reviewer && { taskId: reviewer.taskId, executor: reviewer.executor, revision: reviewer.revision, completed: reviewer.completed, blockingFindings: reviewer.blockingFindings, coveredScope: reviewer.coveredScope, edited: reviewer.edited, evidenceRef: reviewer.evidenceRef }, openRequirements: original.openRequirements });
         },
         inspect(operationId: string) { return recovery.inspect(operationId); },
@@ -652,13 +652,27 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 			try { return [input.path, createHash("sha256").update(readFileSync(input.path)).digest("hex")]; }
 			catch { return [input.path, "unreadable"]; }
 		}).sort(([a], [b]) => a.localeCompare(b));
-		const contractIdentity = "agent" in params ? normalizePaths(params.deliverables) : scope;
+		const dispatch = "agent" in params ? params as DispatchAgentParams : undefined;
+		const contractIdentity = dispatch ? normalizePaths(dispatch.deliverables) : scope;
+		const reviewMode = dispatch?.review_mode;
+		const structuredContract = research
+			? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult }
+			: {
+				scope,
+				deliverables: contractIdentity,
+				scopeMode: dispatch?.scope_mode ?? "existing",
+				...(reviewMode && reviewMode !== "changes" ? { reviewMode } : {}),
+				...(reviewMode === "private-config-current-state" ? {
+					privateFiles: dispatch?.private_config_files,
+					verifierSources: dispatch?.verifier_sources,
+				} : {}),
+			};
 		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity]);
 		const conditions = executionConditions(params, ctx);
 		const fingerprint = () => canonical({
 			worktree: worktreeRevision(cwd, scope),
 			artifacts: artifactRevision(),
-			structuredContract: research ? { readScope: research.readScope, goalDeclared: !!research.goal, expectedResultDeclared: !!research.expectedResult } : { scope, deliverables: contractIdentity, scopeMode: (params as DispatchAgentParams).scope_mode ?? "existing", ...((params as DispatchAgentParams).review_mode==='operator-current-state'?{reviewMode:'operator-current-state'}:(params as DispatchAgentParams).review_mode==='private-config-current-state'?{reviewMode:'private-config-current-state',privateFiles:(params as DispatchAgentParams).private_config_files,verifierSources:(params as DispatchAgentParams).verifier_sources}:{}) },
+			structuredContract,
 			conditions,
 			// Authoritative prerequisite snapshot: tier/catalog changes unblock not_started.
 			// Task identity is deliberately excluded so reset cannot bypass cancel/unknown-write fences.

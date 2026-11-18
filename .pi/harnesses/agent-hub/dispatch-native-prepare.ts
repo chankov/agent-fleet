@@ -36,6 +36,7 @@ import { bindResume, type TaskResumeInput } from "./task-resume-contract.ts";
 import { confineNativeChild, type WriteIsolationRequest } from "./write-isolation.ts";
 import { effectiveProcessStage } from "./process-obligations.ts";
 import { stageProducerTools } from "./task-triage-stage-guard.ts";
+import { dispatchAccess } from "./dispatch-access.ts";
 
 export function sessionObserverAssignment(config: ProactiveConfig | null | undefined, personaKey: string, assignment: Omit<ObserverAssignment, "config">): ObserverAssignment | undefined {
 	return isProactiveSpecialist(personaKey) && config && isCaptureEnabled(config) ? { ...assignment, config } : undefined;
@@ -44,6 +45,16 @@ export function sessionObserverAssignment(config: ProactiveConfig | null | undef
 export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: boolean, requestedContract?: Omit<TaskResumeInput, "previous">): Promise<PreparedNativeRun | NativeDispatchResult> {
 	const { deps, state, ctx, task, inputArtifacts, scopeGlobs, personaKey, agentKey, runNumber } = base;
  const admittedTools=state.def.tools;
+ const admittedReadOnly = state.def.readOnly;
+ if (base.access) {
+  const current = dispatchAccess(state.def, base.access.reviewMode);
+  if (current.writable !== base.access.writable || current.tools !== base.access.tools) {
+   return base.finishRun("Dispatch access changed during native routing; no child started.", 1);
+  }
+ }
+ const inspection = base.access?.writable === false;
+ const declaredToolList = base.access?.tools ?? state.def.tools;
+ const permissions = inspection ? declaredToolList : requestedContract?.permissions ?? declaredToolList;
  const admittedCwd=ctx.cwd||process.cwd();
  const payloadSnapshot=JSON.stringify([task,scopeGlobs,inputArtifacts]);
 	const model = deps.resolvedModel(state.def)
@@ -60,7 +71,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		deliverables: requestedContract?.deliverables,
 		artifacts: requestedContract?.artifacts ?? inputArtifacts.map(artifact => artifact.path),
 		model: requestedContract?.model ?? model,
-		permissions: requestedContract?.permissions ?? state.def.tools,
+		permissions,
 		boundAssertionIds: requestedContract?.boundAssertionIds,
   previous: state.resumeContract,
 	});
@@ -78,7 +89,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
   taskId:requestedContract?.taskId??task,instructions:requestedContract?.instructions??task,
   boundAssertionIds:requestedContract?.boundAssertionIds,
   scope:requestedContract?.scope??scopeGlobs,deliverables:requestedContract?.deliverables,
-  artifacts:requestedContract?.artifacts??inputArtifacts.map(a=>a.path),permissions:requestedContract?.permissions??state.def.tools,
+  artifacts:requestedContract?.artifacts??inputArtifacts.map(a=>a.path),permissions:inspection ? declaredToolList : requestedContract?.permissions??state.def.tools,
  }));
 	let resumeAllowed = resumeContract.resumeAllowed && !!state.sessionFile && existsSync(state.sessionFile);
 	if (resumeAllowed) copyFileSync(state.sessionFile!, agentSessionFile);
@@ -135,7 +146,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	const delegateExtPath = deps.getDelegateExtensionPath();
 	const stageConfirmation = !!deps.getProcessState && effectiveProcessStage(deps.getProcessState(), "confirmation");
 	if (stageConfirmation) resumeAllowed = false; // never resume a prior, unguarded tool catalog
-	const delegationActive = !stageConfirmation && turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
+	const delegationActive = !inspection && !stageConfirmation && turnBudget.delegation && !!subagentRoles && !!delegateExtPath;
 	const projectPolicy = {
 		rulesPaths: deps.specialistProjectPolicyPaths(ctx.cwd || process.cwd()),
 		docsPaths: deps.getProjectDocsPaths(),
@@ -157,16 +168,16 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	}
  const assist = base.assistSnapshot;
  const boundedOutput = assist['bounded-output'];
- const declaredTools = state.def.tools.split(",").map(tool => tool.trim()).filter(Boolean);
- const deterministicTools = assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
+ const declaredTools = declaredToolList.split(",").map(tool => tool.trim()).filter(Boolean);
+ const deterministicTools = !inspection && assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
  if (boundedOutput) extensions.push(fileURLToPath(new URL("./bounded-output.ts", import.meta.url)));
  if (deterministicTools) extensions.push(fileURLToPath(new URL("./filesystem-tool.ts", import.meta.url)));
  if (!stageConfirmation && declaredTools.includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
-	let effectiveTools = deterministicTools && !declaredTools.includes("filesystem") ? `${state.def.tools},filesystem` : state.def.tools;
-	if (stageConfirmation) {
+	let effectiveTools = deterministicTools && !declaredTools.includes("filesystem") ? `${declaredToolList},filesystem` : declaredToolList;
+	if (stageConfirmation || inspection) {
 		// Stage children have no exact action binding. The Hub records their
 		// response as a run artifact; neither shell nor planner writes are exempt.
-		effectiveTools = stageProducerTools(state.def.tools);
+		effectiveTools = stageProducerTools(declaredToolList);
 		extensions.push(fileURLToPath(new URL("./task-triage-stage-guard.ts", import.meta.url)));
 	}
 	let delegateEnv: Record<string, string> | undefined;
@@ -175,7 +186,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		mkdirSync(delegationDir, { recursive: true, mode: 0o700 });
 		try { chmodSync(delegationDir, 0o700); } catch {}
 		extensions.push(delegateExtPath!);
-		effectiveTools = `${state.def.tools},delegate`;
+		effectiveTools = `${declaredToolList},delegate`;
 		delegateEnv = {
 			AGENT_HUB_DELEGATE_CONFIG: JSON.stringify({
 				persona: state.def.name,
@@ -218,11 +229,12 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		});
 	state.specialistManifest = manifest;
 	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber, artifactRoot: safePathWithin(base.sessionDir, "artifacts"), dispatchId: base.dispatchId })
-		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect." : "");
+		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect."
+			: inspection ? "\n\nRead-only dispatch. Inspect the supplied scope and evidence with the available tools. Return your findings through submit_result. Report checks you could not run as unverified." : "");
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
 	extensions.push(fileURLToPath(new URL("./specialist-result.ts", import.meta.url)));
- effectiveTools = [...new Set([...effectiveTools.split(","), "submit_result"])].join(",");
+ effectiveTools = [...new Set([...effectiveTools.split(",").filter(Boolean), "submit_result"])].join(",");
  let runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs) + "\n\n" + SPECIALIST_RESULT_INSTRUCTION;
 	let writeIsolation: WriteIsolationRequest | undefined;
 	let writeIsolationPolicy;
@@ -234,7 +246,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		writeIsolation = {
 			enabled: true,
 			cwd: ctx.cwd || process.cwd(),
-			allowlist: [...scopeGlobs],
+			allowlist: inspection ? [] : [...scopeGlobs],
 			runtimePaths: [base.evidenceDir],
 			artifactPaths: [artifactRoot],
 			tempPaths: [tempRoot],
@@ -249,7 +261,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	if (base.activeProfileSnapshot) delegateEnv = { ...delegateEnv, [PROFILE_ENV]: JSON.stringify(base.activeProfileSnapshot) };
 
  const admitted=()=>{
-  try{return state.def.tools===admittedTools&&!state.killedByOperator&&!state.restarting&&deps.getAgentState(base.key)===state&&state.dispatchId===base.dispatchId&&deps.getSessionDir()===base.sessionDir&&base.launchIdentity===deps.launchIdentity?.()&&deps.nativeAdmission?.(personaKey)!==false
+  try{return state.def.tools===admittedTools&&state.def.readOnly===admittedReadOnly&&!state.killedByOperator&&!state.restarting&&deps.getAgentState(base.key)===state&&state.dispatchId===base.dispatchId&&deps.getSessionDir()===base.sessionDir&&base.launchIdentity===deps.launchIdentity?.()&&deps.nativeAdmission?.(personaKey)!==false
    &&(ctx.cwd||process.cwd())===admittedCwd&&state.task===task&&JSON.stringify([base.task,scopeGlobs,inputArtifacts])===payloadSnapshot&&JSON.stringify(currentContract())===contractSnapshot;
   }catch{return false;}
  };

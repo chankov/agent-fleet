@@ -7,6 +7,7 @@ export interface HubPromptAgent {
 	displayName: string;
 	description: string;
 	tools: string;
+	readOnly?: boolean;
 	model?: string;
 	/** False for an installed agent not yet in the active team; its first dispatch adds it. */
 	inTeam?: boolean;

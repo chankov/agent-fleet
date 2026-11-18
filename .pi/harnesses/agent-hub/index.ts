@@ -1111,6 +1111,7 @@ export default function (pi: ExtensionAPI) {
 					return def ? rosterAdd(def.name) : null;
 				},
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
+				getWriterGeneration: () => writerSequence,
 				getWritableOverlapCounter: () => writableOverlapCounter, setWritableOverlapCounter: value => { writableOverlapCounter = value; },
 			},
 			budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
@@ -2326,6 +2327,7 @@ export default function (pi: ExtensionAPI) {
 			displayName: displayName(def.name),
 			description: def.description,
 			tools: def.tools,
+			readOnly: def.readOnly,
 			model: resolvedModel(def),
 			inTeam: agentStates.has(def.name.toLowerCase()),
 		})),

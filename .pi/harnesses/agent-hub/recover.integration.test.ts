@@ -175,6 +175,7 @@ test('runRecoverCommand reconcile uses independent current-revision evidence and
  await runRecoverCommand(`reconcile ${failed.operationId} ${failed.attemptId}`, ui, handlerDeps(guard));
  assert.match(notices.at(-1) ?? '', /"cleared":false/);
  assert.equal(guard.recordDispatchEvidence({...review,dispatchId:'self-review',executor:'builder'}),true);
+ assert.equal(guard.recordDispatchEvidence({...review,dispatchId:'overlapping-review',concurrentWriters:true}),true);
  notices.length=0;
  await runRecoverCommand(`reconcile ${failed.operationId} ${failed.attemptId}`, ui, handlerDeps(guard));
  assert.match(notices.at(-1) ?? '', /"cleared":false/);

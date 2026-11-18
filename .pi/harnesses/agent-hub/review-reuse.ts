@@ -2,7 +2,7 @@ import { basePersonaName } from "./run-budget.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { worktreeRevision } from "./scope-gate.js";
+import { revisionOf, worktreeRevision } from "./scope-gate.js";
 import type { ProcessObligationState } from "./process-obligations.ts";
 
 const reviewers=new Set(["code-reviewer","plan-reviewer","security-auditor"]);
@@ -41,8 +41,9 @@ export function retainReview(state:ProcessObligationState,input:ReviewInput|null
  } catch { return state; }
 }
 export function reusableReview(state:ProcessObligationState,input:ReviewInput|null,cwd:string):ReviewEvidence|null {
- if(!input||!state.review.evidenceRef)return null;
+ const {evidenceRef,revision,revisionScopes}=state.review;
+ if(!input||!evidenceRef||!revision||!/^[a-f0-9]{64}$/.test(revision))return null;
  const record=state.reviews?.find(r=>r.agent===input.agent);
- if(!record||record.taskId!==input.taskId||record.scopeRevision!==input.scopeRevision||record.contractHash!==input.contractHash||JSON.stringify(record.scope)!==JSON.stringify(input.scope))return null;
- try{return digest(readFileSync(resolve(cwd,record.evidenceRef)))===record.evidenceHash?record:null;}catch{return null;}
+ if(!record||record.evidenceRef!==evidenceRef||record.taskId!==input.taskId||record.scopeRevision!==input.scopeRevision||record.contractHash!==input.contractHash||JSON.stringify(record.scope)!==JSON.stringify(input.scope))return null;
+ try{return revisionOf(cwd,revisionScopes??[])===revision&&digest(readFileSync(resolve(cwd,evidenceRef)))===record.evidenceHash?record:null;}catch{return null;}
 }

@@ -14,6 +14,7 @@ import type { TaskResumeContract } from "./task-resume-contract.ts";
 import type { ResolvedAssistFlags } from "./assist-profile.ts";
 import type { ActiveModelProfile } from "./policy/profile-runtime.ts";
 import type { WriteIsolationRequest, WriteIsolationResult } from "./write-isolation.ts";
+import type { DispatchAccess } from "./dispatch-access.ts";
 
 export type NativeBackend = "auto" | "native" | "coms";
 
@@ -28,6 +29,7 @@ export interface NativeAgentDefinition {
 	name: string;
 	description: string;
 	tools: string;
+	readOnly?: boolean;
 	/** True when the persona declared a tools field instead of inheriting it. */
 	toolsExplicit?: boolean;
 	model?: string;
@@ -229,6 +231,7 @@ export interface NativeDispatchDeps {
 }
 
 export interface NativeRunBase {
+	access?: DispatchAccess;
 	trace?: ReturnType<typeof import("./execution-trace.ts").createNativeExecutionTrace>;
 	readonly sessionDir: string;
  readonly launchIdentity?:unknown;

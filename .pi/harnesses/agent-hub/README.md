@@ -186,9 +186,14 @@ Capped model providers (by default `omlx/` and `custom/`, overridable with
 
 ### Parallel writers
 
-Writes run one at a time by default. A writer is any dispatch whose agent has `write`, `edit` or
-`bash`, so a bash-capable reviewer is a writer too. While a writer runs, another one starts only when
-**both** were dispatched with `parallel: true`:
+Read-only audits and `spawn_research` can run alongside an active builder within the provider's
+concurrency limits. The Hub runs read-only dispatches natively with inspection tools and
+`submit_result`. A persona can declare `writes: []` to use this path for ordinary dispatches.
+Code and security reviewers also support `review_mode: "run-checks"` to run their configured
+shell checks. That mode and the current-state verification modes follow the writer rules.
+
+While a write-capable dispatch runs, another writer can start only when **both** were dispatched
+with `parallel: true`:
 
 - `parallel: true` requires a scope of exact existing files or directories (no globs, no
   `scope_mode: create`) and the native backend; `auto` is forced native and `coms` is refused.
@@ -216,13 +221,17 @@ Writes run one at a time by default. A writer is any dispatch whose agent has `w
 Shared files outside every scope (package.json, lock files, generated manifests, shared indexes) are
 the operator's to edit after the writers finish. Writers never commit.
 
-**Area and final review.** An area review runs as soon as its builder finishes, with
-`parallel: true` and that area as scope, beside builders still at work. It is evidence for its area
-only: a review closes the task's review stage solely when no other writer is running, and its result
-says so (`Area review: …`). The task's review must also cover every changed file at the current
-revision, so any later change reopens it. The operator therefore ends with one final review of the
-whole change once no writer runs, passing the area returns as artifacts. With a single builder that
-one review is both.
+**Area and final review.** A read-only area review can run beside active builders. Use
+`parallel: true` to run another instance of the same reviewer while it is busy. Hub keeps the report
+and records its declared scope, starting and ending revisions, and any reason the result is
+preliminary in `details.reviewEvidence` and the saved assessment. A writer that starts and exits
+during the review still counts as overlap.
+
+Final approval requires the same repository revision at launch and completion, no overlapping
+writer, and coverage of every task file observed across builder runs. Approval reuse requires
+the same repository revision and matching scope, requirements, and report. A later revision change
+reopens the review. After builders finish, run one review of the whole task change. Include any
+preliminary reports as input artifacts when their findings are relevant.
 
 ### Task brief
 
@@ -340,10 +349,10 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   session boundaries and cannot be populated by a late answer from an older task.
   Runtime effects still require and consume their own one-use authorization.
 - `dispatch_agent` reuses successful review evidence only for the same reviewer,
-  task, requirements, covered scope, input artifacts and unchanged reviewed files.
+  task, requirements, covered scope, input artifacts and exact repository revision.
   This includes `security-auditor`. The reply reports `review_reused`, retains the
   original evidence path and starts no child. Use `review_reason` for a fresh focus;
-  changed accepted input, relevant files/requirements, missing evidence, blocking findings or unresolved decisions
+  changed accepted input, repository revision or requirements, missing evidence, blocking findings or unresolved decisions
   require fresh review. Test and acceptance evidence remain separate.
 - Older successful tool bodies are projected to compact references for the model.
   Full originals remain in the session journal and private

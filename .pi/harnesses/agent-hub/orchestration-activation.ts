@@ -34,6 +34,7 @@ export function activeOrchestrationHandoff(input: {
 	elapsedMs?: number;
 	questions: string[];
 	evidenceRefs: string[];
+	review?: { status: "final" | "preliminary"; beforeRevision: string; evidenceRef?: string };
 	approvedPlan: boolean;
 	risk: "low" | "high";
 	scopeBreadth: "narrow" | "wide";
@@ -47,22 +48,24 @@ export function activeOrchestrationHandoff(input: {
 		unresolvedForks: input.questions,
 		selfDeclaredSmall: /small/i.test(input.task),
 	}, sensitiveWorkSignals(input.task));
+	const reviewRefs = input.review?.evidenceRef ? [...new Set([input.review.evidenceRef, ...input.evidenceRefs])] : input.evidenceRefs;
 	const manifest = buildEvidenceManifest({
-		revision: input.revision || "unknown",
+		revision: input.review?.beforeRevision ?? (input.revision || "unknown"),
 		scope: input.scope,
 		changes: input.changes,
 		commands: input.command ? [{ command: input.command, exitCode: input.exitCode }] : [],
 		tests: { executed: input.testsExecuted ?? 0, passed: 0, failed: 0 },
-		evidenceRefs: input.evidenceRefs,
+		evidenceRefs: reviewRefs,
 		openAssertions: input.questions,
 		observedRevision: input.revision || "unknown",
 	});
+	const closureRefs = input.review?.status === "preliminary" ? [] : reviewRefs;
 	const closure = closeReview({
-		revision: input.revision || "unknown",
+		revision: manifest.revision,
 		scope: input.scope,
 		prose: input.agent.includes("review") ? "PASS" : "",
-		origin: input.evidenceRefs.length ? "declared" : "missing",
-		structuredReturn: input.evidenceRefs.length ? { verdict: "PASS", evidenceRefs: input.evidenceRefs } : undefined,
+		origin: closureRefs.length ? "declared" : "missing",
+		structuredReturn: closureRefs.length ? { verdict: "PASS", evidenceRefs: closureRefs } : undefined,
 	});
 	const rerun = chooseReviewerRerun({
 		impact: input.scopeBreadth === "wide" ? "wide" : "narrow",

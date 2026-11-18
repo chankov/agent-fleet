@@ -12,6 +12,7 @@ import { effectiveProcessStage, processPreEffectGate } from "./process-obligatio
 import { runPreparedNative } from "./dispatch-native-spawn.ts";
 import { completeNativeRun } from "./dispatch-native-complete.ts";
 import type { TaskResumeInput } from "./task-resume-contract.ts";
+import { dispatchAccess, type DispatchAccess } from "./dispatch-access.ts";
 import type {
 	DispatchInputArtifactPreview,
 	NativeBackend,
@@ -31,6 +32,7 @@ interface NativeDispatchArgs {
 	requestedBackend: NativeBackend;
 	resumeRequested: boolean;
 	resumeContract?: Omit<TaskResumeInput, "previous">;
+	access?: DispatchAccess;
 	/** The task revision basis (revisionScopes); [] at a root repository. */
 	revisionScopes?: string[];
 	assistSnapshot: ResolvedAssistFlags;
@@ -121,6 +123,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	};
 
 	return {
+		access: args.access,
 		trace: deps.traceNative?.(dispatchId, agentKey),
 		dispatchId, transcriptPath, sessionDir, evidenceDir, deps, state, ctx, task, inputArtifacts, scopeGlobs, revisionScopes: args.revisionScopes ?? [], watchdogParam, launchIdentity:deps.launchIdentity?.(),
 		key: normalizeAgentInput(args.agentName),
@@ -136,6 +139,7 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
 	const isolationRequired = run.assistSnapshot['write-isolation'];
+	const inspection = run.access?.writable === false;
 	const processState = deps.getProcessState?.();
 	const confirmationRequired = !!processState && effectiveProcessStage(processState, "confirmation");
 	if (confirmationRequired) {
@@ -143,7 +147,8 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		if (gate) return run.finishRun(gate.message, 1);
 		if (requestedBackend === "coms") return run.finishRun("Confirmation-required stage production needs a guarded native child; coms has no exact effect binding.", 1);
 	}
-	const forceNative = confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	if (inspection && requestedBackend === "coms") return run.finishRun("Read-only dispatch requires native execution.", 1);
+	const forceNative = inspection || run.access?.reviewMode === "run-checks" || confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
 	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
 	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
 	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
@@ -207,7 +212,11 @@ async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatc
 	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot };
 	const found = missingOrRunning(deps, args.agentName);
 	if (!("def" in found)) return found;
-	const run = beginNativeRun(deps, found, effectiveArgs);
+	const access = (args.access || found.def.readOnly) ? dispatchAccess(found.def, args.access?.reviewMode) : undefined;
+	if (args.access && (args.access.writable !== access?.writable || args.access.tools !== access?.tools)) {
+		return { output: "Dispatch access changed before native admission.", exitCode: 1, elapsed: 0, lifecycle: { launched: false, closeSeen: false } };
+	}
+	const run = beginNativeRun(deps, found, { ...effectiveArgs, access });
 	const execute = async () => {
 		const routed = await routeDispatch(run, args.requestedBackend);
 		if (routed) return routed;
@@ -237,6 +246,7 @@ export function createDispatchNative(deps: NativeDispatchDeps) {
 			resumeRequested = false,
 			resumeContract?: Omit<TaskResumeInput, "previous">,
 			revisionScopes: string[] = [],
-		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract, revisionScopes }),
+			access?: DispatchAccess,
+		) => dispatchNative(deps, { agentName, task, ctx, inputArtifacts, scopeGlobs, watchdogParam, requestedBackend, resumeRequested, resumeContract, revisionScopes, access }),
 	};
 }

@@ -6,6 +6,9 @@ import { createDispatchComs, createDispatchNative, createDispatchObservability, 
 import { PROFILE_ENV } from "./policy/profile-runtime.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
 import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../bin/test/helpers/project-policy-fixture.js";
+import { parseAgentFile } from "./config/agents.ts";
+import { dispatchAccess } from "./dispatch-access.ts";
+import { bindResume } from "./task-resume-contract.ts";
 
 function comsDeps(overrides: Record<string, unknown> = {}) {
 	let pending: any;
@@ -157,6 +160,49 @@ function nativeDeps(state: NativeDispatchState, overrides: Record<string, unknow
 		...overrides,
 	} as any;
 }
+
+test("a declared reviewer launches with inspection tools, and shell verification is explicit and native", async t => {
+	const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "hub-native-read-only-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const def = parseAgentFile("agents/code-reviewer.md");
+	assert.ok(def?.readOnly, "writes: [] is loaded from the persona");
+	assert.ok(parseAgentFile("agents/security-auditor.md")?.readOnly);
+	const contract = { taskId: "audit", instructions: "review", scope: [], permissions: ["read", "bash", "edit"], model: "provider/model" };
+	const state = { ...nativeState(), def, sessionFile: join(root, "old.json"), resumeContract: bindResume(contract) };
+	writeFileSync(state.sessionFile, "{}\n");
+	const launches: Array<{ tools: string; extensions: string[]; resume: boolean }> = [];
+	let comsCalls = 0;
+	const native = createDispatchNative(nativeDeps(state, {
+		getSessionDir: () => root,
+		getDispatchPolicy: () => ({ default: "coms", grace_s: 0, substitutions: {} }),
+		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => [{ name: def.name }],
+		dispatchViaComs: async () => { comsCalls++; return { output: "remote", exitCode: 0 }; },
+		currentBudget: () => ({ delegation: true, agentTurnMs: null }),
+		getDelegateExtensionPath: () => "/must-not-load-delegate.ts",
+		spawnPiAgentWithModelFallback: async (opts: any) => {
+			launches.push(opts);
+			return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 };
+		},
+	}));
+	const ctx = { ...extensionContext, cwd: root };
+	const audit = await native.dispatchAgent(def.name, "review", ctx, [], [], undefined, "auto", true, contract);
+	assert.equal(audit.exitCode, 0, audit.output);
+	assert.deepEqual(launches[0].tools.split(","), ["read", "grep", "find", "ls", "submit_result"]);
+	assert.equal(launches[0].resume, false);
+	assert.ok(launches[0].extensions.some(path => path.endsWith("/task-triage-stage-guard.ts")));
+	assert.ok(!launches[0].extensions.some(path => /must-not-load|runtime-test-check|filesystem-tool/.test(path)));
+	const refused = await native.dispatchAgent(def.name, "review remotely", ctx, [], [], undefined, "coms");
+	assert.match(refused.output, /Read-only dispatch requires native/);
+	assert.equal(launches.length, 1);
+	const verification = await native.dispatchAgent(def.name, "verify", ctx, [], [], undefined, "auto", false, undefined, [], dispatchAccess(def, "run-checks"));
+	assert.equal(verification.exitCode, 0, verification.output);
+	assert.ok(launches[1].tools.split(",").includes("bash"));
+	assert.ok(launches[1].extensions.some(path => path.endsWith("/runtime-test-check.ts")));
+	assert.equal(comsCalls, 0);
+});
 
 test("native dispatch refuses a same-persona race before history while distinct personas run in parallel", async () => {
 	const builder = nativeState();
@@ -469,7 +515,8 @@ test('local-full serializes every declared child locally without project overrid
     for(const entry of Object.values(config.roles) as any[]){roles++;assert.ok(profile['allowed-models'].includes(entry.model));assert.equal(entry.thinking,'off');assert.equal(entry.fallbackModel,undefined);}
     return {output:'local children configured',exitCode:0,stderr:''};
    }}));
-   assert.equal((await run.dispatchAgent(def.name,'task',extensionContext)).exitCode,0);
+   const access = def.readOnly ? dispatchAccess(def, "run-checks") : undefined;
+   assert.equal((await run.dispatchAgent(def.name,'task',extensionContext,[],[],undefined,"auto",false,undefined,[],access)).exitCode,0);
   }
   assert.equal(roles,18);
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}

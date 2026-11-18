@@ -18,6 +18,7 @@ export interface AgentDef extends ResearchAgentDef {
 	name: string;
 	description: string;
 	tools: string;
+	readOnly?: boolean;
 	model?: string;
 	fallbackModel?: string;
 	models?: string[];

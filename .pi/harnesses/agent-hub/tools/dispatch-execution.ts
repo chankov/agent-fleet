@@ -37,6 +37,7 @@ import type { TaskResumeInput } from "../task-resume-contract.ts";
 import { evaluateProcessObligations, noteProcessStage, processAllowsPersona, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "../process-obligations.ts";
 import { activeOrchestrationHandoff, reviewMayClose } from "../orchestration-activation.ts";
 import { authorizePlanStatusUpdate } from "../orchestration-route.ts";
+import { dispatchAccess, type DispatchAccess } from "../dispatch-access.ts";
 
 type Gate = { reason: string; message: string } | null;
 type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
@@ -76,6 +77,8 @@ export interface DispatchExecutionState {
 	/** Records an admitted delegation in the current task brief. */
 	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
+	/** Monotonic registration count, including writers that have already exited. */
+	getWriterGeneration?(): number;
 	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
 	getProcessState?(): ProcessObligationState;
 	processBlock?(): { reason: string; message: string } | null;
@@ -92,7 +95,7 @@ export interface DispatchExecutorDeps {
 	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
 	/** Stops the agent's in-flight run the same way the fleet kill action does. */
 	cancelRunningDispatch?(agent: string): void;
-	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">, revisionScopes?: string[]): Promise<DispatchResult>;
+	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">, revisionScopes?: string[], access?: DispatchAccess): Promise<DispatchResult>;
 	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
 	/** Opt-in profile assistance: recover a missing submit_result from the written report. */
 	returnExtractionAssist?(): boolean;
@@ -105,10 +108,19 @@ export interface DispatchExecutorDeps {
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 
-interface PreparedDispatch { privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; /** Task revision basis (D8); [] at a root repository. */ revisionScopes: string[]; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
+interface PreparedDispatch { access: DispatchAccess; privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; /** Task revision basis (D8); [] at a root repository. */ revisionScopes: string[]; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
 interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
-interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; concurrentAtStart: boolean; release?: () => void; isolatedScope?: string[]; }
+interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; writerGeneration?: number; concurrentAtStart: boolean; release?: () => void; isolatedScope?: string[]; }
 interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; foreignPaths?: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
+interface ReviewRunEvidence {
+	status: "final" | "preliminary";
+	scope: string[];
+	beforeRevision: string;
+	afterRevision: string;
+	revisionScopes: string[];
+	evidenceRef: string;
+	reasons: string[];
+}
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -192,9 +204,8 @@ export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, ta
 	return null;
 }
 
-function dispatchRequirements(d: DispatchExecutorDeps, agent: string, task: string): AcceptanceRequirement[] {
-	const state = d.state.getAgentStates().get(agent.toLowerCase());
-	if (!state || !hasWriteCapability(state.def.tools)) return [];
+function dispatchRequirements(d: DispatchExecutorDeps, access: DispatchAccess, task: string): AcceptanceRequirement[] {
+	if (!access.writable) return [];
 	// validateBoundAssertionIds returns undefined only for an undefined input (legacy caller marker); the ledger map is always an array,
 	// so `?? []` is a type narrowing with no runtime effect — an invalid ledger still throws, an empty ledger still yields an empty set.
 	const ledgerIds = validateBoundAssertionIds(d.state.getAssertions().map(assertion => assertion.id)) ?? [];
@@ -224,13 +235,12 @@ const SCOPE_GLOB = /[*?[\]{}!]/;
 
 /**
  * Writes run one at a time unless every concurrent writer is OS-isolated to a
- * disjoint exact scope (PHILOSOPHY, 2026-11-11). "Writable" follows the existing
- * rule (write, edit or bash), so a bash-capable reviewer is also a writer; an
- * isolated writer with an empty scope cannot write to the repository at all.
+ * disjoint exact scope (PHILOSOPHY, 2026-11-11). Inspection has no writer slot.
+ * An isolated writer with an empty scope cannot write to the repository.
  */
 export function parallelWriterGate(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams): ToolExecutionResult | null {
 	const s = d.state; const def = s.getAgentStates().get(agent)?.def;
-	if (!def || !hasWriteCapability(def.tools)) return null;
+	if (!def || !dispatchAccess(def, params.review_mode).writable) return null;
 	const parallel = params.parallel === true;
 	const scope = (params.scope || []).map(String).map(entry => entry.trim()).filter(Boolean);
 	if (parallel) {
@@ -257,6 +267,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	const s = d.state; const { task, artifacts, scope, review_reason } = params; const agent = normalizeAgentInput(params.agent);
  const privateMode = params.review_mode === 'private-config-current-state';
  const operatorMode = params.review_mode === 'operator-current-state';
+ const runChecks = params.review_mode === "run-checks";
  if (!privateMode && (params.private_config_files !== undefined || params.verifier_sources !== undefined)) return refusal(d,agent,task,'private_config_preflight_failed','Private declarations require explicit private-config-current-state mode.');
  if (privateMode) {
   try {
@@ -272,6 +283,17 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
   return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native code/security reviewer, existing exact files and no deliverables.');
 	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx);
 	if (rosterRefusal) return rosterRefusal;
+	const def = s.getAgentStates().get(agent)?.def;
+	const access = dispatchAccess(def ?? { tools: "" }, params.review_mode);
+	if (runChecks && (!isReviewPersona(agent) || !access.tools.split(",").some(tool => tool.trim() === "bash") || params.backend === "coms")) {
+		return refusal(d, agent, task, "review_checks_requires_native", "run-checks requires a native reviewer configured with bash.");
+	}
+	if (!access.writable && params.backend === "coms") {
+		return refusal(d, agent, task, "read_only_requires_native", "Read-only dispatch requires a native child whose tool list the Hub can enforce.");
+	}
+	if (!access.writable && def?.readOnly && params.deliverables?.length) {
+		return refusal(d, agent, task, "read_only_deliverables", "A read-only audit returns its report through submit_result. File deliverables require a separate writer.");
+	}
 	const writerRefusal = parallelWriterGate(d, agent, params);
 	if (writerRefusal) return writerRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
@@ -301,7 +323,13 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
    if(checkScope(s.getProcessState!().changedFiles,operatorCandidate.paths).outOfScope.length)throw Error('operator_state_incomplete_scope');
   }catch(e){return refusal(d,agent,task,'operator_state_preflight_failed',e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable');}
  }
- const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${review_reason ?? ""}\n${JSON.stringify(scope ?? [])}${operatorMode?'\noperator-current-state':''}` : task);
+	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
+	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();
+	const revisionBasis = basisFor(beforeSnapshot);
+	const beforeRevision = revisionFor(beforeSnapshot, revisionBasis);
+	const reviewConditions = [review_reason ?? "", scope ?? [], params.review_mode ?? "changes", beforeRevision,
+		s.getWriterGeneration?.(), s.getActiveWritableDispatches() > 0 || !!s.getActiveWriters?.().length];
+	const fingerprint = taskFingerprint(agent, isReviewPersona(agent) ? `${task}\n${JSON.stringify(reviewConditions)}` : task);
 	// A consumed continuation permit is the explicit, human-confirmed repeat of an
 	// interrupted attempt (e.g. a watchdog stop this turn), not a model re-dispatch.
 	if (s.getTurnDispatchFingerprints().has(fingerprint) && !d.noProgress.continuing?.()) return refusal(d, agent, task, "duplicate_refused", `⚠ Duplicate dispatch refused: you already dispatched ${agent} with this task (or a trivial rewording of it) THIS turn. Use the earlier result — re-read its digest/returnPath — or change the task materially (new instructions, corrected inputs) before re-dispatching.`);
@@ -313,7 +341,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	s.getSessionTotals().dispatches++; d.budget.updateModeStatus();
 	const scopeGlobs = (scope || []).map(String).map(x => x.trim()).filter(Boolean);
 	try { s.recordDelegation?.({ agent, kind: "specialist", task, scope: scopeGlobs }); } catch { /* the brief is a record, never a gate */ }
-	const requirements = privateMode ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, agent, operatorMode ? '' : task);
+	const requirements = privateMode ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, access, operatorMode ? '' : task);
  const privateConfig: PrivateConfigBinding | undefined = privateMode ? {files: [...params.private_config_files!].sort(), sources: [...params.verifier_sources!].sort(), taskId: d.noProgress.taskId(), sessionDir: s.getSessionDir(), declarationHash: receiptDeclarationHash(requirements, scopeGlobs, s.getAcceptedUserInput?.(), inputArtifacts), captureId: '', generation: '', epoch: 0} : undefined;
 	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements) + (privateConfig ? '\n\n## Private configuration current-state review\nReview the declared verifier/helper sources for semantic adequacy and completeness of declared dependencies. Private bodies are NOT input artifacts: never attach, copy, quote or export them. Run each exact declared offline command through approved bash. No activation, notification runtime, sockets, grants, policy changes or journal replay. Return an explicit APPROVE/REJECT and full scoped regression evidence. This private proof cannot satisfy Git source obligations.\nVerifier/helper sources: ' + JSON.stringify(privateConfig.sources) : '') + (operatorCandidate ? '\n\n## Explicit operator-current-state verification\nInspect the exact current candidate; do not modify source or claim historical authorship. Run every explicit automated verification command through approved bash, and report full scoped regression evidence. Manual assertions remain unsupported by automation. Return an explicit APPROVE/REJECT; runtime verifies unchanged scope/revision and actual checks. This does not make your read-only task a changed-task success.' : '');
 	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
@@ -325,23 +353,21 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
   boundAssertionIds: s.getAssertions().length ? Object.freeze(validateBoundAssertionIds(requirements.map(requirement => requirement.id))) : undefined,
 		deliverables: contract.files.map(file => file.path), artifacts: inputArtifacts.map(artifact => artifact.path),
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
-		permissions: agentState?.def.tools ?? "",
+		permissions: access.tools,
 	};
-	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
-	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();
-	const revisionBasis = basisFor(beforeSnapshot);
- return { privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision: revisionFor(beforeSnapshot, revisionBasis), revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
+ return { access, privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision, revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
-	const s = d.state; const state = s.getAgentStates().get(prepared.agent.toLowerCase()); const canWrite = !!state && hasWriteCapability(state.def.tools);
-	const tracking: Tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), concurrentAtStart: s.getActiveWritableDispatches() > 0 };
+	const s = d.state; const canWrite = prepared.access.writable;
+	const tracking: Tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), writerGeneration: s.getWriterGeneration?.(), concurrentAtStart: s.getActiveWritableDispatches() > 0 || !!s.getActiveWriters?.().length };
 	if (canWrite) {
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
 		if (tracking.concurrentAtStart) s.setWritableOverlapCounter(s.getWritableOverlapCounter() + 1);
 		s.setActiveWritableDispatches(s.getActiveWritableDispatches() + 1);
 		// Registering an isolated writer is what makes its native launch sandboxed to its scope.
 		tracking.release = s.beginWriter?.({ agent: prepared.agent, scope: prepared.scopeGlobs, isolated: prepared.parallel === true });
+		tracking.writerGeneration = s.getWriterGeneration?.();
 		if (prepared.parallel) tracking.isolatedScope = prepared.scopeGlobs;
 		tracking.snapshot = prepared.beforeSnapshot ?? snapshotWorktree(ctx.cwd || process.cwd(), prepared.scopeGlobs);
 	}
@@ -368,7 +394,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
 
 async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate, signal?: AbortSignal): Promise<RunData> {
 	const findingClause = reviewBudgetClause(d.state.getTaskTier(), p.agent); const dispatchedTask = findingClause ? `${p.task}\n\n${findingClause}` : p.task;
-	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract, p.revisionScopes);
+	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract, p.revisionScopes, p.access);
 	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = [];
 	while (result.exitCode === 0 && !signal?.aborted && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
 		const questions = d.extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS); if (!questions.length) break;
@@ -383,7 +409,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		researchRounds.push({ questions, files: answered.map(a => a.file) });
 		const resume = "Research findings for your NEEDS_RESEARCH questions are ready. Read each file with your read tool, then continue from where you paused:\n" + answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
 		if (signal?.aborted || p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
-		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract, p.revisionScopes); billed += result.billed ?? 0; out += result.out ?? 0;
+		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract, p.revisionScopes, p.access); billed += result.billed ?? 0; out += result.out ?? 0;
 	}
 	return { result, billed, out, researchRounds };
 }
@@ -394,6 +420,11 @@ function otherActiveWriters(d: DispatchExecutorDeps, p: PreparedDispatch, tracki
 	const writers = s.getActiveWriters?.()
 		?? Array.from({ length: Math.max(0, s.getActiveWritableDispatches() - (tracking.writable ? 1 : 0)) }, () => ({ agent: "a writable dispatch" }));
 	return writers.filter(writer => writer.agent.toLowerCase() !== p.agent.toLowerCase());
+}
+
+function writerOverlappedReview(d: DispatchExecutorDeps, tracking: Tracking): boolean {
+	return tracking.concurrentAtStart || tracking.writerGeneration !== d.state.getWriterGeneration?.()
+		|| tracking.overlapBaseline !== d.state.getWritableOverlapCounter();
 }
 
 function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
@@ -453,6 +484,7 @@ async function diagnoseObservation(d: DispatchExecutorDeps, observation: Worktre
 
 async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, run: RunData, tracking: Tracking, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<ToolExecutionResult> {
 	const s = d.state; const { result, researchRounds } = run; const cwd = ctx.cwd || process.cwd();
+	const isSourceReview = !p.privateConfig && isReviewPersona(p.agent);
 	const sameTaskNow = () => p.taskToken === d.noProgress.taskToken() && p.sessionDir === s.getSessionDir();
 	const ids = validateBoundAssertionIds(p.resumeContract.boundAssertionIds) ?? extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
 	// Observe immediately at logical child completion, before Hub-owned artifacts are written.
@@ -478,9 +510,8 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 
 	// The one shared post-run delta feeds both scope reporting and compiler selection.
 	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
-	// The post-run observation also yields the revision; only an awaited compiler run
-	// needs a fresh revision for acceptance afterwards.
-	const compilerInspectedRevision = observation && !observation.skipped && observation.snapshot ? snapshotRevision(observation.snapshot) : worktreeRevision(cwd, [], p.scopeGlobs);
+	// Reuse the post-run observation for compiler checks, before running any compiler.
+	const compilerInspectedRevision = observation && !observation.skipped && observation.snapshot ? snapshotRevision(observation.snapshot) : isSourceReview ? "unavailable" : worktreeRevision(cwd, [], p.scopeGlobs);
 	let compilerRan = false;
 	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
 	if (eligibleForCompiler && observation?.skipped) {
@@ -533,7 +564,8 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		}
 	}
 	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	const repositoryAfterRevision = p.revisionScopes.length ? revisionOf(cwd, p.revisionScopes) : compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
+	// A review's revision must still match after any awaited return extraction or compiler work.
+	const repositoryAfterRevision = isSourceReview || p.revisionScopes.length ? revisionOf(cwd, p.revisionScopes) : compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
 	// Each recorded stage is checked over the basis it was recorded with.
 	const stageRevision = (scopes: readonly string[]) => scopes.join("\n") === p.revisionScopes.join("\n") ? afterRevision : revisionOf(cwd, [...scopes]);
  const afterRevision = p.privateConfig ? privateConfigRevision(cwd, repositoryAfterRevision, p.privateConfig) : repositoryAfterRevision;
@@ -559,11 +591,13 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
     // Source revision, stream integrity and concurrent-writer gates still apply.
     const evidenceCommands = new Set(p.requirements.flatMap(requirement =>
       [requirement.testCommand, requirement.compilerCommand].filter(Boolean)));
-    const exclusive = captureClean && !(result.runtimeTests ?? []).some(record => evidenceCommands.has(record.command) && record.exclusive === false) && !tracking.concurrentAtStart && s.getWritableOverlapCounter() === tracking.overlapBaseline && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0);
+	const otherWriters = isSourceReview ? otherActiveWriters(d, p, tracking) : [];
+	const reviewOverlapped = isSourceReview && (otherWriters.length > 0 || writerOverlappedReview(d, tracking));
+	const exclusive = captureClean && !(result.runtimeTests ?? []).some(record => evidenceCommands.has(record.command) && record.exclusive === false) && !reviewOverlapped && !tracking.concurrentAtStart && s.getWritableOverlapCounter() === tracking.overlapBaseline && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0);
     const captureCurrent = !!receiptCapture && !!receiptState && sameTaskNow() && receiptCapture.taskId === d.noProgress.taskId()
       && receiptState.pending.length === 1 && receiptState.pending[0] === receiptCapture.captureId
       && receiptCapture.sessionDir === s.getSessionDir() && receiptCapture.generation === receiptState.generation && receiptCapture.epoch === receiptState.epoch
-      && receiptCapture.declarationHash === receiptDeclarationHash(p.privateConfig ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, p.agent, p.operatorCandidate ? '' : params.task), p.scopeGlobs, s.getAcceptedUserInput?.(), p.inputArtifacts);
+      && receiptCapture.declarationHash === receiptDeclarationHash(p.privateConfig ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, p.access, p.operatorCandidate ? '' : params.task), p.scopeGlobs, s.getAcceptedUserInput?.(), p.inputArtifacts);
     const observations = backendUsed === "native" && (tracking.writable || !!p.operatorCandidate || !!p.privateConfig) ? result.runtimeTests ?? [] : [];
     // A newer failure/unknown result for a command supersedes its success, even
     // when the unknown observer result could not construct a success receipt.
@@ -631,12 +665,17 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
   sourceObligations: !!s.getProcessState?.().changedFiles.length || !!s.getProcessState?.().workOrigin || !!s.getProcessState?.().acceptance.evidenceRef || !!s.getProcessState?.().review.evidenceRef || !!s.getProcessState?.().additions?.some(a => a.status === 'active' && a.reason !== 'irreversible_execution'), returnPath: runPath, writer: d.artifacts.writeRunArtifact, runCount: state?.runCount ?? 0,
  }) : undefined;
  let processVerdict: ProcessVerdict | null = null;
+ let reviewEvidence: ReviewRunEvidence | undefined;
  let operatorStateVerification:any = p.operatorCandidate ? {status:'unproven',origin:p.operatorCandidate.origin,historicalAttribution:'not_claimed',scope:p.operatorCandidate.paths,revision:afterRevision} : undefined;
 	if (s.getProcessState) {
 		let processState = s.getProcessState();
-		const taskChanges = (paths: string[]) => reviewableChangedPaths(paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
+		// Keep earlier task changes in the final review scope, including observed edits from runs that failed verification.
+		if (sameTask && tracking.writable && !p.privateConfig && !p.operatorCandidate && observation && !observation.skipped) {
+			const paths = reviewableChangedPaths(observation.paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
+			processState = { ...processState, changedFiles: [...new Set([...processState.changedFiles, ...paths])].sort() };
+		}
 		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
-			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: taskChanges(observation?.paths ?? []) });
+			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: processState.changedFiles });
 		}
 		const stage = p.privateConfig ? null : basePersonaName(p.agent) === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = affirmativeReviewVerdict(result.output);
@@ -656,7 +695,6 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             ["requires_user_decision", !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")],
             ["review_input_changed", !p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)],
         ];
-        const reviewComplete = reviewQualifiers.every(([, ok]) => ok);
         const checksRefusal = p.operatorCandidate ? operatorStateChecksDiagnostic({candidate:p.operatorCandidate,revision:afterRevision,sameTask:sameTaskNow(),native:backendUsed==='native',exclusive,verification:runtimeResult.verification}) : null;
         const candidateQualifiers: Array<[string, boolean]> = p.operatorCandidate ? [
             ...reviewQualifiers,
@@ -679,13 +717,25 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
             operatorStateVerification={...operatorStateVerification,status:'accepted',evidenceRef};
           } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed',failedQualifiers:['evidence_readback_failed'],nextStep:operatorStateNextStep('evidence_readback_failed')}; }
         }
-        const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
-        const completedReviewInput = candidateReviewInput;
-		// The review that closes the task covers the whole change with no other writer
-		// running (PHILOSOPHY, 2026-11-11): an area review beside a parallel writer is
-		// evidence for its area, never the task's final review.
-		const otherWriters = otherActiveWriters(d, p, tracking);
-		const reviewAuthorized = stage !== "review" || (otherWriters.length === 0 && (!p.operatorCandidate || operatorStateVerification?.status==='accepted') && reviewComplete && affirmativeReview && processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0 && reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath ?? undefined, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") }));
+		const revisionAvailable = [p.beforeRevision, afterRevision].every(revision => /^[a-f0-9]{64}$/.test(revision));
+		const reviewRevisionStable = revisionAvailable && p.beforeRevision === afterRevision;
+		if (stage === "review" && disposition.delivered && runPath) {
+			const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
+			const qualifies: Array<[string, boolean]> = [
+				["writer_overlap", !reviewOverlapped],
+				["revision_unavailable", revisionAvailable],
+				["revision_changed", !revisionAvailable || reviewRevisionStable],
+				...reviewQualifiers,
+				["review_input_missing", !!p.reviewInput],
+				["not_same_task", sameTask],
+				["operator_state_unproven", !p.operatorCandidate || operatorStateVerification?.status === "accepted"],
+				["not_approved", affirmativeReview],
+				["incomplete_scope", processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0],
+			];
+			const reasons = qualifies.filter(([, ok]) => !ok).map(([reason]) => reason);
+			if (!reasons.length && !reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") })) reasons.push("regression_not_closed");
+			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons };
+		}
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
 		// nonempty plan return. The Hub cannot judge its semantic adequacy.
@@ -693,15 +743,13 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 			&& runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
 			&& !(parsedReturn?.requires_user_decision ?? []).some((entry: unknown) => String(entry).trim().toLowerCase() !== "none")
 			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
-		if (stage && planProduced && reviewAuthorized && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
+		if (stage && planProduced && (stage !== "review" || reviewEvidence?.status === "final") && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
 			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
-            if(stage === "review" && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches() && tracking.overlapBaseline === s.getWritableOverlapCounter()
-                && p.reviewInput && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)) processState=retainReview(processState,completedReviewInput,runPath,cwd);
+            if(stage === "review" && !tracking.writable) processState=retainReview(processState,candidateReviewInput,runPath,cwd);
 		}
         if(stage === "review" && disposition.delivered && sameTask && runPath && p.reviewInput && p.reviewBaseline
-            && !tracking.writable && !tracking.concurrentAtStart && !s.getActiveWritableDispatches()
-            && tracking.overlapBaseline === s.getWritableOverlapCounter()
-            && JSON.stringify(p.reviewInput) === JSON.stringify(completedReviewInput)){
+            && !tracking.writable && !reviewOverlapped && reviewRevisionStable
+            && JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)){
             try {
              const baselineRef=d.artifacts.writeRunArtifact(key+"-review-baseline",state?.runCount??0,JSON.stringify(p.reviewBaseline),"returns",result.dispatchId,p.sessionDir);
              if(baselineRef)processState=retainReviewHistory(processState,p.reviewInput,runPath,baselineRef,cwd);
@@ -737,12 +785,12 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
         d.noProgress.recordDispatchEvidence({
             dispatchId: result.dispatchId, taskId: p.taskId, executor: canonicalExecutor(cwd, p.agent), revision: afterRevision, revisionScopes: p.revisionScopes,
             changedScope: changes.attribution === 'certain' ? changes.paths : [], readback,
-            concurrentWriters: observation?.concurrentWritableOverlap ?? true,
+            concurrentWriters: isSourceReview ? reviewOverlapped : observation?.concurrentWritableOverlap ?? true,
             effectsRef: protocolEvidencePath ?? undefined,
             completed: disposition.delivered && result.exitCode === 0,
             // A nonblocking review (the reconcile contract) approves with zero blocking findings;
             // whether it also lists suggestions is irrelevant.
-            blockingFindings: isReviewPersona(p.agent) && affirmativeReviewVerdict(result.output) ? countReviewFindings(result.output).blocking : -1,
+            blockingFindings: isSourceReview && reviewEvidence?.reasons.every(reason => reason === "regression_not_closed" || reason === "incomplete_scope") ? 0 : -1,
             coveredScope: isReviewPersona(p.agent) && result.exitCode === 0 ? d.noProgress.reviewCoverage(p.taskId).filter(path => checkScope([path], p.scopeGlobs).outOfScope.length === 0) : [],
             edited: p.beforeRevision !== afterRevision || !!observation && (observation.skipped || observation.paths.length > 0),
             evidenceRef: runPath ?? '', openRequirements: runtimeResult.verification.requirements.filter((r: any) => r.status !== 'passed').map((r: any) => r.id),
@@ -754,7 +802,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const contractGap = acceptanceStatus === "deliverable_failed" ? "missing_deliverable" : !parsedReturn && questions.length ? "missing_structured_return" : null;
 	const blockedOnUser = questions.length > 0 && !protocolDiagnostic && executionStatus === "completed";
 	const status = protocolDiagnostic ? "tool_protocol_error" : blockedOnUser ? "blocked_on_user" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
-	const assessment = { ...runtimeResult, verificationDiagnostics: checkDiagnostics,
+	const assessment = { ...runtimeResult, verificationDiagnostics: checkDiagnostics, ...(reviewEvidence ? { reviewEvidence } : {}),
 		executionStatus, acceptanceStatus, accepted, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
 		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath, protocolDiagnostic, protocolEvidencePath };
 	const assessmentPath = disposition.pending ? null : d.artifacts.writeRunArtifact(`${key}-acceptance`, state?.runCount ?? 0, JSON.stringify(assessment, null, 2), "evidence", assessmentId, p.sessionDir);
@@ -778,9 +826,10 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
 	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
-	if (isReviewPersona(p.agent) && !p.privateConfig) {
-		const writing = otherActiveWriters(d, p, tracking);
-		if (writing.length) notices.push(`Area review: ${writing.map(writer => writer.agent).join(", ")} was still writing, so this review is evidence for its own scope only and does not close the task's review. Run one final review of the whole change once no writer is active.`);
+	if (reviewEvidence?.status === "preliminary") {
+		if (otherWriters.length) notices.push(`Area review: ${otherWriters.map(writer => writer.agent).join(", ")} was still writing. Run a final review of the whole change after writes finish.`);
+		else if (reviewOverlapped) notices.push("Area review: a writer overlapped this inspection. Run a final review of the whole change after writes finish.");
+		notices.push(`Preliminary review (${reviewEvidence.reasons.join(", ")}). Report and revision evidence: ${assessmentPath}`);
 	}
 	if (tracking.isolatedScope) notices.push(`Parallel writer: OS-sandboxed to ${tracking.isolatedScope.join(", ") || "no repository paths"}; only changes inside that scope are attributed to ${p.agent}.${observation?.foreignPaths?.length ? ` Changes outside it during the run (not attributed): ${observation.foreignPaths.slice(0, 12).join(", ")}${observation.foreignPaths.length > 12 ? " …" : ""}.` : ""} Run the full checks once no writer is active.`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
@@ -794,11 +843,12 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const corrected = p.inputArtifacts.filter(a => a.resolvedFromKind); if (corrected.length) notices.push(`ℹ Artifact path corrected: ${corrected.map(a => `"${a.input}" → ${a.displayPath}`).join("; ")}. Use the corrected path from now on.`);
 	if (state && d.contextPressure(state.contextPct)) notices.push(`⚠ ${d.displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`);
 	const scopeViolations = scopeResult(p, observation); const scopeNotice = scopeNoticeText(scopeViolations); if (scopeNotice) notices.push(scopeNotice.trim());
+	const reviewForHandoff = isSourceReview ? reviewEvidence ?? { status: "preliminary" as const, beforeRevision: p.beforeRevision } : undefined;
 	const finding = isReviewPersona(p.agent) ? findingBudgetNotice(p.agent, blockingFindingCap(s.getTaskTier()), countReviewFindings(result.output)) || "" : ""; if (finding) notices.push(finding.trim());
 	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
 	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
 	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(operatorStateVerification?{operatorStateVerification}:{}), ...(privateConfigVerification?{privateConfigVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, verificationDiagnostics: checkDiagnostics, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(reviewEvidence ? { reviewEvidence } : {}), ...(operatorStateVerification?{operatorStateVerification}:{}), ...(privateConfigVerification?{privateConfigVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, verificationDiagnostics: checkDiagnostics, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, review: reviewForHandoff, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -884,16 +934,13 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
-        if (isReviewPersona(agent) && params.review_mode !== 'operator-current-state' && params.review_mode !== 'private-config-current-state' && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && d.state.getProcessState) {
+        if (isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && params.backend !== "coms" && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
             const state=d.state.getProcessState();
             let cached=null;
             try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
             if(cached){
-                const basis=revisionScopes(ctx.cwd,[...(params.scope??[]),...state.changedFiles]);
-                const revision=basis.length?revisionOf(ctx.cwd,basis):worktreeRevision(ctx.cwd,[],params.scope??[]);
-                const next=noteProcessStage(state,"review",{evidenceRef:cached.evidenceRef,revision,revisionScopes:basis});
-                const verdict=evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:(scopes:readonly string[])=>scopes.join("\n")===basis.join("\n")?revision:revisionOf(ctx.cwd,[...scopes])});
-                d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,verdict);
+                const verdict=evaluateProcessObligations(state,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:(scopes:readonly string[])=>revisionOf(ctx.cwd,[...scopes])});
+                d.state.persistProcessVerdict?.(state,verdict);
                 if(d.state.processBlock?.())return refusal(d,agent,params.task,"process_state_corrupt","Review reuse could not persist current evidence.");
                 return {content:[{type:"text",text:`Independent ${agent} review already covers this unchanged scope and requirements. Reused evidence: ${cached.evidenceRef}. No child launched. New review focus requires review_reason.`}],details:{status:"review_reused",reused:true,started:false,notStarted:true,exitCode:0,elapsed:0,returnPath:cached.evidenceRef,processVerdict:verdict,accepted:verdict.accepted}};
             }
@@ -963,7 +1010,6 @@ function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchP
 	};
 }
 
-function hasWriteCapability(tools: string): boolean { const set = new Set(String(tools || "").split(",").map(x => x.trim()).filter(Boolean)); return ["write", "edit", "bash"].some(x => set.has(x)); }
 function scopeNoticeText(v: any): string {
  if (!v) return "";
  const gaps = v.gaps?.length ? `\n\n⚠ Git observation gaps: ${v.gaps.map((gap: { scope: string; reason: string }) => `${gap.scope}: ${gap.reason}`).join("; ")}. Other observed scopes remain available; coverage is incomplete.` : "";

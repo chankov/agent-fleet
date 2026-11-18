@@ -130,9 +130,9 @@ export const OPERATOR_DELEGATION_GUIDE = `## When to delegate
 Delegation is your judgment, not an obligation.
 - Research: delegate by default with \`spawn_research\`; start independent questions in parallel in one turn and work from the findings.
 - Build: make a small, focused change yourself. Delegate a larger coherent change to one builder.
-- Review: a non-trivial change always gets review from a separate agent via \`dispatch_agent\` (coms peers too; a \`coms_send\` reply is no review). Review your own edits with native \`review_mode: "operator-current-state"\`. With parallel builders, review each finished area (\`parallel: true\`), then with no writer running one final review of the whole change closes the task.
+- Review: a non-trivial change gets independent review via \`dispatch_agent\`. Review your own edits with native \`review_mode: "operator-current-state"\`. With parallel builders, audit each finished area and run one final review of the whole change after the writers finish.
 - Decisions: for an architectural choice, uncertain diagnosis, choice between approaches or risky change, call \`poll_panel\` with one self-contained question. Never poll facts; deep research stays one model.
-- Research and polls run in parallel freely. Writers (write, edit or bash; reviewers too) run one at a time unless each gets \`parallel: true\` and a disjoint scope of exact existing paths; the sandbox then confines each. You edit shared files (package.json, locks, manifests) after writers finish and run the full checks with no writer active.
+- Read-only audits, research and polls can run beside a builder. Use \`review_mode: "run-checks"\` only when the reviewer needs its configured shell. Write-capable runs execute one at a time unless each gets \`parallel: true\` and a sandboxed, disjoint scope of exact existing paths. Edit shared files and run full checks after writers finish.
 - Every delegate receives the task brief (\`artifacts/briefs/\`). Keep its "Operator notes" current with decisions and open questions. Read a delegate's return path instead of dispatching again.`;
 
 /** The operator prompt. The removed orchestrator variant had no direct tools. */

@@ -16,7 +16,7 @@ import { validateSpecialistResult } from './specialist-result.ts';
 function dispatchFixture(t: any, scenario = 'pass') {
  const f = privateFixture(t); let processState = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'fixture' }).state;
  let overlap = 0, active = 0, count = 0, launches = 0;
- const agents = new Map([['code-reviewer', { def: { name: 'code-reviewer', tools: 'read,bash' }, runCount: 1, lastBackend: 'native' }]]);
+ const agents = new Map([['code-reviewer', { def: { name: 'code-reviewer', tools: 'read,bash', readOnly: true }, runCount: 1, lastBackend: 'native' }]]);
  const noProgress = createNoProgressGuard();
  const assertions = [{ id: 'A4', tag: 'test', text: 'private configuration current state', source: 'approved fixture', testCommand: 'fixture-offline-check', status: 'open' }];
  const d: any = {
@@ -27,6 +27,7 @@ function dispatchFixture(t: any, scenario = 'pass') {
    getTaskTier: () => 'small', getTurnReport: () => ({ refusals: 0, dispatches: [] }), getSessionTotals: () => ({ refusals: 0, dispatches: 0 }),
    getTurnDispatchFingerprints: () => new Set(), getExternalBlockers: () => [], getExternalBlockerAcknowledged: () => false, getExternalBlockerRefusedOnce: () => false, setExternalBlockerRefusedOnce() {},
    isAskUserAvailable: () => true, getUserLanguage: () => 'English', getSessionDir: () => f.session, getAgentStates: () => agents, getAssertions: () => assertions, getResearchPersonas: () => [],
+   setAssertions: (next: typeof assertions) => { assertions.splice(0, assertions.length, ...next); },
    getActiveWritableDispatches: () => active, setActiveWritableDispatches: (v: number) => active = v, getWritableOverlapCounter: () => overlap, setWritableOverlapCounter: (v: number) => overlap = v,
    getProcessState: () => processState, setProcessState: (v: any) => processState = v, persistProcessVerdict() {},
   },

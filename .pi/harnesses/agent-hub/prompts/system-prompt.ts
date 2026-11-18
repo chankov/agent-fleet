@@ -1,5 +1,6 @@
 import { MAX_OPEN_ASSERTIONS } from "../assertion-ledger.js";
 import { CAPABILITY_PACKS, type CapabilityPack } from "../capability-packs.ts";
+import { dispatchAccess } from "../dispatch-access.ts";
 import { workModePrompt } from "../work-mode.ts";
 import { component, type ContextBudgetComponent } from "../../lib/context-budget.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../../lib/context-budget-hub-prompt.ts";
@@ -50,7 +51,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	// One line per agent: the catalog lists every installed agent, so it stays compact.
 	const agentCards = agents.map(agent => ({
 		id: agent.name,
-		text: `- \`${agent.name}\`${agent.inTeam === false ? " (not in team yet)" : ""} — ${briefDescription(agent.description)} · ${/\b(write|edit)\b/.test(agent.tools) ? "writes" : "read-only"}${agent.model ? ` · ${agent.model}` : ""}`,
+		text: `- \`${agent.name}\`${agent.inTeam === false ? " (not in team yet)" : ""} — ${briefDescription(agent.description)} · ${dispatchAccess(agent).writable ? "writes" : "read-only"}${agent.model ? ` · ${agent.model}` : ""}`,
 	}));
 	const agentCatalog = agentCards.map(card => card.text).join("\n");
 	const teamMembers = fleetActive

@@ -21,9 +21,9 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 			review_reason: Type.Optional(Type.String({ description: "Focus/docs reason; no review reuse." })),
    private_config_files: Type.Optional(Type.Array(Type.String(), {description:"Private: 1–4 canonical notification JSONs; never artifacts."})),
    verifier_sources: Type.Optional(Type.Array(Type.String(), {description:"Private: 1–32 repo-relative sources, all ignored helpers."})),
-   review_mode: Type.Optional(Type.Union([Type.Literal("changes"),Type.Literal("operator-current-state"),Type.Literal("private-config-current-state")],{description:"Default changes. Current-state native only; no authorship, activation, manual proof."})),
+   review_mode: Type.Optional(Type.Union([Type.Literal("changes"),Type.Literal("run-checks"),Type.Literal("operator-current-state"),Type.Literal("private-config-current-state")],{description:"run-checks enables native bash."})),
 
-			parallel: Type.Optional(Type.Boolean({ description: "Writer beside others; sandboxed to exact scope paths." })),
+			parallel: Type.Optional(Type.Boolean({ description: "Extra instance; writers need disjoint scopes." })),
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),

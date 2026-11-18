@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import { createDispatchExecutor, createRecoveryResearchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent } from "./dispatch-execution.ts";
+import { createDispatchExecutor, createRecoveryResearchExecutor, createResearchExecutor, prepareDispatch, structuredResearchPrompt, validateDispatchAgent, type WriterEntry } from "./dispatch-execution.ts";
 import { applyProcessClassification, createProcessState, noteProcessStage, processPreEffectGate, evaluateProcessObligations, processAuditRecord, latestProcessState, normalizeProcessState } from "../process-obligations.ts";
 import { adoptTaskTriageState, applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { createActionExecutors } from "./action-executors.ts";
@@ -622,7 +622,7 @@ test("a writable dispatch observes the worktree once before and once after the r
  assert.equal((prepare.match(/snapshotWorktree\(|worktreeRevision\(/g) ?? []).length, 1, "revision baseline and delta base share one snapshot");
  assert.match(source, /tracking\.snapshot = prepared\.beforeSnapshot \?\?/);
  assert.match(source, /compilerInspectedRevision = observation && !observation\.skipped && observation\.snapshot \? snapshotRevision\(observation\.snapshot\)/);
- assert.match(source, /repositoryAfterRevision = p\.revisionScopes\.length \? revisionOf\(cwd, p\.revisionScopes\) : compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "at a root repository only an awaited compiler run re-observes; nested repositories revise over the task basis (D8)");
+ assert.match(source, /repositoryAfterRevision = isSourceReview \|\| p\.revisionScopes\.length \? revisionOf\(cwd, p\.revisionScopes\) : compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "reviews re-observe before approval; builders share the existing root snapshot unless the compiler ran");
  assert.match(prepare, /const basisFor=\(snapshot:any\):string\[\]=>snapshot\?\.nested\?nestedRevisionScopes\(/, "the basis is read off the dispatch's own snapshot, so a root repository costs no extra git call");
  assert.match(source, /const afterRevision = p\.privateConfig \? privateConfigRevision\(cwd, repositoryAfterRevision, p\.privateConfig\) : repositoryAfterRevision/, "old modes retain the repository observation unchanged");
 });
@@ -1030,12 +1030,229 @@ test("an area review beside a running parallel writer never closes the task revi
  assert.doesNotMatch(final.content[0].text, /Area review/);
 });
 
+test("declared audit and research can start beside an unisolated builder without reserving writer slots", async t => {
+ const { cwd, d } = await highRiskChangedFixture(t);
+ const reviewer = d._agents.get("code-reviewer")!;
+ Object.assign(reviewer.def, { tools: "read,bash,grep", readOnly: true });
+ const securityAuditor = { ...reviewer, def: { name: "security-auditor", tools: "read,bash,find", readOnly: true } };
+ d._agents.set("security-auditor", securityAuditor);
+ const writers: WriterEntry[] = [];
+ Object.assign(d.state, {
+  getActiveWriters: () => writers,
+  beginWriter(entry: WriterEntry) {
+   assert.equal(entry.agent, "builder", "inspection must not register a writer");
+   writers.push(entry);
+   return () => { writers.splice(writers.indexOf(entry), 1); };
+  },
+ });
+ const builderStarted = Promise.withResolvers<void>();
+ const releaseBuilder = Promise.withResolvers<void>();
+ const launched: string[] = [];
+ d.dispatchAgent = async (agent: string) => {
+  if (agent === "builder") {
+   builderStarted.resolve();
+   await releaseBuilder.promise;
+  } else {
+   assert.deepEqual(writers, [{ agent: "builder", scope: [], isolated: false }]);
+   assert.equal(d.state.getActiveWritableDispatches(), 1);
+  }
+  launched.push(agent);
+  return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: agent };
+ };
+ Object.assign(d.research, {
+  anonymousDef: () => ({ name: "researcher" }),
+  resolveModel: () => "test/model",
+  createState: () => ({ id: 7 }),
+  async spawn() {
+   assert.equal(d.state.getActiveWritableDispatches(), 1);
+   launched.push("research");
+   return { output: "notes", exitCode: 0, elapsed: 1 };
+  },
+ });
+ const dispatch = createDispatchExecutor(d as any);
+ const research = createResearchExecutor(d as any);
+ const ctx = { cwd } as any;
+ const build = dispatch("active-builder", { agent: "builder", task: "continue the build" }, undefined, undefined, ctx);
+ try {
+  assert.equal(await Promise.race([builderStarted.promise.then(() => "started"), build.then(() => "settled")]), "started");
+  const results = await Promise.all([
+   dispatch("code", { agent: "code-reviewer", task: "inspect the implementation" }, undefined, undefined, ctx),
+   dispatch("security", { agent: "security-auditor", task: "inspect input validation" }, undefined, undefined, ctx),
+   research("research", { task: "trace callers" }, undefined, undefined, ctx),
+  ]);
+  assert.deepEqual(launched.sort(), ["code-reviewer", "research", "security-auditor"]);
+  for (const result of results) assert.equal((result.details as any).exitCode, 0);
+  const refused = await dispatch("verify", { agent: "code-reviewer", task: "run the test suite", review_mode: "run-checks" }, undefined, undefined, ctx);
+  assert.equal((refused.details as any).status, "writer_active");
+ } finally {
+  releaseBuilder.resolve();
+  await build;
+ }
+});
+
 test("T11 reviewer APPROVE covering current changed files records review at current revision", async t => {
  const { cwd, d, process } = await highRiskChangedFixture(t);
  d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "rev-ok" });
  await createDispatchExecutor(d as any)("rev", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
  assert.ok(process().review.evidenceRef);
  assert.equal(process().review.revision, process().acceptance.revision);
+});
+
+test("an inspection cannot close review after a writer starts and exits during the inspection", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ let writerGeneration = 1;
+ Object.assign(d.state, { getWriterGeneration: () => writerGeneration });
+ d.dispatchAgent = async () => {
+  writerGeneration++;
+  return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "interleaved-review" };
+ };
+ const result = await createDispatchExecutor(d as any)("review", {
+  agent: "code-reviewer", task: "review current changes", scope: ["src/api.ts"],
+ }, undefined, undefined, { cwd } as any);
+ assert.equal(process().review.evidenceRef, null);
+ assert.match((result.content[0] as any).text, /Area review: a writer overlapped this inspection/);
+ assert.ok((result.details as any).returnPath);
+});
+
+for (const builderAlreadyRunning of [true, false]) test(`review retains preliminary evidence when a builder changes code ${builderAlreadyRunning ? "after starting first" : "and exits during review"}`, async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.budget.currentBudget = () => ({ maxDispatches: null, maxResearch: null }) as any;
+ const fingerprints = new Set<string>();
+ d.state.getTurnDispatchFingerprints = () => fingerprints;
+ let writerGeneration = 0;
+ const writers: WriterEntry[] = [];
+ Object.assign(d.state, {
+  getWriterGeneration: () => writerGeneration,
+  getActiveWriters: () => writers,
+  beginWriter(entry: WriterEntry) {
+   writerGeneration++;
+   writers.push(entry);
+   return () => { writers.splice(writers.indexOf(entry), 1); };
+  },
+ });
+ const builderStarted = Promise.withResolvers<void>();
+ const reviewStarted = Promise.withResolvers<void>();
+ const edit = Promise.withResolvers<void>();
+ const edited = Promise.withResolvers<void>();
+ const finishBuilder = Promise.withResolvers<void>();
+ const finishReview = Promise.withResolvers<void>();
+ let reviewerRuns = 0;
+ d.dispatchAgent = async agent => {
+  if (agent === "builder") {
+   builderStarted.resolve();
+   await edit.promise;
+   writeFileSync(join(cwd, "src", "api.ts"), "export const value = 10;\n");
+   edited.resolve();
+   await finishBuilder.promise;
+   return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "overlap-builder" };
+  }
+  const run = ++reviewerRuns;
+  if (run === 1) {
+   reviewStarted.resolve();
+   await finishReview.promise;
+  }
+  return { output: "verdict: APPROVE\nReviewed the API change.", exitCode: 0, elapsed: 1, dispatchId: `review-${run}` };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const ctx = { cwd } as any;
+ const startBuilder = () => execute("builder", { agent: "builder", task: "Adjust the API" }, undefined, undefined, ctx);
+ const scope = ["src/api.ts"];
+ const before = worktreeRevision(cwd, []);
+ let build: ReturnType<typeof startBuilder> | undefined;
+ if (builderAlreadyRunning) {
+  build = startBuilder();
+  assert.equal(await Promise.race([builderStarted.promise.then(() => true), build.then(() => false)]), true);
+ }
+ const review = execute("inspection", { agent: "code-reviewer", task: "Inspect the API", scope }, undefined, undefined, ctx);
+ try {
+  assert.equal(await Promise.race([reviewStarted.promise.then(() => true), review.then(() => false)]), true);
+  build ??= startBuilder();
+  edit.resolve();
+  assert.equal(await Promise.race([edited.promise.then(() => true), build.then(() => false)]), true);
+  if (!builderAlreadyRunning) {
+   finishBuilder.resolve();
+   await build;
+   assert.equal(writers.length, 0);
+  }
+  finishReview.resolve();
+  const result: any = await review;
+  assert.equal(result.details.orchestration.closure.status, "unproven");
+  assert.equal(result.details.orchestration.manifest.stale, true);
+  assert.equal(process().review.evidenceRef, null);
+  assert.deepEqual(result.details.reviewEvidence, {
+   status: "preliminary", scope, beforeRevision: before, afterRevision: worktreeRevision(cwd, []),
+   revisionScopes: [], evidenceRef: result.details.returnPath, reasons: ["writer_overlap", "revision_changed", "review_input_changed"],
+  });
+  const assessment = JSON.parse(readFileSync(result.details.assessmentPath, "utf8"));
+  assert.deepEqual(assessment.reviewEvidence, result.details.reviewEvidence);
+  assert.match(readFileSync(result.details.returnPath, "utf8"), /Reviewed the API change/);
+ } finally {
+  edit.resolve();
+  finishReview.resolve();
+  finishBuilder.resolve();
+  await Promise.all([review, build]);
+ }
+ const final: any = await execute("final", { agent: "code-reviewer", task: "Inspect the API", scope }, undefined, undefined, ctx);
+ assert.equal(final.details.reviewEvidence.status, "final");
+ assert.equal(final.details.orchestration.closure.status, "closed");
+ assert.equal(process().review.revision, worktreeRevision(cwd, []));
+ assert.equal(process().review.evidenceRef, final.details.returnPath);
+});
+
+test("a source change outside the declared review scope prevents final approval", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.dispatchAgent = async () => {
+  writeFileSync(join(cwd, "README.md"), "changed during the review\n");
+  return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "changed-during-review" };
+ };
+ const result: any = await createDispatchExecutor(d as any)("review", {
+  agent: "code-reviewer", task: "Review changed code", scope: ["src/api.ts"],
+ }, undefined, undefined, { cwd } as any);
+ assert.equal(process().review.evidenceRef, null);
+ assert.deepEqual(result.details.reviewEvidence.reasons, ["revision_changed"]);
+ assert.notEqual(result.details.reviewEvidence.beforeRevision, result.details.reviewEvidence.afterRevision);
+});
+
+test("a writable review rechecks the repository after asynchronous return extraction", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ const reviewer = d._agents.get("code-reviewer")!;
+ Object.assign(reviewer.def, { tools: "read,bash", readOnly: true });
+ d.state.getAssertions = () => [{ id: "A1", tag: "test", text: "Check the API", source: "user", status: "open" }] as any;
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "review-before-extraction", lifecycle: nativeCleanLifecycle });
+ let extracted = false;
+ d.runReturnExtraction = async () => {
+  await Promise.resolve();
+  writeFileSync(join(cwd, "README.md"), "changed while the report was being processed\n");
+  extracted = true;
+  return null;
+ };
+ const result: any = await createDispatchExecutor(d as any)("review", {
+  agent: "code-reviewer", task: "Recheck A1", scope: ["src/api.ts"], review_mode: "run-checks",
+ }, undefined, undefined, { cwd } as any);
+ assert.equal(extracted, true);
+ assert.deepEqual(result.details.reviewEvidence.reasons, ["revision_changed"]);
+ assert.equal(process().review.evidenceRef, null);
+});
+
+test("final review must cover files from both builder runs", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ d.budget.currentBudget = () => ({ maxDispatches: null, maxResearch: null }) as any;
+ const execute = createDispatchExecutor(d as any);
+ const ctx = { cwd } as any;
+ d.dispatchAgent = async () => {
+  writeFileSync(join(cwd, "src", "caller.ts"), "export const caller = 1;\n");
+  return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "caller-build" };
+ };
+ await execute("builder", { agent: "builder", task: "Update the caller" }, undefined, undefined, ctx);
+ assert.deepEqual(process().changedFiles, ["src/api.ts", "src/caller.ts"]);
+ let reviewRun = 0;
+ d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: `review-scope-${++reviewRun}` });
+ const partial: any = await execute("partial", { agent: "code-reviewer", task: "Inspect the caller", scope: ["src/caller.ts"] }, undefined, undefined, ctx);
+ assert.deepEqual(partial.details.reviewEvidence.reasons, ["incomplete_scope"]);
+ assert.equal(process().review.evidenceRef, null);
+ const full: any = await execute("full", { agent: "code-reviewer", task: "Review the API and the caller", scope: ["src/api.ts", "src/caller.ts"] }, undefined, undefined, ctx);
+ assert.equal(full.details.reviewEvidence?.status, "final", full.content[0].text);
+ assert.equal(process().review.revision, worktreeRevision(cwd, []));
 });
 
 test("an installed agent outside the active team is added on first dispatch and notified", async t => {
@@ -1420,20 +1637,26 @@ test("review reuse: unchanged covered scope survives rewording and restoration w
  const first=await execute("first",params,undefined,undefined,{cwd} as any);assert.ok(process().review.evidenceRef);
  const charged=d._task();
  d.state.setProcessState(latestProcessState([{customType:"agent-hub-process-state",data:processAuditRecord(process(),evaluateProcessObligations(process(),{writable:true,budgetTier:"small"}))}]));
- writeFileSync(join(cwd,"README.md"),"unrelated follow-up\n");
  const second=await execute("second",{...params,task:"Independently check the completed change again"},undefined,undefined,{cwd} as any);
  assert.equal((second.details as any).status,"review_reused");assert.equal(runs,1);assert.equal(d._task(),charged);
  assert.equal((second.details as any).returnPath,(first.details as any).returnPath);
  assert.equal((second.details as any).started,false);
 });
 
-for(const change of ["source","requirements","accepted-input","evidence","new-task","explicit-reason","new-scope"] as const) test(`review reuse: ${change} requires fresh review`,async t=>{
+for(const change of ["source","outside-scope-source","requirements","accepted-input","evidence","new-task","explicit-reason","new-scope"] as const) test(`review reuse: ${change} requires fresh review`,async t=>{
  const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0;
  d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
  d.dispatchAgent=async()=>({output:"verdict: APPROVE",exitCode:0,elapsed:1,dispatchId:`review-${++runs}`});
  const execute=createDispatchExecutor(d as any),params:any={agent:"code-reviewer",task:"Review code",scope:["src/api.ts"]};
  await execute("first",params,undefined,undefined,{cwd} as any);
  if(change==="source")writeFileSync(join(cwd,"src/api.ts"),"export const value = 10;\n");
+ if(change==="outside-scope-source") {
+  const approvedRevision=process().review.revision;
+  writeFileSync(join(cwd,"README.md"),"changed after review\n");
+  const currentRevision=revisionOf(cwd);
+  assert.notEqual(currentRevision,approvedRevision);
+  assert.equal(evaluateProcessObligations(process(),{writable:true,budgetTier:"small",currentRevision}).obligations.review.status,"open");
+ }
  if(change==="requirements")d.state.getAssertions=()=>[{id:"NEW",tag:"test",text:"New security requirement",source:"user",status:"open"}] as any;
  if(change==="accepted-input")(d.state as any).getAcceptedUserInput=()=>"Also inspect the newly requested concurrency behavior";
  if(change==="evidence")writeFileSync(process().review.evidenceRef!,"changed review artifact");
@@ -1513,6 +1736,7 @@ async function operatorStateFixture(t:any,scenario='pass',layout:'single'|'neste
   execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base'],{cwd:app});
  }
  const d=prepareDeps({agents:['code-reviewer'],tools:'read,bash'});d._agents.get('code-reviewer')!.lastBackend='native';
+ Object.assign(d._agents.get('code-reviewer')!.def, { readOnly: true });
  const session=mkdtempSync(join(tmpdir(),'operator-session-'));t.after(()=>rmSync(session,{recursive:true,force:true}));d.state.getSessionDir=()=>session;
  const {createAssertionsArtifactsContext}=await import('../context/assertions-artifacts.ts');
  d.artifacts.writeRunArtifact=createAssertionsArtifactsContext({getAssertions:()=>[],getSessionDir:()=>session,getRunHistoryKeep:()=>null,setStatus:()=>{}}).writeRunArtifact;

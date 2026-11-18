@@ -66,6 +66,17 @@ test("parallel writers need native, exact existing scopes, and disjoint scopes",
 	assert.equal(status(parallelWriterGate(lone.d, "builder", { agent: "builder", task: "t", parallel: true, scope: ["src/a"], backend: "coms" })), "parallel_requires_native");
 });
 
+test("declaring an audit read-only does not exempt its explicit shell verification from the writer gate", () => {
+	const active = gateDeps([{ agent: "builder", scope: ["src/a"], isolated: true }]);
+	active.d.state.getAgentStates().get("code-reviewer").def.readOnly = true;
+	const audit = { agent: "code-reviewer", task: "review", scope: ["src/a"] };
+	assert.equal(parallelWriterGate(active.d, audit.agent, audit), null);
+	const verification = { ...audit, review_mode: "run-checks" as const };
+	assert.equal(status(parallelWriterGate(active.d, audit.agent, verification)), "writer_active");
+	assert.equal(status(parallelWriterGate(active.d, audit.agent, { ...verification, parallel: true })), "scope_overlap");
+	assert.equal(parallelWriterGate(active.d, audit.agent, { ...verification, parallel: true, scope: ["src/b"] }), null);
+});
+
 function repo(): string {
 	const root = mkdtempSync(join(tmpdir(), "fleet-parallel-writers-"));
 	for (const dir of ["a", "b", "runtime-a", "runtime-b"]) mkdirSync(join(root, dir));

@@ -244,13 +244,15 @@ test("operator prompt lists every installed agent, marks ones outside the team, 
   getWorkMode: () => "operator",
   getAgents: () => [
    { name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write", model: "omlx/Qwen", inTeam: true },
-   { name: "security-auditor", displayName: "Security Auditor", description: "Audits.", tools: "read", inTeam: false },
+   { name: "security-auditor", displayName: "Security Auditor", description: "Audits.", tools: "read,bash,grep", readOnly: true, inTeam: false },
+   { name: "bowser", displayName: "Bowser", description: "Browser automation.", tools: "read,bash" },
   ],
   getTeamMembers: () => ["Builder"],
   getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 1, queued: 0 }],
  }).systemPrompt;
  assert.match(prompt, /^- `builder` — Builds changes\. · writes · omlx\/Qwen$/m);
  assert.match(prompt, /^- `security-auditor` \(not in team yet\) — Audits\. · read-only$/m);
+ assert.match(prompt, /^- `bowser` — Browser automation\. · writes$/m);
  assert.match(prompt, /Members: Builder\n/);
  assert.match(prompt, /dispatching one outside the active team adds it automatically/);
  assert.match(prompt, /## When to delegate[\s\S]*Research: delegate by default[\s\S]*in parallel in one turn/);
