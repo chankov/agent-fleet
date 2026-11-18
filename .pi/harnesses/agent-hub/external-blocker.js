@@ -54,9 +54,9 @@ export function checkExternalBlockerGate(state) {
 
 	const list = blockers.map((b) => `  - ${b.what}${b.agent ? ` (reported by ${b.agent})` : ""}`).join("\n");
 	const escalation = state?.askUserAvailable
-		? "Call `ask_user` with the packet below. The gate opens as soon as you do."
-		: "`ask_user` is unavailable in this session: put the packet below in your reply to the human and stop " +
-		  "this line of work. (This gate fires once; further dispatches are allowed so you can finish and report.)";
+		? "Call `ask_user` with the packet below. Wait for the human's explicit answer before continuing the blocked work."
+		: "`ask_user` is unavailable. Present the packet below in chat and wait for the human's explicit answer before continuing the blocked work. " +
+		  "This gate fires once so you can finish unrelated work and report.";
 
 	return {
 		reason: "external_blocked",

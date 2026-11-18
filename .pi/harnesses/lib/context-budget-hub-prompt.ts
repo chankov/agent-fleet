@@ -35,7 +35,7 @@ export const HUB_HERDR_SECTION = `
 - Spawn a peer immediately before its first message. It boots idle; \`peer_ready: false\` is a failed start.
 - Check \`coms_list\` for peer status; read panes only for unbridged tools or post-mortems.
 - \`herdr_close_pane\` requires human confirmation. Close only panes you opened when their work ends.
-- \`herdr_notify\` reaches an away human; it never replaces \`ask_user\`.
+- \`herdr_notify\` reaches an away human. Use Decision routing when you need their answer.
 `;
 
 /** Assemble the effective Hub replacement prompt. Ledger metadata is never interpolated.

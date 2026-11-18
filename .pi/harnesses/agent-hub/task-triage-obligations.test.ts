@@ -152,7 +152,7 @@ test("active additions expose exact waiver IDs, plain obligations and transition
   assert.match(hint, new RegExp(`/af-task-triage-waive ${addition.id} <reason>`));
  }
  assert.match(hint, /security-sensitive change.*review before acceptance/i);
- assert.match(hint, /wide change.*research.*ask_user/i);
+ assert.match(hint, /wide change.*research.*Decision routing/i);
  assert.match(hint, /irreversible execution.*exact.*human confirmation before each effect/i);
  assert.match(taskTransitionRecoveryHint, /pending task transition.*set_task_tier.*new_task: true.*human supersession/i);
  // The system-prompt form outlives the bind (prompt is fixed per agent run): it must expire itself, never read as a live block.

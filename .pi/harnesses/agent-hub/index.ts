@@ -1088,7 +1088,7 @@ export default function (pi: ExtensionAPI) {
 				getExternalBlockers: () => externalBlockers,
 				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged, setExternalBlockerAcknowledged: value => { externalBlockerAcknowledged = value; },
 				getExternalBlockerRefusedOnce: () => externalBlockerRefusedOnce, setExternalBlockerRefusedOnce: value => { externalBlockerRefusedOnce = value; },
-				isAskUserAvailable: () => askUserAvailable, getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
+				isAskUserAvailable: () => askUserAvailable && pi.getActiveTools().includes("ask_user"), getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
@@ -1937,7 +1937,7 @@ export default function (pi: ExtensionAPI) {
 					`each is one imperative sentence plus a one-line Why (the failure it prevents) and a one-line Evidence (what happened this session). ` +
 					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
 					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
-					`2. Confirm the list with the user in ${userLanguage} (ask_user when available) — they approve, trim, or reword. Do not dispatch before this confirmation.\n` +
+					`2. Follow Decision routing to confirm the list with the user in ${userLanguage}. Wait for explicit approval of the final wording before dispatch.\n` +
 					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
 					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
 					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
@@ -2358,6 +2358,7 @@ export default function (pi: ExtensionAPI) {
 				.map(pack => ({
 					pack,
 					reason: getCapabilityResolution().reasons[pack],
+					pending: workModePolicy.getCapabilityConfirmation()[pack as ConfirmableCapabilityPack] === "pending",
 					question: capabilityConfirmationQuestion(pack as ConfirmableCapabilityPack),
 				})),
 		}),
@@ -2366,7 +2367,6 @@ export default function (pi: ExtensionAPI) {
 		getUserLanguage: () => userLanguage,
 		getRulesProtocol: buildRulesProtocol,
 		getDocsProtocol: buildDocsProtocol,
-		isAskUserAvailable: () => askUserAvailable,
 		isComsReady: () => comsReady,
 		getIdentity: () => identity,
 		isHerdrFleetReady: () => herdrFleetReady,
@@ -2742,9 +2742,9 @@ export default function (pi: ExtensionAPI) {
 		notifyStartup: (_ctx) => {
 			_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
 			const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-			const askUserLabel = askUserAvailable
+			const askUserLabel = pi.getActiveTools().includes("ask_user")
 				? "available (via pi-ask-user)"
-				: "NOT AVAILABLE — run `pi install npm:pi-ask-user`";
+				: "unavailable (questions in chat)";
 			const comsLabel = comsReady && identity
 				? `📡 ${identity.name}@${identity.project} — peers via coms_list; /af-handoff <peer> to delegate`
 				: sessionSoloMode

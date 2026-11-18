@@ -3,11 +3,11 @@ import test from "node:test";
 import { createWorkModePolicy } from "./work-mode.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "../lifecycle/context-pressure.ts";
 
-function fixture(rosterSize = 1, _fallbackRosterSize = 0, pendingOperations: any[] = []) {
+function fixture(rosterSize = 1, _fallbackRosterSize = 0, pendingOperations: any[] = [], comsReady = false) {
 	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = [];
 	const policy = createWorkModePolicy({
 		getBaselineTools: () => ["read", "edit"], getRosterSize: () => rosterSize, getActiveTeamName: () => rosterSize ? "default" : "",
-		getComsReady: () => false, getHerdrReady: () => false, getAskUserAvailable: () => true, getIdentityLabel: () => null,
+		getComsReady: () => comsReady, getHerdrReady: () => false, getAskUserAvailable: () => true, getIdentityLabel: () => null,
 		getTaskTier: () => "feature", getPendingOperations: () => pendingOperations, getContextState: () => "normal",
 		getActiveTools: () => activeTools, setActiveTools: tools => { activeTools = tools; }, recordToolCatalog: change => catalogChanges.push(change), persist: (type, data) => entries.push([type, data]),
 	});
@@ -96,6 +96,21 @@ test("ambiguous delegation needs no confirmation because the operator holds flee
 	f.policy.resolveIncomingCapabilities("");
 	assert.ok(f.policy.getCapabilityResolution().active.includes("fleet"));
 	assert.equal(f.policy.provisionalCapabilityRefusal("fleet"), null);
+});
+
+test("provisional refusals use active ask_user availability even when it is installed", () => {
+	const f = fixture(1, 0, [], true);
+	f.policy.resolveIncomingCapabilities("Contact them.");
+	f.policy.applyWorkModeTools();
+	const available = f.policy.provisionalCapabilityRefusal("peer");
+	assert.equal(available?.details.confirmation, "ask");
+	assert.match(available!.content[0].text, /ask once with `ask_user`/i);
+	const tools = f.tools();
+	tools.splice(tools.indexOf("ask_user"), 1);
+	const unavailable = f.policy.provisionalCapabilityRefusal("peer");
+	assert.equal(unavailable?.details.confirmation, "ask");
+	assert.match(unavailable!.content[0].text, /ask in chat.*recorded tool confirmation/i);
+	assert.doesNotMatch(unavailable!.content[0].text, /with `ask_user`/);
 });
 
 test("capability journal records initial state and changes, not repeated refreshes", () => {

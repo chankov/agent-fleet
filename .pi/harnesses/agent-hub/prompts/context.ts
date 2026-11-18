@@ -1,4 +1,5 @@
 import type { CapabilityPack, CapabilityResolution } from "../capability-packs.ts";
+import type { capabilityConfirmationQuestion } from "../capability-confirmation.ts";
 import type { WorkMode } from "../work-mode.ts";
 import type { AgenticConfig } from "../agentic-contract.ts";
 
@@ -42,7 +43,7 @@ export interface HubPromptState {
 	taskReviewRounds: number;
 	/** Nested repositories the task uses when the workspace root is not a Git repository; absent or empty at a root repository. */
 	nestedRepositories?: readonly string[];
-	provisionalConfirmations: readonly { pack: CapabilityPack; reason: string; question: string | { question: string; context?: string; options?: string[] } }[];
+	provisionalConfirmations: readonly { pack: CapabilityPack; reason: string; pending?: boolean; question: ReturnType<typeof capabilityConfirmationQuestion> }[];
 }
 
 /** Read-only prompt dependencies. Mutable Hub state remains owned by index.ts. */
@@ -66,7 +67,6 @@ export interface HubPromptContext {
 	getUserLanguage(): string;
 	getRulesProtocol(): string;
 	getDocsProtocol(): string;
-	isAskUserAvailable(): boolean;
 	isComsReady(): boolean;
 	getIdentity(): { name: string; project: string } | null;
 	isHerdrFleetReady(): boolean;

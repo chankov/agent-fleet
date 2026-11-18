@@ -117,7 +117,7 @@ Do not run `version:changeset`, publish, overwrite an existing local release, or
 
 ## Bootstrap implementation boundaries
 
-The notification bootstrap coordinator, native duplex producer/control, explicit Desktop mapping, pinned no-load probe, local rollout ACK reader, CAS reconnect and private admission now form an integrated source flow; see [the current contract and live-preflight limits](codex-notification-bootstrap.md). This integration has synthetic runtime evidence, not current-host qualification. See the [bootstrap evidence index](../.pi/agent-fleet/scripts/fixtures/codex-notification-contracts/bootstrap.md).
+The notification bootstrap coordinator, native duplex producer/control, explicit Desktop mapping, pinned no-load probe, local rollout ACK reader, CAS reconnect and private admission now form an integrated source flow; see [the current contract and live-preflight limits](codex-notification-bootstrap.md). This integration has synthetic runtime evidence, not current-host qualification. See the [bootstrap evidence index](https://github.com/chankov/agent-fleet/blob/main/.pi/agent-fleet/scripts/fixtures/codex-notification-contracts/bootstrap.md).
 The Codex store's `reconnect` requires a reviewed namespace revision and exact old/new AF
 epochs, replaces rights with one common deadline, and reports post-publication cancellation
 as uncertain. It does not itself authenticate human consent or create an AF-side rights writer.

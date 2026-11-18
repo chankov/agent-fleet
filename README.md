@@ -473,7 +473,7 @@ Thank you both for the inspiration and for shipping work others can build on.
 
 ## Contributing
 
-Skills should be **specific** (actionable steps), **verifiable** (clear exit criteria with evidence), **battle-tested** (based on real workflows), and **minimal** (only what's needed to guide the agent). See [docs/skill-anatomy.md](docs/skill-anatomy.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Skills should be **specific** (actionable steps), **verifiable** (clear exit criteria with evidence), **battle-tested** (based on real workflows), and **minimal** (only what's needed to guide the agent). See [docs/skill-anatomy.md](docs/skill-anatomy.md) and the [contribution guide](https://github.com/chankov/agent-fleet/blob/main/CONTRIBUTING.md).
 
 ## License
 

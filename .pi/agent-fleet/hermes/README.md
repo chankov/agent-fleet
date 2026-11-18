@@ -10,8 +10,8 @@ Two distinct integrations, easy to conflate:
 
 | | What it does | Direction | Entry point |
 |---|---|---|---|
-| **Desktop plugin** (`agent-fleet-herdr`) | Shows every live Agent Fleet session, its state, what it is doing, and which agent is blocked on you | Hermes reads the fleet | [docs/hermes-desktop-plugins.md](../docs/hermes-desktop-plugins.md) |
-| **Question bridge** (`hub-liaison`) | Relays an agent's `ask_user` question to Telegram and races your answer against a local one | The fleet asks you | [docs/coms-hermes-bridge.md](../docs/coms-hermes-bridge.md) |
+| **Desktop plugin** (`agent-fleet-herdr`) | Shows every live Agent Fleet session, its state, what it is doing, and which agent is blocked on you | Hermes reads the fleet | [docs/hermes-desktop-plugins.md](../../../docs/hermes-desktop-plugins.md) |
+| **Question bridge** (`hub-liaison`) | Relays an agent's `ask_user` question to Telegram and races your answer against a local one | The fleet asks you | [docs/coms-hermes-bridge.md](../../../docs/coms-hermes-bridge.md) |
 
 ## Desktop plugins
 
@@ -20,7 +20,7 @@ plugin — the Electron pane and the FastAPI backend it calls. They are installe
 into a profile with `.pi/agent-fleet/scripts/install-hermes-plugin.sh`, never published to npm.
 The contract, the install runbook, and the failure modes that look identical
 from the outside are documented in
-[docs/hermes-desktop-plugins.md](../docs/hermes-desktop-plugins.md).
+[docs/hermes-desktop-plugins.md](../../../docs/hermes-desktop-plugins.md).
 
 - `agent-fleet-herdr` — read-only panel of live Agent Fleet sessions grouped by
   project, flagging the ones waiting for a human.
@@ -43,19 +43,19 @@ without it rows read `unknown` instead of a live state.
 just fleet team default
 ```
 
-![The Agent Fleet panel in Hermes Desktop, listing seven live sessions in one project beside the chat that started them](../docs/assets/hermes-desktop-agent-fleet-panel.png)
+![The Agent Fleet panel in Hermes Desktop, listing seven live sessions in one project beside the chat that started them](../../../docs/assets/hermes-desktop-agent-fleet-panel.png)
 
 Selecting a row opens a modal with that agent's purpose, model, context, queue,
 uptime and heartbeat, a live tail of what it is doing read from its own
 transcript, the subagents it is running with their stdout and a Cancel each, and
 `Focus pane` to bring its workspace to the front.
 
-![The session modal for an orchestrator, showing its live activity tail and the Focus pane action](../docs/assets/hermes-desktop-session-modal.png)
+![The session modal for an orchestrator, showing its live activity tail and the Focus pane action](../../../docs/assets/hermes-desktop-session-modal.png)
 
 Prerequisites in full, the API, the join rules, the failure modes and the
-deliberate limits: [docs/hermes-desktop-plugins.md](../docs/hermes-desktop-plugins.md).
+deliberate limits: [docs/hermes-desktop-plugins.md](../../../docs/hermes-desktop-plugins.md).
 
-`skills/hub-watchdog/` is an optional foreground, fail-closed monitor consumer. It is packaged source, not an installed or enabled profile skill. Its profile-aware lifecycle is documented in [the watchdog runbook](../docs/hermes-watchdog-supervisor.md): no installer starts/stops a gateway or changes tools, and Gate O has no checked-in live origin proof. The supported posture is journal-only/dormant; it must not deliver, steer, cancel, recover, wake a chat, or choose a fallback route.
+`skills/hub-watchdog/` is an optional foreground, fail-closed monitor consumer. It is packaged source, not an installed or enabled profile skill. Its profile-aware lifecycle is documented in [the watchdog runbook](../../../docs/hermes-watchdog-supervisor.md): no installer starts/stops a gateway or changes tools, and Gate O has no checked-in live origin proof. The supported posture is journal-only/dormant; it must not deliver, steer, cancel, recover, wake a chat, or choose a fallback route.
 
 ## Skills
 
@@ -75,7 +75,7 @@ agent-fleet set-hermes-telegram install --profile default --force
 agent-fleet set-hermes-telegram install --profile default --force --restart
 ```
 
-The command is `/af-set-hermes-telegram`. The installer resolves the real profile path via `hermes profile show`, refuses drift without `--force`, backs up forced replacements, copies atomically, and verifies skill/tool/gateway readiness. It never sends a test Telegram message and never starts a stopped gateway. See [the bridge runbook](../docs/coms-hermes-bridge.md#telegram-bridge-control-command).
+The command is `/af-set-hermes-telegram`. The installer resolves the real profile path via `hermes profile show`, refuses drift without `--force`, backs up forced replacements, copies atomically, and verifies skill/tool/gateway readiness. It never sends a test Telegram message and never starts a stopped gateway. See [the bridge runbook](../../../docs/coms-hermes-bridge.md#telegram-bridge-control-command).
 
 The current `hermes skills install` CLI documents registry identifiers and direct HTTP(S) `SKILL.md` URLs, not local directories, so `hermes skills install .pi/agent-fleet/hermes/skills/hub-liaison` is not the supported local installation path.
 
@@ -104,13 +104,13 @@ The hub can surface an `ask_user` decision in Hermes Desktop while the specialis
 running. The prompt preserves the question and its choices instead of flattening them into an
 unstructured message:
 
-![Hermes Desktop displaying a multiple-choice question piped from agent-hub](../docs/assets/hermes-question-in-desktop.png)
+![Hermes Desktop displaying a multiple-choice question piped from agent-hub](../../../docs/assets/hermes-question-in-desktop.png)
 
 The side-by-side view shows the same live question in the Pi hub and Hermes Desktop. This is the
 question-piping path used for remote human input; task monitoring remains the separate local
 transport described below.
 
-![Pi agent-hub and Hermes Desktop showing the same piped question side by side](../docs/assets/hermes-pi-question-piping.png)
+![Pi agent-hub and Hermes Desktop showing the same piped question side by side](../../../docs/assets/hermes-pi-question-piping.png)
 
 ### Start a monitored hub
 
@@ -344,4 +344,4 @@ node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cl
 
 Hermes must not drive herdr panes or workspaces; the `just conductor` recipe creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.
 
-Hermes/Telegram remains the inbound `ask_user` path. The experimental ChatGPT Fleet session client is a ChatGPT-initiated channel to an existing Pi session and is not an inbound `ask_user` route. See the [session client runbook](../docs/codex-session-bridge.md).
+Hermes/Telegram remains the inbound `ask_user` path. The experimental ChatGPT Fleet session client is a ChatGPT-initiated channel to an existing Pi session and is not an inbound `ask_user` route. See the [session client runbook](../../../docs/codex-session-bridge.md).

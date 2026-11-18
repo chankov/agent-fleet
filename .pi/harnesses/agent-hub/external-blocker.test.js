@@ -57,14 +57,16 @@ test("acknowledging the blocker opens the gate", () => {
 
 test("with ask_user available the gate keeps firing until the human is addressed", () => {
 	const state = { blockers: [{ what: "x" }], acknowledged: false, askUserAvailable: true, refusedOnce: true };
-	assert.ok(checkExternalBlockerGate(state), "a repeated refusal is correct while the human is reachable");
-	assert.match(checkExternalBlockerGate(state).message, /The gate opens as soon as you do/);
+	const gate = checkExternalBlockerGate(state);
+	assert.ok(gate, "a repeated refusal is correct while the human is reachable");
+	assert.match(gate.message, /Call `ask_user`.*Wait for the human's explicit answer/);
 });
 
 test("without ask_user the gate fires exactly once so the session cannot deadlock", () => {
 	const first = checkExternalBlockerGate({ blockers: [{ what: "x" }], acknowledged: false, askUserAvailable: false, refusedOnce: false });
 	assert.ok(first);
 	assert.match(first.message, /ask_user` is unavailable/);
+	assert.match(first.message, /in chat and wait for the human's explicit answer/);
 	assert.match(first.message, /fires once/);
 	const second = checkExternalBlockerGate({ blockers: [{ what: "x" }], acknowledged: false, askUserAvailable: false, refusedOnce: true });
 	assert.equal(second, null);

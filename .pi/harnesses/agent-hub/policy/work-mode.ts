@@ -98,7 +98,12 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts): WorkModePolicy
 		restoreCapabilities: state => { persistedState = null; taskPacks = [...state.taskPacks]; provisionalPacks = [...state.provisional]; confirmation = { ...state.confirmation }; currentExplicitCompaction = false; },
 		resetCapabilities: () => { persistedState = null; taskPacks = []; provisionalPacks = []; confirmation = {}; currentExplicitCompaction = false; },
 		resolveIncomingCapabilities, refreshCapabilities: () => resolveIncomingCapabilities("", false, true),
-		provisionalCapabilityRefusal: pack => { const gate = confirmationGate(confirmation, pack, resolution.provisional.includes(pack)); return gate.allowed ? null : { content: [{ type: "text", text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } }; },
+		provisionalCapabilityRefusal: pack => {
+			const provisional = resolution.provisional.includes(pack);
+			const askUserAvailable = provisional && !confirmation[pack] && (ports.getActiveTools?.().includes("ask_user") ?? ports.getAskUserAvailable());
+			const gate = confirmationGate(confirmation, pack, provisional, askUserAvailable);
+			return gate.allowed ? null : { content: [{ type: "text", text: gate.message }], details: { status: "provisional_confirmation_required", confirmation: gate.status, pack } };
+		},
 		applyWorkModeTools, updateStatus: ctx => ctx.ui.setStatus("hub-work-mode", `Work Mode: ${workMode}`), statusText,
 	};
 }

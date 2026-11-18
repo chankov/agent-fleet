@@ -89,7 +89,7 @@ session, that the feature is independently approved, or that a notification was
 delivered. This feature authorizes no reload, enable, daemon/socket contact,
 protected action, permission decision, grant/exemption/policy change, journal
 replay or expiry renewal. Independent review of the entire feature remains
-required; see the [approved specification](../SPEC-private-config-verification.md).
+required; see the [approved specification](https://github.com/chankov/agent-fleet/blob/main/SPEC-private-config-verification.md).
 
 ## Activation и приемане
 

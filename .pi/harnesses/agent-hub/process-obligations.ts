@@ -134,7 +134,7 @@ export function transitionToolDecision(hintDelivered: boolean, count: number, hi
 export function activeAdditionRecoveryHints(state: ProcessObligationState, taskId: string, inputRevision: string | undefined): string {
  const descriptions = {
   security_change: "Security-sensitive change: independent review before acceptance (not before authoring).",
-  wide_change: "Wide change: independent review before acceptance; use the existing plan, focused research and ask_user for unresolved decisions. No mandatory Planner or plan review.",
+  wide_change: "Wide change: independent review before acceptance. Use the existing plan and focused research. Follow Decision routing for unresolved decisions. Planner and plan review are optional.",
   irreversible_execution: "Potentially irreversible execution: exact action-bound, one-use human confirmation before each effect; unsupported child/peer binding refuses the effect.",
  } as const;
  const active = normalizeProcessState(state).additions!.filter(a => a.status === "active" && a.taskId === taskId);

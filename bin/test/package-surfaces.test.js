@@ -28,6 +28,7 @@ import { applyPlan } from "../lib/apply.js";
 import { extractRegion } from "../lib/merge-forms.js";
 import { collectModelTargets } from "../lib/doctor.js";
 import { buildManifest } from "../lib/manifest.js";
+import { missingPackagedDocLinks } from "./helpers/packaged-doc-links.js";
 import { assertPiSkillDiscovery } from "./helpers/pi-skill-discovery.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -271,8 +272,31 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
   }
 });
 
-test("package dry-run includes each versioned harness entrypoint, module, and adjacent manifest", () => {
-  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
+test("packaged doc links use tarball membership and resolve fragments, images and reference links", () => {
+  const docs = new Map([
+    ["docs/README.md", [
+      "[Guide](guide.md#setup) and [Directory](../assets/)",
+      "[External](https://example.com/docs) and [Heading](#local-heading)",
+      "[Attachment](<guide with spaces.txt?download=1#top>)",
+      "![Screenshot](../assets/demo.png#preview)",
+      "[Source][repo-only]",
+      "<img src=\"../assets/other.png\">",
+      "<!-- <a href=\"commented.md\">Hidden</a> -->",
+      "```md", "[Example](missing-example.md)", "```",
+      "", "[repo-only]: ../repo-only.md#details", "",
+    ].join("\n")],
+    ["docs/guide.md", "# Setup"],
+    ["repo-only.md", "# Exists in the checkout"],
+  ]);
+  const packed = ["docs/README.md", "docs/guide.md", "docs/guide with spaces.txt", "assets/demo.png", ".versions/1.0.0/README.md", ".pi/harnesses/node_modules/dependency/README.md"];
+  assert.deepEqual(missingPackagedDocLinks(packed, file => docs.get(file)), [
+    "docs/README.md → ../assets/other.png (assets/other.png)",
+    "docs/README.md → ../repo-only.md#details (repo-only.md)",
+  ]);
+});
+
+test("package dry-run includes the runtime surface and resolves public doc links", () => {
+  const packed = JSON.parse(execFileSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], { cwd: root, encoding: "utf8", maxBuffer: PACK_MAX_BUFFER }));
   const paths = new Set(packed[0].files.map(({ path }) => path));
   for (const file of ["commands/probe.ts", "diagnostic-probe.ts"]) assert.equal(paths.has(`.pi/harnesses/agent-hub/${file}`), false, file);
   for (const file of ["diagnostic-series-budget.ts", "diagnostic-probe-extension.ts"]) assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), file);
@@ -286,6 +310,15 @@ test("package dry-run includes each versioned harness entrypoint, module, and ad
     assert.ok(paths.has(`.pi/harnesses/agent-hub/${file}`), `proactive runtime missing ${file}`);
   }
   assert.equal([...paths].some(path => path.startsWith(".pi/agent-sessions/") || path.startsWith(".tmp-")), false, "private proactive fixtures must not ship");
+  assert.deepEqual([...paths].filter(path => /(?:^|\/)docs\/(?:plans|prds|ideas|pi-specs)\//.test(path)), [], "local plans and development archives must stay out of releases");
+  const notificationFixtures = ".pi/agent-fleet/scripts/fixtures/codex-notification-contracts/";
+  assert.ok(paths.has(`${notificationFixtures}bootstrap-profile-0.167.json`), "the runtime bootstrap profile must ship");
+  assert.equal([...paths].some(path => path.startsWith(notificationFixtures) && /\.md$/i.test(path)), false, "developer evidence docs must stay in the repository");
+  assert.ok(paths.has("vendor/agent-skills-upstream/LICENSE"), "the vendored skills must retain their license");
+  assert.equal(paths.has("vendor/agent-skills-upstream/README.md"), false, "the upstream README describes its own repository");
+  assert.ok([...paths].some(path => /^\.versions\/[^/]+\/install-manifest\.json$/.test(path)), "release baselines must remain available to the installer");
+  const brokenLinks = missingPackagedDocLinks(paths, path => readFileSync(join(root, path), "utf8"));
+  assert.equal(brokenLinks.length, 0, `Packaged docs link to paths outside the tarball:\n${brokenLinks.join("\n")}`);
   assert.equal([...paths].some((path) => /guided-workspace-setup|af-(?:setup|doctor)-agent-fleet/.test(path)), false, "tarball must not ship retired setup surfaces");
   const prompts = [...paths].filter((path) => path.startsWith(".pi/prompts/af-")).sort();
   assert.deepEqual(prompts, [

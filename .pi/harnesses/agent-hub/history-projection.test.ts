@@ -55,7 +55,7 @@ test("older inspection pages become exact references after the recent working se
 
 test("current prompt keeps exact sourced critical conditions outside historical projections",async()=>{
  const {stateCapsuleFragment}=await import("./prompts/fragments.ts");
- const prompt=stateCapsuleFragment({taskTier:"feature",taskTierAssumed:false,turnDispatchCount:0,turnResearchCount:0,taskDispatchCount:0,taskResearchCount:0,taskReviewRounds:0,provisionalConfirmations:[],requirements:[{id:"A1",text:"Use the UTC calendar boundary",source:"user-approved plan",reference:"PLAN.md:42",criticalConditions:["Never use the local calendar day"],recordedStatus:"unproven"}]} as any,{active:[],provisional:[],reasons:{}} as any);
+ const prompt=stateCapsuleFragment({taskTier:"feature",taskTierAssumed:false,turnDispatchCount:0,turnResearchCount:0,taskDispatchCount:0,taskResearchCount:0,taskReviewRounds:0,provisionalConfirmations:[],requirements:[{id:"A1",text:"Use the UTC calendar boundary",source:"user-approved plan",reference:"PLAN.md:42",criticalConditions:["Never use the local calendar day"],recordedStatus:"unproven"}]} as any,{active:[],provisional:[],reasons:{}} as any,false);
  for(const condition of ["Use the UTC calendar boundary","user-approved plan","PLAN.md:42","Never use the local calendar day"])assert.ok(prompt.includes(condition),condition);
  assert.match(prompt,/recorded status is not fresh verification/);
 });

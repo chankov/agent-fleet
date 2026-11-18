@@ -46,8 +46,7 @@ isolation. Targeted `/btw` and Hermes conductor explicitly refuse unsupported
 combinations. Interactive Pi history retains its global cwd-scoped location;
 Fleet artifacts and native session files remain partitioned in the workspace.
 
-See [usage and boundaries](session-worktree-targeting.md) and the
-[implementation/verification plan](plans/2026-0-archive/PLAN-session-worktree-targeting.md).
+See [usage and boundaries](session-worktree-targeting.md).
 No target-local Fleet copy or cwd-only workaround is needed.
 
 ## Workspaces with nested repositories

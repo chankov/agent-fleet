@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_OVERRIDES, parseAgentTeamOverrides } from "../config/overrides.ts";
 import { applySessionOverrides } from "../lifecycle/session-orchestration.ts";
 import type { CapabilityPack, CapabilityResolution } from "../capability-packs.ts";
+import { capabilityConfirmationQuestion } from "../capability-confirmation.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../../lib/context-budget-child-prompt.ts";
 import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../../bin/test/helpers/project-policy-fixture.js";
 import type { HubPromptContext, HubPromptState } from "./context.ts";
@@ -40,7 +40,7 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 	const active = overrides.active ?? ALL_PACKS;
 	return {
 		getCapabilityResolution: () => resolution(active),
-		getActiveTools: () => ["dispatch_agent", "ask_user"],
+		getActiveTools: () => ["dispatch_agent", ...(overrides.askUser === false ? [] : ["ask_user"])],
 		getToolCatalogNotice: () => overrides.catalogNotice ?? "",
 		getAgents: () => [{ name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write" }],
 		getResearchPersonas: () => [{ name: "recon", displayName: "Recon", description: "Maps code.", model: "fast/model", thinking: "low" }],
@@ -48,17 +48,12 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 		getWorkMode: () => "operator",
 		getActiveTeamName: () => "Delivery",
 		getUserLanguage: () => overrides.language ?? "English",
-		isAskUserAvailable: () => overrides.askUser ?? true,
 		isComsReady: () => true,
 		getIdentity: () => ({ name: "hub", project: "fleet" }),
 		isHerdrFleetReady: () => true,
 		getRulesProtocol: () => overrides.rulesProtocol ?? "",
 		getDocsProtocol: () => overrides.docsProtocol ?? "",
 	} as HubPromptContext;
-}
-
-function digest(text: string): string {
-	return createHash("sha256").update(text).digest("hex");
 }
 
 test("System 1 assistance is optional across modes and tiers, with bounded fallback", () => {
@@ -143,12 +138,56 @@ test("trusted tool catalog producer and refusal state survive the production pro
 	assert.match(built.systemPrompt, /No automatic retry was performed/);
 });
 
-test("language and unavailable ask_user branch preserve exact prompt text", () => {
-	const built = buildHubSystemPrompt(fixture({ active: ["core"], askUser: false, language: "Bulgarian" }));
-	assert.equal(digest(built.systemPrompt), "1d090b4a0c6776f9105b650325ae96b3010e1f2b7534c7f5511e3897f1bbf63d");
-	assert.match(built.systemPrompt, /ask_user tool is unavailable/);
-	assert.match(built.systemPrompt, /Every message you\n  write to the user is Bulgarian/);
-	assert.doesNotMatch(built.systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery/);
+for (const fleet of [true, false]) for (const askUser of [true, false]) {
+	test(`Hub questions follow the active catalog with fleet ${fleet ? "active" : "inactive"} and ask_user ${askUser ? "listed" : "unlisted"}`, () => {
+		const ctx = fixture({ active: fleet ? ALL_PACKS : ["core"], language: fleet ? "Bulgarian" : "German" });
+		ctx.getAgenticAskMode = () => "recommended";
+		const tools = ["ask_system1", ...(fleet ? ["dispatch_agent", "spawn_research", "herdr_notify"] : []), ...(askUser ? ["ask_user"] : [])];
+		ctx.getActiveTools = () => tools;
+		const { systemPrompt } = buildHubSystemPrompt(ctx);
+		const language = ctx.getUserLanguage();
+		assert.ok(systemPrompt.includes(`Use **${language}** for all user-facing messages`));
+		const decision = systemPrompt.split("## Decision routing\n")[1].split("\n\n")[0];
+		if (askUser) {
+			assert.match(decision, new RegExp(`Use \`ask_user\`.*in ${language}`));
+			assert.doesNotMatch(systemPrompt, /ask in chat|use chat.*escalation/i);
+		} else {
+			assert.doesNotMatch(systemPrompt, /(?:call|use|with|via|replaces) `?ask_user|before `ask_user`/i);
+			assert.match(decision, new RegExp(`ask in chat in ${language}`, "i"));
+		}
+		assert.match(decision, /wait for an explicit human answer before dependent work/i);
+		assert.match(decision, /silence is not approval/i);
+		assert.match(decision, /Investigate discoverable facts with available tools or focused research/);
+		assert.match(decision, /Resolve routine technical choices independently/);
+		assert.match(systemPrompt, /## Recommended System 1 usage/);
+		if (fleet) {
+			assert.match(systemPrompt, /Triage every ASK_USER\/details.questions item before escalating/);
+			assert.match(systemPrompt, /Translate .*specialist questions.*Bulgarian/);
+			assert.match(systemPrompt, /## Fleet \(herdr\)/);
+		} else {
+			assert.doesNotMatch(systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery|ORCHESTRATOR_ANSWER:/);
+		}
+	});
+}
+
+test("provisional confirmations use the current route and retain the recorded confirmation requirement", () => {
+	const ctx = fixture({ active: ["core"], language: "Bulgarian" });
+	const state = ctx.getPromptState();
+	const question = capabilityConfirmationQuestion("peer");
+	ctx.getPromptState = () => ({ ...state, provisionalConfirmations: [{ pack: "peer", reason: "ambiguous", question }] });
+	ctx.getActiveTools = () => [];
+	const unavailable = buildHubSystemPrompt(ctx).systemPrompt;
+	assert.match(unavailable, /provisional confirmation: peer.*ask in chat.*recorded tool confirmation/i);
+	assert.doesNotMatch(unavailable, /call ask_user exactly once|agent-hub-capability-confirmation:peer/);
+	ctx.getActiveTools = () => ["ask_user"];
+	const available = buildHubSystemPrompt(ctx).systemPrompt;
+	assert.match(available, /provisional confirmation: peer.*ask once with `ask_user`/i);
+	assert.ok(available.includes(JSON.stringify(question)));
+	assert.match(available, /keep the context marker and option values/i);
+	ctx.getPromptState = () => ({ ...state, provisionalConfirmations: [{ pack: "peer", reason: "ambiguous", question, pending: true }] });
+	const pending = buildHubSystemPrompt(ctx).systemPrompt;
+	assert.match(pending, /provisional confirmation: peer.*await the pending answer/i);
+	assert.doesNotMatch(pending, /call ask_user exactly once|agent-hub-capability-confirmation:peer/);
 });
 
 test("configured policy renders index-first for root operator and orchestrator prompts", () => {
@@ -233,7 +272,7 @@ test("decision routing retains material questions but triages specialists first 
   assert.match(prompt, /ORCHESTRATOR_ANSWER:/);
   assert.match(prompt, /Never fabricate a human answer/);
   assert.doesNotMatch(prompt, /For every returned ASK_USER.*ask the human|Relay every ASK_USER/);
-  if (!askUser) assert.match(prompt, /wait for an explicit answer; silence is not approval/);
+  assert.match(prompt, /Wait for an explicit human answer before dependent work\. Silence is not approval\./);
  }
 });
 

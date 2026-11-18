@@ -51,3 +51,12 @@ test("confirmation marker is typed, compact, and never parses arbitrary answer p
 	assert.deepEqual(question.options, ["Confirm", "Reject", "Cancel"]);
 	assert.equal(confirmationOutcome({ details: { response: { text: "yes please" }, cancelled: false } }), null);
 });
+
+test("an unavailable confirmation tool offers a chat alternative and keeps the effect blocked", () => {
+	const refusal = confirmationGate({}, "peer", true, false);
+	assert.equal(refusal.allowed, false);
+	if (!refusal.allowed) {
+		assert.match(refusal.message, /ask in chat.*recorded tool confirmation/i);
+		assert.doesNotMatch(refusal.message, /call ask_user|agent-hub-capability-confirmation/);
+	}
+});

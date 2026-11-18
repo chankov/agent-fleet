@@ -8,7 +8,7 @@ import type { HubPromptContext } from "./context.ts";
 import {
 	ASK_SYSTEM1_RECOMMENDED_FRAGMENT,
  FILE_DISCOVERY_FRAGMENT,
-	ambiguityFragment,
+	AMBIGUITY_RULE,
 	askUserFragment,
 	COMPACTION_FRAGMENT,
 	comsFragment,
@@ -69,24 +69,24 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const researchCatalog = !fleetActive ? "" : researchCards.length > 0
 		? researchCards.map(card => card.text).join("\n\n")
 		: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
-	const askUserAvailable = ctx.isAskUserAvailable();
+	const activeTools = ctx.getActiveTools();
+	const askUserAvailable = activeTools.includes("ask_user");
 	const userLanguage = ctx.getUserLanguage();
 	const askUserBlock = askUserFragment(askUserAvailable, userLanguage);
-	const triageBeforeDispatch = fleetActive && ctx.getActiveTools().includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
-	const dispatchSection = dispatchFragment(fleetActive, askUserAvailable, userLanguage) + providerLimitLine + (triageBeforeDispatch ? `
+	const triageBeforeDispatch = fleetActive && activeTools.includes("dispatch_triage") && ctx.getTriageBeforeDispatch?.() === true;
+	const dispatchSection = dispatchFragment(fleetActive) + providerLimitLine + (triageBeforeDispatch ? `
 
 ## Enabled System 1 pre-dispatch advice
 After resolving requirements, task classification and the active roster, call \`dispatch_triage\` once for each focused task you intend to delegate, before choosing its \`dispatch_agent\` persona. Send only minimal non-secret context, relative scope, and the actual language/domain. Do not read files or credentials merely to populate triage.
 Then independently decide whether and whom to dispatch. An \`uncalibrated\` result contains experimental observations, NOT an approved recommendation; never invent a calibration profile. Do not ask the human solely because calibration is absent. All existing ambiguity, risk, permission, budget and acceptance rules still apply. Low predicted risk never means safe.
 If triage abstains, fails, is unavailable, stale, or reaches its budget, use ordinary independent judgment without automatic retries or forcing a specialist. Do not delegate operator/research-only work just to exercise triage. When dispatching after an applicable result, include its \`triage_id\` and a truthful \`triage_reason\` (\`independent_judgment\` for uncalibrated observations). A triage result is never authorization to execute.
 ` : "");
-	const ambiguityRule = ambiguityFragment(askUserAvailable, userLanguage);
-	const languageLines = languageFragment(askUserAvailable, userLanguage);
+	const languageLines = languageFragment(userLanguage, fleetActive);
 	const busyProviders = providerLimits.filter(limit => limit.inFlight > 0 || limit.queued > 0);
-	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution)
+	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution, askUserAvailable)
 		+ (busyProviders.length ? `\n- local model slots in use: ${busyProviders.map(limit => `${limit.provider} ${limit.inFlight}/${limit.limit}${limit.queued ? ` (+${limit.queued} queued)` : ""}`).join(", ")}` : "");
-	const agenticRecommended = ctx.getActiveTools().includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
-	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : "", ctx.getActiveTools().includes('ask_system1_files') ? FILE_DISCOVERY_FRAGMENT : ""].filter(Boolean).join("\n\n");
+	const agenticRecommended = activeTools.includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
+	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : "", activeTools.includes('ask_system1_files') ? FILE_DISCOVERY_FRAGMENT : ""].filter(Boolean).join("\n\n");
 	const artifactRoot = ctx.getArtifactRoot?.();
 	const verificationSection = (verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "") +
 		(artifactRoot && (verificationActive || fleetActive) ? `\n\nSession artifact root: ${artifactRoot}. Use this absolute root for read/write tools. Handoff paths artifacts/<kind>/... are relative to this root, not the repository. Legacy shared .pi/agent-sessions/artifacts paths belong to other sessions; do not overwrite them.` : "");
@@ -97,7 +97,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 	const compactionSection = compactionActive ? COMPACTION_FRAGMENT : "";
 	const systemPrompt = assembleHubSystemPrompt({
 		intro: workModeText.intro,
-		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${ctx.getActiveTools().map(name => `\`${name}\``).join(", ") || "(none)"}${ctx.getToolCatalogNotice?.() ? `\n${ctx.getToolCatalogNotice()}` : ""}`,
+		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${activeTools.map(name => `\`${name}\``).join(", ") || "(none)"}${ctx.getToolCatalogNotice?.() ? `\n${ctx.getToolCatalogNotice()}` : ""}`,
 		languageLines,
 		activeTeamName: ctx.getActiveTeamName(),
 		teamMembers,
@@ -112,7 +112,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		herdrSection,
 		compactionSection,
 		hardRules: workModeText.hardRules,
-		ambiguityRule,
+		ambiguityRule: AMBIGUITY_RULE,
 		agentCatalog,
 		researchCatalog,
 		delegationGuide: workModeText.delegationGuide,
