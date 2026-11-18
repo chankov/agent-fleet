@@ -8,7 +8,7 @@
 //   - source @ current version    ←─ the active tree in this package
 //
 // Run while preparing the release version so the snapshot is committed in the
-// Version Packages PR. Also runnable by hand if you need to rebuild a snapshot.
+// version commit on main. Also runnable by hand if you need to rebuild a snapshot.
 
 import { readFileSync, mkdirSync, cpSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";

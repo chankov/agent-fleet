@@ -7,7 +7,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Only one release run at a time so the "Version Packages" PR stays sane.
+# Only one release run at a time so two runs never version or publish together.
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 # PR code receives read-only permissions; publishing authority is job-local.
@@ -62,7 +62,6 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
-      pull-requests: write
       id-token: write
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -95,22 +94,54 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      # A pending changeset is the only thing that cuts a release. There is no
+      # release PR: CI rolls the changesets into a version commit pushed
+      # straight to main with [skip ci] (so no extra workflow run starts), then
+      # publishes in this same run. Without pending changesets nothing is
+      # versioned. The version commit is pushed BEFORE publishing: if main moved
+      # meanwhile the push is rejected and nothing is published.
+      - name: Version pending changesets
+        run: |
+          pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md | wc -l)"
+          if [ "$pending" -eq 0 ]; then
+            echo "No pending changesets; no new version."
+            exit 0
+          fi
+          # Force a patch bump, sync harness stamps and the lockfile, rebuild the
+          # manifest and snapshot .versions/<new-version>/.
+          npm run version:changeset
+          version="$(node -p "require('./package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: release v${version} [skip ci]"
+          git push origin HEAD:main
+
       # Fast suite already ran in installer-matrix. Re-running the full suite
       # here is what hung run 34457797354 (~39 min, no TAP summary, cancelled).
-      # Keep this job for Trusted Publishing + changesets only.
+      # Keep this job for versioning + Trusted Publishing only.
       - name: Verify package contents
         run: npm run pack:dry
 
-      - name: Create release PR or publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          # Force a patch bump, sync the lockfile, then snapshot the bumped
-          # version so the release PR contains .versions/<new-version>/.
-          # Mirrors the local `version:changeset` script.
-          version: npm run version:changeset
-          publish: npx changeset publish
-          commit: "chore: release"
-          title: "chore: release"
+      # Idempotent: changeset publish skips a version already on npm, so a push
+      # without changesets is a no-op, and a version whose publish failed is
+      # published by the next run on main (push or workflow_dispatch).
+      - name: Publish to npm, tag and create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npx changeset publish
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null && ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            git push origin "refs/tags/${tag}"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null && ! gh release view "$tag" >/dev/null 2>&1; then
+            node -e '
+              const version = process.argv[1];
+              const section = require("fs").readFileSync("CHANGELOG.md", "utf8").split(/^## /m).find(part => part.startsWith(version + "\n"));
+              if (!section) throw new Error(`CHANGELOG.md has no section for ${version}`);
+              process.stdout.write(section.slice(version.length + 1).trim() + "\n");
+            ' "$version" > "$RUNNER_TEMP/release-notes.md"
+            gh release create "$tag" --title "$tag" --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag
+          fi

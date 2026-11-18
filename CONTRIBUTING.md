@@ -124,22 +124,21 @@ on main after both validation jobs pass. Repository administrators should make
 for main and require PRs; workflow files alone do not prevent direct pushes or
 merging failed checks. This change does not configure repository protection.
 
-GitHub suppresses most workflow events created using `GITHUB_TOKEN`, including
-PRs created by the changesets job. If checks are required, explicitly dispatch
-this workflow on `changeset-release/main` for that PR (the publish job is skipped
-on that branch), or separately configure an approved GitHub App authentication
-flow. Do not grant publishing privileges to PR validation to work around this.
+There is no release PR. Do not grant publishing privileges to PR validation.
 
 ### Release flow
 
-1. PRs merge to `main` with their changeset files.
-2. The release GitHub Action opens (or updates) a "Version Packages" PR that
-   aggregates pending changesets into a version bump + `CHANGELOG.md` update.
-3. In that PR, synchronize adjacent harness version stamps, refresh
-   `package-lock.json`, then snapshot active artifacts into `.versions/<x.y.z>/`
-   for future three-way diffs against this release.
-4. Merging the PR triggers `changeset publish` — the package goes to npm and a
-   matching git tag (`v<x.y.z>`) is pushed.
+1. Changes reach `main` with their changeset files.
+2. After both validation jobs pass, the Release job versions only if pending
+   changesets exist: `npm run version:changeset` aggregates them into a version
+   bump + `CHANGELOG.md` update, synchronizes adjacent harness version stamps,
+   refreshes `package-lock.json`, and snapshots active artifacts into
+   `.versions/<x.y.z>/` for future three-way diffs against this release.
+3. That result is committed as `chore: release v<x.y.z> [skip ci]` and pushed
+   straight to `main` (`[skip ci]` keeps it from starting another run).
+4. The same run then calls `changeset publish` — the package goes to npm, the
+   `v<x.y.z>` tag is pushed and a GitHub Release is created from the changelog
+   section. A push without pending changesets publishes nothing new.
 
 ### Backporting a version-aware change
 

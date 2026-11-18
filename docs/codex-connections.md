@@ -113,7 +113,7 @@ Install the published package through the normal [npm workflow](npm-install.md),
 
 The release includes the updated voice skill archive, unlike a local runtime-only snapshot that deliberately preserves an older installed skill. Updating only the server without the skill, or only the skill without actual host adoption, does not prove that the double-confirmation UX is fixed. After the reviewed update, wait for affected work to finish, use the supported host MCP/skill reload procedure, and inspect the actual tool catalog and discovered skill. No AF reload, permission re-grant, policy reset or notification deadline extension is implied.
 
-Do not run `version:changeset`, publish, overwrite an existing local release, or refresh a live host as an incidental documentation task. The normal Changesets release PR generates the package/lockfile/changelog versions; this pending patch targets 2.1.0 → 2.1.1.
+Do not run `version:changeset`, publish, overwrite an existing local release, or refresh a live host as an incidental documentation task. The Release workflow generates the package/lockfile/changelog versions when it versions pending changesets on `main`; this pending patch targets 2.1.0 → 2.1.1.
 
 ## Bootstrap implementation boundaries
 

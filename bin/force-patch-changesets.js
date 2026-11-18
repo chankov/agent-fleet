@@ -5,9 +5,8 @@
 // `changeset version` always produces a revision bump (x.y.Z+1), never a
 // minor/major one — regardless of how the changesets were authored.
 //
-// Wired in ahead of `changeset version` in both the local `version` npm script
-// and the CI release workflow's changesets/action `version` command, so local
-// and CI releases agree. Remove this step (and the `minor|major` lines stay
+// Wired in ahead of `changeset version` in the `version:changeset` npm script,
+// which both local releases and the CI release workflow run, so they agree. Remove this step (and the `minor|major` lines stay
 // honored) if you ever want changeset-authored semver back.
 //
 // Escape hatch: a changeset carrying KEEP_BUMP_MARKER in its body keeps the

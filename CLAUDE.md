@@ -28,7 +28,7 @@ agents/       → 14 reusable agent personas, canonical pi frontmatter; installe
 justfile      → Recipes to launch pi with each harness plus the single public `flow` entry point
 .changeset/   → Pending changesets; rolled into CHANGELOG.md + version bump by `changeset version`
 .versions/    → Per-version artifact snapshots used by the version-aware update flow (snapshot-version.js)
-.github/workflows/release.yml → On merge to main: opens "Version Packages" PR or runs `changeset publish`
+.github/workflows/release.yml → On push to main with pending changesets: versions in CI, commits `chore: release vX [skip ci]` to main, runs `changeset publish` (no release PR)
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op. The package update check is a Fleet Core helper (`.pi/harnesses/lib/update-check.ts`) scheduled by damage-control-continue, not an auto-discovered extension.
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just fleet hub` loads Fleet Core before agent-hub; every native child gets damage-control-continue)

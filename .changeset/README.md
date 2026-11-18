@@ -23,9 +23,10 @@ comment `# release: keep-bump` keeps the bump it was authored with — for
 releases where the version number is the signal (a removed runtime, a retired
 command, an install-record break).
 
-On merge to `main`, the changesets GitHub Action opens (or updates) a
-"Version Packages" PR that rolls every pending changeset into a single version
-bump + `CHANGELOG.md` update. Merging that PR triggers the npm publish.
+On a push to `main` with pending changesets, the Release workflow (after its
+checks pass) rolls them into a single version bump + `CHANGELOG.md` update,
+commits that to `main` with `[skip ci]` and publishes to npm in the same run.
+There is no release PR; a push without changesets releases nothing.
 
 ## Bump rules cheatsheet
 

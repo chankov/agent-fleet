@@ -35,11 +35,10 @@ ships is `agent-fleet` — both names are intentional.
    other CI npm token. Keep an existing `NPM_TOKEN` secret until the first
    successful OIDC release, then remove it.
 
-3. **Confirm GitHub Actions can create the release PR.** Settings → Actions →
-   General → Workflow permissions → keep the default permission as "Read
-   repository contents permission" and enable "Allow GitHub Actions to create
-   and approve pull requests." The workflow requests its required write
-   permissions explicitly.
+3. **Keep the default workflow permissions.** Settings → Actions → General →
+   Workflow permissions → "Read repository contents permission". The release
+   job requests `contents: write` (version commit, tag, GitHub Release) and
+   `id-token: write` (npm OIDC) explicitly; it opens no pull requests.
 
 ## Cutting a release
 
@@ -56,19 +55,24 @@ ships is `agent-fleet` — both names are intentional.
 2. **Add changesets** for any user-visible change merged since the last
    release (one per PR; the contributor adds them as part of their PR).
 
-3. **Push to main.** The release workflow opens (or updates) a "Version
-   Packages" PR that:
+3. **Push to main.** After the Linux/macOS checks pass, the Release job — only
+   when pending changesets exist — runs `npm run version:changeset`, which:
    - Rolls every `.changeset/*.md` into `CHANGELOG.md`
    - Bumps `package.json#version`
    - Runs `node bin/sync-harness-versions.js` to stamp the adjacent persistent-harness manifests
    - Finalizes `package-lock.json`, then runs `node bin/snapshot-version.js` to write `.versions/<x.y.z>/`
 
-4. **Review the Version Packages PR.** Inspect the changelog entry and the
-   bumped version. Merge it.
+   It commits the result to `main` as `chore: release v<x.y.z> [skip ci]`
+   (no release PR, no extra workflow run). Pull it afterwards.
 
-5. **The workflow runs `changeset publish` on merge.** Outputs:
+4. **The same run publishes.** `changeset publish` outputs:
    - The package on npm at the new version
    - A git tag `v<x.y.z>` pushed to the repo
+   - A GitHub Release with that version's `CHANGELOG.md` section
+
+   Publishing is idempotent: if it fails after the version commit, push any
+   commit to `main` or run the workflow manually (workflow_dispatch) — do not
+   re-run the failed run, which would try to version the same changesets again.
 
 ## Manual publish (escape hatch)
 
