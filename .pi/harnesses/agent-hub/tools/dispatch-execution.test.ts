@@ -1543,11 +1543,23 @@ test('explicit native current-state review closes scope-bound process without hi
  assert.equal(details.resultProtocol,'submit_result');assert.equal(details.structuredReturn.status,'completed');
  assert.equal(details.operatorStateVerification.status,'accepted');assert.equal(details.operatorStateVerification.historicalAttribution,'not_claimed');
  assert.equal(details.taskAccepted,false);assert.equal(details.changeResult.status,'unchanged');assert.equal(f.d.state.getAssertions()[1].status,'open');
+ assert.equal(details.operatorStateVerification.reason,undefined);assert.equal(details.operatorStateVerification.failedQualifiers,undefined);
+ assert.doesNotMatch(r.content[0].text as string,/did not register the candidate/);
 });
 test('current-state review fails closed on missing/failed/stale checks, reject, source mutation and overlap',async t=>{
  for(const scenario of ['no-checks','failed','stale','reject','modified','overlap','partial','blocked','missing-submission','assertion-failed','question','tainted','no-integrity']){
   const f=await operatorStateFixture(t,scenario);const r=await f.run(scenario,{agent:'code-reviewer',task:'A2 inspect '+scenario,scope:['a.ts'],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
   assert.equal((r.details as any).operatorStateVerification.status,'unproven',scenario);assert.equal(f.state().review.evidenceRef,null,scenario);assert.equal(f.state().acceptance.evidenceRef,null,scenario);
+  // The refusal names its qualifier instead of only "no task change is registered".
+  const expected:Record<string,string[]>={'no-checks':['automated_not_passed:A2,AF-MIN-CHANGE'],failed:['automated_not_passed:A2,AF-MIN-CHANGE'],stale:['automated_not_passed:A2,AF-MIN-CHANGE'],
+   reject:['verdict_not_affirmative','regression_not_closed'],modified:['review_input_changed','revision_changed'],overlap:['non_exclusive_capture'],
+   partial:['submission_incomplete'],blocked:['submission_incomplete'],'missing-submission':['submission_incomplete'],'assertion-failed':['assertions_failed'],
+   question:['requires_user_decision'],tainted:['non_exclusive_capture'],'no-integrity':['non_exclusive_capture']};
+  const proof=(r.details as any).operatorStateVerification;
+  assert.deepEqual(proof.failedQualifiers,expected[scenario],scenario);assert.equal(proof.reason,expected[scenario][0],scenario);assert.ok(proof.nextStep,scenario);
+  assert.match(r.content[0].text as string,new RegExp(`Current-state review did not register the candidate: ${expected[scenario][0]}`),scenario);
+  assert.match(r.content[0].text as string,/Manual assertions stay open; nothing was marked proven/,scenario);
+  assert.equal(f.d.state.getAssertions()[1].status,'open',`${scenario}: the manual assertion is never proven`);
  }
 });
 test('current-state mode is explicit, native-only, exact observed files and never a normal builder bypass',async t=>{

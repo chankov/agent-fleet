@@ -39,6 +39,10 @@ export interface ActionExecutorDeps {
 	getTurnReport(): TurnReport;
 	getAssertions(): Assertion[];
 	setAssertions(value: Assertion[]): void;
+	/** Appends the authoritative task-bound ledger snapshot; throws when the journal append fails. */
+	persistLedger?(value: Assertion[]): void;
+	/** Why the ledger could not be restored at session start, if it could not. */
+	ledgerRestoreDiagnostic?(): string | null;
 	currentTaskId(): string;
 	currentRevision(ctx: ExtensionContext): string;
 	/** The revision over a recorded stage basis; [] is the whole root repository (D8). */
@@ -123,8 +127,13 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			if (reservedNewTaskId && d.adoptReservedTaskId) d.adoptReservedTaskId(reservedNewTaskId, resetTaskWindow);
 			else resetTaskWindow();
 			if (reservedNewTaskId) consumeReservedTaskId(reservedNewTaskId);
+			// The new task never inherits the prior ledger, even when the journal append fails:
+			// an older snapshot is bound to the prior task identity and is refused on restore.
+			let ledgerNotice = "";
+			try { d.persistLedger?.([]); } catch { ledgerNotice = " The cleared ledger could not be journaled; the prior task's saved ledger stays bound to the prior task and will not be restored into this one."; }
 			d.setAssertions([]);
 			d.artifacts.persistAssertions();
+			if (ledgerNotice) ctx.ui?.notify?.(ledgerNotice.trim(), "warning");
 			d.budget.appendTaskResetEntry("tool:set_task_tier", null, prior, ctx);
 		}
 		setProcessState(adopted);
@@ -146,10 +155,19 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		return { content: [{ type: "text", text: `${result.message}. Active team: ${roster}.` }], details: { status: result.ok ? "ok" : "refused", roster } };
 	};
 
+	// Persist before adopting: a failed journal append leaves the live ledger untouched.
+	const persistOrRefuse = (next: Assertion[], prefix: string): ToolExecutionResult | null => {
+		try { d.persistLedger?.(next); return null; }
+		catch (error) { return { content: [{ type: "text", text: `${prefix}: the assertion ledger could not be saved to the session journal (${error instanceof Error ? error.message : String(error)}). Nothing was recorded; retry once the session journal is writable.` }], details: { status: "refused", reason: "ledger_persistence_failed" } }; }
+	};
+
 	const executeSetAssertions: ToolExecutor<SetAssertionsParams> = async (_id, params, _signal, _update, ctx) => {
 		const verdict = validateAssertionBatch(params.assertions);
 		if (!verdict.ok) return { content: [{ type: "text", text: verdict.refusal! }], details: { status: "rejected", reason: "missing-source" } };
-		const assertions = verdict.assertions.map(a => ({ ...a, status: "open" as AssertionStatus })); d.setAssertions(assertions);
+		const assertions = verdict.assertions.map(a => ({ ...a, status: "open" as AssertionStatus }));
+		const journalRefusal = persistOrRefuse(assertions, "Ledger unchanged");
+		if (journalRefusal) return journalRefusal;
+		d.setAssertions(assertions);
 		d.artifacts.persistAssertions(); d.artifacts.updateAssertionStatus();
 		if (verdict.warning) ctx.ui.notify(verdict.warning, "warning");
 		const head = `Ledger set: ${assertions.length} assertion(s) open — ${assertions.map(a => a.id).join(", ") || "(none)"}. Pass the relevant ones verbatim into each dispatch and advance only on proven.`;
@@ -157,7 +175,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	};
 
 	const executeUpdateAssertion: ToolExecutor<UpdateAssertionParams> = async (_id, params, _signal, _update, ctx) => {
-		const assertions = d.getAssertions(); const wanted = String(params.status).trim().toLowerCase();
+		const assertions = d.getAssertions().map(item => ({ ...item, ...(item.criticalConditions ? { criticalConditions: [...item.criticalConditions] } : {}) })); const wanted = String(params.status).trim().toLowerCase();
 		if (!["proven", "unproven", "failed"].includes(wanted)) return { content: [{ type: "text", text: `status must be one of proven | unproven | failed (got "${params.status}").` }], details: { status: "error" } };
 		const a = assertions.find(x => x.id.toLowerCase() === String(params.id).trim().toLowerCase());
 		if (!a) return { content: [{ type: "text", text: `No assertion "${params.id}" in the ledger. Call set_assertions first, or check the id. Current: ${assertions.map(x => x.id).join(", ") || "(empty)"}.` }], details: { status: "error" } };
@@ -170,6 +188,9 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		a.status = wanted as AssertionStatus; a.evidence = wanted === "unproven" ? undefined : (params.evidence?.trim() || undefined);
 		if (wanted === "unproven") { a.evidenceTaskId = undefined; a.evidenceRevision = undefined; }
 		else { a.evidenceTaskId = d.currentTaskId(); a.evidenceRevision = d.currentRevision(ctx); }
+		const journalRefusal = persistOrRefuse(assertions, `${a.id} unchanged`);
+		if (journalRefusal) return journalRefusal;
+		d.setAssertions(assertions);
 		d.artifacts.persistAssertions(); d.artifacts.updateAssertionStatus();
 		const open = assertions.filter(x => x.status === "open" || x.status === "unproven").map(x => x.id); const failed = assertions.filter(x => x.status === "failed").map(x => x.id);
 		const tail = failed.length ? `Failed: ${failed.join(", ")}. Still open: ${open.join(", ") || "none"}.` : open.length ? `Still open: ${open.join(", ")}.` : "All assertions proven.";
@@ -177,7 +198,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	};
 
 	const executeGetAssertions: ToolExecutor<Record<string, never>> = async () => d.getAssertions().length === 0
-		? { content: [{ type: "text", text: "Ledger is empty. Call set_assertions to build the acceptance assertions before dispatching." }], details: { count: 0 } }
+		? (() => { const restore = d.ledgerRestoreDiagnostic?.() ?? null; return { content: [{ type: "text", text: `Ledger is empty. ${restore ? `${restore}` : "Call set_assertions to build the acceptance assertions before dispatching."}` }], details: { count: 0, ...(restore ? { restoreDiagnostic: restore } : {}) } }; })()
 		: { content: [{ type: "text", text: d.artifacts.renderAssertionLedgerText() }], details: { count: d.getAssertions().length } };
 
 	const executeComsList: ToolExecutor<ComsListParams> = async (_id, params) => {

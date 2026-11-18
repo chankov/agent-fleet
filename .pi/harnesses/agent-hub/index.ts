@@ -198,6 +198,7 @@ import { createHubStateContext } from "./context/hub-state.ts";
 import { createAgentStateFactory } from "./context/agent-state.ts";
 import { createBudgetContext, createSessionTotals, freshTurnReport, type TurnReport } from "./context/budgets.ts";
 import { createAssertionsArtifactsContext, type Assertion, type InputArtifactPreview } from "./context/assertions-artifacts.ts";
+import { ASSERTION_LEDGER_ENTRY, assertionLedgerSnapshot, bootstrapLegacyAssertionLedger, restoreAssertionLedger } from "./context/assertion-journal.ts";
 import { createModelPolicy } from "./policy/models.ts";
 import { createRosterPolicy } from "./policy/roster.ts";
 import { createWorkModePolicy } from "./policy/work-mode.ts";
@@ -609,6 +610,42 @@ export default function (pi: ExtensionAPI) {
 	// ── Verification Contract: assertion ledger (advisory) ──
 	// Mutable ownership remains here; the extracted runtime receives explicit ports.
 	let assertions: Assertion[] = [];
+	// Why session start could not restore the ledger; shown while the ledger is empty.
+	let ledgerRestoreDiagnostic: string | null = null;
+	// Set while session start could not establish an authoritative task identity:
+	// journaling a ledger then would bind it to (and persist) a non-authoritative ID.
+	let ledgerPersistenceFence: string | null = null;
+	/** The authoritative, task-bound journal record. Throws when the append fails. */
+	function persistAssertionLedger(value: Assertion[]): void {
+		if (ledgerPersistenceFence) throw new Error(ledgerPersistenceFence);
+		// The first task has no reset event; without a saved identity a reload mints a
+		// new task ID and the snapshot would be refused as foreign.
+		noProgress.persistTaskIdentity();
+		pi.appendEntry(ASSERTION_LEDGER_ENTRY, assertionLedgerSnapshot(noProgress.taskId(), value));
+		ledgerRestoreDiagnostic = null;
+	}
+	/** Runs after the recovery guard established the authoritative task identity. */
+	function restoreAssertionLedgerForSession(ctx: ExtensionContext, trusted: { recovery: boolean; identity: boolean }): string | null {
+		assertions = []; ledgerRestoreDiagnostic = null; ledgerPersistenceFence = null;
+		const next = "Re-declare the same sourced assertions with set_assertions for this same task; do not open a new task or reset.";
+		if (!trusted.recovery || !trusted.identity) {
+			const cause = !trusted.recovery ? "recovery history rejected" : "saved process state names a different task";
+			ledgerPersistenceFence = `task identity not established at session start (${cause})`;
+			ledgerRestoreDiagnostic = `The assertion ledger was not restored because the task identity could not be established (${cause}). Ledger changes are refused until the session's recovery entries are repaired and the session is resumed; do not re-declare under this identity, open a new task or reset.`;
+			return ledgerRestoreDiagnostic;
+		}
+		// The current leaf only: sibling branches and summarized model context are not authority.
+		const branch = ctx.sessionManager.getBranch?.() ?? [];
+		const restored = restoreAssertionLedger(branch, noProgress.taskId());
+		if (restored.status !== "none") { assertions = restored.assertions; ledgerRestoreDiagnostic = restored.diagnostic ?? null; return ledgerRestoreDiagnostic; }
+		const legacy = bootstrapLegacyAssertionLedger(branch);
+		if (legacy.status === "bootstrapped") {
+			try { persistAssertionLedger(legacy.assertions); assertions = legacy.assertions; return legacy.diagnostic ?? null; }
+			catch { ledgerRestoreDiagnostic = `Migrated assertion declarations could not be saved to the session journal, so they were not adopted. ${next}`; return ledgerRestoreDiagnostic; }
+		}
+		ledgerRestoreDiagnostic = legacy.diagnostic ?? null;
+		return ledgerRestoreDiagnostic;
+	}
 	const assertionsArtifactsCtx = createAssertionsArtifactsContext({
 		getAssertions: () => assertions,
 		getSessionDir: () => sessionDir,
@@ -1108,6 +1145,7 @@ export default function (pi: ExtensionAPI) {
 			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
+			persistLedger: persistAssertionLedger, ledgerRestoreDiagnostic: () => ledgerRestoreDiagnostic,
 			currentTaskId: () => noProgress.taskId(), currentRevision: ctx => { const cwd = ctx.cwd || process.cwd(); return revisionOf(cwd, revisionScopes(cwd, processState.changedFiles)); },
 			revisionOf: (ctx, scopes) => revisionOf(ctx.cwd || process.cwd(), [...scopes]),
    privateProofUse: ctx => privateProofUse(ctx.cwd || process.cwd()),
@@ -2621,9 +2659,15 @@ export default function (pi: ExtensionAPI) {
             const savedTaskIds = new Set(processState.additions?.map(addition => addition.taskId));
             // A rejected history keeps the guard's restore fence (dispatch refuses with
             // recovery_restore_failed) but must not abort the rest of session start.
+            let recoveryRestored = true;
             try { noProgress.restore(sessionEntries, savedTaskIds.size === 1 ? [...savedTaskIds][0] : undefined); }
-            catch { _ctx.ui?.notify?.('Recovery history could not be restored; dispatch stays refused until it is repaired. Inspect the session recovery entries.', 'error'); }
-            if (processTaskIdentityConflicts(processState, noProgress.taskId())) processPersistenceBlocked = true;
+            catch { recoveryRestored = false; _ctx.ui?.notify?.('Recovery history could not be restored; dispatch stays refused until it is repaired. Inspect the session recovery entries.', 'error'); }
+            const identityConflict = processTaskIdentityConflicts(processState, noProgress.taskId());
+            if (identityConflict) processPersistenceBlocked = true;
+            // The acceptance ledger follows the task identity it was saved under, never a newer evidence directory.
+            const ledgerNotice = restoreAssertionLedgerForSession(_ctx, { recovery: recoveryRestored, identity: !identityConflict });
+            persistAssertions(); updateAssertionStatus();
+            if (ledgerNotice) { try { _ctx.ui?.notify?.(ledgerNotice, 'warning'); } catch { /* get_assertions repeats it */ } }
               await configureDamageGuardHub(pi, { snapshot: system1Snapshot, service: watchdogSystem1?.sharedService, ctx: _ctx, taskId: () => noProgress.taskId(), childAuthority: { taskToken: () => noProgress.taskToken(), admit: () => !processBlock() } });
             if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
              try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "restore", processPersistenceBlocked, savedTaskIdCount: savedTaskIds.size, taskIdMatchesAddition: savedTaskIds.size === 1 && savedTaskIds.has(noProgress.taskId()), consumerPresent: !!taskTriage, calls: taskTriage?.calls ?? null, consumerStatus: taskTriage?.status.status ?? null }) + "\n"); } catch { /* diagnostic only */ }

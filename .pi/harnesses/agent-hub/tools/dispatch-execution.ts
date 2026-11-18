@@ -9,7 +9,7 @@ import { captureReviewBaseline, retainReviewHistory, reviewContinuation, type Re
 import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
 import { reviewInput, retainReview, reusableReview, type ReviewInput } from "../review-reuse.ts";
 import { affirmativeReviewVerdict } from "../review-verdict.ts";
-import { captureOperatorState, operatorStateChecksPassed, operatorReviewState, operatorScopeSyntax, persistOperatorStateProof, type OperatorStateCandidate } from "../operator-current-state.ts";
+import { captureOperatorState, operatorStateChecksDiagnostic, operatorStateNextStep, operatorReviewState, operatorScopeSyntax, persistOperatorStateProof, type OperatorStateCandidate } from "../operator-current-state.ts";
 import { retainDeliverable } from "../execution-evidence.ts";
 import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, readBackDeliverables, type AcceptanceRequirement, type DeliverableContract, type VerificationCheckInput } from "../acceptance.ts";
 import { normalizeResearchContract, withNoProgress, canonicalExecutor, type NoProgressGuard } from "../no-progress.ts";
@@ -641,21 +641,41 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 		// Candidate registration happens only after independent review and actual
         // same-revision runtime checks, never from reported past edits.
         const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()):null;
-        const reviewComplete = !protocolDiagnostic && runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
-            && (!submission || submission.status === "completed") && countReviewFindings(result.output).blocking === 0 && !(parsedReturn?.assertions_failed ?? []).length
-            && !d.extractAskUserQuestions(result.output).length && !d.extractNeedsResearch(result.output).length
-            && !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")
-            && (!p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput));
-        const candidateReady=!!p.operatorCandidate&&reviewComplete&&stage==='review'&&sameTaskNow()&&disposition.delivered&&result.exitCode===0
-          &&(!result.specialistResultTool||submission?.status==='completed')&&!!p.reviewInput&&affirmativeReview
-          &&reviewMayClose({revision:afterRevision,scope:p.operatorCandidate.paths,output:result.output,evidenceRef:runPath??undefined,declared:!!parsedReturn,wide:processState.scope==='wide'||!!processState.additions?.some(item=>item.status==='active'&&item.reason==='wide_change')})
-          &&operatorStateChecksPassed({candidate:p.operatorCandidate,revision:afterRevision,sameTask:sameTaskNow(),native:backendUsed==='native',exclusive,verification:runtimeResult.verification});
+        // Named, ordered qualifiers: the same conjunction as before, so a refusal can
+        // say which one failed. Diagnostics never relax or reorder a gate.
+        const reviewQualifiers: Array<[string, boolean]> = [
+            ["tool_protocol_error", !protocolDiagnostic],
+            ["deliverable_failed", runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"],
+            ["submission_incomplete", !submission || submission.status === "completed"],
+            ["blocking_findings", countReviewFindings(result.output).blocking === 0],
+            ["assertions_failed", !(parsedReturn?.assertions_failed ?? []).length],
+            ["unresolved_questions", !d.extractAskUserQuestions(result.output).length],
+            ["needs_research", !d.extractNeedsResearch(result.output).length],
+            ["requires_user_decision", !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")],
+            ["review_input_changed", !p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)],
+        ];
+        const reviewComplete = reviewQualifiers.every(([, ok]) => ok);
+        const checksRefusal = p.operatorCandidate ? operatorStateChecksDiagnostic({candidate:p.operatorCandidate,revision:afterRevision,sameTask:sameTaskNow(),native:backendUsed==='native',exclusive,verification:runtimeResult.verification}) : null;
+        const candidateQualifiers: Array<[string, boolean]> = p.operatorCandidate ? [
+            ...reviewQualifiers,
+            ["not_review_stage", stage==='review'],
+            ["not_same_task", sameTaskNow()],
+            ["not_delivered", disposition.delivered&&result.exitCode===0],
+            ["submission_incomplete", !result.specialistResultTool||submission?.status==='completed'],
+            ["review_input_missing", !!p.reviewInput],
+            ["verdict_not_affirmative", affirmativeReview],
+            ["regression_not_closed", reviewMayClose({revision:afterRevision,scope:p.operatorCandidate.paths,output:result.output,evidenceRef:runPath??undefined,declared:!!parsedReturn,wide:processState.scope==='wide'||!!processState.additions?.some(item=>item.status==='active'&&item.reason==='wide_change')})],
+            [checksRefusal ?? "runtime_checks", checksRefusal === null],
+        ] : [];
+        const failedQualifiers = [...new Set(candidateQualifiers.filter(([, ok]) => !ok).map(([code]) => code))];
+        const candidateReady = !!p.operatorCandidate && failedQualifiers.length === 0;
+        if (p.operatorCandidate && failedQualifiers.length) operatorStateVerification = { ...operatorStateVerification, reason: failedQualifiers[0], failedQualifiers, nextStep: operatorStateNextStep(failedQualifiers[0]) };
         if(candidateReady&&p.operatorCandidate){
           try {
             const evidenceRef=persistOperatorStateProof({writer:d.artifacts.writeRunArtifact,sessionDir:p.sessionDir,runCount:state?.runCount??0,dispatchId:result.dispatchId||randomUUID(),record:{schema:'agent-fleet.operator-state-verification/v1',...p.operatorCandidate,taskId:p.taskId,checks:runtimeResult.verification.checks,manualAssertions:'not_automatically_proven'}});
             processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,revisionScopes:p.revisionScopes,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
             operatorStateVerification={...operatorStateVerification,status:'accepted',evidenceRef};
-          } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed'}; }
+          } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed',failedQualifiers:['evidence_readback_failed'],nextStep:operatorStateNextStep('evidence_readback_failed')}; }
         }
         const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
         const completedReviewInput = candidateReviewInput;
@@ -742,6 +762,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const notices: string[] = [];
  const checkNotice = checkDiagnostics && verificationDiagnosticNotice(checkDiagnostics);
  if (checkNotice) notices.push(checkNotice);
+	if (operatorStateVerification && operatorStateVerification.status !== "accepted" && operatorStateVerification.reason) notices.push(`Current-state review did not register the candidate: ${operatorStateVerification.reason}${operatorStateVerification.failedQualifiers?.length > 1 ? ` (also: ${operatorStateVerification.failedQualifiers.slice(1).join(", ")})` : ""}. ${operatorStateVerification.nextStep} Manual assertions stay open; nothing was marked proven.`);
 	if (!sameTask) notices.push("Late result from a prior task/session: evidence retained in its original namespace; current-task counters and blockers were not changed.");
 	if (disposition.delivered) notices.push(accepted
 		? `Execution and current-state verification accepted by the runtime contract. Acceptance check: ${assessmentPath}`

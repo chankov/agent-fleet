@@ -432,3 +432,50 @@ test("unchanged task classification does not rebind, rehash the worktree or grow
  assert.equal((result.details as any).unchanged,true);assert.equal(rebinds,0);assert.equal(hashes,0);assert.equal(writes,0);
  assert.equal(state.reassessments,1);
 });
+
+test("ledger mutations journal the next state before adopting it; a failed append changes nothing", async () => {
+ let assertions: any[] = [], mirrored = 0, fail = false; const journal: any[][] = [];
+ const deps = comsDeps({
+  getAssertions: () => assertions, setAssertions: (value: any[]) => { assertions = value; },
+  persistLedger: (value: any[]) => { if (fail) throw new Error("append failed"); journal.push(structuredClone(value)); },
+  artifacts: { persistAssertions: () => { mirrored++; }, updateAssertionStatus() {}, evidencePathExists: () => false, artifactsRoot: () => "/tmp/artifacts" },
+  getProcessState: () => applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "fixture" }).state,
+ });
+ const actions = createActionExecutors(deps as any);
+ const set = await actions.executeSetAssertions("set", { assertions: [{ id: "A1", tag: "test", text: "t", source: "user request", test_command: "node --test x.test.js" }] } as any, undefined, undefined, { ui: { notify() {} } } as any);
+ assert.equal((set.details as any).count, 1); assert.equal(journal.length, 1); assert.equal(journal[0][0].testCommand, "node --test x.test.js");
+ fail = true;
+ const refusedSet = await actions.executeSetAssertions("set2", { assertions: [{ id: "B1", tag: "test", text: "t", source: "user" }] } as any, undefined, undefined, { ui: { notify() {} } } as any);
+ assert.equal((refusedSet.details as any).reason, "ledger_persistence_failed"); assert.deepEqual(assertions.map(a => a.id), ["A1"]);
+ const refusedUpdate = await actions.executeUpdateAssertion("u", { id: "A1", status: "failed", evidence: "broken" }, undefined, undefined, {} as any);
+ assert.equal((refusedUpdate.details as any).reason, "ledger_persistence_failed");
+ assert.equal(assertions[0].status, "open", "the live ledger object is not mutated before the journal append");
+ assert.equal(assertions[0].evidence, undefined);
+ assert.equal(mirrored, 1, "the assertions.json mirror is written only after a committed mutation");
+ fail = false;
+ const update = await actions.executeUpdateAssertion("u2", { id: "A1", status: "failed", evidence: "broken" }, undefined, undefined, {} as any);
+ assert.equal((update.details as any).status, "failed"); assert.equal(journal.at(-1)![0].status, "failed"); assert.equal(journal.at(-1)![0].evidenceTaskId, "task-1");
+});
+
+test("new-task reset journals an empty ledger and still clears memory when the append fails", async () => {
+ for (const fail of [false, true]) {
+  let assertions: any[] = [{ id: "A1", tag: "test", text: "t", source: "s", status: "open" }]; const journal: any[][] = []; const notices: string[] = [];
+  const deps = comsDeps({
+   getAssertions: () => assertions, setAssertions: (value: any[]) => { assertions = value; },
+   persistLedger: (value: any[]) => { if (fail) throw new Error("append failed"); journal.push(value); },
+   budget: { taskResetSnapshot: () => ({}), resetTaskWindow() {}, appendTaskResetEntry() {}, currentBudget: () => ({ agentTurnMs: 600_000, recycleRuns: 3, delegation: false }), updateModeStatus() {} },
+   artifacts: { persistAssertions() {} }, confirmTaskSupersession: async () => true,
+  });
+  await createActionExecutors(deps as any).executeSetTaskTier("tier", { tier: "small", new_task: true, reason: "different user task" } as any, undefined, undefined, { ui: { notify: (m: string) => notices.push(m) } } as any);
+  assert.deepEqual(assertions, [], "a new task never inherits the prior ledger");
+  if (fail) assert.match(notices.join("\n"), /could not be journaled/); else assert.deepEqual(journal, [[]]);
+ }
+});
+
+test("get_assertions on an empty ledger names the restore diagnostic and the permitted next step", async () => {
+ const empty = await createActionExecutors(comsDeps() as any).executeGetAssertions("g", {} as any, undefined, undefined, {} as any);
+ assert.match(empty.content[0].text as string, /Call set_assertions/);
+ const diag = "The latest saved assertion ledger belongs to a different task than the restored task identity; it was not restored.";
+ const restored = await createActionExecutors(comsDeps({ ledgerRestoreDiagnostic: () => diag }) as any).executeGetAssertions("g", {} as any, undefined, undefined, {} as any);
+ assert.match(restored.content[0].text as string, /different task/); assert.equal((restored.details as any).restoreDiagnostic, diag);
+});

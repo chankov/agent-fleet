@@ -46,12 +46,57 @@ export function persistOperatorStateProof(input:{writer:OperatorEvidenceWriter;s
  if(!stat.isFile()||stat.size!==expected.length||realpathSync(file)!==resolve(base,'artifacts','evidence',rel)||!readFileSync(file).equals(expected))throw Error('operator_state_evidence_readback');
  return file;
 }
-export function operatorStateChecksPassed(input:{candidate:OperatorStateCandidate;revision:string;sameTask:boolean;native:boolean;exclusive:boolean;verification:any}):boolean {
- if(!input.sameTask||!input.native||!input.exclusive||input.revision==='unavailable'||input.revision!==input.candidate.revision)return false;
+/** The first refused current-state check qualifier, or null when every one holds. Diagnostic only: it never relaxes a check. */
+export function operatorStateChecksDiagnostic(input:{candidate:OperatorStateCandidate;revision:string;sameTask:boolean;native:boolean;exclusive:boolean;verification:any}):string|null {
+ if(!input.sameTask)return 'not_same_task';
+ if(!input.native)return 'not_native';
+ if(!input.exclusive)return 'non_exclusive_capture';
+ if(input.revision==='unavailable')return 'revision_unavailable';
+ if(input.revision!==input.candidate.revision)return 'revision_changed';
  const requirements=input.verification?.requirements;
- if(!Array.isArray(requirements))return false;
+ if(!Array.isArray(requirements))return 'no_runtime_requirements';
  const automated=requirements.filter((r:any)=>r.tag==='test'||r.tag==='code-grep');
- return automated.some((r:any)=>r.id!=='AF-MIN-CHANGE')&&automated.some((r:any)=>r.id==='AF-MIN-CHANGE')
-  &&automated.every((r:any)=>r.status==='passed'&&Array.isArray(r.evidenceRefs)&&r.evidenceRefs.length>0)
-  &&Array.isArray(input.verification.checks)&&automated.every((r:any)=>input.verification.checks.some((c:any)=>c.producer==='runtime'&&c.status==='passed'&&Array.isArray(c.requirementIds)&&c.requirementIds.includes(r.id)&&r.evidenceRefs.includes(c.evidenceRef)));
+ if(!automated.some((r:any)=>r.id!=='AF-MIN-CHANGE'))return 'no_automated_requirement';
+ if(!automated.some((r:any)=>r.id==='AF-MIN-CHANGE'))return 'missing_min_change';
+ const notPassed=automated.filter((r:any)=>!(r.status==='passed'&&Array.isArray(r.evidenceRefs)&&r.evidenceRefs.length>0)).map((r:any)=>r.id);
+ if(notPassed.length)return `automated_not_passed:${notPassed.join(',')}`;
+ const checks=Array.isArray(input.verification.checks)?input.verification.checks:[];
+ const unanchored=automated.filter((r:any)=>!checks.some((c:any)=>c.producer==='runtime'&&c.status==='passed'&&Array.isArray(c.requirementIds)&&c.requirementIds.includes(r.id)&&r.evidenceRefs.includes(c.evidenceRef))).map((r:any)=>r.id);
+ if(unanchored.length)return `runtime_check_missing:${unanchored.join(',')}`;
+ return null;
+}
+export function operatorStateChecksPassed(input:{candidate:OperatorStateCandidate;revision:string;sameTask:boolean;native:boolean;exclusive:boolean;verification:any}):boolean {
+ return operatorStateChecksDiagnostic(input)===null;
+}
+/** Plain-language next step for a refused current-state qualifier; never an acceptance shortcut. */
+export function operatorStateNextStep(reason:string):string {
+ const code=reason.split(':')[0];
+ const steps:Record<string,string>={
+  not_same_task:'The task changed during the review; re-run it for the current task.',
+  not_native:'Re-run with backend: native.',
+  non_exclusive_capture:'Another writer or capture overlapped; re-run when no writer is active.',
+  revision_unavailable:'The scope revision could not be observed; check the declared files are tracked and re-run.',
+  revision_changed:'The scoped files changed during the review; re-run on the settled state.',
+  no_runtime_requirements:'No runtime verification was produced; re-run and let the reviewer run the declared commands.',
+  no_automated_requirement:'The ledger has no automated (test/code-grep) assertion for this scope; declare the sourced automated checks with set_assertions for this same task.',
+  missing_min_change:'The runtime minimal-change check was not produced; re-run the review.',
+  automated_not_passed:'These automated assertions did not pass with runtime evidence; fix or re-run their exact declared commands.',
+  runtime_check_missing:'These automated assertions lack an anchored runtime check; the reviewer must run their exact declared commands through approved bash.',
+  tool_protocol_error:'The reviewer broke the result protocol; inspect the protocol evidence and re-run.',
+  deliverable_failed:'A declared deliverable failed readback; fix it before re-running.',
+  blocking_findings:'The reviewer reported blocking findings; fix them, then re-run the review.',
+  assertions_failed:'The reviewer reported failed assertions; fix them, then re-run the review.',
+  unresolved_questions:'The reviewer raised ASK_USER questions; resolve them (operator first, then the human if needed) before re-running.',
+  needs_research:'The reviewer requested research; run it and re-run the review with the findings.',
+  requires_user_decision:'The reviewer returned a decision that belongs to the human; obtain it explicitly before re-running. It is never ignored automatically.',
+  review_input_missing:'The review input could not be recorded at dispatch; re-run the review.',
+  not_review_stage:'Only a review persona can register a current-state candidate; dispatch code-reviewer.',
+  review_input_changed:'The review input changed during the review; re-run it.',
+  not_delivered:'The review did not complete and deliver; re-run it.',
+  submission_incomplete:'The reviewer did not submit a completed structured result; re-run it.',
+  verdict_not_affirmative:'The reviewer did not return an unambiguous APPROVE.',
+  regression_not_closed:'The review did not report the required full-regression coverage for this scope.',
+  evidence_readback_failed:'The verification record could not be written and read back; check the session evidence directory and re-run.',
+ };
+ return steps[code]??'Re-run the current-state review after resolving the refusal.';
 }

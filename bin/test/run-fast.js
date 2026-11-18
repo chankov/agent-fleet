@@ -8,6 +8,8 @@ const fastTestFiles = [
   "bin/test/coms-stop-hook.test.js",
   ".pi/harnesses/agent-hub/process-obligations.test.ts",
   ".pi/harnesses/agent-hub/operator-current-state.test.ts",
+  ".pi/harnesses/agent-hub/context/assertion-journal.test.ts",
+  ".pi/harnesses/agent-hub/assertion-ledger-reload.integration.test.ts",
   "bin/test/pi-runtime.test.js",
   "bin/test/overrides.test.js",
   "bin/test/catalogue-accepted.test.js",
@@ -150,6 +152,8 @@ const deadlineSensitiveFiles = new Set([
   ".pi/harnesses/lib/system1/worktree-consumers.test.ts",
   ".pi/agent-fleet/scripts/lib/session-launch.test.ts",
   ".pi/agent-fleet/scripts/lib/worktree-flow.test.ts",
+  // Spawns real Pi processes over RPC for reload/resume.
+  ".pi/harnesses/agent-hub/assertion-ledger-reload.integration.test.ts",
 ]);
 const phases = [
   {name:"bounded integrations",concurrency:1,files:fastTestFiles.filter(file=>deadlineSensitiveFiles.has(file))},

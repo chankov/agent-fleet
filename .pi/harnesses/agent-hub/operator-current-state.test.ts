@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,writeFileSync,rmSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {captureOperatorState,operatorStateChecksPassed,operatorScopeSyntax,OPERATOR_SCOPE_MAX} from './operator-current-state.ts';
+import {captureOperatorState,operatorStateChecksDiagnostic,operatorStateNextStep,operatorStateChecksPassed,operatorScopeSyntax,OPERATOR_SCOPE_MAX} from './operator-current-state.ts';
 const candidate={origin:'operator-current-state' as const,revision:'current',paths:['a.ts'],historicalAttribution:'not_claimed' as const};
 const requirements=[{id:'AF-MIN-CHANGE',tag:'test',status:'passed',evidenceRefs:['check']},{id:'A2',tag:'test',status:'passed',evidenceRefs:['check']},{id:'A1',tag:'manual',status:'unsupported'}];
 const proof={candidate,revision:'current',sameTask:true,native:true,exclusive:true,verification:{requirements,checks:[{producer:'runtime',status:'passed',evidenceRef:'check',requirementIds:['AF-MIN-CHANGE','A2']}]}};
@@ -33,4 +33,22 @@ test('scope syntax gate accepts up to OPERATOR_SCOPE_MAX=128 unique exact files 
  const paths=Array.from({length:128},(_,i)=>`src/dir${i%8}/file${i}.ts`);
  assert.deepEqual(operatorScopeSyntax(paths),paths);
  assert.throws(()=>operatorScopeSyntax([...paths,'src/extra/file128.ts']),{message:'operator_state_invalid_scope'});
+});
+test('each refused current-state check names its exact qualifier; the passing proof names none',()=>{
+ assert.equal(operatorStateChecksDiagnostic(proof),null);
+ const cases:Array<[any,string]>=[
+  [{sameTask:false},'not_same_task'],[{native:false},'not_native'],[{exclusive:false},'non_exclusive_capture'],
+  [{revision:'unavailable'},'revision_unavailable'],[{revision:'other'},'revision_changed'],
+  [{verification:{}},'no_runtime_requirements'],
+  [{verification:{requirements:requirements.filter(r=>r.id!=='A2'),checks:proof.verification.checks}},'no_automated_requirement'],
+  [{verification:{requirements:requirements.filter(r=>r.id!=='AF-MIN-CHANGE'),checks:proof.verification.checks}},'missing_min_change'],
+  [{verification:{requirements:requirements.map(r=>r.id==='A2'?{...r,status:'failed'}:r),checks:proof.verification.checks}},'automated_not_passed:A2'],
+  [{verification:{requirements,checks:[{producer:'runtime',status:'passed',evidenceRef:'check',requirementIds:['AF-MIN-CHANGE']}]}},'runtime_check_missing:A2'],
+  [{verification:{requirements,checks:[{producer:'model',status:'passed',evidenceRef:'check',requirementIds:['AF-MIN-CHANGE','A2']}]}},'runtime_check_missing:AF-MIN-CHANGE,A2'],
+ ];
+ for(const [patch,reason] of cases){
+  assert.equal(operatorStateChecksDiagnostic({...proof,...patch}),reason,JSON.stringify(patch));
+  assert.equal(operatorStateChecksPassed({...proof,...patch}),false,'the boolean gate agrees with the diagnostic');
+  assert.ok(operatorStateNextStep(reason).length>0);
+ }
 });

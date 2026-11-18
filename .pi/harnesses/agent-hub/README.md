@@ -394,8 +394,13 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `source` naming where the requirement comes from) and rebuilds the whole
   ledger on a "wrong again" regression reset; `update_assertion` marks each one proven (named
   evidence required), unproven, or failed after a verification gate; `get_assertions` reads the
-  full ledger (ids, tags, pass conditions, evidence) back. The hub persists the ledger to
-  `.pi/agent-sessions/assertions.json` (wiped at session start like `findings/`) and renders a
+  full ledger (ids, tags, pass conditions, evidence) back. Every committed ledger change is
+  journaled first as a task-bound `agent-hub-assertion-ledger` session entry (a failed append
+  refuses the change); on reload/resume the hub restores the latest entry on the current branch
+  only for the same task identity — a foreign-task or unreadable entry restores nothing and never
+  falls back to an older one, and a session from before snapshots migrates its last typed
+  successful `set_assertions` once as open declarations without proof. The hub mirrors the ledger to
+  `.pi/agent-sessions/assertions.json` (a write mirror, never a restore source) and renders a
   one-line status (`Assertions: 2✓ 1○ 1✗ · open: A4`) so the contract survives compaction without
   re-flooding the dispatcher LLM context — after a compaction the dispatcher calls `get_assertions`
   to recover the full text the status line omits. The operator drives it — a deep-researcher
