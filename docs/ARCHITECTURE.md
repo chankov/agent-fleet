@@ -456,7 +456,13 @@ Excerpt hashes and reads a window, not the whole file into memory. Native specia
 authoritative: the assist flag cannot append `filesystem` outside a declared cap.
 Opaque handles bind canonical paths,
 content hashes/fingerprints, and offsets; continuation fails on stale bytes or directory state,
-and canonical-root checks reject symlink escape. Snapshot bytes and provenance metadata are
+and canonical-root checks reject symlink escape. `excerpt` and `readback` default to UTF-8.
+`offset`, `max_bytes`, and `contentBytes` count source bytes. Each text page ends at a complete
+character, and `nextHandle` points to the next unread byte. Use a character boundary for a text
+offset and increase `max_bytes` if the next character needs more room. Use `encoding: "base64"`
+on each request for arbitrary byte offsets or invalid UTF-8. Base64 pages cap source content at
+48 KiB, which encodes to 64 KiB. The orchestrator accounts for the serialized response against its
+turn budget. Snapshot bytes and provenance metadata are
 stored separately under the owning current session, marked untrusted, and never interpreted as analysis
 or fetched from a network origin. Snapshot destinations are runtime-owned and cannot be supplied by the
 caller; this narrow artifact creation path grants no general write or shell authority. Every source

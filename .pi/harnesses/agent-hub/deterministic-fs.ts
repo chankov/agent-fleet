@@ -9,6 +9,8 @@ export const CONTENT_REPLY_BYTES = 64 * 1024;
 export const PREVIEW_CHARS = 180;
 
 type Handle = { v: 1; kind: "file" | "inventory"; path: string; hash: string; offset: number };
+export type FilePageEncoding = "utf8" | "base64";
+type FilePageOptions = { maxBytes?: number; previewChars?: number; boundedOutput?: boolean; encoding?: FilePageEncoding };
 export class PathOutsideAllowedRootError extends Error {}
 const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 const within = (root: string, target: string) => { const rel = relative(resolve(root), resolve(target)); return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel)); };
@@ -29,16 +31,18 @@ function checkedExisting(path: string, allowedRoot = dirname(resolve(path))): st
 // filesystem clock could not yet distinguish a same-size rewrite there.
 const DIGEST_ENTRIES = 64, LINE_MARKS = 256, SETTLED_MS = 2_000;
 const digests = new Map<string, { hash: string; lines: Map<number, number> }>();
-export function digestCacheKey(stat: Pick<BigIntStats, "dev" | "ino" | "size" | "mtimeNs" | "ctimeNs">, now = Date.now()): string | null {
+type FileVersion = Pick<BigIntStats, "dev" | "ino" | "size" | "mtimeNs" | "ctimeNs">;
+const fileVersion = (stat: FileVersion) => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+export function digestCacheKey(stat: FileVersion, now = Date.now()): string | null {
  const changedMs = Number((stat.mtimeNs > stat.ctimeNs ? stat.mtimeNs : stat.ctimeNs) / 1_000_000n);
- return now - changedMs > SETTLED_MS ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
+ return now - changedMs > SETTLED_MS ? fileVersion(stat) : null;
 }
-function hashAndSize(path: string): { size: number; hash: string; key: string | null } {
+function hashAndSize(path: string) {
  const fd = openSync(path, "r");
  try {
-  const stat = fstatSync(fd, { bigint: true }), size = Number(stat.size), key = digestCacheKey(stat);
+  const stat = fstatSync(fd, { bigint: true }), size = Number(stat.size), key = digestCacheKey(stat), version = fileVersion(stat);
   const cached = key ? digests.get(key) : undefined;
-  if (cached) { digests.delete(key!); digests.set(key!, cached); return { size, hash: cached.hash, key }; }
+  if (cached) { digests.delete(key!); digests.set(key!, cached); return { size, hash: cached.hash, key, version }; }
   const hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
   let offset = 0;
   while (offset < size) {
@@ -49,7 +53,7 @@ function hashAndSize(path: string): { size: number; hash: string; key: string | 
   }
   const digest = hash.digest("hex");
   if (key) { digests.set(key, { hash: digest, lines: new Map() }); if (digests.size > DIGEST_ENTRIES) digests.delete(digests.keys().next().value!); }
-  return { size, hash: digest, key };
+  return { size, hash: digest, key, version };
  } finally { closeSync(fd); }
 }
 function markLine(key: string | null, offset: number, line: number) {
@@ -117,6 +121,20 @@ function directoryState(root: string, authorizePath?: (path: string) => void) {
 function utf8Preview(bytes: Buffer, chars = PREVIEW_CHARS): string {
  return [...bytes.toString("utf8")].slice(0, chars).join("");
 }
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+const utf8Continuation = (byte: number | undefined) => byte !== undefined && (byte & 0xc0) === 0x80;
+
+/** Validate through the end of a character that straddles the page boundary. */
+function utf8Page(window: Buffer, maxBytes: number, offset: number): Buffer {
+ if (offset > 0 && utf8Continuation(window[0])) throw new Error("Offset is not at a UTF-8 character boundary. Use an aligned offset or encoding=base64.");
+ const page = utf8Prefix(window, maxBytes);
+ let end = Math.min(maxBytes, window.length);
+ while (utf8Continuation(window[end])) end++;
+ try { strictUtf8.decode(window.subarray(0, end)); }
+ catch { throw new Error("Invalid UTF-8 in this page. Use encoding=base64 for exact bytes."); }
+ if (page.length === 0 && end > 0) throw new Error(`The next UTF-8 character needs ${end} bytes. Increase max_bytes or use encoding=base64.`);
+ return page;
+}
 export function inventory(input: { root: string; handle?: string; pageSize?: number; boundedOutput?: boolean; followSymlinkEscape?: boolean; authorizePath?: (path: string) => void }) {
  if (input.followSymlinkEscape) throw new Error("Symlink escape following is forbidden");
  const state = directoryState(input.root, input.authorizePath);
@@ -133,30 +151,38 @@ export function inventory(input: { root: string; handle?: string; pageSize?: num
  return { root: state.root, totalEntries: state.entries.length, entries, handle: input.handle ?? encode({ v: 1, kind: "inventory", path: state.root, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
 }
 
-export function excerpt(input: { path: string; allowedRoot?: string; handle?: string; offset?: number; maxBytes?: number; previewChars?: number; boundedOutput?: boolean }) {
- const state = fileState(input.path, input.allowedRoot);
- let offset = input.offset ?? 0;
- if (input.handle) {
-  const handle = decode(input.handle);
-  if (handle.kind !== "file" || resolve(handle.path) !== state.path || handle.hash !== state.hash) throw new Error("Stale file handle");
-  offset = handle.offset;
- }
+function filePage(state: ReturnType<typeof fileState>, offset: number, input: FilePageOptions) {
  if (!Number.isSafeInteger(offset) || offset < 0 || offset > state.size) throw new Error("Invalid excerpt offset");
- const requested = input.maxBytes ?? (input.boundedOutput === false ? state.size : CONTENT_REPLY_BYTES);
- const maxBytes = input.boundedOutput === false ? requested : Math.min(requested, CONTENT_REPLY_BYTES);
- const content = readWindow(state.path, offset, Math.min(maxBytes, state.size - offset));
- const nextOffset = offset + content.length, nextHandle = nextOffset < state.size ? encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset: nextOffset }) : null;
+ if (input.maxBytes !== undefined && (!Number.isSafeInteger(input.maxBytes) || input.maxBytes <= 0)) throw new Error("Invalid max_bytes; use a positive integer");
+ // Base64 uses four output bytes for every three source bytes.
+ const limit = input.encoding === "base64" ? Math.floor(CONTENT_REPLY_BYTES / 4) * 3 : CONTENT_REPLY_BYTES;
+ const requested = input.maxBytes ?? (input.boundedOutput === false ? state.size : limit);
+ const maxBytes = input.boundedOutput === false ? requested : Math.min(requested, limit);
+ const length = Math.min(maxBytes + (input.encoding === "utf8" ? 3 : 0), state.size - offset);
+ const window = readWindow(state.path, offset, length);
  const line = lineAtFile(state.path, offset, state.key);
+ if (window.length !== length || fileVersion(statSync(state.path, { bigint: true })) !== state.version) throw new Error("File changed during read");
+ const content = input.encoding === "utf8" ? utf8Page(window, maxBytes, offset) : window;
+ const nextOffset = offset + content.length, nextHandle = nextOffset < state.size ? encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset: nextOffset }) : null;
  if (nextHandle) markLine(state.key, nextOffset, line + newlines(content));
- return { path: state.path, reference: `${state.path}:${line}`, hash: state.hash, offset, content: Buffer.from(content), contentBytes: content.length, totalBytes: state.size, preview: utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS)), onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
+ const preview = input.encoding === "base64" ? "" : utf8Preview(content, Math.min(input.previewChars ?? PREVIEW_CHARS, PREVIEW_CHARS));
+ return { path: state.path, reference: `${state.path}:${line}`, hash: state.hash, offset, content, contentBytes: content.length, totalBytes: state.size, preview, onDiskHandle: encode({ v: 1, kind: "file", path: state.path, hash: state.hash, offset }), nextHandle, truncated: nextHandle !== null, untrusted: true, modelDelegated: false };
 }
 
-export function readback(input: { handle: string; expectedHash?: string; allowedRoot?: string; maxBytes?: number; boundedOutput?: boolean }) {
+export function excerpt(input: FilePageOptions & { path: string; allowedRoot?: string; handle?: string; offset?: number }) {
+ const state = fileState(input.path, input.allowedRoot);
+ if (!input.handle) return filePage(state, input.offset ?? 0, input);
+ const handle = decode(input.handle);
+ if (handle.kind !== "file" || resolve(handle.path) !== state.path || handle.hash !== state.hash) throw new Error("Stale file handle");
+ return filePage(state, handle.offset, input);
+}
+
+export function readback(input: FilePageOptions & { handle: string; expectedHash?: string; allowedRoot?: string }) {
  const handle = decode(input.handle);
  if (handle.kind !== "file") throw new Error("Readback requires a file handle");
  const state = fileState(handle.path, input.allowedRoot);
  if (state.hash !== handle.hash || (input.expectedHash && state.hash !== input.expectedHash)) throw new Error("Stale file handle: source bytes changed");
- return excerpt({ path: state.path, allowedRoot: input.allowedRoot, offset: handle.offset, maxBytes: input.maxBytes, boundedOutput: input.boundedOutput });
+ return filePage(state, handle.offset, input);
 }
 
 export function snapshotSource(input: { origin: "file"; path: string; allowedRoot?: string; sessionDir?: string }) {
@@ -180,7 +206,7 @@ export function snapshotSource(input: { origin: "file"; path: string; allowedRoo
 
 function utf8Prefix(buffer: Buffer, maxBytes: number): Buffer {
  let end = Math.min(maxBytes, buffer.length);
- while (end > 0 && (buffer[end] & 0xc0) === 0x80) end--;
+ while (end > 0 && utf8Continuation(buffer[end])) end--;
  return buffer.subarray(0, end);
 }
 export function boundOutput(input: { content: string | Buffer; retentionDir: string; label?: string }) {

@@ -227,3 +227,95 @@ test("orchestrator self-read turn budget refuses the next file and an inventory 
   assert.equal(listed.details.result.entries, undefined);
  } finally {rmSync(root,{recursive:true,force:true});rmSync(session,{recursive:true,force:true});}
 });
+
+test("filesystem text pages reconstruct mixed UTF-8 at consecutive byte offsets", async t => {
+ const root = temp(), tools: any[] = [];
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ registerFilesystemTool({ registerTool: (tool: any) => tools.push(tool) } as any, { enabled: () => true, sessionDir: () => root });
+ for (const [sample, maxBytes] of [["АБВ", 3], ["aА\n€🙂z\uFEFF�", 4]] as const) {
+  const path = join(root, "sample.txt");
+  writeFileSync(path, sample);
+  const original = Buffer.from(sample);
+  const hash = createHash("sha256").update(original).digest("hex");
+  let request: Record<string, unknown> = { operation: "excerpt", path, max_bytes: maxBytes };
+  let output = "", offset = 0;
+  while (offset < original.length) {
+   const response = await invoke(tools[0], request, root);
+   const page = response.details.result;
+   assert.deepEqual(JSON.parse(response.content[0].text), page);
+   assert.equal(page.contentEncoding, "utf8");
+   assert.equal(page.offset, offset);
+   assert.equal(page.hash, hash);
+   assert.equal(page.contentBytes, Buffer.byteLength(page.content));
+   assert.ok(page.contentBytes > 0 && page.contentBytes <= maxBytes);
+   assert.equal(page.reference, `${path}:${output.split("\n").length}`);
+   assert.equal(decodeDeterministicHandle(page.onDiskHandle).offset, offset);
+   output += page.content;
+   offset += page.contentBytes;
+   assert.equal(page.truncated, offset < original.length);
+   if (!page.truncated) assert.equal(page.nextHandle, null);
+   else {
+    assert.equal(decodeDeterministicHandle(page.nextHandle).offset, offset);
+    request = { operation: "readback", handle: page.nextHandle, max_bytes: maxBytes };
+   }
+  }
+  assert.equal(output, sample);
+ }
+});
+
+test("filesystem explicitly retries small text pages and reads arbitrary bytes with Base64", async t => {
+ const root = temp(), tools: any[] = [];
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ registerFilesystemTool({ registerTool: (tool: any) => tools.push(tool) } as any, { enabled: () => true, sessionDir: () => root });
+ const path = join(root, "data");
+ writeFileSync(path, "a🙂");
+ const first = (await invoke(tools[0], { operation: "excerpt", path, max_bytes: 3 }, root)).details.result;
+ assert.equal(first.content, "a");
+ const tail = { operation: "readback", handle: first.nextHandle };
+ await assert.rejects(() => invoke(tools[0], { ...tail, max_bytes: 3 }, root), /needs 4 bytes/);
+ assert.equal((await invoke(tools[0], { ...tail, max_bytes: 4 }, root)).details.result.content, "🙂");
+ await assert.rejects(() => invoke(tools[0], { operation: "excerpt", path, offset: 2 }, root), /UTF-8 character boundary/);
+
+ const bytes = Buffer.from([0x61, 0x80, 0xff, 0x00, 0xfe]);
+ writeFileSync(path, bytes);
+ await assert.rejects(() => invoke(tools[0], { operation: "excerpt", path }, root), /Invalid UTF-8.*base64/);
+ const binary = (await invoke(tools[0], { operation: "excerpt", path, offset: 1, max_bytes: 2, encoding: "base64" }, root)).details.result;
+ const last = (await invoke(tools[0], { operation: "readback", handle: binary.nextHandle, max_bytes: 2, encoding: "base64" }, root)).details.result;
+ assert.equal(binary.offset, 1);
+ assert.equal(last.offset, 3);
+ assert.equal(last.nextHandle, null);
+ const pages = [binary, last].map(page => {
+  assert.equal(page.contentEncoding, "base64");
+  const decoded = Buffer.from(page.content, page.contentEncoding);
+  assert.equal(decoded.length, page.contentBytes);
+  return decoded;
+ });
+ assert.deepEqual(Buffer.concat(pages), bytes.subarray(1));
+ writeFileSync(path, Buffer.from([0x62, ...bytes.subarray(1)]));
+ await assert.rejects(() => invoke(tools[0], { operation: "readback", handle: binary.nextHandle, encoding: "base64" }, root), /stale/i);
+});
+
+test("Base64 pages fit the content limit and charge the serialized turn budget", async t => {
+ const root = temp(), tools: any[] = [];
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ const path = join(root, "data.bin"), bytes = Buffer.alloc(CONTENT_REPLY_BYTES, 0xff);
+ writeFileSync(path, bytes);
+ let readOnly = false, charged = 0;
+ registerFilesystemTool({ registerTool: (tool: any) => tools.push(tool) } as any, {
+  enabled: () => true, sessionDir: () => root, readOnly: () => readOnly,
+  remainingSelfReadBytes: () => CONTENT_REPLY_BYTES - charged,
+  noteSelfReadBytes: used => { charged += used; },
+ });
+ const request = { operation: "excerpt", path, encoding: "base64", max_bytes: CONTENT_REPLY_BYTES };
+ const first = (await invoke(tools[0], request, root)).details.result;
+ assert.equal(Buffer.byteLength(first.content), CONTENT_REPLY_BYTES);
+ assert.equal(first.contentBytes, CONTENT_REPLY_BYTES * 3 / 4);
+ assert.deepEqual(Buffer.from(first.content, "base64"), bytes.subarray(0, first.contentBytes));
+ assert.equal(decodeDeterministicHandle(first.nextHandle).offset, first.contentBytes);
+ readOnly = true;
+ assert.equal((await invoke(tools[0], request, root)).details.result.reason, "too_large");
+ assert.equal(charged, 0);
+ const smaller = await invoke(tools[0], { ...request, max_bytes: 8 }, root);
+ assert.equal(charged, Buffer.byteLength(smaller.content[0].text));
+ assert.equal(smaller.details.result.contentBytes, 8);
+});

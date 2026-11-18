@@ -36,6 +36,27 @@ test("T5 excerpt uses exact byte pages, Unicode-safe previews, handles, and stal
  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("UTF-8 excerpts shrink the page without changing the source or the byte cursor", t => {
+ const root = temp();
+ t.after(() => rmSync(root, { recursive: true, force: true }));
+ const path = join(root, "text.txt");
+ const bytes = Buffer.from("АБ🙂");
+ writeFileSync(path, bytes);
+ const raw = excerpt({ path, maxBytes: 3 });
+ assert.deepEqual(raw.content, bytes.subarray(0, 3));
+ const text = excerpt({ path, maxBytes: 3, encoding: "utf8" });
+ assert.deepEqual(text.content, bytes.subarray(0, 2));
+ assert.equal(text.preview, "А");
+ assert.equal(text.hash, raw.hash);
+ const next = readback({ handle: text.nextHandle!, maxBytes: 3, encoding: "utf8" });
+ assert.equal(next.offset, 2);
+ assert.equal(next.preview, "Б");
+ assert.throws(() => readback({ handle: raw.nextHandle!, encoding: "utf8" }), /UTF-8 character boundary/);
+ const end = excerpt({ path, offset: bytes.length, maxBytes: 1, encoding: "utf8" });
+ assert.equal(end.contentBytes, 0);
+ assert.equal(end.nextHandle, null);
+});
+
 test("a file digest is reused only for an unchanged, settled identity", () => {
  const stat = { dev: 1n, ino: 2n, size: 3n, mtimeNs: 1_000_000_000n, ctimeNs: 1_000_000_000n }, now = 10_000;
  const key = digestCacheKey(stat, now);

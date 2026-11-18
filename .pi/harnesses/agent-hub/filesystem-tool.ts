@@ -4,7 +4,7 @@ import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { decodeDeterministicHandle, deterministicHandlePath } from "../lib/deterministic-handle-path.ts";
 import { authorizePolicyPath, resolvePolicyRoots, type PolicyRootTable } from "../lib/policy-roots.ts";
-import { CONTENT_REPLY_BYTES, excerpt, inventory, readback, snapshotSource } from "./deterministic-fs.ts";
+import { CONTENT_REPLY_BYTES, excerpt, inventory, readback, snapshotSource, type FilePageEncoding } from "./deterministic-fs.ts";
 import { readActiveProfile } from "./policy/profile-runtime.ts";
 import { resolveAssist } from "./assist-profile.ts";
 
@@ -68,18 +68,17 @@ function tooLargeRefusal(path: string, bytes: number) {
  return { refused: true, reason: "too_large", path, bytes, limitBytes: CONTENT_REPLY_BYTES, content: null, instruction: "Do not pull this into the dispatcher context. The aggregate read budget for this turn is exhausted or this page is too large. Request a smaller bounded excerpt, continue next turn, or use a research helper when useful. Do not retry an unchanged request." };
 }
 function admit(ports: FilesystemToolPorts, readOnly: boolean, path: string, payload: any) {
- const body = payload?.content && Buffer.isBuffer(payload.content) ? { ...payload, content: payload.content.toString("utf8"), contentEncoding: "utf8", exactBytesOnDisk: payload.path } : payload;
- if (!readOnly || !ports.noteSelfReadBytes) return body;
- const bytes = Buffer.byteLength(JSON.stringify(body));
+ if (!readOnly || !ports.noteSelfReadBytes) return payload;
+ const bytes = Buffer.byteLength(JSON.stringify(payload));
  if (bytes > (ports.remainingSelfReadBytes?.() ?? 0)) return tooLargeRefusal(path, bytes);
  ports.noteSelfReadBytes(bytes);
- return body;
+ return payload;
+}
+function encodePage(page: ReturnType<typeof excerpt>, encoding: FilePageEncoding) {
+ return { ...page, content: page.content.toString(encoding), contentEncoding: encoding, exactBytesOnDisk: page.path };
 }
 function result(value: any) {
- const normalized = value?.content && Buffer.isBuffer(value.content)
-  ? { ...value, content: value.content.toString("utf8"), contentEncoding: "utf8", exactBytesOnDisk: value.path }
-  : value;
- return { content: [{ type: "text" as const, text: JSON.stringify(normalized) }], details: { result: normalized } };
+ return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: { result: value } };
 }
 
 export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPorts): void {
@@ -95,12 +94,15 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
    page_size: Type.Optional(Type.Integer({minimum:1})),
    offset: Type.Optional(Type.Integer({minimum:0,description:"Byte offset for a targeted excerpt; cannot combine with handle."})),
    max_bytes: Type.Optional(Type.Integer({minimum:1})),
+   encoding: Type.Optional(Type.Union([Type.Literal("utf8"), Type.Literal("base64")], {description:"File pages default to UTF-8. Use base64 for exact byte ranges."})),
   }, { additionalProperties: false }),
   async execute(_id, raw, _signal, _update, ctx) {
    const profileEnabled = ports.enabled();
    const readOnly = ports.readOnly?.() === true;
    if (!profileEnabled && !readOnly) throw new Error("filesystem is disabled by the effective profile; set assist.deterministic-tools=true");
    const params=raw as any, cwd=resolve(ctx.cwd || process.cwd()), sessionValue=ports.sessionDir(), table=ports.policyRoots?.();
+   const encoding: FilePageEncoding = params.encoding ?? "utf8";
+   if (encoding !== "utf8" && encoding !== "base64") throw new Error("Filesystem page encoding must be utf8 or base64");
    const workspace = table?.workspace ?? cwd;
    if (!sessionValue) throw new Error("filesystem requires a current managed session artifact root");
    const session=resolve(sessionValue);
@@ -131,8 +133,8 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
      const source = policyReadPath(params.path,cwd,table), target = source.path;
      const handle = sourceHandle(params.handle,source.rootId);
      if (params.offset !== undefined && params.handle) throw new Error("Use offset or handle, not both");
-     const body = excerpt({path:target,allowedRoot:source.allowedRoot,handle,offset:params.offset,maxBytes:params.max_bytes,boundedOutput:true});
-     return result(admit(ports, readOnly, target, bindHandles(body,source.rootId)));
+     const page = excerpt({path:target,allowedRoot:source.allowedRoot,handle,offset:params.offset,maxBytes:params.max_bytes,boundedOutput:true,encoding});
+     return result(admit(ports, readOnly, target, encodePage(bindHandles(page,source.rootId),encoding)));
     }
     case "readback": {
      if(!params.handle) throw new Error("readback requires handle");
@@ -144,7 +146,8 @@ export function registerFilesystemTool(pi: ExtensionAPI, ports: FilesystemToolPo
       ? { path: workspacePath(bound,session), allowedRoot: session, rootId: undefined }
       : policyReadPath(bound,cwd,table);
      const handle = sourceHandle(params.handle,source.rootId)!;
-     return result(admit(ports,readOnly,source.path,bindHandles(readback({handle,allowedRoot:source.allowedRoot,maxBytes:params.max_bytes,boundedOutput:true}),source.rootId)));
+     const page = readback({handle,allowedRoot:source.allowedRoot,maxBytes:params.max_bytes,boundedOutput:true,encoding});
+     return result(admit(ports,readOnly,source.path,encodePage(bindHandles(page,source.rootId),encoding)));
     }
     case "snapshot":
      if (!profileEnabled) throw new Error("filesystem snapshot requires assist.deterministic-tools; read-only inspection is inventory, excerpt, and readback only");
