@@ -123,16 +123,22 @@ jobs:
       - name: Verify package contents
         run: npm run pack:dry
 
-      # Idempotent: changeset publish skips a version already on npm, so a push
-      # without changesets is a no-op, and a version whose publish failed is
-      # published by the next run on main (push or workflow_dispatch).
+      # The pushed v<version> tag marks a finished release, so a push without
+      # changesets is a no-op. npm is not asked: a fresh publish can take ~20
+      # minutes to show in the registry, and publishing it again fails with
+      # E409. A version whose publish failed (no tag yet) is published by the
+      # next run on main (push or workflow_dispatch).
       - name: Publish to npm, tag and create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          npx changeset publish
           version="$(node -p "require('./package.json').version")"
           tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "${tag} is already released; nothing to publish."
+            exit 0
+          fi
+          npx changeset publish
           if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null && ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
             git push origin "refs/tags/${tag}"
           fi

@@ -42,6 +42,8 @@ test("only a pending changeset cuts a release: CI versions on main with [skip ci
   assert.match(version.run, /git push origin HEAD:main/);
   assert.ok(version.run.indexOf("git push origin HEAD:main") > version.run.indexOf("git commit"));
   assert.match(publish.run, /^npx changeset publish$/m);
+  const released = publish.run.indexOf('git ls-remote --exit-code --tags origin "refs/tags/${tag}"');
+  assert.ok(released >= 0 && released < publish.run.indexOf("npx changeset publish"), "an existing release tag skips publishing before npm is asked");
   assert.match(publish.run, /gh release create "\$tag"/);
   assert.equal(publish.env.GH_TOKEN, "${{ github.token }}");
 });
