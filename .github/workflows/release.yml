@@ -67,26 +67,10 @@ jobs:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
-      # The "chore: release" PR must be opened by a GitHub App, not by
-      # GITHUB_TOKEN: PRs and pushes made with GITHUB_TOKEN wait for manual
-      # "Approve and run", then expire as red no-job runs. Until the App is
-      # configured (vars.RELEASE_APP_ID + secrets.RELEASE_APP_PRIVATE_KEY),
-      # this step is skipped and the job falls back to GITHUB_TOKEN.
-      - name: Mint release App token
-        id: app-token
-        if: ${{ vars.RELEASE_APP_ID != '' }}
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      # Checkout must persist the same token: its stored credential is what
-      # changesets/action pushes the release branch with.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -129,4 +113,4 @@ jobs:
           commit: "chore: release"
           title: "chore: release"
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
