@@ -169,12 +169,16 @@ test('an explicit denial of a protected write remains effective on a repeated re
 });
 
 
-test('cancelled baseline permission names the exact outcome and protected rule without inferring denial', async t => {
- const g = await guard(t, {interactive:true, relay:true, selection:null});
+// A dialog that closes unanswered (timeout or dismissal) reads the same with or
+// without a Codex permission relay: audited, actionable, and never a denial.
+for (const relay of [false, true]) test(`unanswered baseline dialog is reported as unanswered, not as a harness fault (relay: ${relay})`, async t => {
+ const g = await guard(t, {interactive:true, relay, selection:null});
  const result = await g.call("printf x > package-lock.json");
  assert.equal(result.block, true);
- assert.match(result.reason, /permission cancelled; rule: package-lock.json/);
+ assert.match(result.reason, /closed without an answer \(timed out or dismissed\)/);
+ assert.match(result.reason, /\/af-allow package-lock\.json/);
  assert.match(result.reason, /no human denial is inferred/);
- assert.doesNotMatch(result.reason, /expired or stale/);
+ assert.doesNotMatch(result.reason, /permission cancelled|expired or stale|kept the block/);
+ assert.ok(g.entries.some(entry => entry.data?.action === 'blocked_prompt_timeout'));
  assert.equal(g.entries.some(entry => entry.data?.action === 'blocked_by_user'), false);
 });

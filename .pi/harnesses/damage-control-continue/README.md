@@ -79,7 +79,10 @@ They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths
 opens a selector — *Keep blocked / Allow once / Allow for this turn / Allow for
 this session*. An approved call proceeds immediately (the agent never sees the
 block); *Keep blocked* is remembered for the rest of the turn so the agent can't
-re-prompt you; no answer within 60s fails closed.
+re-prompt you; no answer within 60s (or dismissing the dialog) fails closed. The
+agent is told the dialog closed unanswered — not that you denied it — and is
+pointed at `/af-allow`; this reads and audits the same whether or not a Codex
+permission relay is attached.
 
 **Escalation from headless children**: when this harness runs inside a subagent
 spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends an

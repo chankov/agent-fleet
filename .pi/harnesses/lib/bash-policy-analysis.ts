@@ -122,30 +122,27 @@ export function analyzeBashCommand(command: string): BashPolicyAnalysis | null {
  const finish = (): boolean => {
   if (!words.length) return !reads.length && !writes.length;
   const name = basename(words[0]), args = words.slice(1), paths = operands(args);
-  // A literal absolute Python module invocation can be operand-classified as
-  // opaque (all arguments may be writes), without treating its executable as a
-  // write destination. Other path executables and inline source stay conservative.
-  const moduleIndex = args.indexOf("-m");
-  const absolutePythonModule = isAbsolute(words[0]) && /^python(?:3(?:\.\d+)?)?$/.test(name)
-   && moduleIndex >= 0 && args.slice(0, moduleIndex).every(arg => ["-I", "-B", "-E", "-s", "-S", "-u"].includes(arg))
-   && /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(args[moduleIndex + 1] ?? "")
-   && args.every(arg => /^[A-Za-z0-9_./:=+,@%-]+$/.test(arg));
-  // A repository executable named cat/printf/etc need not behave like a utility.
-  if (words[0] !== name && !absolutePythonModule || ["if", "then", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "function", "eval", "exec", "source", ".", "cd", "pushd", "popd"].includes(name)
+  // A program named by path (`/opt/az/bin/python3`, `.venv/bin/python`,
+  // `/usr/bin/git`) is an unknown program: every operand may be written, but its
+  // own executable is only read. A path executable named cat/printf/etc need not
+  // behave like that utility, so it never receives reader/writer/data treatment.
+  // Shell, sed and inline-source checks below still use the basename.
+  const kind = words[0] === name ? name : "";
+  if (["if", "then", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "function", "eval", "exec", "source", ".", "cd", "pushd", "popd"].includes(name)
    || args.some(arg => /^(?:-exec|-execdir|-ok|-okdir|-delete|-fprint|-fprintf|-fls|--pre)(?:=|$)/.test(arg))
    || /^[A-Za-z_]\w*=/.test(words[0]) || ["bash", "sh", "zsh"].includes(name)
    || ["sed", "file"].includes(name)
    || name !== "find" && args.some(arg => /^-[^-].+/.test(arg))
    || ["node", "nodejs", "python", "python3", "perl", "ruby"].includes(name) && args.some(arg => /^(?:-[^-]*[ec]|--eval)(?:=|$)/.test(arg))) return false;
-  if(requiresDataSink&&!readers.has(name)&&!dataCommands.has(name)&&name!=="tee")return false;
+  if(requiresDataSink&&!readers.has(kind)&&!dataCommands.has(kind)&&kind!=="tee")return false;
   let modified: string[] = [];
-  if (writers.has(name)) modified = paths;
-  else if (!readers.has(name) && !dataCommands.has(name)) modified = paths;
-  const referenced = dataCommands.has(name) ? [] : [words[0], ...paths];
-  const patternText = readers.has(name) || dataCommands.has(name) ? words[0] : words.join(" ");
-  const opaqueDeletion=!readers.has(name)&&!writers.has(name)&&!dataCommands.has(name)&&/\b(?:rm|mv|rmdir)\b/.test(words.join(" "));
-  const opaque=!readers.has(name)&&!writers.has(name)&&!dataCommands.has(name)&&!opaqueDeletion;
-  commands.push({ words, reads: [...reads, ...referenced], writes: [...writes, ...modified], deletes: ["rm", "mv", "rmdir"].includes(name)||opaqueDeletion ? paths : [], patternText, opaque });
+  if (writers.has(kind)) modified = paths;
+  else if (!readers.has(kind) && !dataCommands.has(kind)) modified = paths;
+  const referenced = dataCommands.has(kind) ? [] : [words[0], ...paths];
+  const patternText = readers.has(kind) || dataCommands.has(kind) ? words[0] : words.join(" ");
+  const opaqueDeletion=!readers.has(kind)&&!writers.has(kind)&&!dataCommands.has(kind)&&/\b(?:rm|mv|rmdir)\b/.test(words.join(" "));
+  const opaque=!readers.has(kind)&&!writers.has(kind)&&!dataCommands.has(kind)&&!opaqueDeletion;
+  commands.push({ words, reads: [...reads, ...referenced], writes: [...writes, ...modified], deletes: ["rm", "mv", "rmdir"].includes(kind)||opaqueDeletion ? paths : [], patternText, opaque });
   words = []; reads = []; writes = []; requiresDataSink=false;return true;
  };
  for (let i = 0; i < parsed.length; i++) {
@@ -179,6 +176,21 @@ function matches(target: string, pattern: string, cwd: string): boolean {
  // A literal shell glob can name a protected file even before expansion.
  return target.includes("*") && (damageControlPathMatches(resolve(cwd, pattern), target, cwd)
   || !pattern.includes("/") && damageControlPathMatches(resolve(dirname(absolute), pattern), target, cwd));
+}
+
+/** Conservative (unparsed) text check: does the command mention `pattern` as a
+ * path? An absolute pattern must begin a path — at a word start, after a shell
+ * delimiter or `=`/`:`, or glued to a short option (`-t/etc/`) — so `/bin/` is
+ * not found inside `/opt/az/bin/python3` or `.venv/bin/python`. Relative
+ * patterns keep substring matching because they may follow any directory. */
+export function textReferencesPath(text: string, pattern: string): boolean {
+ if (!pattern) return false;
+ if (!pattern.startsWith("/")) return text.includes(pattern);
+ for (let index = text.indexOf(pattern); index >= 0; index = text.indexOf(pattern, index + 1)) {
+  const prefix = /[^\s'"=:<>|;&()`]*$/.exec(text.slice(0, index))![0];
+  if (!prefix || /^-[A-Za-z0-9]+$/.test(prefix)) return true;
+ }
+ return false;
 }
 
 export function bashReferencesProtectedPath(analysis: BashPolicyAnalysis, category: PathRuleCategory, pattern: string, cwd: string): boolean {

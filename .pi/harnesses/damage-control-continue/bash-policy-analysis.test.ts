@@ -56,6 +56,16 @@ for (const command of ['node --eval "require(\'fs\').writeFileSync(\'/bin/x\', \
 for (const command of [
  '/opt/az/bin/python3 -I -B -m unittest discover -s privatale/ptapi/tests/sync -p test_cosmos_probe_workflow.py',
  '/usr/bin/python3 -m unittest discover -s tests',
+ // Any program named by path: its own directory is read/executed, never written.
+ '/opt/az/bin/python3 script.py',
+ '/opt/az/bin/python3 -I -B tests/sync/probe.py --dry-run',
+ '.venv/bin/python -m pytest tests',
+ '/home/example/.local/bin/uv run pytest',
+ '/usr/bin/git status',
+ '/usr/local/bin/node --version',
+ '/home/example/Android/Sdk/platform-tools/adb devices -l',
+ // Inline source keeps conservative text checks, which must respect path boundaries.
+ '/opt/az/bin/python3 -I -B -c "import json; print(1)"',
 ]) test(`absolute interpreter execution is not a write to its executable directory: ${command}`, async t => {
  assert.equal(await blocked(t, command), false);
 });
@@ -73,6 +83,16 @@ for (const command of [
  '/tmp/cat package-lock.json',
  '/tmp/printf .env',
  '/tmp/tool --output=/etc/example',
+ '/opt/az/bin/tool --output /bin/example',
+ '.venv/bin/python script.py > /etc/example',
+ '/usr/bin/git -C /etc status',
+ '/bin/rm -- README.md',
+ '/usr/bin/env rm -- README.md',
+ '/bin/bash -c "rm -- README.md"',
+ '/bin/sh scratch.sh',
+ '/usr/bin/sed -i s/a/b/ /etc/example',
+ '/opt/az/bin/python3 -c "open(\'/usr/example\', \'w\')"',
+ '.venv/bin/python -c "open(\'/bin/example\', \'w\')"',
 ]) test(`absolute executables retain protected operand and source checks: ${command}`, async t => {
  assert.equal(await blocked(t, command), true);
 });

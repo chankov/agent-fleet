@@ -39,7 +39,7 @@ import { readDamagePolicy } from '../lib/damage-policy.ts';
 import { sessionRootsFromEnv } from '../lib/workspace-context.ts';
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { beginRuntimeTrace, policyTraceReason, TRACE_OWNER_ENV } from "../lib/execution-trace.ts";
-import { analyzeBashCommand, bashReferencesProtectedPath, bashPolicyText } from "../lib/bash-policy-analysis.ts";
+import { analyzeBashCommand, bashReferencesProtectedPath, bashPolicyText, textReferencesPath } from "../lib/bash-policy-analysis.ts";
 import { parse as yamlParse } from "yaml";
 import * as crypto from "crypto";
 import * as fs from "fs";
@@ -463,7 +463,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 				if (!violationReason) {
 					for (const rop of rules.readOnlyPaths) {
-						if (analysis ? bashReferencesProtectedPath(analysis, "read_only", rop, ctx.cwd) : command.includes(rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
+						if (analysis ? bashReferencesProtectedPath(analysis, "read_only", rop, ctx.cwd) : textReferencesPath(command, rop) && (/[\s>|]/.test(command) || command.includes("rm") || command.includes("mv") || command.includes("sed"))) {
 							violationReason = `Bash command may modify read-only path: ${rop}`;
 							matchedPattern = rop;
 							matchedCategory = "read_only";
@@ -543,18 +543,24 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 						? [KEEP, ONCE]
 						: [KEEP, ONCE, TURN, SESSION];
 					const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
+					// The local dialog closed by itself (timeout or dismissal), not because
+					// the relay or the turn aborted it. That outcome is reported the same
+					// way with or without a permission relay.
+					let dialogUnanswered=false;
 					const selected = await raceBaseline(permissionSignal=>sharedApprovalWait.run(async signal=>{
 					 finishQueue({status:'completed'});
 					 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:matchedPattern!});
+					 const dialogSignal=AbortSignal.any([signal,permissionSignal]);
 					 try{const selected=await ctx.ui.select(
 						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
 						choices,
-						{ timeout: PROMPT_TIMEOUT_MS, signal:AbortSignal.any([signal,permissionSignal]) },
-					 );finish({status:selected===KEEP?'denied':selected?'allowed':'cancelled'});return selected;
+						{ timeout: PROMPT_TIMEOUT_MS, signal:dialogSignal },
+					 );finish({status:selected===KEEP?'denied':selected?'allowed':'cancelled'});if(!selected&&!dialogSignal.aborted)dialogUnanswered=true;return selected;
 					 }catch(error){finish({status:'failed'});throw error;}
 					}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice===KEEP?'deny':choice?'allow_once':null,ONCE,PROMPT_TIMEOUT_MS);
      const choice=selected.value;
-     if(!choice&&selected.source!=='local_human')return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':`permission ${selected.failure??'stale'}; rule: ${matchedPattern}; request fresh authorization for this exact action`}; no human denial is inferred.`};
+     const unanswered=!choice&&dialogUnanswered&&(selected.source==='local_human'||selected.failure==='cancelled');
+     if(!choice&&selected.source!=='local_human'&&!unanswered)return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':`permission ${selected.failure??'stale'}; rule: ${matchedPattern}; request fresh authorization for this exact action`}; no human denial is inferred.`};
 					if (choice === ONCE) {
 						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern,decisionSource:selected.source });
 						return semanticAllow();
@@ -566,7 +572,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					}
 					const note = choice === KEEP
 						? `The user reviewed this call and kept the block in place.`
-						: `The user did not answer the approval dialog in time (auto-kept blocked). They can pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
+						: `The approval dialog closed without an answer (timed out or dismissed); the call did not run and no human denial is inferred. Ask the user to approve it when they are present, or to pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
 					if (choice === KEEP) deniedThisTurn.add(matchedPattern);
 					ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
 					pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
