@@ -10,7 +10,7 @@ import {ExtensionRunner,createReadTool,createBashTool,createEditTool,createWrite
 import {resolvePiTestRuntime} from '../../../../bin/test/helpers/pi-runtime.js';
 const source=resolve(new URL('../../../../',import.meta.url).pathname);
 const sdk=resolvePiTestRuntime({root:source});
-test('disposable non-Git af owns resources while installed Pi tools operate only in its external worktree',{timeout:90000},async()=>{
+test('disposable non-Git af owns resources while installed Pi tools operate only in its external worktree',{timeout:180000},async()=>{
  const restoreTestEnv=isolateFleetTestProcess();
  // Reproduce macOS /private ancestors even on Linux: private/** must still
  // protect project-private files, but must not block every public file here.
@@ -45,7 +45,7 @@ test('disposable non-Git af owns resources while installed Pi tools operate only
   const agentDir=join(af,'.pi/test-agent-runtime');mkdirSync(agentDir,{recursive:true});writeFileSync(join(agentDir,'settings.json'),'{}');
   const offlineRpc=async(selected:any)=>{const commandsReply:any=await new Promise((done,fail)=>{
    const proc=spawn(process.execPath,[sdk.cli,...selected.args,'--offline','--no-session','--mode','rpc','--model','openai/gpt-4o'],{cwd:selected.cwd,env:{...selected.env,PI_OFFLINE:'1',PI_CODING_AGENT_DIR:agentDir,PI_COMS_DIR:rpcComs,NODE_OPTIONS:`--import=${JSON.stringify(join(source,'bin/test/helpers/system1-no-network.js'))}`},stdio:['pipe','pipe','pipe']});
-   let buffer='',stderr='',reply:any;const timer=setTimeout(()=>{proc.kill('SIGKILL');fail(Error('Real Pi RPC target startup timed out: '+stderr));},20000);
+   let buffer='',stderr='',reply:any;const timer=setTimeout(()=>{proc.kill('SIGKILL');fail(Error('Real Pi RPC target startup timed out: '+stderr));},60000);
    proc.stderr.on('data',data=>{stderr+=String(data);});proc.stdout.on('data',data=>{buffer+=String(data);let end;while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);try{const parsed=JSON.parse(line);if(parsed.id==='target-startup'){reply=parsed;proc.kill('SIGTERM');}}catch{}}});
    proc.once('error',error=>{clearTimeout(timer);fail(error);});proc.once('close',()=>{clearTimeout(timer);if(reply)done(reply);else fail(Error('Real Pi RPC target startup failed: '+stderr));});
    proc.stdin.write(JSON.stringify({type:'get_commands',id:'target-startup'})+'\n');

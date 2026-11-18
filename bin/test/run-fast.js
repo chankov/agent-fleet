@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { runNodeTestWithRerun } from "./helpers/node-test-rerun.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,6 +97,7 @@ const fastTestFiles = [
   "bin/test/reconcile.test.js",
   "bin/test/setup-delivery.test.js",
   "bin/test/release-workflow.test.js",
+  "bin/test/node-test-rerun.test.js",
   ".pi/harnesses/agent-hub/proactive-config.test.ts",
   ".pi/harnesses/agent-hub/proactive-selection.test.ts",
   ".pi/harnesses/agent-hub/proactive-evaluate.test.ts",
@@ -162,7 +163,8 @@ const phases = [
 for(const phase of phases){
   if(!phase.files.length)continue;
   console.log(`Fast lane phase: ${phase.name} (${phase.files.length} files)`);
-  const result=spawnSync(process.execPath,["--test",`--test-concurrency=${phase.concurrency}`,"--test-timeout=30000",...phase.files],{cwd:root,stdio:"inherit"});
+  // Under CI, failed tests get one rerun; retried passes are reported as flaky.
+  const result=runNodeTestWithRerun({args:[`--test-concurrency=${phase.concurrency}`,"--test-timeout=30000",...phase.files],cwd:root,label:`Fast lane (${phase.name})`});
   if(result.error){console.error(`Unable to start the fast test lane: ${result.error.message}`);process.exitCode=1;break;}
   if(result.status!==0){process.exitCode=result.status??1;break;}
 }

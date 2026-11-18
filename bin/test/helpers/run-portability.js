@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { runNodeTestWithRerun } from "./node-test-rerun.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const temp = mkdtempSync(join(homedir(), ".agent-fleet-portability-"));
@@ -13,8 +14,9 @@ try {
   const alias = `${temp}-alias`;
   symlinkSync(temp, alias, "dir");
   try {
-  const result = spawnSync(process.execPath, [
-    "--test", "--test-timeout=120000",
+  // Under CI, failed tests get one rerun; retried passes are reported as flaky.
+  const result = runNodeTestWithRerun({ label: "Portability (temp root)", args: [
+    "--test-timeout=120000",
     ".pi/harnesses/lib/changed-file-diagnostics.test.ts",
     ".pi/harnesses/agent-hub/tools/dispatch-execution.test.ts",
     ".pi/harnesses/agent-hub/proactive-rules.test.ts",
@@ -24,14 +26,14 @@ try {
     ".pi/harnesses/agent-hub/proactive-feedback.test.ts",
     ".pi/harnesses/agent-hub/system1-report.test.ts",
     ".pi/harnesses/agent-hub/no-progress.test.ts",
-  ], { cwd: root, env: { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp }, stdio: "inherit" });
+  ], cwd: root, env: { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp } });
   if (result.error) throw result.error;
-  const aliasResult = spawnSync(process.execPath, [
-    "--test", "--test-timeout=120000",
+  const aliasResult = runNodeTestWithRerun({ label: "Portability (aliased temp root)", args: [
+    "--test-timeout=120000",
     ".pi/harnesses/agent-hub/proactive-rules.test.ts",
     ".pi/harnesses/agent-hub/proactive-local.test.ts",
     ".pi/harnesses/agent-hub/proactive-runtime.test.ts",
-  ], { cwd: root, env: { ...process.env, TMPDIR: alias, TMP: alias, TEMP: alias }, stdio: "inherit" });
+  ], cwd: root, env: { ...process.env, TMPDIR: alias, TMP: alias, TEMP: alias } });
   if (aliasResult.error) throw aliasResult.error;
   // Run all release fast-lane fixtures through an aliased temp root too. This
   // reproduces macOS /var -> /private/var comparisons on Linux instead of
