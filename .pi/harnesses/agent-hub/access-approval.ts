@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 import {permissionAuditOutcome,type PermissionRelay} from './permission-relay.ts';
+import {isRelayOperation} from '../lib/exact-permission-port.ts';
 import {sharedApprovalWait} from './approval-wait.ts';
 import {damagePreview} from '../lib/damage-control-presentation.ts';
 import {beginRuntimeTrace,type TraceBus} from '../lib/execution-trace.ts';
@@ -80,7 +81,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 
 	const validRequest = (request: AccessRequest) =>
 		typeof request.pattern === "string" && request.pattern.length > 0 &&
-		(request.category === "zero_access" || request.category === "read_only" || request.category === "no_delete") &&
+		(request.category === "zero_access" || request.category === "read_only" || request.category === "no_delete" || request.category === "bash_pattern") &&
 		(request.deadline === undefined || (Number.isSafeInteger(request.deadline) && request.deadline > 0)) &&
 		(request.actionDigest === undefined || /^[a-f0-9]{64}$/.test(request.actionDigest));
 
@@ -91,7 +92,8 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 		const exemptionsFile = deps.getExemptionsFile();
 		const requestGeneration = generation;
 
-		if (fileExemptionsFor(exemptionsFile ?? undefined, agent).some((entry) => entry.pattern === pattern)) {
+		// Destructive bash patterns are never exemptible: every call needs its own answer.
+		if (request.category !== "bash_pattern" && fileExemptionsFor(exemptionsFile ?? undefined, agent).some((entry) => entry.pattern === pattern)) {
 			return Promise.resolve("allow_all");
 		}
 		if (denyCache.has(cacheKey)) return Promise.resolve("deny");
@@ -146,17 +148,27 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 
  const machineDecision=async(request:AccessRequest,signal:AbortSignal)=>{
   const a=request.exactAction,identity=deps.taskIdentity?.();
-  if(!deps.relay||!a||!identity||!request.accessEpoch||!deps.currentChild?.(request)||request.category==='zero_access'||denyCache.has(accessRequestCacheKey(request))||fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent).some(e=>e.pattern===request.pattern))return null;
-  if(a.tool!==request.tool||a.category!==request.category||a.pattern!==request.pattern||!['bash','write','edit'].includes(a.tool)||typeof a.cwd!=='string'||createHash('sha256').update(JSON.stringify(a)).digest('hex')!==request.actionDigest)return null;
+  if(!deps.relay)return null;
+  // Already answered without a dialog (cached denial or existing scope): not an approval request.
+  if(denyCache.has(accessRequestCacheKey(request))||request.category!=='bash_pattern'&&fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent).some(e=>e.pattern===request.pattern))return null;
+  // Every other skip falls back to the local dialog; record why Codex was not asked.
+  const skip=(reason:string)=>{try{deps.appendLog({action:'relay_not_used',stage:'child_access',agent:damagePreview(request.agent),tool:damagePreview(request.tool),pattern:damagePreview(request.pattern),category:request.category,actionDigest:request.actionDigest??null,reason});}catch{}return null;};
+  if(!a)return skip('no_exact_action');
+  if(!identity)return skip('no_task_identity');
+  if(!request.accessEpoch)return skip('no_access_epoch');
+  if(!deps.currentChild?.(request))return skip('stale_child');
+  if(!isRelayOperation(a.tool))return skip('unsupported_tool');
+  if(a.tool!==request.tool||a.category!==request.category||a.pattern!==request.pattern||typeof a.cwd!=='string'||createHash('sha256').update(JSON.stringify(a)).digest('hex')!==request.actionDigest)return skip('action_mismatch');
   const scopeSnapshot=JSON.stringify(fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent));
   const fresh=()=>JSON.stringify(fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent))===scopeSnapshot&&!signal.aborted&&deps.currentChild?.(request)===true&&createHash('sha256').update(JSON.stringify(request.exactAction)).digest('hex')===request.actionDigest&&JSON.stringify(deps.taskIdentity?.())===JSON.stringify(identity);
-  const pending=deps.relay.open({taskId:identity.taskId,inputRevision:identity.inputRevision,operation:a.tool as 'bash'|'write'|'edit',target:createHash('sha256').update(JSON.stringify(a.input)).digest('hex'),cwd:a.cwd,actionId:request.msg_id,owner:request.agent,attempt:request.accessEpoch,requestContext:{source:'child_access',category:request.category,pattern:request.pattern,digest:request.actionDigest!,epoch:request.accessEpoch}},a.input,fresh,request.deadline!);
-  if(!pending)return null;
+  let refusal='unavailable';
+  const pending=deps.relay.open({taskId:identity.taskId,inputRevision:identity.inputRevision,operation:a.tool,target:createHash('sha256').update(JSON.stringify(a.input)).digest('hex'),cwd:a.cwd,actionId:request.msg_id,owner:request.agent,attempt:request.accessEpoch,requestContext:{source:'child_access',category:request.category,pattern:request.pattern,digest:request.actionDigest!,epoch:request.accessEpoch}},a.input,fresh,request.deadline!,reason=>{refusal=reason;});
+  if(!pending)return skip(refusal);
   const local=new AbortController(),abort=()=>{local.abort();pending.cancel();};signal.addEventListener('abort',abort,{once:true});
   let localChoice:AccessDecisionChoice='deny';
   const ctx=deps.getContext();
   if(ctx?.hasUI){
-   const choices:[AccessDecisionChoice,string][]=[['allow_once','Allow once'],...(request.category==='no_delete'?[]:[['allow_agent','Allow for this agent (this session)'],['allow_all','Allow for all agents (this session)']] as [AccessDecisionChoice,string][]),['deny','Deny (keep blocked)']];
+   const choices:[AccessDecisionChoice,string][]=[['allow_once','Allow once'],...(request.category==='no_delete'||request.category==='bash_pattern'?[]:[['allow_agent','Allow for this agent (this session)'],['allow_all','Allow for all agents (this session)']] as [AccessDecisionChoice,string][]),['deny','Deny (keep blocked)']];
    void askQueue.run(async waitSignal=>{
     if(!fresh()||waitSignal.aborted)return;
     const selected=await ctx.ui.select(`🛡️ ${damagePreview(request.agent)} requests access: ${damagePreview(request.pattern)}`,choices.map(c=>c[1]),{timeout:Math.max(1,request.deadline!-Date.now()),signal:waitSignal});
@@ -231,7 +243,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
    try{deps.appendLog({action:`escalation_${decision}`,stage:'intent_before_scope_write',agent:damagePreview(agent),pattern:damagePreview(request.pattern),tool:damagePreview(request.tool),rule:damagePreview(request.rule),actionDigest:request.actionDigest??null,...(machine?.outcome?{permissionId:machine.permissionId,permissionOutcome:permissionAuditOutcome(machine.outcome)}:{}),decisionSource:machine?.source??'legacy_local_ui_or_existing_scope'});}catch{machine?.failed();respond(socket,request.msg_id,'deny',{outcome:'audit_failed'});return;}
             if (rejectExpired()) return;
 			const exemptionsFile = deps.getExemptionsFile();
-			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile) {
+			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile && request.category !== "bash_pattern") {
 				try {
 					const exemption: Exemption = {
 						pattern: request.pattern,

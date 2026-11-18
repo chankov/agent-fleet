@@ -6,6 +6,7 @@ import type { RuntimeQuestion } from "../ask-user-remote/runtime-ask.ts";
 import { waiveTaskTriageAddition, type EvaluationBinding } from "./task-triage-obligations.ts";
 import type { ProcessObligationState } from "./process-obligations.ts";
 import { isAbsolute } from "node:path";
+import { isRelayOperation, type DamageOperation } from "../lib/exact-permission-port.ts";
 import { containsActionSourceSecret } from "./system1-communication-store.ts";
 import { decideIdenticalDialog, identicalDialogKey } from "../lib/identical-dialog.ts";
 import { coveredDeletePath, inspectionBash, noteBashDecision, semanticDecision } from "../lib/semantic-approval.ts";
@@ -94,6 +95,18 @@ export function actionPresentation(action: ActionContract, presentation?: Action
   const edits = row.edits === undefined ? [{ oldText: row.oldText, newText: row.newText }] : row.edits;
   if (!Array.isArray(edits) || !edits.length || edits.length > 32 || edits.some(e => !e || typeof e !== "object" || Array.isArray(e)
    || Object.keys(e).some(k => k !== "oldText" && k !== "newText") || !string(e.oldText) || !e.oldText || !string(e.newText))) return refuse();
+ } else if (isRelayOperation(action.operation)) {
+  // read/grep/find/ls/filesystem/submit_result: the complete input is shown as
+  // data. Only JSON scalars and bounded nested arrays/objects qualify, and every
+  // key and string passes the same unsafe-text screen as bash/write/edit.
+  const plain = (v: unknown, depth: number): boolean => v === null || typeof v === "boolean"
+   || typeof v === "number" && Number.isFinite(v) || string(v)
+   || depth < 4 && (Array.isArray(v)
+    ? v.length <= 64 && v.every(x => plain(x, depth + 1))
+    : !!v && typeof v === "object" && [Object.prototype, null].includes(Object.getPrototypeOf(v)) && Object.keys(v).length <= 32
+     && Object.entries(v).every(([k, x]) => string(k) && plain(x, depth + 1)));
+  if (!plain(row, 0)) return refuse();
+  allowed = Object.keys(row);
  } else return refuse();
  if (Object.keys(row).some(k => !allowed.includes(k))) return refuse();
  try {
@@ -137,14 +150,18 @@ export async function confirmTaskTriageAction(action: ActionContract, ports: Tri
  if (prior === "allow") return issueWithoutDialog(contract, persistOneUse, key);
  if (prior === "deny") return null;
  if(ports.relay?.available()){
+  let relayUnavailable=false;
   const stillCurrent=()=>!signal?.aborted&&contract.taskId===ports.taskId()&&contract.inputRevision===ports.inputRevision()&&actionKey(action)===key&&actionPresentation(contract,presentation)===detail;
-  const result=await raceExactPermission(ports.relay,{...contract,operation:contract.operation as 'bash'|'write'|'edit',cwd:contract.cwd!,owner:'hub',attempt:contract.actionId},presentation!.input,stillCurrent,Date.now()+60000,async localSignal=>{
+  const result=await raceExactPermission(ports.relay,{...contract,operation:contract.operation as DamageOperation,cwd:contract.cwd!,owner:'hub',attempt:contract.actionId},presentation!.input,stillCurrent,Date.now()+60000,async localSignal=>{
    const id=randomUUID(),question:RuntimeQuestion={question:'Authorize this exact task-triage action once?',context:detail,options:['Yes — authorize once','No — deny'],allowMultiple:false,allowFreeform:false,allowComment:false};
    ports.startWait(id);try{const response=await ports.ask(id,question,ctx,localSignal);return affirmative(response,id,question.options![0])?{decision:'allow_once',value:'once'}:affirmative(response,id,question.options![1])?{decision:'deny',value:'deny'}:null;}finally{ports.endWait(id,contract.taskId===ports.taskId());}
-  },record=>{if(!ports.permissionAudit)throw Error('permission_audit_unavailable');ports.permissionAudit(record);});
-  if(!result||!stillCurrent()||!result.consume())return null;
-  // No identical-dialog or semantic memory for machine action decisions. Waivers remain human-only.
-  if(!stillCurrent())return null;const grant=issueWithoutDialog(contract,persistOneUse,key);return stillCurrent()?grant:null;
+  },record=>{if(!ports.permissionAudit)throw Error('permission_audit_unavailable');ports.permissionAudit(record);},reason=>{relayUnavailable=reason==='unavailable';});
+  // When no relay request could be opened neither side was asked: fall through to the local question.
+  if(result||!relayUnavailable){
+   if(!result||!stillCurrent()||!result.consume())return null;
+   // No identical-dialog or semantic memory for machine action decisions. Waivers remain human-only.
+   if(!stillCurrent())return null;const grant=issueWithoutDialog(contract,persistOneUse,key);return stillCurrent()?grant:null;
+  }
  }
  if (!await authorize(key, `Operation: ${contract.operation}\nTarget: ${contract.target}\n${detail}`, ports, ctx, signal)) return null;
  const stillCurrent = () => !signal?.aborted && contract.taskId === ports.taskId() && contract.inputRevision === ports.inputRevision()

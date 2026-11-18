@@ -32,7 +32,7 @@
  * Usage: pi -e .pi/harnesses/damage-control-continue/index.ts
  */
 
-import {permissionRelayFor,raceExactPermission,type PermissionFailure} from '../lib/exact-permission-port.ts';
+import {isRelayOperation,permissionRelayFor,raceExactPermission,type PermissionFailure} from '../lib/exact-permission-port.ts';
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createSessionTargetGuard } from '../lib/session-target.ts';
 import { readDamagePolicy } from '../lib/damage-policy.ts';
@@ -59,6 +59,7 @@ import {
 	type Exemption,
 	type ExemptionScope,
 	type PathRuleCategory,
+	type AccessCategory,
 } from "../lib/damage-control-shared.ts";
 import { registerVersionStatus } from "./version.ts";
 import { scheduleFleetUpdateCheck } from "../lib/update-check.ts";
@@ -348,22 +349,38 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
   };
 		let violationReason: string | null = null;
 		let shouldAsk = false;
+		// The regex of the matched `ask: true` bash rule; the escalation identity for children.
+		let askPattern: string | null = null;
 		// The protected pattern that matched, set only for the path categories —
 		// those are exemptible/escalatable. Destructive bashToolPatterns leave
 		// this null and can never be exempted.
 		let matchedPattern: string | null = null;
 		let matchedCategory: PathRuleCategory | null = null;
   const raceBaseline=async<T>(local:(signal:AbortSignal)=>Promise<T>,decision:(value:T)=>'allow_once'|'deny'|null,machineValue:T,timeout:number)=>{
-   const relay=permissionRelayFor(pi.events),identity=relay?.actionIdentity?.();
-   if(!relay||!identity||matchedCategory==='zero_access'||!['bash','write','edit'].includes(event.toolName))return {value:ctx.hasUI?await local(new AbortController().signal):undefined,source:'local_human'};
+   // Without a Hub relay in this process only the local human can answer. With
+   // one, every presentable exact action (zero-access included) is offered to
+   // Codex too; when the relay refuses it, the local dialog still runs and the
+   // reason is recorded so a missing Codex request is never silent.
+   const localOnly=async(relayReason?:string)=>{
+    if(relayReason)try{pi.appendEntry('damage-control-log',{action:'relay_not_used',tool:event.toolName,rule:violationReason,pattern:matchedPattern,reason:relayReason});}catch{}
+    return {value:ctx.hasUI?await local(new AbortController().signal):undefined,source:'local_human' as const};
+   };
+   const relay=permissionRelayFor(pi.events);
+   if(!relay)return localOnly();
+   const identity=relay.actionIdentity?.();
+   if(!identity)return localOnly('no_task_identity');
+   if(!isRelayOperation(event.toolName))return localOnly('unsupported_tool');
    const authority=JSON.stringify(activeExemptions()),current=()=>{
     const next=relay.actionIdentity?.();return !!next&&next.taskId===identity.taskId&&next.inputRevision===identity.inputRevision&&epoch===baselineEpoch&&policySnapshot===JSON.stringify(rules)&&exactCall===JSON.stringify(event)&&cwd===ctx.cwd&&targetPolicyCurrent(cwd)&&authority===JSON.stringify(activeExemptions());
    };
-   const action={...identity,operation:event.toolName as 'bash'|'write'|'edit',target:crypto.createHash('sha256').update(JSON.stringify(event.input)).digest('hex'),cwd,actionId:String(event.toolCallId),owner:'hub',attempt:String(epoch),requestContext:{source:matchedPattern?'baseline_path' as const:'baseline_bash' as const,category:matchedCategory??'bash_pattern',pattern:matchedPattern??violationReason??'',digest:crypto.createHash('sha256').update(exactCall).digest('hex'),epoch:String(epoch)}};
-   let failure:PermissionFailure='unavailable';
+   const action={...identity,operation:event.toolName,target:crypto.createHash('sha256').update(JSON.stringify(event.input)).digest('hex'),cwd,actionId:String(event.toolCallId),owner:'hub',attempt:String(epoch),requestContext:{source:matchedPattern?'baseline_path' as const:'baseline_bash' as const,category:matchedCategory??'bash_pattern',pattern:matchedPattern??violationReason??'',digest:crypto.createHash('sha256').update(exactCall).digest('hex'),epoch:String(epoch)}};
+   // Assigned inside the race callback, so keep the declared (not narrowed) type.
+   let failure=('unavailable' as PermissionFailure),refusal=(undefined as string|undefined);
    const result=await raceExactPermission(relay,action,event.input,current,Date.now()+timeout,async signal=>{
     const value=ctx.hasUI?await local(signal):await new Promise<T>(()=>{});const d=decision(value);return d?{decision:d,value}:null;
-   },record=>pi.appendEntry('damage-permission-decision',record),reason=>{failure=reason;});
+   },record=>pi.appendEntry('damage-permission-decision',record),(reason,detail)=>{failure=reason;refusal=detail;});
+   // `unavailable` means no relay request was opened and the local dialog never ran.
+   if(!result&&failure==='unavailable')return localOnly(refusal??'unavailable');
    if(!result)return {value:undefined,source:'not_decided',failure};
    if(result.decision==='deny')return {value:result.localValue,source:result.source};
    if(!result.consume())return {value:undefined,source:'not_decided',failure:'stale' as const};
@@ -446,6 +463,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					if (regex.test(analysis?.patternText ?? command)) {
 						violationReason = rule.reason;
 						shouldAsk = !!rule.ask;
+						if (shouldAsk) askPattern = rule.pattern;
 						break;
 					}
 				}
@@ -508,6 +526,61 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 
 		const command = isToolCallEventType("bash", event) ? event.input.command : null;
 		const invocation = command ?? JSON.stringify(event.input);
+
+		// Headless child spawned by agent-hub: escalate the exact action to the
+		// dispatcher (local human and, through its relay, Codex) and wait for one
+		// answer. Fails closed on timeout/error; null when escalation is not possible.
+		const blockedReason = violationReason;
+		const escalateToHub = async (category: AccessCategory, pattern: string): Promise<{block:true;reason:string}|ReturnType<typeof semanticAllow>|null> => {
+			const endpoint = askEndpoint();
+			if (!endpoint || escalationsThisTurn >= MAX_ESCALATIONS_PER_TURN) return null;
+			escalationsThisTurn++;
+			const exactAction={tool:event.toolName,cwd:ctx.cwd,input:event.input,category,pattern};
+			const serializedAction=JSON.stringify(exactAction);
+			const req: AccessRequest = {
+				type: "access_request",
+				msg_id: crypto.randomUUID(),
+				sender_session: agentId(),
+				sender_endpoint: "",
+				hops: 0,
+				timestamp: new Date().toISOString(),
+				agent: agentId(),
+				tool: event.toolName,
+				toolCallId: event.toolCallId,
+				traceOwner: process.env[TRACE_OWNER_ENV],
+				rule: blockedReason,
+				pattern,
+				category,
+				invocation: damagePreview(invocation),
+				actionDigest: crypto.createHash('sha256').update(serializedAction).digest('hex'),
+				accessEpoch: process.env.AGENT_HUB_ACCESS_EPOCH,
+				...(Buffer.byteLength(serializedAction)<=16000&&damagePreview(serializedAction,16000)===serializedAction?{exactAction}:{}),
+			};
+			const receipt=await requestAccessReceiptFromHub(endpoint,req);
+     const decision=receipt.status==='decided'?(receipt.decision==='deny'&&receipt.decisionSource==='codex_machine'?'machine_deny':receipt.decision):receipt.status==='expired'?'timeout':receipt.status;
+			if (decision === "allow_once") {
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: "allowed_once", pattern, via: "escalation",receipt });
+				return semanticAllow();
+			}
+			// A destructive bash pattern is one-call only; a scoped grant never applies to it.
+			if ((decision === "allow_agent" || decision === "allow_all") && category !== "bash_pattern") {
+				// The hub persisted the grant to the shared file; keep a memory
+				// copy too so this run doesn't depend on re-reading it.
+				sessionExemptions.push({ pattern, scope: "session", grantedVia: "escalation", grantedAt: new Date().toISOString() });
+				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern, via: "escalation",receipt });
+				return semanticAllow();
+			}
+			if (decision === 'deny') deniedThisTurn.add(pattern);
+			const note = decision === "deny"
+				? receipt.decisionSource==='local_human'?`DENIED: The local human explicitly denied this request.`:`DENIED: The dispatcher denied this request; legacy origin is not human attestation.`
+				: decision === 'machine_deny'
+       ? 'Codex denied this exact request as a machine decision (not human refusal).'
+       : decision === "timeout"
+					? `This block was escalated to the user via the dispatcher but the approval request timed out (auto-kept blocked). If this action is essential, say so explicitly in your final response so the user can grant it and re-dispatch you.`
+					: `Dispatcher receipt: ${receipt.status}; no authorization and no human denial is inferred.`;
+			pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: `escalation_${decision}`, pattern,receipt });
+			return { block: true, reason: continueFeedback(event.toolName, blockedReason, invocation, note) };
+		};
 
 		// ── exemption layer (path categories only) ──
 		if (matchedPattern) {
@@ -579,60 +652,19 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
 				}
 
-				const endpoint = askEndpoint();
-				if (endpoint && escalationsThisTurn < MAX_ESCALATIONS_PER_TURN) {
-					// Headless child spawned by agent-hub: escalate to the dispatcher
-					// and wait for the user's decision (fail closed on timeout/error).
-					escalationsThisTurn++;
-					const exactAction={tool:event.toolName,cwd:ctx.cwd,input:event.input,category:matchedCategory!,pattern:matchedPattern};
-					const serializedAction=JSON.stringify(exactAction);
-					const req: AccessRequest = {
-						type: "access_request",
-						msg_id: crypto.randomUUID(),
-						sender_session: agentId(),
-						sender_endpoint: "",
-						hops: 0,
-						timestamp: new Date().toISOString(),
-						agent: agentId(),
-						tool: event.toolName,
-						toolCallId: event.toolCallId,
-						traceOwner: process.env[TRACE_OWNER_ENV],
-						rule: violationReason,
-						pattern: matchedPattern,
-						category: matchedCategory!,
-						invocation: damagePreview(invocation),
-						actionDigest: crypto.createHash('sha256').update(serializedAction).digest('hex'),
-						accessEpoch: process.env.AGENT_HUB_ACCESS_EPOCH,
-						...(Buffer.byteLength(serializedAction)<=16000&&damagePreview(serializedAction,16000)===serializedAction?{exactAction}:{}),
-					};
-					const receipt=await requestAccessReceiptFromHub(endpoint,req);
-     const decision=receipt.status==='decided'?(receipt.decision==='deny'&&receipt.decisionSource==='codex_machine'?'machine_deny':receipt.decision):receipt.status==='expired'?'timeout':receipt.status;
-					if (decision === "allow_once") {
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern, via: "escalation",receipt });
-						return semanticAllow();
-					}
-					if (decision === "allow_agent" || decision === "allow_all") {
-						// The hub persisted the grant to the shared file; keep a memory
-						// copy too so this run doesn't depend on re-reading it.
-						sessionExemptions.push({ pattern: matchedPattern, scope: "session", grantedVia: "escalation", grantedAt: new Date().toISOString() });
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern: matchedPattern, via: "escalation",receipt });
-						return semanticAllow();
-					}
-					if (decision === 'deny') deniedThisTurn.add(matchedPattern);
-					const note = decision === "deny"
-						? receipt.decisionSource==='local_human'?`DENIED: The local human explicitly denied this request.`:`DENIED: The dispatcher denied this request; legacy origin is not human attestation.`
-						: decision === 'machine_deny'
-       ? 'Codex denied this exact request as a machine decision (not human refusal).'
-       : decision === "timeout"
-							? `This block was escalated to the user via the dispatcher but the approval request timed out (auto-kept blocked). If access to this path is essential, say so explicitly in your final response so the user can grant it and re-dispatch you.`
-							: `Dispatcher receipt: ${receipt.status}; no authorization and no human denial is inferred.`;
-					pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: `escalation_${decision}`, pattern: matchedPattern,receipt });
-					return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
-				}
+				const escalated = await escalateToHub(matchedCategory!, matchedPattern);
+				if (escalated) return escalated;
 			}
 		}
 
 		if (shouldAsk) {
+			// A headless child has no dialog and no relay of its own: ask the Hub,
+			// which offers the exact call to the local human and to Codex.
+			if (!ctx.hasUI && !permissionRelayFor(pi.events) && askPattern) {
+				if (deniedThisTurn.has(askPattern)) return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, `This exact kind of call was already denied this turn.`) };
+				const escalated = await escalateToHub("bash_pattern", askPattern);
+				if (escalated) return escalated;
+			}
 			const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
 			const selected = await raceBaseline(permissionSignal=>sharedApprovalWait.run(async signal=>{
 			 finishQueue({status:'completed'});

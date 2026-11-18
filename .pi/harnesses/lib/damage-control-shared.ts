@@ -51,6 +51,9 @@ export const AGENT_ID_ENV = "AGENT_HUB_AGENT_ID";
 
 export type ExemptionScope = "turn" | "session";
 export type PathRuleCategory = "zero_access" | "read_only" | "no_delete";
+/** What a child may escalate: a protected path category, or a destructive
+ * `bashToolPatterns` rule marked `ask: true` (one-call approval only, never an exemption). */
+export type AccessCategory = PathRuleCategory | "bash_pattern";
 
 export interface Exemption {
 	/** The protected pattern being unlocked — same syntax as the rules file entries. */
@@ -132,7 +135,7 @@ export interface AccessRequest {
 	tool: string;
 	rule: string;
 	pattern: string;
-	category: PathRuleCategory;
+	category: AccessCategory;
 	/** Bounded display text only; never use a truncated preview as action identity. */
 	invocation: string;
 	/** SHA-256 of complete tool/cwd/input/category/pattern identity; optional for legacy callers. */
@@ -147,8 +150,8 @@ export interface AccessRequest {
 export type AccessDecisionChoice = "deny" | "allow_once" | "allow_agent" | "allow_all";
 
 /** Protected deletions are approved per invocation; broader grants stay operator-explicit. */
-export function accessDecisionChoices(category: PathRuleCategory): AccessDecisionChoice[] {
-	return category === "no_delete"
+export function accessDecisionChoices(category: AccessCategory): AccessDecisionChoice[] {
+	return category === "no_delete" || category === "bash_pattern"
 		? ["deny", "allow_once"]
 		: ["deny", "allow_once", "allow_agent", "allow_all"];
 }

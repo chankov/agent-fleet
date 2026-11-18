@@ -5,7 +5,8 @@ import {publishFleetSourceEvent,fleetSourceDigest} from '../lib/fleet-event-sour
 import type {Socket} from 'node:net';
 import {PermissionChannel,type PermissionOwner,type PermissionSnapshot,type PermissionOutcome,type MachinePrincipal} from './permission-channel.ts';
 import type {DamageAction} from './damage-guard-state.ts';
-import {actionPresentation} from './task-triage-authorization.ts';
+import {actionPresentation,type ActionPresentationRefusal} from './task-triage-authorization.ts';
+export type RelayRefusal=ActionPresentationRefusal|'no_owner'|'not_current'|'capacity'|'channel_refused'|'ingress_failed';
 import {redactSecrets} from '../lib/fleet-transcript-store.ts';
 const digest=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
@@ -22,20 +23,28 @@ export class PermissionRelay {
  available(){return this.owner()!==null;}
  readonly actionIdentity?:()=>{taskId:string;inputRevision:string};
  constructor(owner:()=>PermissionOwner|null,actionIdentity?:()=>{taskId:string;inputRevision:string}){this.owner=owner;this.actionIdentity=actionIdentity;}
- open(action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number){
-  const owner=this.owner(),detail=actionPresentation(action,{input,cwd:action.cwd});
-  if(!owner||!detail||Buffer.byteLength(detail)>20000||!current()||this.rows.size>=256)return null;
+ /** `onRefusal` names why no request was opened, so callers can fall back to the
+  * local human and record why Codex was not asked. It never carries action text. */
+ open(action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number,onRefusal?:(reason:RelayRefusal)=>void){
+  const refuse=(reason:RelayRefusal)=>{try{onRefusal?.(reason);}catch{}return null;};
+  let presentationRefusal:ActionPresentationRefusal|undefined;
+  const owner=this.owner(),detail=actionPresentation(action,{input,cwd:action.cwd},reason=>{presentationRefusal=reason;});
+  if(!owner)return refuse('no_owner');
+  if(!detail)return refuse(presentationRefusal??'invalid_schema');
+  if(Buffer.byteLength(detail)>20000)return refuse('presentation_too_large');
+  if(!current())return refuse('not_current');
+  if(this.rows.size>=256)return refuse('capacity');
   const target={owner,taskId:action.taskId,inputRevision:action.inputRevision,actionDigest:digest(action)};
   const fresh=()=>same(owner,this.owner())&&current();
   const provisional=new PermissionChannel(fresh);
   // Every row owns its latch: no temporary global freshness exception or cross-open race.
-  const request=provisional.open(target,expiresAt);if(!request)return null;
+  const request=provisional.open(target,expiresAt);if(!request)return refuse('channel_refused');
   const row:Row={view:{snapshot:request.snapshot,action:structuredClone(action),detail},notificationEventId:null,timings:{ingressCommittedAt:null,createdAt:Date.now(),decisionAt:null,appliedAt:null,responseQueuedAt:null},current:fresh,effect:'pending'};
   this.rows.set(request.snapshot.id,row);
   const result=request.result.then(outcome=>{row.winner=outcome;if(outcome.status==='decided')row.timings.decisionAt??=Date.now();if(outcome.status!=='decided'||outcome.decision==='deny')row.effect='not_applied';return outcome;});
   this.latches.set(request.snapshot.id,provisional);
   try{const ingress=publishFleetSourceEvent({kind:'permission',owner,sourceId:request.snapshot.id,createdAt:row.timings.createdAt,deadline:expiresAt,contentDigest:fleetSourceDigest({action,detail})});if(ingress.status==='durably_ingested'){row.notificationEventId=ingress.eventId;row.timings.ingressCommittedAt=Date.now();}}
-  catch{request.cancel();this.rows.delete(request.snapshot.id);this.latches.delete(request.snapshot.id);return null;}
+  catch{request.cancel();this.rows.delete(request.snapshot.id);this.latches.delete(request.snapshot.id);return refuse('ingress_failed');}
   return {result,human:request.human,cancel:request.cancel,id:request.snapshot.id,actionDigest:request.snapshot.actionDigest,valid:()=>this.rows.get(request.snapshot.id)===row&&fresh()&&Date.now()<expiresAt&&row.winner?.status==='decided'&&row.winner.decision==='allow_once',
    responseWritten:()=>{if(row.effect==='pending'){row.effect='response_queued_unconfirmed';row.timings.responseQueuedAt=Date.now();}},
    applied:(consumed:boolean)=>{if(row.effect==='pending'){row.effect=consumed?'consumed':'not_applied';if(consumed)row.timings.appliedAt=Date.now();}}};

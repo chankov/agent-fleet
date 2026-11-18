@@ -33,6 +33,9 @@ const RULES_YAML = `
 bashToolPatterns:
   - pattern: '\\brm\\s+-[rRf]'
     reason: rm with recursive or force flags
+  - pattern: '\\bgit\\s+stash\\s+drop\\b'
+    reason: Permanently deletes a stash
+    ask: true
 zeroAccessPaths:
   - ".env"
 readOnlyPaths:
@@ -249,6 +252,30 @@ test("continue: headless child escalates to the hub — approval lets the call t
 		// grant is remembered in-process — no second round-trip
 		assert.equal((await h.toolCall(readEnv)).block, false);
 		assert.equal(seen.length, 1);
+	} finally {
+		server.close();
+	}
+});
+
+for (const decision of ["allow_once", "allow_all"]) test(`continue: headless destructive ask pattern escalates one exact call to the hub (${decision})`, async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const sock = join(dir, "hub.sock");
+	const { server, seen } = await fakeHubServer(sock, decision);
+	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
+	process.env.AGENT_HUB_AGENT_ID = "builder";
+	try {
+		const h = await boot(continueExt, fixtureCwd(), { hasUI: false });
+		const stashDrop = { type: "tool_call", toolName: "bash", input: { command: "git stash drop" } };
+		// A scoped answer is not offered for destructive patterns; one arriving anyway fails closed.
+		const blocked = decision !== "allow_once";
+		assert.equal((await h.toolCall(stashDrop)).block, blocked);
+		assert.equal(seen.length, 1);
+		assert.equal(seen[0].category, "bash_pattern");
+		assert.match("git stash drop", new RegExp(seen[0].pattern));
+		assert.deepEqual(seen[0].exactAction, { tool: "bash", cwd: seen[0].exactAction.cwd, input: stashDrop.input, category: "bash_pattern", pattern: seen[0].pattern });
+		// Never a scoped grant: the next identical call asks again.
+		assert.equal((await h.toolCall(stashDrop)).block, blocked);
+		assert.equal(seen.length, 2);
 	} finally {
 		server.close();
 	}

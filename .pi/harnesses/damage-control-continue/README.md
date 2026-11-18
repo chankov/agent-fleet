@@ -90,8 +90,17 @@ spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends a
 who is asking, for what, and why it was blocked. Ordinary protected reads/writes
 offer *Deny / Allow once / Allow for this agent / Allow for all agents (session)*.
 A protected deletion offers only *Deny / Allow once*, so approving one file does
-not grant its parent directory. The child waits up to 60s and fails closed on
-timeout. At most 3 escalations per child run; denials are cached.
+not grant its parent directory. A destructive `bashToolPatterns` rule marked
+`ask: true` escalates the same way (category `bash_pattern`) and also offers only
+*Deny / Allow once* — it never becomes an exemption. The child waits up to 60s and
+fails closed on timeout. At most 3 escalations per child run; denials are cached.
+
+**Codex relay**: in a Hub session with a Codex permission relay, every one of
+these approvals — baseline, child escalation, zero-access included, for any of
+`bash`, `write`, `edit`, `read`, `grep`, `find`, `ls`, `filesystem` and
+`submit_result` — is also offered to Codex as an exact one-use request; the first
+answer wins. Only an action that cannot be shown in full and safely (unsafe text,
+over the size limit) stays local, and a `relay_not_used` log entry says why.
 
 **Shared exemptions file**: agent-hub keeps one session-scoped file
 (`~/.pi/coms/exemptions/<session>.json`, deleted on shutdown) and passes it to

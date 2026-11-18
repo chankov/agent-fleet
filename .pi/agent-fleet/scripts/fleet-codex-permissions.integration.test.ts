@@ -190,6 +190,38 @@ test('legacy child synthetic protocol request -> native machine decision -> allo
  const list:any=await f.call('fleet_permissions',{target:owner,operation:'list',snapshot:null});assert.deepEqual(list.requests,[]);
 });
 
+test('child zero-access read reaches Codex as an exact one-use machine decision',async t=>{
+ const f=await fixture(t);await f.binding('grant_approve');const logs:any[]=[];
+ f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>null,getExemptionsFile:()=>null,appendLog:r=>logs.push(r),now:()=>new Date().toISOString()}));
+ const exactAction={tool:'read',cwd:'/repo',input:{path:'.env',limit:5},category:'zero_access',pattern:'.env'};
+ const req:AccessRequest={type:'access_request',msg_id:'zero-access-read',sender_session:'builder',sender_endpoint:'',hops:0,timestamp:new Date().toISOString(),agent:'builder',tool:'read',rule:'synthetic zero-access',category:'zero_access',pattern:'.env',invocation:JSON.stringify(exactAction.input),accessEpoch:'spawn',exactAction,actionDigest:createHash('sha256').update(JSON.stringify(exactAction)).digest('hex')};
+ const waiting=requestAccessFromHub(f.endpoint,req,1500);const snapshot=await waitSnapshot(f.call);
+ const inspected:any=await f.call('fleet_permissions',{target:owner,operation:'inspect',snapshot});
+ assert.match(JSON.stringify(inspected),/\\"path\\": \\"\.env\\"/,'Codex sees the complete exact read input');
+ await f.call('fleet_permission_decide',{requestId:'zero-access-approval',snapshot,decision:'allow_once',reason:'Synthetic zero-access read is necessary for the explicitly assigned task-fixture'});
+ assert.equal(await waiting,'allow_once');assert.equal(logs[0].decisionSource,'codex_machine');
+});
+
+test('child destructive bash pattern reaches Codex for one call and never becomes an exemption',async t=>{
+ const f=await fixture(t);await f.binding('grant_approve');const file=join(f.root,'exemptions.json');await writeFile(file,'[]');
+ f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>null,getExemptionsFile:()=>file,appendLog(){},now:()=>new Date().toISOString()}));
+ const pattern='\\bgit\\s+stash\\s+drop\\b',exactAction={tool:'bash',cwd:'/repo',input:{command:'git stash drop stash@{0}'},category:'bash_pattern',pattern};
+ const req:AccessRequest={type:'access_request',msg_id:'bash-pattern',sender_session:'builder',sender_endpoint:'',hops:0,timestamp:new Date().toISOString(),agent:'builder',tool:'bash',rule:'Permanently deletes a stash',category:'bash_pattern',pattern,invocation:'git stash drop stash@{0}',accessEpoch:'spawn',exactAction,actionDigest:createHash('sha256').update(JSON.stringify(exactAction)).digest('hex')};
+ const waiting=requestAccessFromHub(f.endpoint,req,1500);const snapshot=await waitSnapshot(f.call);
+ await f.call('fleet_permission_decide',{requestId:'bash-pattern-approval',snapshot,decision:'allow_once',reason:'Synthetic stash drop is necessary for the explicitly assigned task-fixture'});
+ assert.equal(await waiting,'allow_once');assert.deepEqual(readExemptionsFile(file),[]);
+});
+
+test('a child request Codex cannot be offered falls back locally and records why',async t=>{
+ const f=await fixture(t);await f.binding('grant_approve');const logs:any[]=[];let asked=0;
+ f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>({hasUI:true,ui:{notify(){},select:async()=>{asked++;return 'Allow once';}}}),getExemptionsFile:()=>null,appendLog:r=>logs.push(r),now:()=>new Date().toISOString()}));
+ const req:AccessRequest={type:'access_request',msg_id:'no-exact',sender_session:'builder',sender_endpoint:'',hops:0,timestamp:new Date().toISOString(),agent:'builder',tool:'bash',rule:'synthetic',category:'read_only',pattern:'fixture-protected/',invocation:'synthetic',accessEpoch:'spawn'};
+ assert.equal(await requestAccessFromHub(f.endpoint,req,1500),'allow_once');
+ assert.equal(asked,1);
+ assert.deepEqual(logs.find(r=>r.action==='relay_not_used')?.reason,'no_exact_action');
+ const list:any=await f.call('fleet_permissions',{target:owner,operation:'list',snapshot:null});assert.deepEqual(list.requests,[]);
+});
+
 test('machine-capable child lane preserves an actual human agent-scope exemption, never relabels it machine',async t=>{
  const f=await fixture(t),file=join(f.root,'exemptions.json');
  f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>({hasUI:true,ui:{notify(){},select:async()=> 'Allow for this agent (this session)'}}),getExemptionsFile:()=>file,appendLog(){},now:()=>new Date().toISOString()}));

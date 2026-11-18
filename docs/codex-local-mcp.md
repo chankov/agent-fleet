@@ -199,11 +199,19 @@ latch acceptance from `effect:consumed` (one-use authority, **not tool completio
 `not_applied`, and a legacy child `response_queued_unconfirmed`. Pi receipts are
 bounded/volatile; Pi restart or reset can leave unknown evidence.
 
-Baseline path asks, destructive bash asks, D6, exact triage actions and new
-exact-action child requests are wired to the shared one-winner permission latch. Children carry a per-spawn epoch;
-stale children, changed task/revision, clipped/unsafe action presentation and
-`zero_access` do not acquire machine authority. Existing local human scopes remain
-available; machine decisions stay once-only. Material triage waivers remain human-only; exact triage actions can receive
+Baseline path asks (`zero_access` included), destructive bash asks, D6, exact
+triage actions and new exact-action child requests — including a child's
+destructive `ask: true` bash pattern, which escalates as category `bash_pattern`
+and only ever receives one-call answers — are wired to the shared one-winner
+permission latch. Every relay-presentable tool is covered: `bash`, `write`, `edit`,
+`read`, `grep`, `find`, `ls`, `filesystem` and `submit_result`; non-bash/write/edit
+inputs are shown as complete JSON data under the same unsafe-text and size limits.
+Children carry a per-spawn epoch; stale children, changed task/revision and
+clipped/unsafe action presentation do not acquire machine authority. When the relay
+cannot open a request, the local dialog still runs and a `relay_not_used`
+`damage-control-log` entry names the reason (for example `unsafe_text`,
+`presentation_too_large`, `no_exact_action`, `no_owner`). Existing local human
+scopes remain available; machine decisions stay once-only. Material triage waivers remain human-only; exact triage actions can receive
 explicit `codex_machine` allow-once/deny under the separate approve contract. Child machine denial is explicitly
 reported as `machine_deny`, not user refusal; expiration/cancellation/staleness do
 not populate a human-denial cache. Child effect receipt is only response queued,

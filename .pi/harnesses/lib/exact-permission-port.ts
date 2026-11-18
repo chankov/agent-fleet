@@ -8,12 +8,19 @@ export function permissionAuditOutcome(outcome:PermissionOutcome){
 }
 const relayKey=Symbol.for('fleet.permission-relays.v1');
 const relays:WeakMap<object,PermissionRelay>=(globalThis as any)[relayKey]??((globalThis as any)[relayKey]=new WeakMap());
+/** Tools whose exact action can be presented through, and decided by, the permission relay. */
+export const RELAY_OPERATIONS=['bash','write','edit','read','grep','find','ls','filesystem','submit_result'] as const;
+export type DamageOperation=typeof RELAY_OPERATIONS[number];
+export const isRelayOperation=(tool:unknown):tool is DamageOperation=>typeof tool==='string'&&(RELAY_OPERATIONS as readonly string[]).includes(tool);
 export type PermissionFailure = 'expired'|'cancelled'|'stale'|'unavailable'|'audit_failed';
 /** Shared baseline/triage one-winner path. Local UI produces values, never side effects
  * before winner selection. Machine answers never enter identical-dialog/semantic memory. */
-export async function raceExactPermission<T>(relay:PermissionRelay,action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number,local:(signal:AbortSignal)=>Promise<{decision:'allow_once'|'deny';value:T}|null>,audit:(record:unknown)=>void,onFailure?:(reason:PermissionFailure)=>void){
- const fail=(reason:PermissionFailure)=>{try{onFailure?.(reason);}catch{}return null;};
- const request=relay.open(action,input,current,expiresAt);if(!request)return fail('unavailable');
+/** `onFailure` receives the relay's refusal reason when no request could be opened
+ * (`unavailable`); the local dialog has not been shown in that case. */
+export async function raceExactPermission<T>(relay:PermissionRelay,action:DamageAction,input:unknown,current:()=>boolean,expiresAt:number,local:(signal:AbortSignal)=>Promise<{decision:'allow_once'|'deny';value:T}|null>,audit:(record:unknown)=>void,onFailure?:(reason:PermissionFailure,detail?:string)=>void){
+ const fail=(reason:PermissionFailure,detail?:string)=>{try{onFailure?.(reason,detail);}catch{}return null;};
+ let refusal:string|undefined;
+ const request=relay.open(action,input,current,expiresAt,reason=>{refusal=reason;});if(!request)return fail('unavailable',refusal);
  const controller=new AbortController();let localValue:T|undefined;
  void local(controller.signal).then(answer=>{if(answer){if(request.human(answer.decision,'local-ui'))localValue=answer.value;}else request.cancel();},()=>request.cancel());
  const outcome=await request.result;controller.abort();

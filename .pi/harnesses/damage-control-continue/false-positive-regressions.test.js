@@ -49,18 +49,20 @@ async function guard(t, { interactive = false, trace = false, relay = false, sel
  for (const handler of handlers.session_start ?? []) await handler({ type: 'session_start' }, ctx);
  return {
   entries, uiAsks,
-  call: async command => {
-   const event = { type: 'tool_call', toolCallId: 'reproduction', toolName: 'bash', input: { command } };
-   for(const handler of handlers.tool_execution_start??[])await handler({toolCallId:event.toolCallId,toolName:'bash',args:event.input},ctx);
+  call: command => tool('bash', { command }),
+  tool,
+ };
+ async function tool(toolName, input) {
+   const event = { type: 'tool_call', toolCallId: 'reproduction', toolName, input };
+   for(const handler of handlers.tool_execution_start??[])await handler({toolCallId:event.toolCallId,toolName,args:event.input},ctx);
    for (const handler of handlers.tool_call ?? []) {
     const result = await handler(event, ctx);
     if (result?.block) {
-     for(const handler of handlers.tool_execution_end??[])await handler({toolCallId:event.toolCallId,toolName:'bash',result:{details:{}},isError:true},ctx);
+     for(const handler of handlers.tool_execution_end??[])await handler({toolCallId:event.toolCallId,toolName,result:{details:{}},isError:true},ctx);
      return result;
     }
    }
    return { block: false };
-  },
  };
 }
 
@@ -181,4 +183,29 @@ for (const relay of [false, true]) test(`unanswered baseline dialog is reported 
  assert.doesNotMatch(result.reason, /permission cancelled|expired or stale|kept the block/);
  assert.ok(g.entries.some(entry => entry.data?.action === 'blocked_prompt_timeout'));
  assert.equal(g.entries.some(entry => entry.data?.action === 'blocked_by_user'), false);
+});
+
+// With a Hub relay every presentable exact action is offered to Codex as well,
+// zero-access and non-bash tools included; the local dialog still runs.
+for (const [name, toolName, input] of [
+ ['zero-access bash', 'bash', { command: 'cat .env' }],
+ ['zero-access read tool', 'read', { path: '.env' }],
+ ['zero-access grep tool', 'grep', { pattern: 'KEY', path: '.env' }],
+ ['read-only write tool', 'write', { path: 'package-lock.json', content: '{}' }],
+]) test(`${name} is offered to the Codex relay alongside the local dialog`, async t => {
+ const g = await guard(t, { interactive: true, relay: true, selection: 'Allow once' });
+ const result = await g.tool(toolName, input);
+ assert.equal(result.block, false, result.reason);
+ assert.equal(g.uiAsks.length, 1);
+ assert.ok(g.entries.some(entry => entry.type === 'damage-permission-decision'), 'a relay request was opened and decided');
+ assert.equal(g.entries.some(entry => entry.data?.action === 'relay_not_used'), false);
+});
+
+test('an action the relay cannot present safely still gets the local dialog and records why', async t => {
+ const g = await guard(t, { interactive: true, relay: true, selection: 'Allow once' });
+ const result = await g.call("printf 'a\\rb' > package-lock.json\r");
+ assert.equal(result.block, false, result.reason);
+ assert.equal(g.uiAsks.length, 1);
+ assert.equal(g.entries.find(entry => entry.data?.action === 'relay_not_used')?.data.reason, 'unsafe_text');
+ assert.equal(g.entries.some(entry => entry.type === 'damage-permission-decision'), false);
 });

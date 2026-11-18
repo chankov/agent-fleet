@@ -1,6 +1,9 @@
 import {createHash} from 'node:crypto';
 import {isAbsolute} from 'node:path';
-export interface DamageAction {taskId:string;inputRevision:string;operation:'bash'|'write'|'edit';target:string;cwd:string;actionId:string;owner:string;attempt:string;legacyTargets?:readonly string[];requestContext?:Readonly<{source:'child_access'|'baseline_path'|'baseline_bash'|'triage_action';category:string;pattern:string;digest:string;epoch:string}>;}
+import type {DamageOperation} from '../lib/exact-permission-port.ts';
+export type {DamageOperation} from '../lib/exact-permission-port.ts';
+// The semantic (D6) guard and its denial records still cover only bash/write/edit.
+export interface DamageAction {taskId:string;inputRevision:string;operation:DamageOperation;target:string;cwd:string;actionId:string;owner:string;attempt:string;legacyTargets?:readonly string[];requestContext?:Readonly<{source:'child_access'|'baseline_path'|'baseline_bash'|'triage_action';category:string;pattern:string;digest:string;epoch:string}>;}
 export interface DamageDecisionRecord {schema:'damage-denial/v1';taskId:string;inputRevision:string;operation:'bash'|'write'|'edit';target:string;cwd:string;decision:'deny'|'allow'|'hold'|'consumed'|'recovery';}
 export function damageDenyKey(action:Pick<DamageAction,'taskId'|'inputRevision'|'operation'|'target'|'cwd'>){return createHash('sha256').update(JSON.stringify([action.taskId,action.inputRevision,action.operation,action.target,action.cwd])).digest('hex');}
 export function validDamageDecision(row:unknown):row is DamageDecisionRecord{
@@ -21,7 +24,7 @@ export function createDamageState(persist:(row:DamageDecisionRecord)=>void){
   // An explicit denial additionally requires a human-armed new approval dialog.
  };
  const record=(action:DamageAction,decision:DamageDecisionRecord['decision'])=>{
-  const row:DamageDecisionRecord={schema:'damage-denial/v1',taskId:action.taskId,inputRevision:action.inputRevision,operation:action.operation,target:action.target,cwd:action.cwd,decision};if(!validDamageDecision(row))throw Error('invalid_damage_action');
+  const row:DamageDecisionRecord={schema:'damage-denial/v1',taskId:action.taskId,inputRevision:action.inputRevision,operation:action.operation as DamageDecisionRecord['operation'],target:action.target,cwd:action.cwd,decision};if(!validDamageDecision(row))throw Error('invalid_damage_action');
   if(decision==='deny'||decision==='hold'){apply(row);persist(row);}else{persist(row);apply(row);}if(decision==='hold')durableHeld.add(damageDenyKey(row));if(decision==='recovery')durableRecovery.add(damageDenyKey(row));
  };
  return {
