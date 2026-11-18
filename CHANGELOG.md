@@ -1,5 +1,30 @@
 # Agent Fleet changelog
 
+## 2.2.4
+
+### Patch Changes
+
+- 11ea304: Damage-Control approvals reach the Codex permission relay in more cases. Zero-access requests (`.env` and similar) and the `read`, `grep`, `find`, `ls`, `filesystem` and `submit_result` tools now go to Codex as well, in the Hub and from child agents. Codex sees their complete input as JSON data, under the same screening for unsafe text and the same size limits. Machine decisions are still once-only.
+
+  A child agent's destructive `ask: true` bash pattern (for example `git stash drop`) now escalates to the Hub, and through it to Codex, as one exact call. Before, the child blocked it without asking anyone. It is never turned into an exemption.
+
+  When the relay cannot open a request, the local dialog still runs. Before, the Hub blocked the call without asking. A `relay_not_used` entry in `damage-control-log` now records why Codex was not asked (`unsafe_text`, `presentation_too_large`, `no_exact_action`, `no_owner`, and so on).
+
+- e031942: Damage-Control no longer asks for permission to "modify" `/bin/` or `/usr/` when a command merely runs a program by path, such as `/opt/az/bin/python3 script.py`, `.venv/bin/python -m pytest`, or `/usr/bin/git status`. The program's own path is treated as read; its arguments stay protected, so `/opt/az/bin/tool --output /bin/x` and `/bin/rm -- README.md` still block. The fallback for commands that can't be parsed now matches absolute protected paths only where a path starts, and still catches `-t/etc/`.
+
+  An approval dialog that closes unanswered (it timed out or was dismissed) is now reported the same way whether or not a Codex permission relay is attached. The block is recorded as `blocked_prompt_timeout`, the agent is told that nobody answered (not that the user denied the call), and it is pointed at `/af-allow`. Before, the relay path returned a bare "permission cancelled, expired or stale" message that agents mistook for a harness fault.
+
+- 8532fc9: Refresh shipped model defaults: `openai-codex/gpt-6-astra` → `gpt-6.2-astra`, `openai-codex/gpt-6.1-sol` → `gpt-6.2-sol`, and Anthropic models now route directly through the `anthropic` provider instead of GitHub Copilot, on current versions (`anthropic/claude-opus-5-5`, `anthropic/claude-fable-5-2`, `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5`) across personas, model profiles, peers, voices, and docs.
+- 01737f9: Stop the operator from re-binding `set_task_tier` in a loop, and stop reporting a recovered child run as failed.
+
+  - The hub system prompt is fixed for a whole agent run, so its "pending task transition" text stayed visible after `set_task_tier` had already bound the input and the operator kept re-binding (and sometimes reported itself blocked). The prompt now carries a start-of-turn notice that expires on the first `set_task_tier` result, the tool results say explicitly that nothing is pending, and consecutive no-op calls are called out as a loop.
+  - `Окей, моля те продължи`, `ok continue`, `Добре, продължавай` and similar bare continuations no longer open a task transition.
+  - A native child whose provider error was retried successfully by pi (or that continued after a compaction abort) and then finished cleanly is no longer turned into a failed dispatch; only an error on the last assistant message fails the run.
+  - Resuming a session keeps the declared task tier. A resumed `feature`/`project` task no longer falls back to `small` (10-minute child deadline, no delegation); `set_task_tier` now journals the new tier with its process entry.
+  - An operator-cancellation fence can be lifted again after the task changes: `/af-retry` and `/af-recover retry` no longer refuse it for belonging to the previous task, `/af-recover abandon` releases the agent identity, and resume does not resurrect an abandoned fence. The fence itself still needs the one-use human authorization.
+  - A bare "continue" as the first input after resuming a session now re-accepts the task the session was working on instead of becoming the task itself. Sessions recorded before this release have no journaled task input and behave as before.
+  - Esc during `dispatch_agent` now stops the running specialist (or abandons the coms wait) and its automatic research rounds, instead of leaving the hub busy until the child finished on its own. The Esc fence is lifted once by the next input the human types, so "Esc, then continue" needs no `/af-retry`; coms messages and automatic turns never lift it, and a kill from the fleet panel still needs `/af-retry`.
+
 ## 2.2.3
 
 ### Patch Changes
