@@ -26,6 +26,21 @@ test("PRs and releases share Linux/macOS validation without PR publishing author
   assert.deepEqual(release.permissions, { contents: "write", "pull-requests": "write", "id-token": "write" });
 });
 
+test("the release PR is opened with a GitHub App token, falling back to GITHUB_TOKEN until configured", () => {
+  const steps = workflow.jobs.release.steps;
+  const mint = steps.findIndex(step => step.id === "app-token");
+  const checkout = steps.findIndex(step => step.uses?.startsWith("actions/checkout@"));
+  const changesets = steps.find(step => step.uses?.startsWith("changesets/action@"));
+  assert.ok(mint >= 0 && mint < checkout, "the App token is minted before checkout");
+  assert.match(steps[mint].uses, /^actions\/create-github-app-token@/);
+  assert.equal(steps[mint].if, "${{ vars.RELEASE_APP_ID != '' }}");
+  assert.equal(steps[mint].with["app-id"], "${{ vars.RELEASE_APP_ID }}");
+  assert.equal(steps[mint].with["private-key"], "${{ secrets.RELEASE_APP_PRIVATE_KEY }}");
+  assert.equal(steps[checkout].with.token, "${{ steps.app-token.outputs.token || github.token }}");
+  assert.equal(changesets.env.GITHUB_TOKEN, "${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}");
+  assert.equal(workflow.jobs["installer-matrix"].steps.some(step => step.id === "app-token"), false, "PR checks never mint the App token");
+});
+
 test("npm test defaults to a fast local lane while the full suite remains available", () => {
   assert.equal(packageJson.scripts.test, "npm run test:fast");
   assert.equal(packageJson.scripts["test:fast"], "node bin/test/run-fast.js");
