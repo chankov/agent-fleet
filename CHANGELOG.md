@@ -1,5 +1,24 @@
 # Agent Fleet changelog
 
+## 2.2.3
+
+### Patch Changes
+
+- 2e72cdd: Fix protected-path false positives for literal absolute Python module invocations while retaining conservative checks for inline source, protected operands, and unsupported shell syntax. Preserve specific permission expiry/cancellation/staleness diagnostics without granting authority or retrying operations.
+
+  Explain missing exact runtime verification commands in native review results and require unchanged, separate, sequential verification calls. Chained commands such as `test; echo $?` remain ineligible evidence; exact fresh checks can register the reviewed current state without accepting pending manual requirements.
+
+  These changes update installable Damage Control and Agent Hub harness artifacts. Reconcile the workspace installation and reload the Pi harness before a separately authorized local verification attempt; no task reset, policy exemption, or automatic replay is required.
+
+- 4f4433f: Ship the Agent Hub continuity work: interrupted specialist tasks can be continued under researcher-led recovery, and the acceptance assertion ledger now survives reload and resume for the same task. After upgrading, reconcile the workspace with `agent-fleet setup` and reload the Pi harness so the new Hub runtime is active.
+- f7d93e1: Keep the Hub's acceptance assertion ledger across reload and resume: committed ledger changes are journaled as task-bound session entries and restored only for the same task, older sessions migrate their last typed `set_assertions` as open declarations without proof, and an operator current-state review that cannot register its candidate now names the exact refused qualifier and the permitted next step.
+- 2e72cdd: Close interrupted hub recovery attempts as unsettled indeterminate failures on restore, releasing unrelated contracts while preserving retry fences and reporting real recovery identities.
+- 2e72cdd: Harden researcher-led task continuation: a late outcome from a still-running original process no longer corrupts restored recovery history, a same-turn watchdog-stopped task can be continued, a failed analysis can be repeated and names its cause, absolute dispatch scope and recorded parallel instances no longer make continuation impossible, and `/af-recover continue` reports its outcome to the dispatcher.
+
+  Normalize relative dispatch scope before checking containment so valid in-workspace paths with parent segments can continue without changing the original invocation; paths that resolve outside the workspace remain refused before analysis or approval.
+
+- 2e72cdd: Add researcher-led continuation of interrupted specialist tasks, retaining the original task and role, reviewing partial progress before one-use human authorization, and recording operator stop attestations separately from runtime settlement.
+
 ## 2.2.2
 
 ### Patch Changes
