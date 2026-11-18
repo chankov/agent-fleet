@@ -186,7 +186,7 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
  const preview=Boolean(selection&&direct&&options.includes('--dry-run'));
  const effective=preview?rest.filter((arg,index)=>arg!=='--dry-run'||index>=end):rest;
  const invocation=parseFleetCommandBase(effective);
- if(selection&&['_fleet-lifecycle','_fleet-deps'].includes(invocation.recipe))throw Error('--worktree selects a runtime checkout, not an installation target; run lifecycle commands from af without this flag');
+ if(selection&&['_fleet-lifecycle','_fleet-deps','_fleet-fix-codex-permissions'].includes(invocation.recipe))throw Error('--worktree selects a runtime checkout, not an installation target; run lifecycle commands from af without this flag');
  return selection?{...invocation,selection,...(preview?{preview:true}:{})}:invocation;
 }
 function parseFleetCommandBase(argv: string[]): FleetInvocation {
@@ -197,6 +197,10 @@ function parseFleetCommandBase(argv: string[]): FleetInvocation {
 	const [mode, ...tail] = argv;
 	if (mode === "install") {
 		throw new Error("just fleet install was removed; use `just fleet setup` for lifecycle setup or `just fleet deps` for runtime dependencies");
+	}
+	if (mode === "fix-codex-permissions") {
+		if (tail.length) throw new Error("fix-codex-permissions takes no arguments");
+		return { recipe: "_fleet-fix-codex-permissions", args: [] };
 	}
 	if (mode === "deps") return { recipe: "_fleet-deps", args: tail };
 	if (["setup", "doctor"].includes(mode)) return { recipe: "_fleet-lifecycle", args: [mode, ...tail] };

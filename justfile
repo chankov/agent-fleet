@@ -139,6 +139,10 @@ _fleet-peer name browser="false" all_extensions="false" *args:
 _fleet-hub solo="false" browser="false" voice="false" all_extensions="false" *args:
     discovery="--no-extensions"; if [ "{{all_extensions}}" = "true" ]; then discovery=""; fi; browser_ext=""; if [ "{{browser}}" = "true" ]; then browser_ext="{{fleet_browser_extension}}"; fi; voice_ext=""; if [ "{{voice}}" = "true" ]; then voice_ext="{{fleet_voice_extension}}"; fi; solo_flag=""; if [ "{{solo}}" = "true" ]; then solo_flag="--solo"; fi; {{node_ts}} .pi/agent-fleet/scripts/pi-session.ts $discovery {{fleet_core_extensions}} -e .pi/harnesses/agent-hub/index.ts $browser_ext $voice_ext $solo_flag {{args}}
 
+# Repair the active standalone Linux Codex release after a group-writable installation.
+_fleet-fix-codex-permissions:
+    @{{node_ts}} .pi/agent-fleet/scripts/fix-codex-permissions.ts
+
 # Hidden dependency installer used by `just fleet deps`.
 # It installs only Node runtime dependencies. It does NOT launch Pi, activate a
 # harness, configure STT, install ffmpeg/Herdr, or pair a remote conductor.

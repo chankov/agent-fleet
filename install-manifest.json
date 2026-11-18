@@ -605,6 +605,7 @@
             ".pi/agent-fleet/scripts/coms-cli.ts",
             ".pi/agent-fleet/scripts/coms-hermes-bridge.ts",
             ".pi/agent-fleet/scripts/exec-at-target.ts",
+            ".pi/agent-fleet/scripts/fix-codex-permissions.ts",
             ".pi/agent-fleet/scripts/fleet.ts",
             ".pi/agent-fleet/scripts/flow.ts",
             ".pi/agent-fleet/scripts/lib/claude-bridge-core.ts",
