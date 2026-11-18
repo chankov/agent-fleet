@@ -4,8 +4,8 @@ description: Web performance engineer focused on Core Web Vitals, loading, rende
 tools: read,bash,grep,find,ls
 model: openai-codex/gpt-6-luna
 models:
-  - github-copilot/claude-opus-5.5
-  - openai-codex/gpt-6.1-sol
+  - anthropic/claude-opus-5-5
+  - openai-codex/gpt-6.2-sol
   - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud

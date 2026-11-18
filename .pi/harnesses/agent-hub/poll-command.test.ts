@@ -41,16 +41,16 @@ test("formatAfPollDigest is a vertical block per voice with name, model, positio
 		panel: "default",
 		directory: ".pi/agent-sessions/artifacts/polls/abcd/",
 		voices: [
-			{ name: "sol", model: "openai-codex/gpt-6.1-sol", ok: true, position: "Extract it.", confidence: "high" },
+			{ name: "sol", model: "openai-codex/gpt-6.2-sol", ok: true, position: "Extract it.", confidence: "high" },
 			{ name: "grok", model: "xai/grok-4.7", ok: true, position: "Leave it.", confidence: "medium" },
-			{ name: "opus", model: "github-copilot/claude-opus-5.5", ok: false, reason: "timeout" },
+			{ name: "opus", model: "anthropic/claude-opus-5-5", ok: false, reason: "timeout" },
 		],
 		integrator: "opus",
 		recommendation: "Extract behind a facade.",
 	});
-	assert.match(digest, /^sol · openai-codex\/gpt-6.1-sol\n  position: Extract it\.\n  confidence: high/);
+	assert.match(digest, /^sol · openai-codex\/gpt-6.2-sol\n  position: Extract it\.\n  confidence: high/);
 	assert.match(digest, /grok · xai\/grok-4\.7\n  position: Leave it\.\n  confidence: medium/);
-	assert.match(digest, /opus · github-copilot\/claude-opus-5.5\n  failed: timeout/);
+	assert.match(digest, /opus · anthropic\/claude-opus-5-5\n  failed: timeout/);
 	assert.match(digest, /merge · opus\n  recommendation: Extract behind a facade\./);
 	assert.match(digest, /Full opinions: \.pi\/agent-sessions\/artifacts\/polls\/abcd\//);
 	assert.doesNotMatch(digest, /would_change_my_mind|case":/);

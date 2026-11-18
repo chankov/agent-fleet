@@ -212,7 +212,7 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 | Where the tokens come from | Looks like | Who uses it in a fleet |
 |---|---|---|
 | **ChatGPT / Codex subscription** | `openai-codex/gpt-6-luna`, `…-sol`, `…-codex-spark` | Default for most shipped personas |
-| **GitHub Copilot subscription** | `github-copilot/claude-sonnet-4.6`, `github-copilot/claude-haiku-4.5` | Common override for `builder` / reviewers |
+| **Anthropic API** | `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5` | Common override for `builder` / reviewers |
 | **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | `plan-reviewer` and `code-reviewer` — cross-model review |
 | **Ollama — cloud *or* local** | `ollama/glm-5.2:cloud`, `ollama/minimax-m3:cloud`, or a model on your own box | Overflow capacity and cost control |
 | **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-full` and `local-workers` use `omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` |
@@ -224,9 +224,9 @@ Two consequences worth spelling out:
 
 ```bash
 /af-models fast                                   # move the whole team down a tier
-/af-agent-model builder github-copilot/claude-sonnet-4.6
+/af-agent-model builder anthropic/claude-sonnet-5-5
 /af-agent-models-substitute                         # visually pick a session-wide source → target mapping
-/af-agent-models-substitute openai-codex/gpt-6.1-sol ollama/glm-5.2:cloud   # same operation, direct form
+/af-agent-models-substitute openai-codex/gpt-6.2-sol ollama/glm-5.2:cloud   # same operation, direct form
 ```
 
 Per-project defaults live in `.ai/agent-fleet-overrides.md` — see [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md).

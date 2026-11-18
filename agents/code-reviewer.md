@@ -6,8 +6,8 @@ writes: []
 model: xai/grok-4.7
 models:
   - openai-codex/gpt-6-luna
-  - github-copilot/claude-opus-5.5
-  - openai-codex/gpt-6.1-sol
+  - anthropic/claude-opus-5-5
+  - openai-codex/gpt-6.2-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud

@@ -20,9 +20,9 @@ test("panel default from the plan parses successfully", () => {
 	const panel = file.panels.default;
 	assert.equal(panel.length, 3);
 	assert.deepEqual(panel.map(voice => voice.name), ["sol", "grok", "opus"]);
-	assert.equal(panel[0].model, "openai-codex/gpt-6.1-sol");
+	assert.equal(panel[0].model, "openai-codex/gpt-6.2-sol");
 	assert.equal(panel[1].model, "xai/grok-4.7");
-	assert.equal(panel[2].model, "github-copilot/claude-opus-5.5");
+	assert.equal(panel[2].model, "anthropic/claude-opus-5-5");
 	assert.equal(panel[2].integrator, true);
 	assert.equal(panel.filter(voice => voice.integrator).length, 1);
 	assert.deepEqual(resolvePanel("default", ROOT), panel);

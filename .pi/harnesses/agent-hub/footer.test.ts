@@ -40,7 +40,7 @@ test("hub footer dims the prepended version and model metadata", () => {
 
 test("provider-qualified footer preserves model segments, thinking, version link and dim styling", () => {
 	const version = HARNESS_VERSION ?? "unknown";
-	for (const model of ["openai-codex/gpt-6.1-sol", "openrouter/anthropic/claude-sonnet-4.5"]) {
+	for (const model of ["openai-codex/gpt-6.2-sol", "openrouter/anthropic/claude-sonnet-4.5"]) {
 		assert.equal(composeHubFooterLeft(version, model, " (med)"), `${LINKED} v${version} · ${model} (med)`);
 		assert.equal(renderHubFooterLeft({ fg: (color, text) => `<${color}>${text}</${color}>` }, version, model, " (med)"), `<dim> ${LINKED} v${version} · ${model} (med)</dim>`);
 		assert.equal(composeHubFooterLeft(version, model, ""), `${LINKED} v${version} · ${model}`);

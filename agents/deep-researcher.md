@@ -6,7 +6,7 @@ kind: research
 model: xai/grok-4.7
 models:
   - openai-codex/gpt-6-luna
-  - openai-codex/gpt-6.1-sol
+  - openai-codex/gpt-6.2-sol
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
   - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0

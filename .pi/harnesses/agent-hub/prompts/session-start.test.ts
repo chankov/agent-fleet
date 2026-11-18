@@ -63,9 +63,9 @@ function productionFooter(ctx: { model?: { provider: string; id: string }; getCo
 }
 
 test("production footer reads the current provider and full model ID on each render", () => {
-	const ctx = { model: { provider: "openai-codex", id: "gpt-6.1-sol" }, getContextUsage: () => ({ percent: 42 }) };
+	const ctx = { model: { provider: "openai-codex", id: "gpt-6.2-sol" }, getContextUsage: () => ({ percent: 42 }) };
 	const { footer, off } = productionFooter(ctx);
-	assert.match(footer.render(200)[0], /agent fleet.* · openai-codex\/gpt-6\.1-sol \(med\)/);
+	assert.match(footer.render(200)[0], /agent fleet.* · openai-codex\/gpt-6\.2-sol \(med\)/);
 	ctx.model = { provider: "openrouter", id: "anthropic/claude-sonnet-4.5" };
 	assert.match(footer.render(200)[0], / · openrouter\/anthropic\/claude-sonnet-4\.5 \(med\)/);
 	off();

@@ -242,12 +242,12 @@ test("agent phase refuses a missing writes policy before spawning", async () => 
 });
 
 test("model tag is path-safe", () => {
-	assert.equal(modelTag("openai-codex/gpt-6.1-sol"), "openai-codex-gpt-6.1-sol");
-	assert.equal(modelTag("github-copilot/claude-opus-5.5"), "github-copilot-claude-opus-5.5");
+	assert.equal(modelTag("openai-codex/gpt-6.2-sol"), "openai-codex-gpt-6.2-sol");
+	assert.equal(modelTag("anthropic/claude-opus-5-5"), "anthropic-claude-opus-5-5");
 	assert.equal(modelTag("a b/c*"), "a-b-c-");
 	assert.equal(phaseSessionKey("researcher"), "researcher");
-	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6.1-sol"), "researcher-openai-codex-gpt-6.1-sol");
-	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6.1-sol", "merge"), "researcher-openai-codex-gpt-6.1-sol-merge");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6.2-sol"), "researcher-openai-codex-gpt-6.2-sol");
+	assert.equal(phaseSessionKey("researcher", "openai-codex/gpt-6.2-sol", "merge"), "researcher-openai-codex-gpt-6.2-sol-merge");
 });
 
 test("two phases of one persona with different models get different session directories", async () => {
@@ -258,11 +258,11 @@ test("two phases of one persona with different models get different session dire
 			sessions.push(options.sessionFile);
 			return { output: JSON.stringify(ENVELOPE_EXAMPLES.scout), exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: options.model };
 		};
-		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "openai-codex/gpt-6.1-sol" });
+		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "openai-codex/gpt-6.2-sol" });
 		await runAgentPhase({ run, persona, task: "Locate X", envelope: "scout", cwd, spawn, model: "xai/grok-4.7" });
 		assert.equal(sessions.length, 2);
 		assert.notEqual(dirname(sessions[0]), dirname(sessions[1]));
-		assert.match(sessions[0], /researcher-openai-codex-gpt-6.1-sol/);
+		assert.match(sessions[0], /researcher-openai-codex-gpt-6.2-sol/);
 		assert.match(sessions[1], /researcher-xai-grok-4\.7/);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });

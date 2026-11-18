@@ -4,10 +4,10 @@ description: Architecture and implementation planning — produces a written PLA
 tools: read,grep,find,ls,bash,write
 writes:
   - docs/plans/
-model: openai-codex/gpt-6-astra
+model: openai-codex/gpt-6.2-astra
 models:
-  - github-copilot/claude-fable-5
-  - openai-codex/gpt-6.1-sol
+  - anthropic/claude-fable-5-2
+  - openai-codex/gpt-6.2-sol
   - openai-codex/gpt-6-luna
   - ollama/nemotron-3-ultra:cloud
   - ollama/glm-5.2:cloud
@@ -22,7 +22,7 @@ subagents:
     model: openai-codex/gpt-6-luna
     tools: read,grep,find,ls
   voice-1:
-    model: openai-codex/gpt-6.1-sol
+    model: openai-codex/gpt-6.2-sol
     thinking: medium
     tools: read,grep,find,ls
   voice-2:
@@ -30,7 +30,7 @@ subagents:
     thinking: medium
     tools: read,grep,find,ls
   voice-3:
-    model: github-copilot/claude-opus-5.5
+    model: anthropic/claude-opus-5-5
     thinking: medium
     tools: read,grep,find,ls
 ---

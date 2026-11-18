@@ -81,10 +81,10 @@ branching: never
 
 ## agent-hub
 language: Bulgarian
-model.builder: github-copilot/claude-sonnet-4.6
-models.builder: github-copilot/claude-sonnet-4.6, github-copilot/claude-haiku-4.5
+model.builder: anthropic/claude-sonnet-5-5
+models.builder: anthropic/claude-sonnet-5-5, anthropic/claude-haiku-5-5
 thinking.code-reviewer: xhigh
-subagents.code-reviewer.docs: github-copilot/claude-sonnet-4.6, tools=read,grep
+subagents.code-reviewer.docs: anthropic/claude-sonnet-5-5, tools=read,grep
 delegate-depth.code-reviewer: 1
 recon-search-timeout-s: 120
 rules: docs/rules

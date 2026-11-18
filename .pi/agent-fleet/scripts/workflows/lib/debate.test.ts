@@ -17,9 +17,9 @@ const persona: PersonaDefinition = {
 	fallbackModel: "fallback/model", thinking: "low", systemPrompt: "Debate.", file: "agents/researcher.md", writes: ["docs/"],
 };
 const voices: Voice[] = [
-	{ name: "sol", model: "openai-codex/gpt-6.1-sol", thinking: "medium" },
+	{ name: "sol", model: "openai-codex/gpt-6.2-sol", thinking: "medium" },
 	{ name: "grok", model: "xai/grok-4.7", thinking: "medium" },
-	{ name: "opus", model: "github-copilot/claude-opus-5.5", thinking: "medium", integrator: true },
+	{ name: "opus", model: "anthropic/claude-opus-5-5", thinking: "medium", integrator: true },
 ];
 
 function fixture() {

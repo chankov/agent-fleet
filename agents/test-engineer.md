@@ -4,9 +4,9 @@ description: QA engineer specialized in test strategy, test writing, and coverag
 tools: read,write,edit,bash,grep,find,ls
 model: xai/grok-4.7
 models:
-  - github-copilot/claude-opus-5.5
+  - anthropic/claude-opus-5-5
   - openai-codex/gpt-6-luna
-  - openai-codex/gpt-6.1-sol
+  - openai-codex/gpt-6.2-sol
   - ollama/kimi-k2.7-code:cloud
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
