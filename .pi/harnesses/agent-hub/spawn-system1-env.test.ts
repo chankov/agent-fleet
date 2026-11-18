@@ -38,6 +38,13 @@ if (process.env.FAKE_PI_MODE === 'fallback' && model === 'fake/override') {
   process.stdout.write(JSON.stringify({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider unavailable' } }) + '\\n');
   process.exit(1);
 }
+if (process.env.FAKE_PI_MODE === 'retried' || process.env.FAKE_PI_MODE === 'failed-last') {
+  const emit = message => process.stdout.write(JSON.stringify({ type: 'message_end', message: { role: 'assistant', ...message } }) + '\\n');
+  const failed = { stopReason: 'error', errorMessage: 'Codex error: Our servers are currently overloaded.' };
+  if (process.env.FAKE_PI_MODE === 'retried') { emit(failed); emit({ stopReason: 'stop', content: [{ type: 'text', text: 'done' }] }); }
+  else { emit({ stopReason: 'stop', content: [{ type: 'text', text: 'partial' }] }); emit(failed); }
+  process.exit(0);
+}
 if (process.env.FAKE_PI_MODE === 'corrupt') {
   process.stderr.write('not a valid pi session\\n');
   process.exit(1);
@@ -235,4 +242,18 @@ test("A4 sandbox launch coverage", { skip: !linuxUserNamespaceSandboxAvailable()
 		restoreEnv(previous);
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+// A provider error that pi itself retried successfully is not a failed child run.
+test("a transient assistant error followed by a clean final answer is not reported as failure", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "s1-retry-"));
+	try {
+		writeFakePi(dir);
+		const recovered = await launch(dir, { env: { FAKE_PI_MODE: "retried" } });
+		assert.equal(recovered.result.exitCode, 0);
+		assert.equal(recovered.result.assistantError, undefined);
+		const failed = await launch(dir, { env: { FAKE_PI_MODE: "failed-last" } });
+		assert.equal(failed.result.exitCode, 1, "an error on the last assistant message still fails the run");
+		assert.match(failed.result.assistantError ?? "", /overloaded/);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

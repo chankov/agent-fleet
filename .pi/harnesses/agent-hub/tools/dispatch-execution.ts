@@ -90,6 +90,8 @@ export interface DispatchExecutorDeps {
 	artifacts: AssertionsArtifactsContext;
 	research: ResearchRuntime<any>;
 	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
+	/** Stops the agent's in-flight run the same way the fleet kill action does. */
+	cancelRunningDispatch?(agent: string): void;
 	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">, revisionScopes?: string[]): Promise<DispatchResult>;
 	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
 	/** Opt-in profile assistance: recover a missing submit_result from the written report. */
@@ -364,23 +366,23 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
  }
 }
 
-async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<RunData> {
+async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, ctx: ExtensionContext, onUpdate: ToolUpdate, signal?: AbortSignal): Promise<RunData> {
 	const findingClause = reviewBudgetClause(d.state.getTaskTier(), p.agent); const dispatchedTask = findingClause ? `${p.task}\n\n${findingClause}` : p.task;
 	let result = await d.dispatchAgent(p.agent, dispatchedTask, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", false, p.resumeContract, p.revisionScopes);
 	let billed = result.billed ?? 0; let out = result.out ?? 0; const researchRounds: RunData["researchRounds"] = [];
-	while (result.exitCode === 0 && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
+	while (result.exitCode === 0 && !signal?.aborted && researchRounds.length < MAX_AUTO_RESEARCH_ROUNDS && p.taskToken === d.noProgress.taskToken() && p.sessionDir === d.state.getSessionDir()) {
 		const questions = d.extractNeedsResearch(result.output).slice(0, MAX_AUTO_RESEARCH_QUESTIONS); if (!questions.length) break;
 		d.state.setTaskResearchCount(d.state.getTaskResearchCount() + questions.length); d.budget.updateModeStatus();
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} paused for research (${questions.length} question(s)) — spawning read-only helpers...` }], details: { agent: p.agent, task: p.task, status: "researching" } });
 		const findingsDir = safePathWithin(p.sessionDir, "findings"); mkdirSync(findingsDir, { recursive: true }); const key = safeAgentKey(d.state.getAgentStates().get(p.agent.toLowerCase())?.def.name ?? p.agent);
 		const answered = await Promise.all(questions.map(async question => {
 			const def = d.research.anonymousDef(); const state = d.research.createState(def, false, d.research.resolveModel(def, undefined, ctx));
-			const response = await d.research.spawn(state, question, ctx); const file = safePathWithin(findingsDir, `${key}-${response.dispatchId ?? randomUUID()}.md`);
+			const response = await d.research.spawn(state, question, ctx, [], signal); const file = safePathWithin(findingsDir, `${key}-${response.dispatchId ?? randomUUID()}.md`);
 			writeFileSync(file, `# Research findings r${state.id}\n\n**Question:** ${question}\n\n${response.exitCode === 0 ? response.output : `(research helper failed, exit ${response.exitCode})\n\n${response.output}`}\n`, { encoding: "utf-8", flag: "wx" }); return { question, file };
 		}));
 		researchRounds.push({ questions, files: answered.map(a => a.file) });
 		const resume = "Research findings for your NEEDS_RESEARCH questions are ready. Read each file with your read tool, then continue from where you paused:\n" + answered.map((a, i) => `${i + 1}. ${a.question}\n   → ${a.file}`).join("\n");
-		if (p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
+		if (signal?.aborted || p.taskToken !== d.noProgress.taskToken() || p.sessionDir !== d.state.getSessionDir()) break;
 		result = await d.dispatchAgent(p.agent, resume, ctx, p.inputArtifacts, p.scopeGlobs, params.watchdog, params.backend ?? "auto", true, p.resumeContract, p.revisionScopes); billed += result.billed ?? 0; out += result.out ?? 0;
 	}
 	return { result, billed, out, researchRounds };
@@ -916,9 +918,12 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
         let tracking: Tracking;
         try { tracking = startTracking(d, prepared, ctx); }
         catch { d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); return refusal(d, agent, params.task, "receipt_capture_failed", "Runtime receipt capture could not be durably anchored; no child launched."); }
-		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate), tracking, ctx, onUpdate); }
+		// Esc aborts the tool call; without this the child kept running and the hub stayed "streaming" until it finished on its own.
+		const stopOnAbort = () => { try { d.cancelRunningDispatch?.(prepared.agent); } catch { /* the run still settles through its own path */ } };
+		signal?.addEventListener("abort", stopOnAbort, { once: true });
+		try { onUpdate?.({ content: [{ type: "text", text: `Dispatching to ${prepared.agent}...` }], details: { agent: prepared.agent, task: prepared.task, status: "dispatching" } }); return await finishDispatch(d, prepared, params, await runWithAutoResearch(d, prepared, params, ctx, onUpdate, signal), tracking, ctx, onUpdate); }
 		catch (err: any) { return { content: [{ type: "text", text: `Error dispatching to ${prepared.agent}: ${err?.message || err}` }], details: { agent: prepared.agent, task: prepared.task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
-		finally { tracking.release?.(); if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }
+		finally { signal?.removeEventListener("abort", stopOnAbort); tracking.release?.(); if (tracking.writable) d.state.setActiveWritableDispatches(Math.max(0, d.state.getActiveWritableDispatches() - 1)); }
 	}, (params, ctx) => dispatchExecutionConditions(d, params, ctx));
 }
 

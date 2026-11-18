@@ -103,7 +103,7 @@ import { showSessionAudit } from "./session-audit.ts";
 import { createExecutionTrace, createNativeExecutionTrace, registerExecutionTrace, EXECUTION_TRACE_ENTRY } from "./execution-trace.ts";
 import { beginRuntimeTrace } from "../lib/execution-trace.ts";
 import { buildWatchdogReport, buildProactiveReport, commandProactiveLabels, readProactiveReport, formatWatchdogStatus, readWatchdogEvents } from "./system1-report.ts";
-import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, transitionToolDecision, latestPendingTaskTransition, nestedRepositoriesInUse, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
+import { createProcessState, normalizeProcessState, processAllowsPersona, processOpenObligations, evaluateProcessObligations, latestProcessState, processAuditRecord, processTaskIdentityConflicts, processPreEffectGate, missingProcessRoleRecoveryHints, activeAdditionRecoveryHints, taskTransitionRecoveryHint, taskTransitionPromptNotice, latestDeclaredBudgetTier, transitionToolDecision, latestPendingTaskTransition, nestedRepositoriesInUse, TASK_TRANSITION_ENTRY_TYPE, type ProcessObligationState, type ProcessVerdict } from "./process-obligations.ts";
 import { registerHubReport } from "./commands/hub-report.ts";
 import { registerZoom } from "./commands/zoom.ts";
 import { registerDispatchPolicy } from "./commands/dispatch-policy.ts";
@@ -182,7 +182,7 @@ import { openZoom, type TimelineEntry, type Zoomable } from "./ui/zoom.ts";
 import { openHistory } from "./ui/history.ts";
 import { createExecutionHistoryStore, type HistoryEntry } from "./ui/history-store.ts";
 import { createHistoryProjectionMemo, projectCoordinationHistory } from "./history-projection.ts";
-import { isTaskContinuation } from "./task-continuation.ts";
+import { isTaskContinuation, latestAcceptedTaskInput, TASK_INPUT_ENTRY_TYPE, TASK_INPUT_MAX_CHARS } from "./task-continuation.ts";
 import { registerOperatorWatchdog } from "./operator-watchdog.ts";
 import type { DriftJudgeInput } from "./dispatch-coms.ts";
 import { createDispatchComs, createDispatchNative, createDispatchObservability, type DelegationChild } from "./dispatch-core.ts";
@@ -544,6 +544,7 @@ export default function (pi: ExtensionAPI) {
 	let proactiveHubDeliveries = 0;
 	const proactiveReportInput = () => proactiveRuntime ? { records: proactiveRuntime.records, history: proactiveRuntime.findings.history, current: proactiveRuntime.findings.current, activity: proactiveRuntime.activity.live(), feedback: { hubDelivered: proactiveHubDeliveries, nativeDelivered: null } } : undefined;
 	let hubTaskText: string | undefined;
+	let restoredTaskInput: string | undefined;
 	const hubCapture = createHubCapture({ root: () => currentCtx?.cwd || process.cwd(), task: () => hubTaskText, policyRoots:()=>sessionOverrides?.policyRoots });
 	let watchdogActivity: WatchdogActivity | null = null;
 	const watchdogAgentOverrides = new Map<string, "on" | "off">();
@@ -1115,6 +1116,14 @@ export default function (pi: ExtensionAPI) {
 			budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime,
 			provisionalCapabilityRefusal,
    dispatchAgent: (agent, task, ...args) => dispatchAgent(agent, noProgress.recoveryTask(task), ...args),
+   cancelRunningDispatch: agent => {
+    const state = agentStates.get(agent) ?? agentStates.get(agent.toLowerCase());
+    if (!state || state.status !== "running") return;
+    if (state.comsAbort) { state.comsAbort(); return; }
+    // No process yet means the launch is still being prepared: the flag makes admission refuse it.
+    fenceOperatorCancel(state); state.killedByOperator = true;
+    if (state.proc) cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree });
+   },
    runReturnExtraction,
 			returnExtractionAssist: () => resolveAssist(readActiveProfile()?.profile.assist)['return-extraction'],
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
@@ -2369,7 +2378,7 @@ export default function (pi: ExtensionAPI) {
 		const names = new Set(Array.from(agentStates.values(), s => s.def.name.toLowerCase()));
 		const missingRoles = missingProcessRoleRecoveryHints(processState, names);
 		const additions = activeAdditionRecoveryHints(processState, noProgress.taskId(), taskTriage?.current?.revision);
-		return { systemPrompt: `${built.systemPrompt}\n\nTask-triage (experimental, uncertain): ${JSON.stringify(taskTriage?.status ?? { status: "skipped", detail: "consumer_off" })}. This does not change budget or authorize effects.${processBlock() ? ` BLOCKED: ${processBlock()!.message}` : ""}${missingRoles ? ` ${missingRoles} Never auto-raise tier or substitute an unrelated role.` : ""}${additions ? ` ${additions}` : ""}` };
+		return { systemPrompt: `${built.systemPrompt}\n\nTask-triage (experimental, uncertain): ${JSON.stringify(taskTriage?.status ?? { status: "skipped", detail: "consumer_off" })}. This does not change budget or authorize effects.${processPersistenceBlocked ? ` BLOCKED: ${processBlock()!.message}` : pendingTaskTransition ? ` ${taskTransitionPromptNotice}` : ""}${missingRoles ? ` ${missingRoles} Never auto-raise tier or substitute an unrelated role.` : ""}${additions ? ` ${additions}` : ""}` };
 	}
 
 	const turnHandlers = createTurnLifecycleHandlers({
@@ -2433,7 +2442,14 @@ export default function (pi: ExtensionAPI) {
 		modelWorkBlocked: () => false,
 		onAcceptedInput: (text, source, replayed) => {
 			if ((source === "extension" && !replayed) || !text.trim()) return;
+            // Only input the human typed reaches this point (coms arrives as custom messages, automatic turns as extension input).
+            try { noProgress.releaseUserInterrupts(); } catch { /* the fence then still needs /af-retry */ }
             if(hubTaskText && isTaskContinuation(text))return;
+            // The first bare continuation after a resume re-accepts the task the session was working on.
+            const resumedInput = !hubTaskText && isTaskContinuation(text) ? restoredTaskInput : undefined;
+            restoredTaskInput = undefined;
+            if (resumedInput) text = resumedInput;
+            else if (text.length <= TASK_INPUT_MAX_CHARS) { try { pi.appendEntry(TASK_INPUT_ENTRY_TYPE, { text }); } catch { /* restore aid only */ } }
 			if (evaluatedTaskTriageInputChanged(taskTriage?.current ?? null, text)) { pendingTaskTransition = true; transitionDiversions = 0; transitionHintDelivered = false; transitionBatchRefused = false; try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: true }); } catch { processPersistenceBlocked = true; } }
 			hubTaskText = text;
             executionTrace.input(crypto.randomUUID());
@@ -2507,7 +2523,7 @@ export default function (pi: ExtensionAPI) {
 			resetAccessApproval: () => {codexControls.resetSession();accessApprovalRouter.reset();permissionRelay.reset();accessEpochs.clear();},
 			terminateResearch: () => { for (const st of researchStates.values()) if (st.proc && st.status === "running") { st.killedByOperator = true; st.proc.kill("SIGTERM"); } },
 			resetResearch: researchRuntime.reset, resetHistory: executionHistory.reset,
-			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);
+			resetBudgets: () => { hubCapture.reset(); hubTaskText = undefined; restoredTaskInput = undefined; proactiveRuntime = null; proactiveConfig = null; system1Snapshot = normalizeSystem1Config(null);
 			resetAgenticHub(pi); resetDiscoveryHub(pi); proactiveHubDeliveries = 0; taskClock = createTaskClock(); noProgress.prepareSessionRestore(); resetUnknownToolCounterForCurrentTask(); toolCatalogRuntime.restore(catalogSnapshot(getWorkMode(), [])); latestToolCatalogDelta = null; },
 			clearWidgets: _ctx => { fleetUiGeneration++; fleetActions?.reset(); gridUI.dispose(); },
 			closeDelegationWatchers: () => { for (const st of agentStates.values()) { st.delegationsWatcher?.close(); st.delegationsWatcher = undefined; } },
@@ -2664,6 +2680,12 @@ export default function (pi: ExtensionAPI) {
             catch { recoveryRestored = false; _ctx.ui?.notify?.('Recovery history could not be restored; dispatch stays refused until it is repaired. Inspect the session recovery entries.', 'error'); }
             const identityConflict = processTaskIdentityConflicts(processState, noProgress.taskId());
             if (identityConflict) processPersistenceBlocked = true;
+            // Resume keeps the declared tier of the restored task; otherwise it silently falls back to the default.
+            if (recoveryRestored && !identityConflict && !processPersistenceBlocked && taskTier === null) {
+                const restoredTier = latestDeclaredBudgetTier(sessionEntries);
+                if (restoredTier) { taskTier = restoredTier; taskTierAssumed = false; updateModeStatus(); }
+            }
+            if (recoveryRestored && !identityConflict && !processPersistenceBlocked) restoredTaskInput = latestAcceptedTaskInput(sessionEntries);
             // The acceptance ledger follows the task identity it was saved under, never a newer evidence directory.
             const ledgerNotice = restoreAssertionLedgerForSession(_ctx, { recovery: recoveryRestored, identity: !identityConflict });
             persistAssertions(); updateAssertionStatus();

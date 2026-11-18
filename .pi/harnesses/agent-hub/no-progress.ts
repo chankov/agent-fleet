@@ -26,6 +26,9 @@ interface Failure {
 	// Set only from trusted lifecycle facts or an explicit no-launch port,
 	// never from missing records alone.
 	noLaunchEstablished?: boolean;
+	// The human pressed Esc on the operator turn (the tool call was aborted), as opposed to killing this
+	// agent from the fleet panel. Their next own input lifts this fence; coms and automatic turns never do.
+	userInterrupt?: boolean;
 }
 interface Ticket { allowed: boolean; key: string; executorKey: string; scope: string[]; generation: object; id: object; operationId?: string; attemptId?: string; failure?: Failure; continuation?: { report: string; reportRef: string }; refusal?: "busy" | "recovery" | "unterminated" | "restore" | "continuation"; }
 interface RecordedFailure { fingerprint: string; failure: Failure; authorized: boolean; }
@@ -98,6 +101,7 @@ function retainedFenceFailure(attempt: FenceAttempt, previous?: Failure): Failur
 		toolStateChanged: false,
 		noLaunchEstablished: false,
 		catalogVersion: previous?.dispatchId === attempt.dispatchId ? previous.catalogVersion : undefined,
+		...(previous?.dispatchId === attempt.dispatchId && previous.userInterrupt ? { userInterrupt: true } : {}),
 	};
 }
 interface InvocationDiagnostic { field: string; expected: string; actual: string; reason?: string; }
@@ -419,6 +423,12 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                     nextCancellations.delete(fence.dispatchId);
                     continue;
                 }
+                if (op.abandoned && fence.category === 'operator_cancelled') {
+                    // Abandon released the executor-wide cancel fence; do not resurrect it on resume.
+                    if (current?.failure.dispatchId === fence.dispatchId) nextFailures.delete(op.contract);
+                    nextCancellations.delete(fence.dispatchId);
+                    continue;
+                }
                 if (laterAttemptLaunched(op.attempts, fenceIndex)) continue;
                 if (current && EFFECT_FENCE.has(current.failure.category)) {
                     const currentAttempt = validated.byDispatch(current.failure.dispatchId)?.attempts.find(a => a.dispatchId === current.failure.dispatchId);
@@ -473,7 +483,19 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
         },
         byDispatch(dispatchId: string) { return recovery.byDispatch(dispatchId); },
         assess(operationId: string, attemptId: string, revision: string, status: 'open' | 'cleared', evidence: string) { return recovery.assess(operationId, attemptId, revision, status, evidence); },
-        abandon(operationId: string, attemptId: string, nonce: string) { return recovery.abandon(operationId, attemptId, nonce); },
+        abandon(operationId: string, attemptId: string, nonce: string) {
+            if (!recovery.abandon(operationId, attemptId, nonce)) return false;
+            // A human closed this operation. Its cancellation must stop fencing the whole agent identity;
+            // the abandoned contract itself stays refused through the recovery ledger.
+            const attempt = recovery.inspect(operationId)?.attempts.at(-1);
+            const fence = attempt?.category === 'operator_cancelled' ? cancellations.get(attempt.dispatchId) : undefined;
+            if (fence) {
+                const failedKey = [...failures].find(([, entry]) => entry === fence.entry)?.[0];
+                cancellations.delete(attempt!.dispatchId);
+                if (failedKey) failures.delete(failedKey);
+            }
+            return true;
+        },
         isIdle(executor: string) { return !pendingExecutors.has(executor); },
 		/** Only independent runtime process settlement evidence may call this port. */
 		settle(operationId: string, attemptId: string, evidence: string) { return recovery.settle(operationId, attemptId, evidence); },
@@ -484,7 +506,9 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 		},
         canAuthorize(operationId: string, attemptId: string) {
             const op = recovery.inspect(operationId), attempt = op?.attempts.at(-1);
-            return !!op && op.taskId === taskId && !op.abandoned && attempt?.attemptId === attemptId && !!attempt.category && !pendingExecutors.has(op.executor) && (attempt.category === 'indeterminate' ? !!attempt.settled && !op.indeterminateGrantUsed : attempt.category === 'operator_cancelled' && !!cancellations.get(attempt.dispatchId) && !cancellations.get(attempt.dispatchId)!.entry.authorized);
+            // A cancellation fence follows the agent identity across task resets (adopt keeps it), so its one-use human
+            // grant must stay reachable from the next task too; otherwise the agent is refused for the rest of the session.
+            return !!op && !op.abandoned && attempt?.attemptId === attemptId && !!attempt.category && !pendingExecutors.has(op.executor) && (attempt.category === 'indeterminate' ? op.taskId === taskId && !!attempt.settled && !op.indeterminateGrantUsed : attempt.category === 'operator_cancelled' && !!cancellations.get(attempt.dispatchId) && !cancellations.get(attempt.dispatchId)!.entry.authorized);
         },
         canContinue(operationId: string, attemptId: string) {
             const op = recovery.inspect(operationId), attempt = op?.attempts.at(-1);
@@ -553,6 +577,13 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 			return true;
 		},
 		userAnswerCapabilities() { return { filesystem: false, network: false, cloud: false, secrets: false } as const; },
+		/** Called only for input the human typed. Grants the usual one-use authorization to every agent
+		 * stopped by Esc, so "Esc, then continue" needs no /af-retry. Panel kills keep their fence. */
+		releaseUserInterrupts(): number {
+			let released = 0;
+			for (const { entry } of [...cancellations.values()]) if (entry.failure.userInterrupt && !entry.authorized && this.authorize(entry.failure.dispatchId)) released++;
+			return released;
+		},
 		authorize(dispatchId: string): boolean {
 			for (const { entry } of cancellations.values()) {
 				if (entry.failure.dispatchId !== dispatchId || entry.authorized || entry.failure.category !== "operator_cancelled") continue;
@@ -718,6 +749,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 				evidencePath: details.evidencePath ?? details.failurePath ?? details.protocolEvidencePath ?? undefined,
 				reason: details.diagnostics?.reason ?? details.reason ?? details.status ?? "execution_failure",
 				category,
+				...(category === "operator_cancelled" && signal?.aborted ? { userInterrupt: true } : {}),
                 questions: category === "blocked_on_user" && Array.isArray(details.questions) ? details.questions.filter((q: unknown): q is string => typeof q === "string") : undefined,
 				catalogVersion: category === "unknown_tool" ? d.getToolCatalogVersion?.() : undefined,
 			};

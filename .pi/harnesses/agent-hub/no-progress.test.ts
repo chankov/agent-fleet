@@ -851,3 +851,44 @@ test('a second process restoring an unlocked session cannot poison history when 
 		assert.equal(later.begin(JSON.stringify(["dispatch", "/w", "planner", [], [], []]), "fp", canonicalExecutor("/w", "planner"), []).allowed, true, "unrelated dispatch is not blocked");
 	}
 });
+
+// One Esc used to fence the agent for good once the task changed: /af-retry was gated on the old task id,
+// abandon left the executor-wide fence in place, and restore rebuilt it on every resume.
+test("a cancel fence stays liftable after a task reset, across restore, and is released by abandon", () => {
+ const entries: any[] = [];
+ const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+ const g = createNoProgressGuard(persist);
+ const first = g.begin("work", "r", "builder");
+ g.finish(first, "r", failed("cancel-a", "operator_cancelled"));
+ g.reset();
+ assert.equal(g.begin("other-work", "x", "builder").allowed, false, "the fence itself still needs a human grant");
+ assert.equal(g.canAuthorize(first.operationId!, first.attemptId!), true, "the human grant is reachable from the next task");
+ const resumed = createNoProgressGuard(persist); resumed.restore(entries);
+ assert.equal(resumed.canAuthorize(first.operationId!, first.attemptId!), true, "and after resume");
+ assert.equal(resumed.abandon(first.operationId!, first.attemptId!, "nonce-abandon"), true);
+ assert.equal(resumed.begin("other-work", "x", "builder").allowed, true, "abandon releases the agent identity");
+ assert.equal(resumed.begin("work", "r2", "builder").allowed, false, "the abandoned contract itself stays refused");
+ const again = createNoProgressGuard(persist); again.restore(entries);
+ assert.equal(again.begin("third-work", "y", "builder").allowed, true, "restore does not resurrect an abandoned cancel fence");
+});
+
+// Esc is a turn interrupt, not a verdict on the agent: the human's next own input lifts it once.
+test("an Esc fence is lifted once by human input, a panel kill is not, and both survive restore", () => {
+ const entries: any[] = [];
+ const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+ const g = createNoProgressGuard(persist);
+ g.finish(g.begin("work", "r", "builder"), "r", { ...failed("esc-a", "operator_cancelled"), userInterrupt: true } as any);
+ g.finish(g.begin("review", "r", "reviewer"), "r", failed("kill-b", "operator_cancelled"));
+ assert.equal(g.begin("work", "r", "builder").allowed, false, "nothing but human input lifts the fence");
+ const resumed = createNoProgressGuard(persist); resumed.restore(entries);
+ assert.equal(resumed.begin("work", "r", "builder").allowed, false, "the fence survives resume");
+ assert.equal(resumed.releaseUserInterrupts(), 1);
+ assert.equal(resumed.releaseUserInterrupts(), 0, "the grant is issued once");
+ assert.equal(resumed.begin("review", "r", "reviewer").allowed, false, "a fleet-panel kill still needs /af-retry");
+ const retry = resumed.begin("work", "r", "builder");
+ assert.equal(retry.allowed, true);
+ resumed.finish(retry, "r");
+ const again = createNoProgressGuard(persist); again.restore(entries);
+ assert.equal(again.begin("review", "r", "reviewer").allowed, false);
+ assert.equal(again.begin("work", "r", "builder").allowed, true, "the consumed fence does not return");
+});

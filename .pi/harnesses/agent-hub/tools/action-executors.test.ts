@@ -433,6 +433,24 @@ test("unchanged task classification does not rebind, rehash the worktree or grow
  assert.equal(state.reassessments,1);
 });
 
+// Regression (Rankedin session 2026-11-18): the system prompt is fixed for a whole agent run, so a
+// start-of-turn "pending transition" notice outlives the bind. The no-op result must say the notice is
+// satisfied and call out repeats, or the operator re-binds in a loop (106 calls in that session).
+test("a no-op set_task_tier tells the model the transition is already bound and flags repeats",async()=>{
+ const state=applyProcessClassification(createProcessState(),{risk:"high",scope:"wide",reason:"authorized task"}).state;
+ const actions=createActionExecutors(comsDeps({getProcessState:()=>state,adoptTaskTriage:async()=>state}) as any);
+ const call=()=>actions.executeSetTaskTier("repeat",{tier:"feature",risk:"high",scope:"wide",reason:"bind pending input"},undefined,undefined,{} as any);
+ const first=await call();
+ const firstText=(first.content[0] as any).text as string;
+ assert.match(firstText,/no task transition is pending/);
+ assert.match(firstText,/start-of-turn snapshot/);
+ assert.match(firstText,/Do not call set_task_tier again/);
+ assert.doesNotMatch(firstText,/Repeated set_task_tier/);
+ const second=await call();
+ assert.match((second.content[0] as any).text,/^Repeated set_task_tier \(call 2 in a row/);
+ assert.equal((second.details as any).repeated,2);
+});
+
 test("ledger mutations journal the next state before adopting it; a failed append changes nothing", async () => {
  let assertions: any[] = [], mirrored = 0, fail = false; const journal: any[][] = [];
  const deps = comsDeps({

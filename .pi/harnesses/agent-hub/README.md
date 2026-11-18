@@ -1440,7 +1440,14 @@ to replay. T3 protocol errors still need trusted effects evidence and corrected 
 unknown-tool needs a catalog change. `reconcile` requires attributable unchanged-current-
 revision readback and independent nonblocking review; it clears a technical block only,
 retaining failed delivery and every open AF-MIN-CHANGE/test/review obligation. `abandon`
-does not satisfy dependent work. Audit exports IDs/statuses only, never prompts, nonces,
+does not satisfy dependent work. A cancellation fence survives a task
+change, and so does its retry authorization: `/af-retry` still lifts it from the next task
+and after resume. `abandon` of a cancelled operation releases the agent identity (the
+abandoned contract itself stays refused). Esc on the operator turn stops the running
+specialist and records the same fence, marked as a human interrupt: the next input the
+human types grants its one-use authorization automatically. Coms messages, automatic
+continuations and other extension turns never do, and a kill from the fleet panel keeps
+requiring `/af-retry`. Audit exports IDs/statuses only, never prompts, nonces,
 raw contracts or evidence paths.
 
 Non-busy recovery refusals use separate accounting and never consume turn/task launch

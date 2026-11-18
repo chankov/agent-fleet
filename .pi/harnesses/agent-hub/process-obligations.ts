@@ -100,6 +100,10 @@ export function missingProcessRoleRecoveryHints(state: ProcessObligationState, r
 }
 
 export const taskTransitionRecoveryHint = "Pending task transition: before dependent effects, call set_task_tier with the current tier and explicit risk/scope to bind this input to the same task; for a genuinely different task use new_task: true with a reason and obtain human supersession authorization if prior obligations are open. Do not waive while pending; bind first, then use only active addition IDs for the bound task.";
+/** System-prompt form of the transition hint. Pi fixes the system prompt for the whole agent run, so this
+ * text is still visible after set_task_tier has bound the input: it must describe a start-of-turn snapshot
+ * that expires on the first set_task_tier result, never a live BLOCKED state (that caused re-bind loops). */
+export const taskTransitionPromptNotice = "Start-of-turn notice (a snapshot, not live state): this user input opened a task transition. Call set_task_tier exactly once before other tools - the current tier with explicit risk/scope binds the input to the same task; use new_task: true with a reason only for a genuinely different task. As soon as a set_task_tier result in this turn reports a tier or \"Classification unchanged\", the transition is bound and this notice no longer applies: do not call set_task_tier again, continue the work.";
 export const TASK_TRANSITION_ENTRY_TYPE = "agent-hub-task-transition";
 export const TRANSITION_DIVERSION_STOP = 2;
 
@@ -202,6 +206,22 @@ export function evaluateProcessObligations(state: ProcessObligationState, input:
 export function processAllowsPersona(state: ProcessObligationState, persona: string): boolean { const name = basePersonaName(persona), s=normalizeProcessState(state); return effectiveProcessStage(s, "review") && ["code-reviewer","plan-reviewer","security-auditor"].includes(name); }
 export function processAuditRecord(state: ProcessObligationState, verdict: ProcessVerdict) { return { schema: PROCESS_OBLIGATIONS_SCHEMA, risk: verdict.risk, scope: verdict.scope, budgetTier: verdict.budgetTier, obligations: Object.fromEntries(Object.entries(verdict.obligations).map(([k,v])=>[k,{status:v.status}])), additions: verdict.additions, appliedRuleIds: verdict.appliedRuleIds, currentStage: verdict.currentStage, admissibleNextAction: verdict.admissibleNextAction, auditScope: verdict.auditScope, explanation: verdict.explanation, state: normalizeProcessState(state) }; }
 export function latestProcessState(entries: readonly unknown[]): ProcessObligationState { for(let i=entries.length-1;i>=0;i--){const row=entries[i] as any,type=row?.customType??row?.type;if(type!=="agent-hub-process-state")continue;const data=row?.data;if(data?.schema===PROCESS_OBLIGATIONS_SCHEMA)return normalizeProcessState(data.state??data);}return createProcessState(); }
+
+/** The explicitly declared tier of the task being resumed, or null when it must be assumed again.
+ * Session start clears the tier; without this a resumed feature/project task silently ran at the default
+ * `small` tier (10-minute child deadline, no delegation). `small` is the default the journal also records
+ * for an undeclared tier, so it is indistinguishable and stays assumed. A task reset newer than the last
+ * process entry means that entry describes the previous task: nothing is restored. */
+export function latestDeclaredBudgetTier(entries: readonly unknown[]): "trivial" | "feature" | "project" | null {
+ for (let i = entries.length - 1; i >= 0; i--) {
+  const row = entries[i] as any, type = row?.customType ?? row?.type;
+  if (type === "agent-hub-task-reset") return null;
+  if (type !== "agent-hub-process-state" || row?.data?.schema !== PROCESS_OBLIGATIONS_SCHEMA) continue;
+  const tier = row.data.budgetTier;
+  return tier === "trivial" || tier === "feature" || tier === "project" ? tier : null;
+ }
+ return null;
+}
 
 /** A saved addition must never authorize a different or ambiguous recovered task. */
 export function processTaskIdentityConflicts(state: ProcessObligationState, taskId: string): boolean {

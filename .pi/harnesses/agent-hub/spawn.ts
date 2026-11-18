@@ -516,6 +516,10 @@ async function spawnPiAgentUnchecked(
 		};
 		const handleEvent = (event: any) => {
    try{checkTarget();}catch{terminate('cancelled');return;}
+   // The last assistant message decides the run. Pi retries a transient provider error (overloaded, network
+   // reset) and continues after a compaction abort inside the same process; a later clean final answer means
+   // the earlier failed attempt was recovered, so it must not turn exit 0 into a failed dispatch.
+   if(event.type==='message_end' && event.message?.role==='assistant' && event.message.stopReason==='stop' && !event.message.errorMessage) {assistantError=undefined;recoveryAbortEpisode=undefined;}
    if(event.type==='message_end' && event.message?.role==='assistant' && event.message.stopReason==='stop' && recoveryAbortEpisode!==undefined && contextOwner?.status.phase==='continued' && contextOwner.status.episode===recoveryAbortEpisode+1) {assistantError=undefined;recoveryAbortEpisode=undefined;}
 			if (event.type === "message_update") {
 				const delta = event.assistantMessageEvent;

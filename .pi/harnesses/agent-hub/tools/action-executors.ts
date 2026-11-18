@@ -76,6 +76,8 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	let fallbackProcessState = createProcessState();
 	const getProcessState = () => d.getProcessState?.() ?? fallbackProcessState;
 	const setProcessState = (value: ProcessObligationState) => { fallbackProcessState = value; d.setProcessState?.(value); d.persistProcessState?.(value); };
+	// Consecutive no-op calls. A model that keeps re-binding is looping; say so instead of repeating one neutral line.
+	let unchangedTierCalls = 0;
 	const executeSetTaskTier: ToolExecutor<SetTaskTierParams> = async (_callId, params, signal, _onUpdate, ctx) => {
 		const { tier, risk, scope, reason, new_task } = params;
 		// T7: single authoritative snapshot for setter/result/gate. Prompt prose never
@@ -97,7 +99,8 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		const processChange = applyProcessClassification(snapshot.process, { risk, scope, reason, newTask: !!new_task });
 		if (!processChange.ok) return { content: [{ type: "text", text: processChange.message }], details: { status: "error", reason: "process_classification", tier: change.tier, risk: processChange.state.risk, scope: processChange.state.scope } };
         if(!new_task && !snapshot.tierAssumed && change.tier === snapshot.tier && processChange.state.risk === snapshot.process.risk && processChange.state.scope === snapshot.process.scope && !d.processBlock?.()) {
-            return {content:[{type:"text",text:`Classification unchanged: tier ${snapshot.tier}, risk ${snapshot.process.risk}, scope ${snapshot.process.scope}. Continue the current bound task; no new triage or process transition.`}],details:{status:"ok",unchanged:true,tier:snapshot.tier,risk:snapshot.process.risk,scope:snapshot.process.scope,newTask:false}};
+            unchangedTierCalls++;
+            return {content:[{type:"text",text:`${unchangedTierCalls > 1 ? `Repeated set_task_tier (call ${unchangedTierCalls} in a row with no change) - this is a loop, stop it. ` : ""}Classification unchanged: tier ${snapshot.tier}, risk ${snapshot.process.risk}, scope ${snapshot.process.scope}. The input is already bound to the current task and no task transition is pending; any pending-transition notice in the system prompt is a start-of-turn snapshot that is already satisfied. Do not call set_task_tier again for this input - call the next work tool now.`}],details:{status:"ok",unchanged:true,repeated:unchangedTierCalls,tier:snapshot.tier,risk:snapshot.process.risk,scope:snapshot.process.scope,newTask:false}};
         }
         try { snapshot.revision=d.currentRevision(ctx); } catch { /* unchanged unavailable revision remains explicit */ }
 		let reservedNewTaskId: string | undefined;
@@ -136,11 +139,14 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 			if (ledgerNotice) ctx.ui?.notify?.(ledgerNotice.trim(), "warning");
 			d.budget.appendTaskResetEntry("tool:set_task_tier", null, prior, ctx);
 		}
+		unchangedTierCalls = 0;
+		// Tier first: setProcessState journals the verdict with the current tier, and resume restores the tier from it.
+		d.setTaskTier(change.tier); d.setTaskTierAssumed(false);
 		setProcessState(adopted);
-		d.setTaskTier(change.tier); d.setTaskTierAssumed(false); d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
+		d.getTurnReport().tier = change.tier; d.budget.updateModeStatus();
 		const postCommitBlock = d.processBlock?.();
 		if (postCommitBlock) return { content: [{ type: "text", text: postCommitBlock.message }], details: { status: "refused", reason: postCommitBlock.reason, classificationCommitted: true } };
-		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} The tier sizes the apparatus and child deadlines; it cannot erase correctness obligations.\nThis task so far: ${d.getTaskDispatchCount()} dispatches, ${d.getTaskResearchCount()} research (usage, not quotas).` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
+		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} The tier sizes the apparatus and child deadlines; it cannot erase correctness obligations.\nThis task so far: ${d.getTaskDispatchCount()} dispatches, ${d.getTaskResearchCount()} research (usage, not quotas).\nThe input is bound to this task; no task transition is pending. Do not call set_task_tier again unless tier, risk or scope really changes.` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 
 	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {

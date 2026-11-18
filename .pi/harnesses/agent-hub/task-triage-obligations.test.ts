@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint, transitionDiversionDecision, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE } from "./process-obligations.ts";
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, latestProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, processActionGate, effectiveProcessStage, processTaskIdentityConflicts, activeAdditionRecoveryHints, missingProcessRoleRecoveryHints, taskTransitionRecoveryHint, taskTransitionPromptNotice, latestDeclaredBudgetTier, transitionDiversionDecision, transitionToolDecision, latestPendingTaskTransition, TASK_TRANSITION_ENTRY_TYPE } from "./process-obligations.ts";
 import { adoptTaskTriageState, applyTaskTriageAdditions, pendingActionConfirmation, recoverTaskTriageProcessState, waiveTaskTriageAddition } from "./task-triage-obligations.ts";
 import { createTaskTriageRuntime } from "./task-triage-runtime.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -155,6 +155,9 @@ test("active additions expose exact waiver IDs, plain obligations and transition
  assert.match(hint, /wide change.*research.*ask_user/i);
  assert.match(hint, /irreversible execution.*exact.*human confirmation before each effect/i);
  assert.match(taskTransitionRecoveryHint, /pending task transition.*set_task_tier.*new_task: true.*human supersession/i);
+ // The system-prompt form outlives the bind (prompt is fixed per agent run): it must expire itself, never read as a live block.
+ assert.match(taskTransitionPromptNotice, /snapshot, not live state.*exactly once.*no longer applies.*do not call set_task_tier again/i);
+ assert.doesNotMatch(taskTransitionPromptNotice, /BLOCKED/);
  const firstDiversion = transitionDiversionDecision(0, taskTransitionRecoveryHint);
  assert.equal(firstDiversion.terminate, undefined);
  assert.equal(firstDiversion.nextCount, 1);
@@ -289,4 +292,14 @@ test("legacy booleans cannot drop checks on normalization or a S1 waiver", () =>
  const legacy: any = { ...createProcessState(), risk: "high", scope: "wide", plan: { required: false, evidenceRef: null, revision: null }, review: { required: false, evidenceRef: null, revision: null }, acceptance: { required: false, evidenceRef: null, revision: null } };
  const s = latestProcessState([{ customType: "agent-hub-process-state", data: { schema: legacy.schema, state: legacy } }]);
  assert.equal(s.acceptance.required, true); assert.equal(s.review.required, true); assert.equal(s.plan.required, false);
+});
+
+test("resume restores only an explicitly declared tier of the current task", () => {
+ const entry = (budgetTier: string) => ({ type: "custom", customType: "agent-hub-process-state", data: processAuditRecord(createProcessState(), evaluateProcessObligations(createProcessState(), { writable: true, budgetTier })) });
+ assert.equal(latestDeclaredBudgetTier([]), null);
+ assert.equal(latestDeclaredBudgetTier([entry("small"), entry("feature")]), "feature");
+ assert.equal(latestDeclaredBudgetTier([entry("project"), { type: "custom", customType: "other", data: {} }]), "project");
+ assert.equal(latestDeclaredBudgetTier([entry("feature"), entry("small")]), null, "small is also what an undeclared tier records; it stays assumed");
+ assert.equal(latestDeclaredBudgetTier([entry("feature"), { type: "custom", customType: "agent-hub-task-reset", data: {} }]), null, "a newer task reset means the entry describes the previous task");
+ assert.equal(latestDeclaredBudgetTier([{ type: "custom", customType: "agent-hub-process-state", data: { budgetTier: "feature" } }]), null, "foreign schema is ignored");
 });

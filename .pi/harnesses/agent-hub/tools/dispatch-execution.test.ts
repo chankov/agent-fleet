@@ -197,6 +197,7 @@ for (const operation of ["dispatch", "research"] as const) {
 		const params = operation === "dispatch" ? { agent: "builder", task: "work" } : { task: "work" };
 		const result = await execute("cancel-after-ask", params as any, controller.signal, undefined, {} as any);
 		assert.equal((result.details as any).status, "cancelled"); assert.equal(runs, 0); assert.equal(d._task(), 0);
+		if (operation === "dispatch") assert.equal((d as any).noProgress.releaseUserInterrupts(), 1, "an aborted tool call is recorded as a human interrupt");
 	});
 }
 
@@ -2217,4 +2218,21 @@ test("recovery analysis is not fenced by an earlier crashed analysis and refuses
 	const escaping = await analysis("analysis-3", { ...params, read_scope: ["/etc/passwd"] }, undefined, undefined, {} as any);
 	assert.equal((escaping.details as any).status, "invalid_input");
 	assert.equal(spawned, 3);
+});
+
+test("an aborted dispatch tool call stops the running child, and only while it runs", async () => {
+	const d = prepareDeps() as any; const controller = new AbortController(); const stopped: string[] = [];
+	let release!: () => void; const running = new Promise<void>(resolve => { release = resolve; });
+	d.cancelRunningDispatch = (agent: string) => { stopped.push(agent); release(); };
+	d.dispatchAgent = async () => { await running; return { output: "", exitCode: 143, elapsed: 1 }; };
+	const pending = createDispatchExecutor(d)("esc", { agent: "builder", task: "Produce requested work" } as any, controller.signal, undefined, {} as any);
+	await new Promise(resolve => setTimeout(resolve, 20));
+	assert.deepEqual(stopped, []);
+	controller.abort();
+	await pending;
+	assert.deepEqual(stopped, ["builder"]);
+	const later = new AbortController(); d.dispatchAgent = async () => ({ output: "", exitCode: 0, elapsed: 0 });
+	await createDispatchExecutor(d)("done", { agent: "builder", task: "Produce other work" } as any, later.signal, undefined, {} as any);
+	later.abort();
+	assert.deepEqual(stopped, ["builder"]);
 });
