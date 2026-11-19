@@ -1,126 +1,34 @@
-import { verificationDiagnostics, verificationDiagnosticNotice } from '../verification-diagnostics.ts';
-import { basePersonaName, parallelInstanceName } from "../run-budget.js";
-import { privateRequirements, privateDeclarationHash, privateClassification, type PrivateProofUse } from '../private-config-review.ts';
+import { decideDispatch, recordDispatchRecoveryEvidence, summarizeDispatchOutcome } from "./dispatch-decisions.ts";
+import { beginDispatchEvidence, collectDispatchReceipts, completeDispatchEvidence, diagnoseObservation, incompleteObservation, prepareDispatchCompiler, retainDispatchAssessment } from "./dispatch-evidence.ts";
+import type { DispatchExecutorDeps, PreparedDispatch, RunData, Tracking } from "./dispatch-execution-types.ts";
+import { renderDispatchResult } from "./dispatch-result.ts";
+import { privateRequirements } from '../private-config-review.ts';
 import { capturePrivateConfig, privateConfigRevision, type PrivateConfigBinding } from '../private-config-current-state.ts';
-import { finishPrivateConfigReview } from '../private-config-review.ts';
-import { validateBoundAssertionIds } from "../return-contract.js";
-import { anchorRuntimeReceipt, beginReceiptCapture, receiptDeclarationHash, reusableRuntimeChecks, type ReceiptCapture, type RuntimeReceipt } from "../runtime-receipts.ts";
-import { captureReviewBaseline, retainReviewHistory, reviewContinuation, type ReviewBaseline } from "../review-continuity.ts";
-import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
-import { reviewInput, retainReview, reusableReview, type ReviewInput } from "../review-reuse.ts";
-import { affirmativeReviewVerdict } from "../review-verdict.ts";
-import { captureOperatorState, operatorStateChecksDiagnostic, operatorStateNextStep, operatorReviewState, operatorScopeSyntax, persistOperatorStateProof, type OperatorStateCandidate } from "../operator-current-state.ts";
-import { retainDeliverable } from "../execution-evidence.ts";
-import { buildRuntimeResult, minimalChangeRequirement, preflightDeliverables, readBackDeliverables, type AcceptanceRequirement, type DeliverableContract, type VerificationCheckInput } from "../acceptance.ts";
-import { normalizeResearchContract, withNoProgress, canonicalExecutor, type NoProgressGuard } from "../no-progress.ts";
+import { beginReceiptCapture, receiptDeclarationHash } from "../runtime-receipts.ts";
+import { captureReviewBaseline, reviewContinuation } from "../review-continuity.ts";
+import { reviewInput, reusableReview } from "../review-reuse.ts";
+import { captureOperatorState, operatorReviewState, operatorScopeSyntax, type OperatorStateCandidate } from "../operator-current-state.ts";
+import { minimalChangeRequirement, preflightDeliverables, type AcceptanceRequirement, type DeliverableContract } from "../acceptance.ts";
+import { normalizeResearchContract, withNoProgress } from "../no-progress.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { isAbsolute } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { blockingFindingCap, checkTierPersonaGate, isReviewPersona, reviewBudgetClause } from "../run-budget.js";
-import { countReviewFindings, findingBudgetNotice } from "../review-findings.js";
-import { checkDocsLane, docsLaneNotice } from "../docs-lane.js";
+import { checkTierPersonaGate, isReviewPersona, parallelInstanceName, reviewBudgetClause } from "../run-budget.js";
+import { checkDocsLane } from "../docs-lane.js";
 import { checkExternalBlockerGate, extractExternalBlockers } from "../external-blocker.js";
-import { checkScope, diffAgainst, nestedRevisionScopes, reviewableChangedPaths, revisionOf, revisionScopes, snapshotRevision, snapshotWorktree, worktreeRevision } from "../scope-gate.js";
+import { checkScope, nestedRevisionScopes, revisionOf, revisionScopes, snapshotRevision, snapshotWorktree } from "../scope-gate.js";
 import { findScopeOverlap } from "../scope-overlap.ts";
-import { diagnoseChangedTypeScript, formatAdvisory, type DiagnosticsResult } from "../../lib/changed-file-diagnostics.ts";
-import { correctStructuredReturnForCompiler, crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "../return-contract.js";
+import { crossCheck, validateBoundAssertionIds } from "../return-contract.js";
 import { shouldExtractReturn } from "../return-extract.js";
 import { normalizeAgentInput, safeAgentKey, safePathWithin, taskFingerprint } from "../helpers.ts";
-import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS, type ResearchAgentDef, type ResearchRuntime } from "../research/runtime.ts";
-import type { BudgetContext, SessionTotals, TurnReport } from "../context/budgets.ts";
-import type { AssertionsArtifactsContext, InputArtifactPreview } from "../context/assertions-artifacts.ts";
+import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS } from "../research/runtime.ts";
+import type { InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, ToolExecutor, ToolUpdate } from "./context.ts";
-import type { AgentState } from "../types.ts";
-import { diagnoseToolProtocol, type ToolProtocolDiagnostic } from "../tool-protocol.ts";
-import type { TaskResumeInput } from "../task-resume-contract.ts";
-import { evaluateProcessObligations, noteProcessStage, processAllowsPersona, processPreEffectGate, type ProcessObligationState, type ProcessVerdict } from "../process-obligations.ts";
-import { activeOrchestrationHandoff, reviewMayClose } from "../orchestration-activation.ts";
-import { authorizePlanStatusUpdate } from "../orchestration-route.ts";
+import { evaluateProcessObligations, processAllowsPersona, processPreEffectGate } from "../process-obligations.ts";
 import { dispatchAccess, type DispatchAccess } from "../dispatch-access.ts";
 
 type Gate = { reason: string; message: string } | null;
-type DispatchResult = import("../dispatch-native-types.ts").NativeDispatchResult;
-
-export interface WriterEntry { agent: string; scope: string[]; isolated: boolean }
-
-export interface DispatchExecutionState {
-	getTurnDispatchCount(): number; setTurnDispatchCount(value: number): void;
-	getTurnResearchCount(): number; setTurnResearchCount(value: number): void;
-	getTaskDispatchCount(): number; setTaskDispatchCount(value: number): void;
-	getTaskResearchCount(): number; setTaskResearchCount(value: number): void;
-	getTaskReviewRounds(): number; setTaskReviewRounds(value: number): void;
-	getTaskTier(): string | null;
-	getAcceptedUserInput?(): string | undefined;
-	getTurnReport(): TurnReport;
-	getSessionTotals(): SessionTotals;
-	getTurnDispatchFingerprints(): Set<string>;
-	getExternalBlockers(): Array<{ agent: string; what: string }>;
-	getExternalBlockerAcknowledged(): boolean; setExternalBlockerAcknowledged(value: boolean): void;
-	getExternalBlockerRefusedOnce(): boolean; setExternalBlockerRefusedOnce(value: boolean): void;
-	isAskUserAvailable(): boolean;
-	getUserLanguage(): string;
-	getSessionDir(): string;
-	getAgentStates(): Map<string, AgentState>;
-	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; compilerCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
-	getResearchPersonas(): ResearchAgentDef[];
-	/** Adds an installed, dispatchable persona to the active team; null when none is installed under that name. */
-	addInstalledAgent?(agent: string): { ok: boolean; message: string } | null;
-	/** Installed personas dispatch_agent may target (research and catalog-only personas excluded). */
-	getInstalledAgentNames?(): string[];
-	/** Writable dispatches running now, with their declared scope and whether they are OS-isolated. */
-	getActiveWriters?(): WriterEntry[];
-	/** Registers a writable dispatch; an isolated one makes its native launch sandboxed. Returns its release. */
-	beginWriter?(entry: WriterEntry): () => void;
-	/** Creates (or reuses) a parallel instance of an installed writable persona, e.g. builder-2. */
-	addAgentInstance?(base: string, instance: string): boolean;
-	/** Records an admitted delegation in the current task brief. */
-	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
-	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
-	/** Monotonic registration count, including writers that have already exited. */
-	getWriterGeneration?(): number;
-	getWritableOverlapCounter(): number; setWritableOverlapCounter(value: number): void;
-	getProcessState?(): ProcessObligationState;
-	processBlock?(): { reason: string; message: string } | null;
-	setProcessState?(value: ProcessObligationState): void;
-	persistProcessVerdict?(state: ProcessObligationState, verdict: ProcessVerdict): void;
-}
-
-export interface DispatchExecutorDeps {
-	noProgress: NoProgressGuard;
-	state: DispatchExecutionState;
-	budget: BudgetContext;
-	artifacts: AssertionsArtifactsContext;
-	research: ResearchRuntime<any>;
-	provisionalCapabilityRefusal(pack: "fleet"): ToolExecutionResult | null;
-	/** Stops the agent's in-flight run the same way the fleet kill action does. */
-	cancelRunningDispatch?(agent: string): void;
-	dispatchAgent(agent: string, task: string, ctx: ExtensionContext, artifacts: InputArtifactPreview[], scope: string[], watchdog?: boolean, backend?: "auto" | "native" | "coms", resume?: boolean, resumeContract?: Omit<TaskResumeInput, "previous">, revisionScopes?: string[], access?: DispatchAccess): Promise<DispatchResult>;
-	runReturnExtraction(path: string, ids: string[], ctx: ExtensionContext): Promise<any>;
-	/** Opt-in profile assistance: recover a missing submit_result from the written report. */
-	returnExtractionAssist?(): boolean;
-	extractNeedsResearch(output: string): string[];
-	extractAskUserQuestions(output: string): string[];
-	contextPressure(percent: number): boolean;
-	displayName(name: string): string;
-	getToolCatalogVersion?(): string;
-	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext): string | undefined;
-	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
-}
-
-interface PreparedDispatch { access: DispatchAccess; privateConfig?: PrivateConfigBinding; operatorCandidate?: OperatorStateCandidate; beforeSnapshot?: unknown; reviewBaseline?: ReviewBaseline|null; reviewInput?: ReviewInput|null; taskToken: object; taskId: string; beforeRevision: string; /** Task revision basis (D8); [] at a root repository. */ revisionScopes: string[]; requirements: AcceptanceRequirement[]; contract: DeliverableContract; resumeContract: Omit<TaskResumeInput, "previous">; sessionDir: string; agent: string; task: string; inputArtifacts: InputArtifactPreview[]; scopeGlobs: string[]; fingerprint: string; parallel?: boolean; }
-interface RunData { result: DispatchResult; billed: number; out: number; researchRounds: { questions: string[]; files: string[] }[]; }
-interface Tracking { receiptCapture?: ReceiptCapture; writable: boolean; snapshot: any; overlapBaseline: number; writerGeneration?: number; concurrentAtStart: boolean; release?: () => void; isolatedScope?: string[]; }
-interface WorktreeObservation { skipped: boolean; reason?: string; paths: string[]; foreignPaths?: string[]; snapshot?: unknown; concurrentWritableOverlap: boolean; gaps?: Array<{ scope: string; reason: string }>; repositories?: Array<{ root: string; prefix: string; head: string; scopes: string[] }>; }
-interface ReviewRunEvidence {
-	status: "final" | "preliminary";
-	scope: string[];
-	beforeRevision: string;
-	afterRevision: string;
-	revisionScopes: string[];
-	evidenceRef: string;
-	reasons: string[];
-}
+export type { DispatchExecutionState, DispatchExecutorDeps, WriterEntry } from "./dispatch-execution-types.ts";
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
@@ -414,441 +322,55 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 	return { result, billed, out, researchRounds };
 }
 
-/** Writable dispatches running now other than this one (registry when available, else the counter). */
-function otherActiveWriters(d: DispatchExecutorDeps, p: PreparedDispatch, tracking: Tracking): { agent: string }[] {
-	const s = d.state;
-	const writers = s.getActiveWriters?.()
-		?? Array.from({ length: Math.max(0, s.getActiveWritableDispatches() - (tracking.writable ? 1 : 0)) }, () => ({ agent: "a writable dispatch" }));
-	return writers.filter(writer => writer.agent.toLowerCase() !== p.agent.toLowerCase());
-}
-
-function writerOverlappedReview(d: DispatchExecutorDeps, tracking: Tracking): boolean {
-	return tracking.concurrentAtStart || tracking.writerGeneration !== d.state.getWriterGeneration?.()
-		|| tracking.overlapBaseline !== d.state.getWritableOverlapCounter();
-}
-
-function observeWorktree(d: DispatchExecutorDeps, tracking: Tracking, ctx: ExtensionContext): WorktreeObservation | null {
-	if (!tracking.snapshot) return null;
-	const diff = diffAgainst(tracking.snapshot, ctx.cwd || process.cwd());
-	if (tracking.isolatedScope && !diff.skipped) {
-		// The OS sandbox confined this writer to its scope, and the admission gate let
-		// only isolated writers with disjoint scopes run beside it. Changes outside
-		// its scope cannot be its own; they are reported, never attributed to it.
-		const own = tracking.isolatedScope.length ? checkScope(diff.paths, tracking.isolatedScope).inScope : [];
-		return { ...diff, paths: own, foreignPaths: diff.paths.filter(path => !own.includes(path)), concurrentWritableOverlap: false };
-	}
-	const concurrentWritableOverlap = tracking.concurrentAtStart || d.state.getWritableOverlapCounter() !== tracking.overlapBaseline;
-	return { ...diff, concurrentWritableOverlap };
-}
-
-function scopeResult(p: PreparedDispatch, observation: WorktreeObservation | null): any {
-	if (!observation || p.scopeGlobs.length === 0) return null;
-	if (observation.skipped) return { skipped: true, reason: observation.reason, gaps: observation.gaps, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap };
-	return { ...checkScope(observation.paths, p.scopeGlobs), changedPaths: observation.paths, declaredScope: p.scopeGlobs, concurrentWritableOverlap: observation.concurrentWritableOverlap, gaps: observation.gaps, repositories: observation.repositories };
-}
-
-function incompleteObservation(reason: string, overlap: boolean): DiagnosticsResult {
-	return { status: "incomplete", reason, changedFiles: [], attribution: overlap ? "uncertain" : "no_observed_overlap", projects: [], uncoveredFiles: [] };
-}
-
-/** Compiler discovery starts at each observed repository, never at a non-Git parent. */
-async function diagnoseObservation(d: DispatchExecutorDeps, observation: WorktreeObservation, cwd: string, cacheLane: string, runId: string): Promise<DiagnosticsResult> {
-	const diagnose = d.diagnoseChangedTypeScript ?? diagnoseChangedTypeScript;
-	const options = { cwd, attribution: observation.concurrentWritableOverlap ? "uncertain" as const : "no_observed_overlap" as const, cacheLane, runId };
-	if (!observation.repositories) return diagnose(observation.paths, options);
-	const results: DiagnosticsResult[] = [];
-	for (const repo of observation.repositories) {
-		const paths = observation.paths.filter(path => path.startsWith(`${repo.prefix}/`)).map(path => path.slice(repo.prefix.length + 1));
-		if (!paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path))) continue;
-		const workspacePath = (path: string) => isAbsolute(path) ? path : `${repo.prefix}/${path}`;
-		const unavailable = (reason: string): DiagnosticsResult => ({
-			...incompleteObservation(reason, observation.concurrentWritableOverlap), changedFiles: paths.map(workspacePath), uncoveredFiles: paths.map(workspacePath),
-			projects: [{ project: repo.root, status: "unavailable", reason, exitCode: null, argv: [], stdout: "", stderr: "", diagnostics: [] }],
-		});
-		try {
-			const result = await diagnose(paths, { ...options, cwd: repo.root });
-			results.push({ ...result, changedFiles: result.changedFiles.map(workspacePath), uncoveredFiles: result.uncoveredFiles?.map(workspacePath), projects: result.projects.map(project => ({
-				...project, project: workspacePath(project.project), changedFiles: project.changedFiles?.map(workspacePath),
-				diagnostics: project.diagnostics.map(diagnostic => ({ ...diagnostic, ...(diagnostic.file ? { file: workspacePath(diagnostic.file) } : {}) })),
-			})) });
-			// A passing sibling project cannot cover a repository whose compiler
-			// verification was incomplete. Retain the unavailable check explicitly.
-			if (result.status !== "completed" || result.uncoveredFiles?.length) results.push(unavailable(`${repo.prefix}: ${result.reason ?? "Compiler coverage incomplete"}`));
-		} catch (error) { results.push(unavailable(`Compiler observation failed for ${repo.prefix}: ${String(error)}`)); }
-	}
-	const reasons = [...(observation.gaps ?? []).map(gap => `${gap.scope}: ${gap.reason}`), ...results.filter(result => result.status === "incomplete").map(result => result.reason ?? "Compiler observation incomplete")];
-	return { status: reasons.length ? "incomplete" : results.some(result => result.status === "completed") ? "completed" : "skipped",
-		reason: reasons.length ? reasons.join("; ") : undefined, attribution: options.attribution,
-		changedFiles: [...new Set(results.flatMap(result => result.changedFiles))], projects: results.flatMap(result => result.projects), uncoveredFiles: [...new Set(results.flatMap(result => result.uncoveredFiles ?? []))] };
-}
-
 async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, params: DispatchAgentParams, run: RunData, tracking: Tracking, ctx: ExtensionContext, onUpdate: ToolUpdate): Promise<ToolExecutionResult> {
-	const s = d.state; const { result, researchRounds } = run; const cwd = ctx.cwd || process.cwd();
+	const s = d.state;
+	const { result } = run;
+	const cwd = ctx.cwd || process.cwd();
 	const isSourceReview = !p.privateConfig && isReviewPersona(p.agent);
 	const sameTaskNow = () => p.taskToken === d.noProgress.taskToken() && p.sessionDir === s.getSessionDir();
-	const ids = validateBoundAssertionIds(p.resumeContract.boundAssertionIds) ?? extractAssertionIds(p.task); const disposition = deliveryDisposition(result.exitCode, result.pending === true);
-	// Observe immediately at logical child completion, before Hub-owned artifacts are written.
-	const observation = tracking.writable ? observeWorktree(d, tracking, ctx) : null;
-	const submission = disposition.delivered ? result.specialistResult : undefined;
- const deliveredReturn = submission
-  ? { parsed: submission, notices: crossCheck(submission, ids) }
-  : parseDeliveredReturn(result.output, ids, disposition.delivered);
-	let parsedReturn: any = deliveredReturn.parsed; let contractNotices: any[] = deliveredReturn.notices;
-	const shouldUseDigest = ids.length > 0 || !!parsedReturn; const state = sameTaskNow() ? s.getAgentStates().get(p.agent.toLowerCase()) : undefined;
-	const key = safeAgentKey(state?.def.name ?? p.agent); const backendUsed = state?.lastBackend ?? null;
-	const failureMetadata = { dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null,
-		agent: p.agent, task: p.task, scope: p.scopeGlobs, exitCode: result.exitCode, diagnostics: result.diagnostics ?? null };
-	const artifactOutput = disposition.delivered ? (submission ? result.output + "\n\n## Submitted result\n\n" + JSON.stringify(submission, null, 2) : result.output)
-		: `# Dispatch failure\n\n\`\`\`json\n${JSON.stringify(failureMetadata, null, 2)}\n\`\`\`\n\n## Output\n\n${result.output}`;
-	const runPath = disposition.artifactKind ? d.artifacts.writeRunArtifact(key, state?.runCount ?? 0, artifactOutput, disposition.artifactKind as any, result.dispatchId, p.sessionDir) : null;
-	const returnPath = disposition.delivered ? runPath : null; const failurePath = disposition.delivered ? null : runPath; let returnExtracted = false;
-	if (returnPath && (!result.specialistResultTool || d.returnExtractionAssist?.() === true) && shouldExtractReturn(parsedReturn, ids)) {
+	const initial = beginDispatchEvidence(d, p, result, tracking, ctx, sameTaskNow);
+	// Keep the extraction and compiler awaits here so the subsequent evidence
+	// observes the task, revision and writer state at the original boundaries.
+	const { returnPath, ids } = initial;
+	if (returnPath && (!result.specialistResultTool || d.returnExtractionAssist?.() === true) && shouldExtractReturn(initial.parsedReturn, ids)) {
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} returned no structured block — extracting it from the report...` }], details: { agent: p.agent, task: p.task, status: "extracting_return" } });
 		const recovered = await d.runReturnExtraction(returnPath, ids, ctx);
-		if (recovered) { parsedReturn = recovered; contractNotices = crossCheck(recovered, ids); returnExtracted = true; }
+		if (recovered) { initial.parsedReturn = recovered; initial.contractNotices = crossCheck(recovered, ids); initial.returnExtracted = true; }
 	}
-
-	// The one shared post-run delta feeds both scope reporting and compiler selection.
-	let compilerDiagnostics: DiagnosticsResult | null = null; let compilerEvidencePath: string | null = null; let compilerEvidenceError: string | null = null;
-	// Reuse the post-run observation for compiler checks, before running any compiler.
-	const compilerInspectedRevision = observation && !observation.skipped && observation.snapshot ? snapshotRevision(observation.snapshot) : isSourceReview ? "unavailable" : worktreeRevision(cwd, [], p.scopeGlobs);
-	let compilerRan = false;
-	const eligibleForCompiler = disposition.delivered && tracking.writable && backendUsed === "native" && sameTaskNow();
-	if (eligibleForCompiler && observation?.skipped) {
-		compilerDiagnostics = incompleteObservation(`worktree observation unavailable: ${observation.reason ?? "unknown reason"}`, observation.concurrentWritableOverlap);
-	} else if (eligibleForCompiler && observation && (observation.gaps?.length || observation.paths.some(path => /\.(?:ts|tsx|mts|cts)$/i.test(path)))) {
-		compilerRan = true;
+	const compiler = prepareDispatchCompiler(p, tracking, initial, cwd, isSourceReview, sameTaskNow);
+	let { compilerDiagnostics } = compiler;
+	const { observationToCheck } = compiler;
+	if (observationToCheck) {
 		try {
-			compilerDiagnostics = await diagnoseObservation(d, observation, cwd, key, result.dispatchId ?? randomUUID());
+			compilerDiagnostics = await diagnoseObservation(d, observationToCheck, cwd, initial.key, result.dispatchId ?? randomUUID());
 		} catch (error) {
-			compilerDiagnostics = incompleteObservation(`compiler diagnostics failed safely: ${String(error)}`, observation.concurrentWritableOverlap);
+			compilerDiagnostics = incompleteObservation(`compiler diagnostics failed safely: ${String(error)}`, observationToCheck.concurrentWritableOverlap);
 		}
 	}
-	if (observation && !tracking.isolatedScope) {
-		observation.concurrentWritableOverlap = observation.concurrentWritableOverlap || tracking.concurrentAtStart || s.getWritableOverlapCounter() !== tracking.overlapBaseline;
-		if (compilerDiagnostics && observation.concurrentWritableOverlap) compilerDiagnostics = { ...compilerDiagnostics, attribution: "uncertain" };
-	}
-	const sameTask = sameTaskNow();
-	if (sameTask && compilerDiagnostics) {
-		const correction = correctStructuredReturnForCompiler(parsedReturn, ids, compilerDiagnostics);
-		parsedReturn = correction.parsed;
-		contractNotices = [...crossCheck(parsedReturn, ids), ...correction.demotedIds.map(id => ({ type: "compiler_diagnostics", id }))];
-	}
-	const assessmentId = result.dispatchId ?? randomUUID();
-	if (compilerDiagnostics && compilerDiagnostics.status !== "skipped") {
-		try {
-			compilerEvidencePath = d.artifacts.writeRunArtifact(`${key}-compiler`, state?.runCount ?? 0,
-				`# Compiler diagnostics\n\n\`\`\`json\n${JSON.stringify(compilerDiagnostics, null, 2)}\n\`\`\`\n`, "evidence", assessmentId, p.sessionDir);
-		} catch (error) { compilerEvidenceError = String(error); }
-	}
-	const readback = disposition.pending ? [] : readBackDeliverables(p.contract, { cwd, sessionDir: p.sessionDir },
-		(index, bytes) => retainDeliverable(p.sessionDir, assessmentId, index, bytes));
-	let protocolDiagnostic: ToolProtocolDiagnostic | null = null; let protocolEvidencePath: string | null = null;
-	if (disposition.delivered && backendUsed === "native") {
-		protocolDiagnostic = diagnoseToolProtocol({
-			output: result.output,
-			toolEvents: result.toolEvents ?? [],
-			deliverables: readback,
-			origin: { kind: "task", taskId: p.taskId, dispatchId: result.dispatchId ?? assessmentId },
-			effectiveConfiguration: {
-				backend: backendUsed,
-				model: result.diagnostics?.modelUsed ?? state?.def.model ?? null,
-				tools: result.diagnostics?.effectiveTools ?? String(state?.def.tools ?? "").split(",").map(tool => tool.trim()).filter(Boolean),
-			},
-			evidenceRefs: [returnPath ?? undefined, ...readback.map(item => item.retainedPath)].filter((value): value is string => !!value),
-		});
-		if (protocolDiagnostic) {
-			protocolEvidencePath = d.artifacts.writeRunArtifact(`${key}-tool-protocol`, state?.runCount ?? 0,
-				JSON.stringify(protocolDiagnostic, null, 2), "evidence", randomUUID(), p.sessionDir);
-			protocolDiagnostic.evidenceRefs = [...new Set([...protocolDiagnostic.evidenceRefs, protocolEvidencePath])];
-		}
-	}
-	const executionStatus = disposition.pending ? "pending" : disposition.delivered ? "completed" : "failed";
-	// A review's revision must still match after any awaited return extraction or compiler work.
-	const repositoryAfterRevision = isSourceReview || p.revisionScopes.length ? revisionOf(cwd, p.revisionScopes) : compilerRan ? worktreeRevision(cwd, [], p.scopeGlobs) : compilerInspectedRevision;
-	// Each recorded stage is checked over the basis it was recorded with.
-	const stageRevision = (scopes: readonly string[]) => scopes.join("\n") === p.revisionScopes.join("\n") ? afterRevision : revisionOf(cwd, [...scopes]);
- const afterRevision = p.privateConfig ? privateConfigRevision(cwd, repositoryAfterRevision, p.privateConfig) : repositoryAfterRevision;
-	const changes = !tracking.writable || !observation
-		? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
-		: observation.skipped
-			? { status: "unknown" as const, paths: [] as string[], attribution: "not_observed" as const }
-			: { status: observation.paths.length ? "changed" as const : "unchanged" as const, paths: observation.paths, attribution: observation.concurrentWritableOverlap || observation.gaps?.length ? "uncertain" as const : "certain" as const };
-	const checks: VerificationCheckInput[] = (compilerDiagnostics?.projects ?? []).map(project => ({
-		producer: "runtime", kind: "compilation", taskId: p.taskId, command: [...(project.argv ?? [])], exitCode: project.exitCode,
-		inspectedRevision: compilerInspectedRevision, evidenceRef: compilerEvidencePath ?? "",
-		requirementIds: ["AF-MIN-CHANGE"],
-	}));
-    const receiptCapture = tracking.receiptCapture;
-    const receiptState = s.getProcessState?.().runtimeReceipts;
-    // Stream integrity is independent of observations: an empty check list is not proof of a clean capture.
-    // When native capture is expected, a missing integrity value fails closed; only an explicit "complete" is clean.
-    const captureExpected = backendUsed === "native" && (tracking.writable || !!p.operatorCandidate || !!p.privateConfig);
-    const captureIntegrity = result.lifecycle?.runtimeCaptureIntegrity;
-    const captureClean = captureExpected ? captureIntegrity === "complete" : captureIntegrity !== "tainted";
-    // Only declared evidence producers govern receipt exclusivity. Preparatory
-    // bash inspections can overlap reads without overlapping any evidence run.
-    // Source revision, stream integrity and concurrent-writer gates still apply.
-    const evidenceCommands = new Set(p.requirements.flatMap(requirement =>
-      [requirement.testCommand, requirement.compilerCommand].filter(Boolean)));
-	const otherWriters = isSourceReview ? otherActiveWriters(d, p, tracking) : [];
-	const reviewOverlapped = isSourceReview && (otherWriters.length > 0 || writerOverlappedReview(d, tracking));
-	const exclusive = captureClean && !(result.runtimeTests ?? []).some(record => evidenceCommands.has(record.command) && record.exclusive === false) && !reviewOverlapped && !tracking.concurrentAtStart && s.getWritableOverlapCounter() === tracking.overlapBaseline && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0);
-    const captureCurrent = !!receiptCapture && !!receiptState && sameTaskNow() && receiptCapture.taskId === d.noProgress.taskId()
-      && receiptState.pending.length === 1 && receiptState.pending[0] === receiptCapture.captureId
-      && receiptCapture.sessionDir === s.getSessionDir() && receiptCapture.generation === receiptState.generation && receiptCapture.epoch === receiptState.epoch
-      && receiptCapture.declarationHash === receiptDeclarationHash(p.privateConfig ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, p.access, p.operatorCandidate ? '' : params.task), p.scopeGlobs, s.getAcceptedUserInput?.(), p.inputArtifacts);
-    const observations = backendUsed === "native" && (tracking.writable || !!p.operatorCandidate || !!p.privateConfig) ? result.runtimeTests ?? [] : [];
-    // A newer failure/unknown result for a command supersedes its success, even
-    // when the unknown observer result could not construct a success receipt.
-    const latest = new Map(observations.map(record => [record.command, record]));
-    if (receiptCapture && receiptState) {
-      const retained = !p.privateConfig && captureCurrent && exclusive && p.beforeRevision === afterRevision && backendUsed === "native" ? reusableRuntimeChecks(receiptState, receiptCapture, afterRevision) : [];
-      checks.push(...retained.filter(check => !latest.has(check.command[0])));
-    }
-    const anchored: RuntimeReceipt[] = [];
-    for (const record of latest.values()) for (const kind of ["test", "code-grep", "compilation"] as const) {
-        const covered = p.requirements.filter(requirement => ["test", "code-grep"].includes(requirement.tag) && requirement.source && (kind === "compilation" ? requirement.compilerCommand === record.command : requirement.tag === kind && requirement.testCommand === record.command));
-        if (!covered.length) continue;
-        const coverage = covered.map(requirement => ({ id: requirement.id, source: requirement.source, text: requirement.text, reference: requirement.reference, criticalConditions: requirement.criticalConditions ?? [] }));
-        const serialized = JSON.stringify({
-            schema: "agent-fleet.runtime-test-evidence/v1", observation: record,
-            declaration: { taskId: p.taskId, dispatchId: result.dispatchId, kind, coverage },
-            ...(receiptCapture ? { capture: receiptCapture } : {}),
-            evaluationSource: "agent-fleet.runtime-result/v1 verification.checks and verification.requirements",
-        }, null, 2);
-        const evidenceRef = d.artifacts.writeRunArtifact(`${key}-test-check`, state?.runCount ?? 0, serialized, "evidence", randomUUID(), p.sessionDir);
-        // Fresh observations follow the same rule as the parser-owned exclusive flag: anything other than an explicit
-        // "complete" capture stream (tainted, or a missing value) makes the record ineligible for acceptance.
-        const check: VerificationCheckInput = { producer: "runtime", kind, command: [record.command], exitCode: record.exitCode,
-            inspectedRevision: record.exclusive === false || captureIntegrity !== "complete" ? "unavailable" : record.beforeRevision === record.afterRevision ? record.afterRevision : "changed-during-check",
-            evidenceRef, requirementIds: [...new Set(["AF-MIN-CHANGE", ...covered.map(requirement => requirement.id)])], taskId: p.taskId, coverage };
-        checks.push(check);
-        if (captureCurrent && exclusive && record.producer === "agent-fleet.runtime-test/v1" && record.exclusive !== false && result.dispatchId && record.exitCode === 0 && record.beforeRevision === afterRevision && record.afterRevision === afterRevision && /^[a-f0-9]{64}$/.test(afterRevision)) {
-          try { anchored.push(anchorRuntimeReceipt(receiptCapture!, check, result.dispatchId, serialized)); } catch { /* No anchor => no continuation. */ }
-        }
-    }
-    if (receiptCapture && receiptState && sameTaskNow()) {
-      // Retention is not reuse: a clean unrelated inspection must not erase
-      // anchors merely because its declaration/scope cannot borrow them. Reuse
-      // still validates the exact contract, revision and evidence bytes above.
-      // New observations (including failures/unknowns) supersede that command.
-      const records = captureCurrent && exclusive && p.beforeRevision === afterRevision && backendUsed === "native"
-        ? [...receiptState.records.filter(r => !latest.has(r.check.command[0])), ...anchored].slice(-64) : [];
-      const next = { ...s.getProcessState!(), runtimeReceipts: { ...receiptState, pending: receiptState.pending.filter(id => id !== receiptCapture.captureId), records } };
-      s.setProcessState?.(next);
-      // The ordinary finish path below journals this state through processAuditRecord.
-    }
-
-	const runtimeResult: any = buildRuntimeResult({
-		task: { id: p.taskId, current: sameTask && p.taskId === d.noProgress.taskId(), beforeRevision: p.beforeRevision, afterRevision },
-		execution: { status: executionStatus, exitCode: result.exitCode, dispatchId: result.dispatchId ?? null },
-		changes, requirements: p.requirements, deliverables: readback, checks,
-		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
-	});
- const checkDiagnostics = captureExpected && disposition.delivered ? verificationDiagnostics(p.requirements, observations, checks) : null;
-	if (submission && (submission.status !== "completed" || submission.requires_user_decision.some(question => question.trim().toLowerCase() !== "none"))) {
-  runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...runtimeResult.acceptance.reasons, "specialist_" + submission.status] };
-  runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
- }
- const privateConfigVerification = p.privateConfig ? finishPrivateConfigReview({
-  cwd, binding: p.privateConfig, beforeRevision: p.beforeRevision, revision: afterRevision, sameTask: sameTaskNow(), native: backendUsed === 'native',
-  reviewerValid: ['code-reviewer','security-auditor'].includes(state?.def.name ?? '') && !String(state?.def.tools ?? '').split(',').some(t => ['edit','write'].includes(t.trim())),
-  stillCurrent: () => sameTaskNow() && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0) && s.getWritableOverlapCounter() === tracking.overlapBaseline
-   && !s.getProcessState?.().changedFiles.length && !s.getProcessState?.().acceptance.evidenceRef && !s.getProcessState?.().review.evidenceRef
-   && s.getProcessState?.().runtimeReceipts?.generation === p.privateConfig!.generation && s.getProcessState?.().runtimeReceipts?.epoch === p.privateConfig!.epoch
-   && tracking.receiptCapture?.declarationHash === privateDeclarationHash(s.getAssertions() as AcceptanceRequirement[], s.getAcceptedUserInput?.()),
-  exclusive, captureCurrent,
-  delivered: disposition.delivered, exitCode: result.exitCode, dispatchId: result.dispatchId, submission, protocolDiagnostic, output: result.output, parsedReturn,
-  questions: d.extractAskUserQuestions(result.output), research: d.extractNeedsResearch(result.output), verification: runtimeResult.verification, anchored,
-  sourceDelta: !!observation?.skipped || !!observation?.paths.length || !!observation?.gaps?.length,
-  sourceObligations: !!s.getProcessState?.().changedFiles.length || !!s.getProcessState?.().workOrigin || !!s.getProcessState?.().acceptance.evidenceRef || !!s.getProcessState?.().review.evidenceRef || !!s.getProcessState?.().additions?.some(a => a.status === 'active' && a.reason !== 'irreversible_execution'), returnPath: runPath, writer: d.artifacts.writeRunArtifact, runCount: state?.runCount ?? 0,
- }) : undefined;
- let processVerdict: ProcessVerdict | null = null;
- let reviewEvidence: ReviewRunEvidence | undefined;
- let operatorStateVerification:any = p.operatorCandidate ? {status:'unproven',origin:p.operatorCandidate.origin,historicalAttribution:'not_claimed',scope:p.operatorCandidate.paths,revision:afterRevision} : undefined;
-	if (s.getProcessState) {
-		let processState = s.getProcessState();
-		// Keep earlier task changes in the final review scope, including observed edits from runs that failed verification.
-		if (sameTask && tracking.writable && !p.privateConfig && !p.operatorCandidate && observation && !observation.skipped) {
-			const paths = reviewableChangedPaths(observation.paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
-			processState = { ...processState, changedFiles: [...new Set([...processState.changedFiles, ...paths])].sort() };
-		}
-		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
-			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: processState.changedFiles });
-		}
-		const stage = p.privateConfig ? null : basePersonaName(p.agent) === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
-		const affirmativeReview = affirmativeReviewVerdict(result.output);
-		// Candidate registration happens only after independent review and actual
-        // same-revision runtime checks, never from reported past edits.
-        const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()):null;
-        // Named, ordered qualifiers: the same conjunction as before, so a refusal can
-        // say which one failed. Diagnostics never relax or reorder a gate.
-        const reviewQualifiers: Array<[string, boolean]> = [
-            ["tool_protocol_error", !protocolDiagnostic],
-            ["deliverable_failed", runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"],
-            ["submission_incomplete", !submission || submission.status === "completed"],
-            ["blocking_findings", countReviewFindings(result.output).blocking === 0],
-            ["assertions_failed", !(parsedReturn?.assertions_failed ?? []).length],
-            ["unresolved_questions", !d.extractAskUserQuestions(result.output).length],
-            ["needs_research", !d.extractNeedsResearch(result.output).length],
-            ["requires_user_decision", !(parsedReturn?.requires_user_decision ?? []).some((entry:unknown)=>String(entry).trim().toLowerCase()!=="none")],
-            ["review_input_changed", !p.reviewInput || JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)],
-        ];
-        const checksRefusal = p.operatorCandidate ? operatorStateChecksDiagnostic({candidate:p.operatorCandidate,revision:afterRevision,sameTask:sameTaskNow(),native:backendUsed==='native',exclusive,verification:runtimeResult.verification}) : null;
-        const candidateQualifiers: Array<[string, boolean]> = p.operatorCandidate ? [
-            ...reviewQualifiers,
-            ["not_review_stage", stage==='review'],
-            ["not_same_task", sameTaskNow()],
-            ["not_delivered", disposition.delivered&&result.exitCode===0],
-            ["submission_incomplete", !result.specialistResultTool||submission?.status==='completed'],
-            ["review_input_missing", !!p.reviewInput],
-            ["verdict_not_affirmative", affirmativeReview],
-            ["regression_not_closed", reviewMayClose({revision:afterRevision,scope:p.operatorCandidate.paths,output:result.output,evidenceRef:runPath??undefined,declared:!!parsedReturn,wide:processState.scope==='wide'||!!processState.additions?.some(item=>item.status==='active'&&item.reason==='wide_change')})],
-            [checksRefusal ?? "runtime_checks", checksRefusal === null],
-        ] : [];
-        const failedQualifiers = [...new Set(candidateQualifiers.filter(([, ok]) => !ok).map(([code]) => code))];
-        const candidateReady = !!p.operatorCandidate && failedQualifiers.length === 0;
-        if (p.operatorCandidate && failedQualifiers.length) operatorStateVerification = { ...operatorStateVerification, reason: failedQualifiers[0], failedQualifiers, nextStep: operatorStateNextStep(failedQualifiers[0]) };
-        if(candidateReady&&p.operatorCandidate){
-          try {
-            const evidenceRef=persistOperatorStateProof({writer:d.artifacts.writeRunArtifact,sessionDir:p.sessionDir,runCount:state?.runCount??0,dispatchId:result.dispatchId||randomUUID(),record:{schema:'agent-fleet.operator-state-verification/v1',...p.operatorCandidate,taskId:p.taskId,checks:runtimeResult.verification.checks,manualAssertions:'not_automatically_proven'}});
-            processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,revisionScopes:p.revisionScopes,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
-            operatorStateVerification={...operatorStateVerification,status:'accepted',evidenceRef};
-          } catch { operatorStateVerification={...operatorStateVerification,reason:'evidence_readback_failed',failedQualifiers:['evidence_readback_failed'],nextStep:operatorStateNextStep('evidence_readback_failed')}; }
-        }
-		const revisionAvailable = [p.beforeRevision, afterRevision].every(revision => /^[a-f0-9]{64}$/.test(revision));
-		const reviewRevisionStable = revisionAvailable && p.beforeRevision === afterRevision;
-		if (stage === "review" && disposition.delivered && runPath) {
-			const reviewScope = checkScope(processState.changedFiles, p.scopeGlobs);
-			const qualifies: Array<[string, boolean]> = [
-				["writer_overlap", !reviewOverlapped],
-				["revision_unavailable", revisionAvailable],
-				["revision_changed", !revisionAvailable || reviewRevisionStable],
-				...reviewQualifiers,
-				["review_input_missing", !!p.reviewInput],
-				["not_same_task", sameTask],
-				["operator_state_unproven", !p.operatorCandidate || operatorStateVerification?.status === "accepted"],
-				["not_approved", affirmativeReview],
-				["incomplete_scope", processState.changedFiles.length > 0 && reviewScope.outOfScope.length === 0],
-			];
-			const reasons = qualifies.filter(([, ok]) => !ok).map(([reason]) => reason);
-			if (!reasons.length && !reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") })) reasons.push("regression_not_closed");
-			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons };
-		}
-		// A declared plan must read back successfully; a refusal or unresolved
-		// decision is not plan evidence. No declaration still permits a retained
-		// nonempty plan return. The Hub cannot judge its semantic adequacy.
-		const planProduced = stage !== "plan" || ((!submission || submission.status === "completed") && result.output.trim().length > 0
-			&& runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"
-			&& !(parsedReturn?.requires_user_decision ?? []).some((entry: unknown) => String(entry).trim().toLowerCase() !== "none")
-			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
-		if (stage && planProduced && (stage !== "review" || reviewEvidence?.status === "final") && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
-			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
-            if(stage === "review" && !tracking.writable) processState=retainReview(processState,candidateReviewInput,runPath,cwd);
-		}
-        if(stage === "review" && disposition.delivered && sameTask && runPath && p.reviewInput && p.reviewBaseline
-            && !tracking.writable && !reviewOverlapped && reviewRevisionStable
-            && JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)){
-            try {
-             const baselineRef=d.artifacts.writeRunArtifact(key+"-review-baseline",state?.runCount??0,JSON.stringify(p.reviewBaseline),"returns",result.dispatchId,p.sessionDir);
-             if(baselineRef)processState=retainReviewHistory(processState,p.reviewInput,runPath,baselineRef,cwd);
-            } catch { /* Missing optional baseline forces a full review next time. */ }
-        }
-		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));
-		if (p.agent === "builder" && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
-			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
-		}
-        if (p.privateConfig && privateConfigVerification?.status === 'accepted' && 'evidenceRef' in privateConfigVerification && 'evidenceHash' in privateConfigVerification && 'reviewer' in privateConfigVerification) {
-         processState.privateVerification = { origin: 'private-config-current-state', binding: structuredClone(p.privateConfig), revision: afterRevision,
-          evidenceRef: privateConfigVerification.evidenceRef as string, evidenceHash: privateConfigVerification.evidenceHash as string, reviewer: privateConfigVerification.reviewer,
-          overlap: tracking.overlapBaseline, classification: privateClassification(processState),
-          receipts: anchored.map(r => ({ evidenceRef: r.check.evidenceRef, evidenceHash: r.evidenceHash })) };
-        }
-        const privateUse: PrivateProofUse = { cwd, taskId: d.noProgress.taskId(), sessionDir: s.getSessionDir(), declarationHash: privateDeclarationHash(s.getAssertions() as AcceptanceRequirement[], s.getAcceptedUserInput?.()), activeWriters: s.getActiveWritableDispatches() - (tracking.writable ? 1 : 0), overlap: s.getWritableOverlapCounter() };
-		s.setProcessState?.(processState);
-		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: !p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted, currentRevision: stageRevision, ...(p.privateConfig ? { privateUse } : {}) });
-		runtimeResult.process = processVerdict;
-		if (!processVerdict.accepted) {
-			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open").map(([name]) => `process_${name}_open`)])] };
-			if (runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed") runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
-		}
-		s.persistProcessVerdict?.(processState, processVerdict);
-		if (s.processBlock?.()) {
-			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, s.processBlock()!.reason])] };
-			runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
-		}
-	}
-    if (sameTask && result.dispatchId && !disposition.pending) {
-        // T2/F3: use the canonical wrapper identity so production reconcile can match.
-        // Previously this wrote raw p.agent while the wrapper used canonical([cwd, actor]).
-        d.noProgress.recordDispatchEvidence({
-            dispatchId: result.dispatchId, taskId: p.taskId, executor: canonicalExecutor(cwd, p.agent), revision: afterRevision, revisionScopes: p.revisionScopes,
-            changedScope: changes.attribution === 'certain' ? changes.paths : [], readback,
-            concurrentWriters: isSourceReview ? reviewOverlapped : observation?.concurrentWritableOverlap ?? true,
-            effectsRef: protocolEvidencePath ?? undefined,
-            completed: disposition.delivered && result.exitCode === 0,
-            // A nonblocking review (the reconcile contract) approves with zero blocking findings;
-            // whether it also lists suggestions is irrelevant.
-            blockingFindings: isSourceReview && reviewEvidence?.reasons.every(reason => reason === "regression_not_closed" || reason === "incomplete_scope") ? 0 : -1,
-            coveredScope: isReviewPersona(p.agent) && result.exitCode === 0 ? d.noProgress.reviewCoverage(p.taskId).filter(path => checkScope([path], p.scopeGlobs).outOfScope.length === 0) : [],
-            edited: p.beforeRevision !== afterRevision || !!observation && (observation.skipped || observation.paths.length > 0),
-            evidenceRef: runPath ?? '', openRequirements: runtimeResult.verification.requirements.filter((r: any) => r.status !== 'passed').map((r: any) => r.id),
-        });
-    }
-	const accepted = !p.operatorCandidate && runtimeResult.acceptance.accepted;
-	const acceptanceStatus = runtimeResult.compatibility.hubAcceptanceStatus;
-	const questions = [...new Set([...d.extractAskUserQuestions(result.output), ...(submission?.requires_user_decision ?? []).filter(question => question.trim().toLowerCase() !== "none")])];
-	const contractGap = acceptanceStatus === "deliverable_failed" ? "missing_deliverable" : !parsedReturn && questions.length ? "missing_structured_return" : null;
-	const blockedOnUser = questions.length > 0 && !protocolDiagnostic && executionStatus === "completed";
-	const status = protocolDiagnostic ? "tool_protocol_error" : blockedOnUser ? "blocked_on_user" : accepted ? "accepted" : executionStatus === "completed" && (runtimeResult.verification.status === "failed" || acceptanceStatus === "deliverable_failed") ? "verification_failed" : executionStatus === "completed" ? "completed_unverified" : disposition.status;
-	const assessment = { ...runtimeResult, verificationDiagnostics: checkDiagnostics, ...(reviewEvidence ? { reviewEvidence } : {}),
-		executionStatus, acceptanceStatus, accepted, dispatchId: result.dispatchId ?? null, readback, scopeRoots: p.contract.scopeRoots,
-		assertions: ids, structuredReturn: parsedReturn, contractNotices, compilerDiagnostics, compilerEvidencePath, protocolDiagnostic, protocolEvidencePath };
-	const assessmentPath = disposition.pending ? null : d.artifacts.writeRunArtifact(`${key}-acceptance`, state?.runCount ?? 0, JSON.stringify(assessment, null, 2), "evidence", assessmentId, p.sessionDir);
+	const evidence = completeDispatchEvidence(d, p, result, tracking, initial, compiler, compilerDiagnostics, cwd, isSourceReview, sameTaskNow);
+	const receipts = collectDispatchReceipts(
+		d, p, result, tracking, evidence, sameTaskNow, () => dispatchRequirements(d, p.access, p.operatorCandidate ? "" : params.task),
+	);
+	const decision = decideDispatch(d, p, result, tracking, evidence, receipts, cwd, sameTaskNow);
+	recordDispatchRecoveryEvidence(d, p, result, evidence, receipts, decision, cwd);
+	const outcome = summarizeDispatchOutcome(d, p, result, evidence, decision);
+	const assessmentPath = retainDispatchAssessment(d, p, result, evidence, decision, outcome);
+	const { sameTask } = evidence;
+	const { status } = outcome;
 	if (sameTask && [0, 124, 125].includes(result.exitCode)) s.getTurnDispatchFingerprints().add(p.fingerprint);
-	if (sameTask) { s.getTurnReport().dispatches.push({ agent: p.agent, status, elapsed: result.elapsed, billed: run.billed, out: run.out }); s.getSessionTotals().billed += run.billed; s.getSessionTotals().out += run.out; }
-	const unresolved = d.extractNeedsResearch(result.output); const answered = researchRounds.reduce((n, r) => n + r.questions.length, 0);
-	const notices: string[] = [];
- const checkNotice = checkDiagnostics && verificationDiagnosticNotice(checkDiagnostics);
- if (checkNotice) notices.push(checkNotice);
-	if (operatorStateVerification && operatorStateVerification.status !== "accepted" && operatorStateVerification.reason) notices.push(`Current-state review did not register the candidate: ${operatorStateVerification.reason}${operatorStateVerification.failedQualifiers?.length > 1 ? ` (also: ${operatorStateVerification.failedQualifiers.slice(1).join(", ")})` : ""}. ${operatorStateVerification.nextStep} Manual assertions stay open; nothing was marked proven.`);
-	if (!sameTask) notices.push("Late result from a prior task/session: evidence retained in its original namespace; current-task counters and blockers were not changed.");
-	if (disposition.delivered) notices.push(accepted
-		? `Execution and current-state verification accepted by the runtime contract. Acceptance check: ${assessmentPath}`
-		: protocolDiagnostic
-			? `Tool protocol error: ${protocolDiagnostic.message} Evidence: ${protocolEvidencePath}. No text was executed and no retry was started.`
-			: `Execution completed, NOT accepted. ${acceptanceStatus === "deliverable_failed" ? "Expected deliverable readback failed." : "Verification is missing, failed, stale, unsupported, or attribution-uncertain; file presence, exit 0, and claims are not proof."} Acceptance check: ${assessmentPath}`);
-	if (readback.some(file => file.changed === false)) notices.push("Some deliverables already existed unchanged. Do not attribute their creation to this execution.");
-	const blockers = extractExternalBlockers(result.output); if (sameTask && blockers.length) { for (const what of blockers) if (!s.getExternalBlockers().some(b => b.what === what)) s.getExternalBlockers().push({ agent: p.agent, what }); s.setExternalBlockerAcknowledged(false); s.setExternalBlockerRefusedOnce(false); notices.push(`⛔ ${p.agent} reported an EXTERNAL BLOCKER — something outside the fleet's reach is missing:\n${blockers.map((w, i) => `  ${i + 1}. ${w}`).join("\n")}\nThe next dispatch/research call is refused until you escalate this to the human. Do not build a substitute for the missing fact.`); }
-	if (questions.length) notices.push(`⚠ ${questions.length} ASK_USER question(s) raised by ${p.agent}. Orchestrator triage required. ${ORCHESTRATOR_CLARIFICATION} Dispatch ID: ${result.dispatchId ?? "<dispatchId>"}. Human escalation language: ${s.getUserLanguage()}. Questions:\n${questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")}`);
-	notices.push("Orchestration handoff is in details.orchestration. Start from its manifest; reread a file only when it is missing, stale, or conflicting. A wide review closes only with a full regression marker. Model routing was not changed.");
-	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
-	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
-	if (returnPath) notices.push(`Full specialist output: ${returnPath}`);
-	if (reviewEvidence?.status === "preliminary") {
-		if (otherWriters.length) notices.push(`Area review: ${otherWriters.map(writer => writer.agent).join(", ")} was still writing. Run a final review of the whole change after writes finish.`);
-		else if (reviewOverlapped) notices.push("Area review: a writer overlapped this inspection. Run a final review of the whole change after writes finish.");
-		notices.push(`Preliminary review (${reviewEvidence.reasons.join(", ")}). Report and revision evidence: ${assessmentPath}`);
+	if (sameTask) {
+		s.getTurnReport().dispatches.push({ agent: p.agent, status, elapsed: result.elapsed, billed: run.billed, out: run.out });
+		s.getSessionTotals().billed += run.billed;
+		s.getSessionTotals().out += run.out;
 	}
-	if (tracking.isolatedScope) notices.push(`Parallel writer: OS-sandboxed to ${tracking.isolatedScope.join(", ") || "no repository paths"}; only changes inside that scope are attributed to ${p.agent}.${observation?.foreignPaths?.length ? ` Changes outside it during the run (not attributed): ${observation.foreignPaths.slice(0, 12).join(", ")}${observation.foreignPaths.length > 12 ? " …" : ""}.` : ""} Run the full checks once no writer is active.`);
-	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");
-	if (failurePath) notices.push(`⚠ DELIVERY FAILURE (exit ${result.exitCode}) — no specialist result was returned. The error output is at ${failurePath}; it is NOT a return and carries no assertion evidence. The work may or may not have happened — check the artifacts the task was supposed to produce before re-dispatching.`);
-	if (compilerDiagnostics && compilerDiagnostics.status !== "skipped") {
-		const advisory = formatAdvisory(compilerDiagnostics);
-		const evidence = compilerEvidencePath ? `Full compiler evidence: ${compilerEvidencePath}` : `Compiler evidence artifact unavailable: ${compilerEvidenceError ?? "unknown error"}`;
-		if (advisory) notices.push(`${advisory}\n${evidence}`);
-		else if (compilerDiagnostics.projects.length) notices.push(`Compiler diagnostics completed with no errors. ${evidence}`);
+	const unresolved = d.extractNeedsResearch(result.output);
+	const blockers = extractExternalBlockers(result.output);
+	if (sameTask && blockers.length) {
+		for (const what of blockers) if (!s.getExternalBlockers().some(b => b.what === what)) s.getExternalBlockers().push({ agent: p.agent, what });
+		s.setExternalBlockerAcknowledged(false);
+		s.setExternalBlockerRefusedOnce(false);
 	}
-	const corrected = p.inputArtifacts.filter(a => a.resolvedFromKind); if (corrected.length) notices.push(`ℹ Artifact path corrected: ${corrected.map(a => `"${a.input}" → ${a.displayPath}`).join("; ")}. Use the corrected path from now on.`);
-	if (state && d.contextPressure(state.contextPct)) notices.push(`⚠ ${d.displayName(state.def.name)} context at ${Math.ceil(state.contextPct)}% — consider /af-agents-restart ${state.def.name} (state lives in the artifacts/ledger, a restart is cheap).`);
-	const scopeViolations = scopeResult(p, observation); const scopeNotice = scopeNoticeText(scopeViolations); if (scopeNotice) notices.push(scopeNotice.trim());
-	const reviewForHandoff = isSourceReview ? reviewEvidence ?? { status: "preliminary" as const, beforeRevision: p.beforeRevision } : undefined;
-	const finding = isReviewPersona(p.agent) ? findingBudgetNotice(p.agent, blockingFindingCap(s.getTaskTier()), countReviewFindings(result.output)) || "" : ""; if (finding) notices.push(finding.trim());
-	const docs = docsLaneNotice(p.agent, p.scopeGlobs, processVerdict?.obligations?.review?.status === "open"); if (docs) notices.push(docs);
-	const contract = contractNoticeText(contractNotices); const extraction = returnExtracted ? "ℹ The specialist declared no structured return. The block below was EXTRACTED from its report by a cheap read-only pass — weaker than a declared return. Verify the named evidence before you gate on it." : "";
-	const digest = shouldUseDigest ? [extraction, structuredReturnDigest(parsedReturn) || "Structured return: (none parsed)", contract].filter(Boolean).join("\n\n") : (result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output);
-	return { content: [{ type: "text", text: `[${p.agent}] Specialist: ${submission?.status ?? executionStatus}; task accepted: ${accepted ? "yes" : "no"}. ${status} in ${Math.round(result.elapsed / 1000)}s${notices.length ? `\n\n${notices.join("\n\n")}` : ""}${processVerdict ? `\n\nProcess: ${processVerdict.explanation}` : ""}\n\n${digest}` }], details: { agent: p.agent, task: p.task, status, specialistCompletion: submission?.status ?? (executionStatus === "completed" ? "reported_unstructured" : executionStatus), resultProtocol: submission ? "submit_result" : result.specialistResultTool ? "submission_missing" : "legacy", taskAccepted: accepted, ...(protocolDiagnostic ? { recoveryCategory: "tool_protocol_error", reason: protocolDiagnostic.message, protocolDiagnostic, protocolEvidencePath, protocolEffectsEvidenceRef: protocolEvidencePath } : blockedOnUser ? { recoveryCategory: "blocked_on_user", reason: "waiting for a sourced clarification answer", protocolDiagnostic: null, protocolEvidencePath: null } : { protocolDiagnostic: null, protocolEvidencePath: null }), contractGap, executionStatus, acceptanceStatus, accepted, runtimeResult, processVerdict, ...(reviewEvidence ? { reviewEvidence } : {}), ...(operatorStateVerification?{operatorStateVerification}:{}), ...(privateConfigVerification?{privateConfigVerification}:{}), taskIdentity: runtimeResult.task, changeResult: runtimeResult.changes, verificationResult: runtimeResult.verification, verificationDiagnostics: checkDiagnostics, staleTask: !sameTask, deliverableReadback: readback, scopeRoots: p.contract.scopeRoots, assessmentPath, backendRequested: params.backend ?? "auto", backendUsed, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId ?? null, transcriptPath: result.transcriptPath ?? null, diagnostics: result.diagnostics ?? null, evidencePath: result.evidencePath ?? null, lifecycle: (result as any).lifecycle ?? null, termination: (result as any).termination ?? (result.diagnostics as any)?.termination ?? null, spawnError: (result.diagnostics as any)?.spawnError ?? null, compilerDiagnostics, compilerEvidencePath, structuredReturn: parsedReturn, returnExtracted, pending: disposition.pending, returnPath, failurePath, contractNotices, questions, orchestration: activeOrchestrationHandoff({ agent: p.agent, task: p.task, scope: p.scopeGlobs, revision: afterRevision, changes: changes.attribution === "certain" ? changes.paths : [], exitCode: result.exitCode, questions, evidenceRefs: runtimeResult.verification.evidenceRefs, review: reviewForHandoff, approvedPlan: !!s.getProcessState?.().plan?.evidenceRef, risk: s.getProcessState?.().risk === "high" ? "high" : "low", scopeBreadth: s.getProcessState?.().scope === "wide" ? "wide" : "narrow", sharedCode: false, model: backendUsed ?? undefined, elapsedMs: result.elapsed }), researchRounds, scopeViolations, sessionReset: result.sessionReset ?? null, artifacts: p.inputArtifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } };
+	return renderDispatchResult(d, p, params, run, tracking, { evidence, receipts, decision, outcome, assessmentPath, unresolved, blockers });
 }
 
 function dispatchExecutionConditions(d: DispatchExecutorDeps, params: DispatchAgentParams, ctx: ExtensionContext): Record<string, unknown> {
@@ -1009,14 +531,3 @@ function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchP
 		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, model, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
 	};
 }
-
-function scopeNoticeText(v: any): string {
- if (!v) return "";
- const gaps = v.gaps?.length ? `\n\n⚠ Git observation gaps: ${v.gaps.map((gap: { scope: string; reason: string }) => `${gap.scope}: ${gap.reason}`).join("; ")}. Other observed scopes remain available; coverage is incomplete.` : "";
- if (v.skipped) return `\n\n⚠ Scope gate skipped: ${v.reason || "not a git worktree"}.${gaps}`;
- if (!v.outOfScope?.length) return gaps;
- const overlap = v.concurrentWritableOverlap ? " Concurrent writable dispatches overlapped this run, so attribution is approximate." : "";
- return `${gaps}\n\n⚠ Scope advisory: changed outside declared scope: ${v.outOfScope.join(", ")}. Review these paths and decide whether to accept them or explicitly order cleanup; the hub did not revert anything.${overlap}`;
-}
-function structuredReturnDigest(parsed: any): string { if (!parsed) return ""; const lines = ["Structured return (parsed):"]; if(parsed.summary)lines.push(parsed.summary); if(parsed.evidence?.length)lines.push("Evidence references: "+parsed.evidence.map((ref:any)=>ref.path).join(", ")); for (const key of ["assertions_proven", "assertions_unproven", "assertions_failed"]) { const entries = parsed[key] || []; if (!entries.length) continue; lines.push(`${key}:`); for (const entry of entries) { const evidence = entry.evidence ? ` — evidence: ${entry.evidence}` : ""; const reason = entry.reason ? ` — reason: ${entry.reason}` : ""; const note = entry.note || (entry.evidence ? "" : "(no note)"); lines.push(`- ${entry.id}${note ? `: ${note}` : ""}${evidence}${reason}`); } } for (const key of ["changed_files", "tests_run", "open_risks", "requires_user_decision"]) { const entries = parsed[key] || []; if (entries.length) lines.push(`${key}: ${entries.slice(0, 5).join("; ")}${entries.length > 5 ? " …" : ""}`); } return lines.join("\n"); }
-function contractNoticeText(notices: any[]): string { if (!notices?.length) return ""; const lines = ["⚠ Structured return contract notices:"]; const missing = notices.filter(n => n.type === "missing").map(n => n.id); const noStructured = notices.find(n => n.type === "no_structured_return"); if (noStructured) lines.push(`- no_structured_return: no parseable structured return for dispatched assertions ${(noStructured.ids || []).join(", ")} — treat all as unproven; full output is on disk.`); if (missing.length) lines.push(`- missing: return does not cover ${missing.join(", ")} — treat as unproven.`); for (const n of notices.filter(n => n.type === "proven_without_evidence")) lines.push(`- proven_without_evidence: ${n.id} claimed proven without named evidence — demoted to unproven.`); for (const n of notices.filter(n => n.type === "compiler_diagnostics")) lines.push(`- compiler_diagnostics: ${n.id} was claimed proven but a completed compiler check found an error in an observed changed file — demoted to unproven with original evidence retained.`); return lines.join("\n"); }
