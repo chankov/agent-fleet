@@ -67,13 +67,21 @@ test("ledger identifies each roster and research card and does not mutate the pr
 });
 
 test("volatile state is separately attributable while stable policy stays byte-stable", () => {
-	const first = { ...representativeParts(false), stateCapsule: "## Current task state\n- dispatches: 1" };
+	const parts = representativeParts(false);
+	const first = { ...parts, stateCapsule: "## Current task state\n- dispatches: 1" };
 	const second = { ...first, stateCapsule: "## Current task state\n- dispatches: 10" };
-	const firstLedger = recordHubLedger(assembleHubSystemPrompt(first), namedHubLedgerParts(first));
-	const secondLedger = recordHubLedger(assembleHubSystemPrompt(second), namedHubLedgerParts(second));
-	const stable = (ledger: ReturnType<typeof recordHubLedger>) => ledger.filter(entry => entry.id !== "hub/state").map(entry => [entry.id, entry.chars, entry.source]);
-	assert.deepEqual(stable(firstLedger), stable(secondLedger));
-	assert.notEqual(firstLedger.find(entry => entry.id === "hub/state")?.chars, secondLedger.find(entry => entry.id === "hub/state")?.chars);
+	const fixedPrompt = assembleHubSystemPrompt(parts);
+	const fixedLedger = recordHubLedger(fixedPrompt, namedHubLedgerParts(parts)).slice(0, -1);
+	for (const input of [first, second]) {
+		const prompt = assembleHubSystemPrompt(input);
+		const state = `\n\n${input.stateCapsule}`;
+		assert.equal(prompt, fixedPrompt + state);
+		const ledger = recordHubLedger(prompt, namedHubLedgerParts(input));
+		assert.deepEqual(ledger.slice(0, -1), fixedLedger);
+		assert.equal(ledger.at(-1)?.id, "hub/state");
+		assert.equal(ledger.at(-1)?.chars, state.length);
+		assert.equal(ledger.reduce((sum, entry) => sum + entry.chars, 0), prompt.length);
+	}
 });
 
 

@@ -110,13 +110,50 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
-		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/roster/builder",
-		"hub/policy/dispatch", "hub/policy/triage", "hub/policy/verification", "hub/policy/project", "hub/state",
-		"hub/research/recon", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction",
-		"hub/separators-and-rules", ...ALL_PACKS.map(pack => `hub/capability/${pack}`),
+		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/policy/dispatch",
+		"hub/roster/builder", "hub/research/recon", "hub/policy/triage", "hub/policy/verification",
+		"hub/policy/project", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction",
+		"hub/separators-and-rules", "hub/state", ...ALL_PACKS.map(pack => `hub/capability/${pack}`),
 	]);
 	assert.equal(built.ledger.reduce((sum, entry) => sum + entry.chars, 0), built.systemPrompt.length);
 	assert.equal(built.systemPrompt.includes("hub/capability/"), false, "ledger stays metadata-only");
+});
+
+test("a dispatch counter change preserves the shared prefix through all Hub instructions", t => {
+	const ctx = fixture({ rulesProtocol: "\n## Project rules\nRead the repository guide.\n" });
+	const state = ctx.getPromptState();
+	const first = buildHubSystemPrompt(ctx);
+	ctx.getPromptState = () => ({ ...state, turnDispatchCount: state.turnDispatchCount + 1 });
+	const second = buildHubSystemPrompt(ctx);
+	let prefixLength = 0;
+	while (prefixLength < first.systemPrompt.length && prefixLength < second.systemPrompt.length
+		&& first.systemPrompt[prefixLength] === second.systemPrompt[prefixLength]) prefixLength++;
+	t.diagnostic(`Shared prefix after changing one counter: ${prefixLength} characters`);
+
+	const shared = first.systemPrompt.slice(0, prefixLength);
+	for (const heading of ["## Verification Contract", "## Project rules", "## Peer agents (coms)", "## Fleet (herdr)", "## Context recovery", "## Hard Rules"]) {
+		assert.ok(shared.includes(heading), `${heading} must precede the changed counter`);
+	}
+	assert.ok(shared.endsWith("turn dispatches: "));
+	assert.equal(second.systemPrompt, first.systemPrompt.replace("turn dispatches: 1;", "turn dispatches: 2;"));
+	assert.deepEqual(second.ledger, first.ledger, "one digit changes the state without changing its ledger size");
+});
+
+test("changing capability packs refreshes applicable instructions and ledger entries", () => {
+	const ctx = fixture({ active: ["core"] });
+	const core = buildHubSystemPrompt(ctx);
+	ctx.getCapabilityResolution = () => resolution(["core", "fleet", "verification"]);
+	const fleet = buildHubSystemPrompt(ctx);
+
+	assert.doesNotMatch(core.systemPrompt, /## Native Roster|## Verification Contract/);
+	assert.match(fleet.systemPrompt, /## Native Roster/);
+	assert.match(fleet.systemPrompt, /## Verification Contract/);
+	assert.equal(core.ledger.find(entry => entry.id === "hub/policy/verification")?.chars, 0);
+	assert.ok((fleet.ledger.find(entry => entry.id === "hub/policy/verification")?.chars ?? 0) > 0);
+	assert.equal(fleet.ledger.find(entry => entry.id === "hub/capability/verification")?.label, "Capability verification: active");
+	assert.equal(fleet.ledger.reduce((sum, entry) => sum + entry.chars, 0), fleet.systemPrompt.length);
+	ctx.getCapabilityResolution = () => resolution(["core"]);
+	assert.deepEqual(buildHubSystemPrompt(ctx), core);
 });
 
 test("trusted tool catalog producer and refusal state survive the production prompt pipeline", async () => {
@@ -131,6 +168,13 @@ test("trusted tool catalog producer and refusal state survive the production pro
 	});
 	const notice = [catalog.toolCatalogNotice(delta), refusals.unknownToolNotice(diagnostic)].join("\n");
 	const built = buildHubSystemPrompt(fixture({ catalogNotice: notice }));
+	const withoutNotice = buildHubSystemPrompt(fixture());
+	assert.equal(built.systemPrompt, withoutNotice.systemPrompt + "\n\n" + notice);
+	assert.deepEqual(built.ledger.filter(entry => entry.id !== "hub/state"), withoutNotice.ledger.filter(entry => entry.id !== "hub/state"));
+	assert.equal(
+		built.ledger.find(entry => entry.id === "hub/state")!.chars - withoutNotice.ledger.find(entry => entry.id === "hub/state")!.chars,
+		notice.length + 2,
+	);
 	assert.match(built.systemPrompt, /Removed: bash, read, write/);
 	assert.match(built.systemPrompt, /Valid active substitute: dispatch_agent/);
 	assert.match(built.systemPrompt, /Permission expansion: false/);

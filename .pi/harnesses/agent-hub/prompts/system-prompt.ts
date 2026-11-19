@@ -83,8 +83,10 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 ` : "");
 	const languageLines = languageFragment(userLanguage, fleetActive);
 	const busyProviders = providerLimits.filter(limit => limit.inFlight > 0 || limit.queued > 0);
+	const catalogNotice = ctx.getToolCatalogNotice?.();
 	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution, askUserAvailable)
-		+ (busyProviders.length ? `\n- local model slots in use: ${busyProviders.map(limit => `${limit.provider} ${limit.inFlight}/${limit.limit}${limit.queued ? ` (+${limit.queued} queued)` : ""}`).join(", ")}` : "");
+		+ (busyProviders.length ? `\n- local model slots in use: ${busyProviders.map(limit => `${limit.provider} ${limit.inFlight}/${limit.limit}${limit.queued ? ` (+${limit.queued} queued)` : ""}`).join(", ")}` : "")
+		+ (catalogNotice ? `\n\n${catalogNotice}` : "");
 	const agenticRecommended = activeTools.includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
 	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : "", activeTools.includes('ask_system1_files') ? FILE_DISCOVERY_FRAGMENT : ""].filter(Boolean).join("\n\n");
 	const artifactRoot = ctx.getArtifactRoot?.();
@@ -97,7 +99,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 	const compactionSection = compactionActive ? COMPACTION_FRAGMENT : "";
 	const systemPrompt = assembleHubSystemPrompt({
 		intro: workModeText.intro,
-		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${activeTools.map(name => `\`${name}\``).join(", ") || "(none)"}${ctx.getToolCatalogNotice?.() ? `\n${ctx.getToolCatalogNotice()}` : ""}`,
+		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${activeTools.map(name => `\`${name}\``).join(", ") || "(none)"}`,
 		languageLines,
 		activeTeamName: ctx.getActiveTeamName(),
 		teamMembers,
@@ -122,7 +124,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		languageLines,
 		teamMembers,
 		agentCards,
-		dispatchSection: dispatchSection + (fleetActive ? workModeText.delegationGuide : ""),
+		dispatchSection: (fleetActive ? workModeText.delegationGuide : "") + dispatchSection,
 		modeSection: stableModeSection,
 		verificationSection,
 		projectPolicySection,
