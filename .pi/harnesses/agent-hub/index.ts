@@ -32,7 +32,7 @@ import { registerRecoverTask } from './tools/recover-task.ts';
 import { createNoProgressGuard, processRecoveryAttempts } from "./no-progress.ts";
 import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts';
 import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
-import { hasExplicitDispatcher, isCompleteProfile, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
+import { hasExplicitDispatcher, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
 import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
 import { resolveAssist } from './assist-profile.ts';
@@ -40,7 +40,7 @@ import { registerFilesystemTool, FILESYSTEM_POLICY_ROOTS_ENV } from './filesyste
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
 
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
-import { DEFAULT_OVERRIDES, THINKING_LEVELS, parseAgentTeamOverrides, type AgentTeamOverrides } from "./config/overrides.ts";
+import { DEFAULT_OVERRIDES, parseAgentTeamOverrides, type AgentTeamOverrides } from "./config/overrides.ts";
 import { loadAgentConfiguration } from "./config/agents.ts";
 import { abbrevThinking, displayName, extractAskUserQuestions, extractNeedsResearch, resolveDelegateExtension, resolveThinkingLevel } from "./presentation.ts";
 import { MAX_LIVE_ENTRY_CHARS, appendTimelineEvent, appendTimelineText, flushTimelineStore } from "./timeline.ts";
@@ -703,7 +703,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	const {
 		allowedModels, substitutedModel, resolvedModel, resolvedSubagentModel,
-		resolvedThinking, switchablePersonaDef, allKnownModels,
+		resolvedThinking,
 	} = modelPolicy;
 
 	let profileCommandContext: any;
@@ -1395,6 +1395,26 @@ export default function (pi: ExtensionAPI) {
 
 	const commandCtx: CommandContext = {
 		setWidgetContext: ctx => { widgetCtx = ctx; },
+		modelCommands: {
+			policy: modelPolicy,
+			activeAgents: agentStates,
+			getResearchPersonas: () => researchPersonas,
+			getProfiles: () => modelProfiles,
+			prefersComs: name => (dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms",
+			updateWidget,
+			shortModel,
+			activateProfile: (name, profile, ctx) => {
+				profileCommandContext = ctx;
+				return profileActivation.activate(name, profile);
+			},
+			applyWorkModeTools,
+			openSubstitutions: ctx => openFleetDashboard(ctx, true),
+			applySubstitution: (source, target, ctx) => modelPolicy.applySessionSubstitution(source, target, {
+				loadAvailable: current => loadAvailableModelChoices(ctx, current),
+				// Pi's RPC UI forwards the existing substitution "success" severity verbatim.
+				notify: (message, level) => ctx.ui.notify(message, level as Parameters<typeof ctx.ui.notify>[1]),
+			}),
+		},
 		handleTaskTriageRecover: () => {
 			if (!processPersistenceBlocked) return false;
 			try {
@@ -1635,207 +1655,6 @@ export default function (pi: ExtensionAPI) {
 				`Routing is decided per dispatch against the live coms pool (/af-coms to refresh).`,
 				"info",
 			);
-		},
-		handleAgentModel: async (args, ctx) => {
-			widgetCtx = ctx;
-			const arg = (args || "").trim().toLowerCase();
-
-			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
-			// the role's declared model (default) + the parent's candidate list.
-			if (arg.includes(".")) {
-				const dot = arg.indexOf(".");
-				const personaName = arg.slice(0, dot);
-				const roleName = arg.slice(dot + 1);
-				const parent = agentStates.get(personaName);
-				const roles = parent?.def.subagents || {};
-				const roleKey = Object.keys(roles).find(r => r.toLowerCase() === roleName);
-				if (!parent || !roleKey) {
-					const valid = Array.from(agentStates.values()).flatMap(s =>
-						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
-					ctx.ui.notify(
-						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
-						"error",
-					);
-					return;
-				}
-				const role = roles[roleKey];
-				const overrideKey = `${personaName}.${roleKey.toLowerCase()}`;
-				const candidates: string[] = [];
-				for (const m of [role.model, ...allowedModels(parent.def)]) {
-					if (m && !candidates.includes(m)) candidates.push(m);
-				}
-				const current = resolvedSubagentModel(parent.def.name, roleKey, role.model);
-				const options = candidates.map(m => {
-					const tags = [m === role.model ? "default" : "", m === current ? "current" : ""].filter(Boolean);
-					return tags.length ? `${m} (${tags.join(", ")})` : m;
-				});
-				const label = `${displayName(parent.def.name)}.${roleKey}`;
-				const choice = await ctx.ui.select(`Model for ${label}`, options);
-				if (choice === undefined) return;
-				const picked = candidates[options.indexOf(choice)];
-				const effectivePicked = substitutedModel(picked) ?? picked;
-				if (effectivePicked === current) {
-					ctx.ui.notify(`${label} is already on ${effectivePicked}`, "info");
-					return;
-				}
-				if (picked === role.model) {
-					modelPolicy.setSubagentOverride(personaName, roleKey, undefined);
-				} else {
-					modelPolicy.setSubagentOverride(personaName, roleKey, picked);
-				}
-				updateWidget();
-				ctx.ui.notify(
-					`${label} → ${effectivePicked} (applies on next dispatch of ${parent.def.name})`,
-					"info",
-				);
-				return;
-			}
-
-			const name = arg;
-			// Team member (live state) OR a research persona — both switchable.
-			const def = name ? switchablePersonaDef(name) : undefined;
-			if (!def) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => s.def.name),
-					...researchPersonas.map(d => d.name),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
-				return;
-			}
-			if (!def.models || def.models.length === 0) {
-				ctx.ui.notify(
-					`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file} or a \`models.${def.name}:\` override in .ai/agent-fleet-overrides.md.`,
-					"warning",
-				);
-				return;
-			}
-			const candidates = allowedModels(def);
-			const current = resolvedModel(def);
-			// A persona without a frontmatter default runs on the dispatcher's model —
-			// offer that as an explicit candidate so the override can be cleared.
-			const DISPATCHER_DEFAULT = "(dispatcher's model)";
-			if (!def.model) candidates.unshift(DISPATCHER_DEFAULT);
-			const options = candidates.map(m => {
-				const isDefault = def.model ? m === def.model : m === DISPATCHER_DEFAULT;
-				const isCurrent = current ? m === current : m === DISPATCHER_DEFAULT;
-				const tags = [isDefault ? "default" : "", isCurrent ? "current" : ""].filter(Boolean);
-				return tags.length ? `${m} (${tags.join(", ")})` : m;
-			});
-			const choice = await ctx.ui.select(`Model for ${displayName(def.name)}`, options);
-			if (choice === undefined) return;
-			const picked = candidates[options.indexOf(choice)];
-			const effectivePicked = picked === DISPATCHER_DEFAULT ? picked : (substitutedModel(picked) ?? picked);
-			const pickedIsCurrent = current ? effectivePicked === current : picked === DISPATCHER_DEFAULT;
-			if (pickedIsCurrent) {
-				ctx.ui.notify(`${displayName(def.name)} is already on ${effectivePicked}`, "info");
-				return;
-			}
-			if (picked === def.model || picked === DISPATCHER_DEFAULT) {
-				modelPolicy.setPersonaOverride(name, undefined);
-			} else {
-				modelPolicy.setPersonaOverride(name, picked);
-			}
-			updateWidget();
-			// Research helpers spawn fresh each time, so the switch lands on their
-			// next spawn; team members apply on next dispatch (restartable now).
-			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next spawn_research"
-				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} → ${effectivePicked} (${applyHint})`, "info");
-			if ((dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms") {
-				ctx.ui.notify(
-					`Note: ${displayName(def.name)} prefers a coms peer (dispatch-policy.yaml) — this model override only applies to native(-fallback) runs; the peer keeps its own model.`,
-					"info",
-				);
-			}
-		},
-		handleAgentModelThinking: async (args, ctx) => {
-			widgetCtx = ctx;
-			const name = (args || "").trim().toLowerCase();
-			// Team member (live state) OR a research persona — both switchable.
-			const def = name ? switchablePersonaDef(name) : undefined;
-			if (!def) {
-				const known = [
-					...Array.from(agentStates.values()).map(s => s.def.name),
-					...researchPersonas.map(d => d.name),
-				].join(", ");
-				ctx.ui.notify(`Usage: /af-agent-model-thinking <persona>. Known: ${known || "none"}`, "error");
-				return;
-			}
-			const defaultLevel = resolveThinkingLevel(def.thinking);
-			const current = resolveThinkingLevel(resolvedThinking(def));
-			const levels = [...THINKING_LEVELS];
-			const options = levels.map(l => {
-				const tags = [l === defaultLevel ? "default" : "", l === current ? "current" : ""].filter(Boolean);
-				return tags.length ? `${l} (${tags.join(", ")})` : l;
-			});
-			const choice = await ctx.ui.select(`Thinking level for ${displayName(def.name)}`, options);
-			if (choice === undefined) return;
-			const picked = levels[options.indexOf(choice)];
-			if (picked === current) {
-				ctx.ui.notify(`${displayName(def.name)} is already on thinking: ${picked}`, "info");
-				return;
-			}
-			if (picked === defaultLevel) {
-				modelPolicy.setThinkingOverride(name, undefined);
-			} else {
-				modelPolicy.setThinkingOverride(name, picked);
-			}
-			updateWidget();
-			// Research helpers spawn fresh each time, so the switch lands on their
-			// next spawn; team members apply on next dispatch (restartable now).
-			const applyHint = (def.kind || "").toLowerCase() === "research"
-				? "applies on next spawn_research"
-				: `applies on next dispatch; /af-agents-restart ${def.name} to apply now`;
-			ctx.ui.notify(`${displayName(def.name)} thinking → ${picked} (${applyHint})`, "info");
-		},
-		handleModels: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = Object.keys(modelProfiles);
-			if (names.length === 0) {
-				ctx.ui.notify("No model profiles loaded — define .pi/agents/model-profiles.yaml (invalid profiles are dropped at session start).", "warning");
-				return;
-			}
-			let profileName = (args || "").trim();
-			if (!profileName) {
-				const options = names.map(n =>
-					isCompleteProfile(modelProfiles[n])
-						? `${n} — complete fleet (${shortModel((modelProfiles[n] as any).defaults.model)} default)`
-						: `${n} — ${Object.entries(modelProfiles[n]).map(([p, m]) => `${p}: ${shortModel(m)}`).join(", ")}`,
-				);
-				const choice = await ctx.ui.select("Select model profile", options);
-				if (choice === undefined) return;
-				profileName = names[options.indexOf(choice)];
-			}
-			const profile = modelProfiles[profileName];
-			if (!profile) {
-				ctx.ui.notify(`No profile "${profileName}". Known: ${names.join(", ")}`, "error");
-				return;
-			}
-			profileCommandContext=ctx;
-			try {
-				const applied=await profileActivation.activate(profileName,profile);
-				applyWorkModeTools();
-				ctx.ui.setStatus('hub-model-profile',isCompleteProfile(profile)?`Models: ${profileName}`:undefined);
-				ctx.ui.notify(`Profile "${profileName}": ${applied.length} personas${isCompleteProfile(profile)?', all children, dispatcher and auxiliary models':''} switched.`, 'info');
-			} catch(error) {ctx.ui.notify(String(error),'error');}
-		},
-		handleAgentModelsSubstitute: async (args, ctx) => {
-			widgetCtx = ctx;
-			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (tokens.length === 0) {
-				if (allKnownModels().length === 0) {
-					ctx.ui.notify("No configured persona or sub-role models are available as substitution sources.", "warning");
-					return;
-				}
-				await openFleetDashboard(ctx, true);
-				return;
-			}
-			if (tokens.length !== 2) {
-				ctx.ui.notify("Usage: /af-agent-models-substitute [<source> <target>]", "error");
-				return;
-			}
-			await applySessionModelSubstitution(tokens[0], tokens[1], ctx);
 		},
 		handleWatchdog: async (args, ctx) => {
 			widgetCtx = ctx;
@@ -2118,10 +1937,6 @@ export default function (pi: ExtensionAPI) {
 		currentFleetRow: key => fleetSource.rows(Date.now(), { showFinished: true }).find(row => row.key === key),
 	});
 	const { openFleetDetail, loadAvailableModelChoices } = detailPanel;
-	const applySessionModelSubstitution = (source: string, target: string, ctx: any) => modelPolicy.applySessionSubstitution(source, target, {
-		loadAvailable: current => loadAvailableModelChoices(ctx, current),
-		notify: (message, level) => ctx.ui.notify(message, level),
-	});
 
 	fleetActions = createFleetActions<AgentState, ResearchState>({
 		getRows: () => fleetSource.rows(Date.now(), { showFinished: true }),

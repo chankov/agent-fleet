@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { registerAgentModel } from "../commands/agent-model.ts";
+import { registerAgentModelThinking } from "../commands/agent-model-thinking.ts";
+import type { CommandContext } from "../commands/context.ts";
+import type { AgentDef } from "../types.ts";
 import { createModelPolicy } from "./models.ts";
 
-const defs = [
-	{ name: "builder", model: "p/base", fallbackModel: "p/fallback", models: ["p/fast"], thinking: "high", subagents: { review: { model: "p/review" } } },
-	{ name: "researcher", model: "p/research", kind: "research" },
+const base = { description: "", systemPrompt: "", tools: "", file: "fixture.md" };
+const defs: AgentDef[] = [
+	{ ...base, name: "builder", model: "p/base", fallbackModel: "p/fallback", models: ["p/fast"], thinking: "high", subagents: { review: { model: "p/review" } } },
+	{ ...base, name: "researcher", model: "p/research", kind: "research" },
 ];
 function fixture() {
 	let refreshes = 0;
@@ -53,4 +59,60 @@ test('complete profiles cover all children, clear substitutions, and restore pri
  assert.equal(policy.resolvedSubagentModel('builder','review','p/review'),'p/review-before');
  assert.equal(policy.resolvedThinking(defs[0]),'high');
  assert.equal(policy.resolvedModel(defs[0]),'p/base');
+});
+
+test("registered selectors apply and clear sub-role models and research thinking in the shared policy", async () => {
+	const { policy } = fixture();
+	const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
+	const pi = { registerCommand: (name, command) => { commands.set(name, command); } } satisfies Pick<ExtensionAPI, "registerCommand">;
+	let choice: string | undefined;
+	let refreshes = 0;
+	const notices: string[] = [];
+	const ctx = {
+		ui: {
+			select: async (_title: string, options: string[]) => {
+				if (choice !== undefined) assert.ok(options.includes(choice), options.join(", "));
+				return choice;
+			},
+			notify: (message: string) => notices.push(message),
+		},
+	} as ExtensionCommandContext;
+	const commandCtx = {
+		setWidgetContext: value => { assert.equal(value, ctx); },
+		getAgentModelCompletions: () => null,
+		getAgentModelThinkingCompletions: () => null,
+		modelCommands: {
+			policy,
+			activeAgents: new Map([["builder", { def: defs[0] }]]),
+			getResearchPersonas: () => [defs[1]],
+			updateWidget: () => { refreshes++; },
+		},
+	} as CommandContext;
+
+	registerAgentModel(pi as ExtensionAPI, commandCtx);
+	registerAgentModelThinking(pi as ExtensionAPI, commandCtx);
+	const model = commands.get("af-agent-model")!;
+	const thinking = commands.get("af-agent-model-thinking")!;
+	await model.handler("builder.review", ctx);
+	assert.equal(refreshes, 0);
+
+	choice = "p/fast";
+	await model.handler(" BUILDER.REVIEW ", ctx);
+	assert.equal(policy.getSubagentOverride("builder", "review"), "p/fast");
+	assert.equal(policy.resolvedModel(defs[0]), "p/base");
+	assert.match(notices.at(-1)!, /applies on next dispatch of builder/);
+
+	choice = "p/review (default)";
+	await model.handler("builder.review", ctx);
+	assert.equal(policy.getSubagentOverride("builder", "review"), undefined);
+
+	choice = "xhigh";
+	await thinking.handler(" Researcher ", ctx);
+	assert.equal(policy.resolvedThinking(defs[1]), "xhigh");
+	assert.match(notices.at(-1)!, /applies on next spawn_research/);
+
+	choice = "off (default)";
+	await thinking.handler("researcher", ctx);
+	assert.equal(policy.resolvedThinking(defs[1]), defs[1].thinking);
+	assert.equal(refreshes, 4);
 });

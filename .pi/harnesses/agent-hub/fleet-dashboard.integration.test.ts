@@ -319,8 +319,8 @@ test("shortcuts, command, footer, and pool use the separate fleet flow", () => {
 	assert.match(agentsListCommandSource, /registerCommand\("af-agents-list"[\s\S]*?handleAgentsList/);
 	assert.match(source, /handleAgentsList: async \(_args, _ctx\) => \{[\s\S]*?await openFleetDashboard\(_ctx\)/);
 	assert.match(source, /registerAgentModelsSubstitute\(pi, commandCtx\)/);
-	assert.match(agentModelsSubstituteCommandSource, /registerCommand\("af-agent-models-substitute"[\s\S]*?getSubstituteCompletions[\s\S]*?handleAgentModelsSubstitute/);
-	assert.match(source, /handleAgentModelsSubstitute: async \(args, ctx\) => \{[\s\S]*?tokens\.length === 0[\s\S]*?openFleetDashboard\(ctx, true\)/);
+	assert.match(agentModelsSubstituteCommandSource, /registerCommand\("af-agent-models-substitute"[\s\S]*?getSubstituteCompletions[\s\S]*?tokens\.length === 0[\s\S]*?openSubstitutions\(ctx\)/);
+	assert.match(source, /openSubstitutions: ctx => openFleetDashboard\(ctx, true\)/);
 	assert.doesNotMatch(shortcutSource, /alt\+m|openWorkModePicker/);
 	assert.doesNotMatch(shortcutSource, /alt\+shift\+a/);
 	assert.doesNotMatch(shortcutSource, /openMarkedAgent/);

@@ -1,9 +1,27 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
+import type { ModelProfile, ModelProfiles } from "../config/model-profiles.ts";
+import type { ModelPolicy } from "../policy/models.ts";
+import type { AgentDef } from "../types.ts";
+
+interface ModelCommandContext {
+	policy: ModelPolicy<AgentDef>;
+	activeAgents: ReadonlyMap<string, { def: AgentDef }>;
+	getResearchPersonas(): readonly AgentDef[];
+	getProfiles(): ModelProfiles;
+	prefersComs(name: string): boolean;
+	updateWidget(): void;
+	shortModel(model: string | undefined): string;
+	activateProfile(name: string, profile: ModelProfile, ctx: ExtensionContext): Promise<string[]>;
+	applyWorkModeTools(): void;
+	openSubstitutions(ctx: ExtensionContext): Promise<void>;
+	applySubstitution(source: string, target: string, ctx: ExtensionContext): Promise<boolean>;
+}
 
 /** Dependencies command registrars receive from the hub composition root. */
 export interface CommandContext {
 	setWidgetContext(ctx: ExtensionContext): void;
+	modelCommands: ModelCommandContext;
 	handleAgentsTeam(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsList(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsHistory(args: string, ctx: ExtensionContext): Promise<void>;
@@ -18,10 +36,6 @@ export interface CommandContext {
 	handleHubReport(args: string, ctx: ExtensionContext): Promise<void>;
 	handleZoom(args: string, ctx: ExtensionContext): Promise<void>;
 	handleDispatchPolicy(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentModel(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentModelThinking(args: string, ctx: ExtensionContext): Promise<void>;
-	handleModels(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentModelsSubstitute(args: string, ctx: ExtensionContext): Promise<void>;
 	handleWatchdog(args: string, ctx: ExtensionContext): Promise<void>;
 	handleComs(args: string, ctx: ExtensionContext): Promise<void>;
 	handleHandoff(args: string, ctx: ExtensionContext): Promise<void>;
