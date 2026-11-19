@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const fastTestFiles = [
+export const fastTestFiles = [
   "bin/test/features.test.js",
   "bin/test/coms-stop-hook.test.js",
   ".pi/harnesses/agent-hub/process-obligations.test.ts",
@@ -141,7 +141,6 @@ const fastTestFiles = [
   ".pi/agent-fleet/scripts/workflows/lib/writer-lease-race.test.ts",
 ];
 
-console.log(`Fast lane: ${fastTestFiles.length} focused test files; release CI uses this lane. npm run test:full remains available locally.`);
 // The snapshot tests exercise a production 1500ms deadline; the other files
 // launch many real Git/SDK subprocesses. Isolate these integration scenarios
 // from parallel CPU contention without changing any production time budget.
@@ -160,11 +159,14 @@ const phases = [
   {name:"bounded integrations",concurrency:1,files:fastTestFiles.filter(file=>deadlineSensitiveFiles.has(file))},
   {name:"parallel",concurrency:4,files:fastTestFiles.filter(file=>!deadlineSensitiveFiles.has(file))},
 ];
-for(const phase of phases){
-  if(!phase.files.length)continue;
-  console.log(`Fast lane phase: ${phase.name} (${phase.files.length} files)`);
-  // Under CI, failed tests get one rerun; retried passes are reported as flaky.
-  const result=runNodeTestWithRerun({args:[`--test-concurrency=${phase.concurrency}`,"--test-timeout=30000",...phase.files],cwd:root,label:`Fast lane (${phase.name})`});
-  if(result.error){console.error(`Unable to start the fast test lane: ${result.error.message}`);process.exitCode=1;break;}
-  if(result.status!==0){process.exitCode=result.status??1;break;}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.log(`Fast lane: ${fastTestFiles.length} focused test files; release CI uses this lane. npm run test:full remains available locally.`);
+  for(const phase of phases){
+    if(!phase.files.length)continue;
+    console.log(`Fast lane phase: ${phase.name} (${phase.files.length} files)`);
+    // Under CI, failed tests get one rerun; retried passes are reported as flaky.
+    const result=runNodeTestWithRerun({args:[`--test-concurrency=${phase.concurrency}`,"--test-timeout=30000",...phase.files],cwd:root,label:`Fast lane (${phase.name})`});
+    if(result.error){console.error(`Unable to start the fast test lane: ${result.error.message}`);process.exitCode=1;break;}
+    if(result.status!==0){process.exitCode=result.status??1;break;}
+  }
 }

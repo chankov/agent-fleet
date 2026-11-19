@@ -30,6 +30,7 @@ import { collectModelTargets } from "../lib/doctor.js";
 import { buildManifest } from "../lib/manifest.js";
 import { missingPackagedDocLinks } from "./helpers/packaged-doc-links.js";
 import { assertPiSkillDiscovery } from "./helpers/pi-skill-discovery.js";
+import { selectFullTestFiles } from "./run-full.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -586,8 +587,9 @@ test("package, snapshot, and harness closure surfaces stay aligned", () => {
   assert.ok(pkg.files.includes(".pi/agent-fleet/hermes/desktop-plugins/"));
   assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/watchdog-tests/"));
   assert.ok(pkg.files.includes("!.pi/agent-fleet/hermes/**/__pycache__/"));
-  assert.match(pkg.scripts["test:full"], /\.pi\/agent-fleet\/scripts\/coms-cli\.test\.ts/);
-  assert.doesNotMatch(pkg.scripts["test:full"], /scripts\/lib\/codex-remote-control\.test\.ts/);
+  const fullTests = selectFullTestFiles();
+  assert.ok(fullTests.includes(".pi/agent-fleet/scripts/coms-cli.test.ts"));
+  assert.ok(!fullTests.includes(".pi/agent-fleet/scripts/lib/codex-remote-control.test.ts"));
   const snapshot = readFileSync(join(root, "bin", "snapshot-version.js"), "utf8");
   for (const required of ["docs/codex-local-mcp.md", "docs/fleet-native-voice.md", "docs/codex-setup.md", ".pi/agent-fleet/hermes", "docs/coms-hermes-bridge.md", ".pi/agent-fleet/scripts", "justfile", "bin/catalog/harness-runtime-closure.json"]) {
     assert.match(snapshot, new RegExp(`"${required}"`), `snapshot missing ${required}`);

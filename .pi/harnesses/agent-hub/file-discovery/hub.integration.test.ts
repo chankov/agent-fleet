@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {type TestContext} from 'node:test';
 import {createCommunicationStore} from '../system1-communication-store.ts';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,readFileSync} from 'node:fs';
@@ -8,7 +8,7 @@ import {configureDiscoveryHub,registerDiscoveryHub,discoveryHubEnabled,discovery
 import {Socket} from 'node:net';
 import {spawnPiAgent} from '../spawn.ts';
 import {rankDiscovery} from './broker-client.ts';
-import {BROKER_LIMITS} from './broker.ts';
+import {BROKER_LIMITS, type BrokerReply} from './broker.ts';
 import {FILE_DISCOVERY_LIMITS} from '../../lib/system1/config-file-discovery.js';
 import {normalizeSystem1Config} from '../../lib/system1/config-v2.js';
 import {resolveWorkModeTools} from '../work-mode.ts';
@@ -205,6 +205,40 @@ test('T12 production A paths / B shallow pattern / C recursive: >255 full-list p
 function until<T>(promise:Promise<T>,ms=5000):Promise<T>{
  return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('barrier timeout')),ms);promise.then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);reject(error);});});
 }
+function waitForEvaluation(ready:Promise<void>,pending:Promise<BrokerReply>){
+ return until(Promise.race([ready,pending.then(reply=>{
+  assert.fail(`Rank completed before evaluation started (${reply.ok?'success':reply.error})`);
+ })]),8000);
+}
+function controlDeadlineTimers(t:TestContext,source:'broker'|'broker-client',delays:readonly number[]){
+ const schedule=globalThis.setTimeout;
+ const timers=new Map<number,{handle:ReturnType<typeof setTimeout>;fire:()=>void}>();
+ // Keep socket and worker startup on real time. Only the selected deadline
+ // callbacks are held until the fixture has reached the phase being tested.
+ const replacement=((fn:(...args:any[])=>void,delay?:number,...args:any[])=>{
+  if(delay===undefined||!delays.includes(delay)||!new Error().stack?.includes(`/file-discovery/${source}.ts:`)){
+   return schedule(fn,delay,...args);
+  }
+  assert.ok(!timers.has(delay),`Unexpected second ${source} timer at ${delay} ms`);
+  const handle=schedule(()=>{},delay).unref();
+  timers.set(delay,{handle,fire:()=>fn(...args)});
+  return handle;
+ }) as typeof setTimeout;
+ const mock=t.mock.method(globalThis,'setTimeout',replacement);
+ return {
+  expire(delay:number){
+   const timer=timers.get(delay);
+   assert.ok(timer,`Missing ${source} timer at ${delay} ms`);
+   timers.delete(delay);
+   clearTimeout(timer.handle);
+   timer.fire();
+  },
+  restore(){
+   mock.mock.restore();
+   for(const timer of timers.values())clearTimeout(timer.handle);
+  },
+ };
+}
 test('Hub store projects a client deadline as unavailable before the runtime job timer, and explicit abort stays cancelled',async t=>{
  const f=setup(t);assert.equal(f.snapshot.consumers.fileDiscovery.config.limits.jobTimeoutMs,20000);
  const channel=discoveryHubNativeChannel(f.pi)!;const broker=await channel.ready;assert.ok(broker);
@@ -214,16 +248,26 @@ test('Hub store projects a client deadline as unavailable before the runtime job
  runtime.rank=async(job:any)=>{const result=await real(job);const waiter=waiters.shift();if(waiter)waiter(result);else results.push(result);return result;};
  const nextRank=()=>results.length?Promise.resolve(results.shift()):new Promise(resolve=>waiters.push(resolve));
  f.service.evaluate=async()=>{entered();return new Promise(()=>{});};
- const pending=rankDiscovery(assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}},undefined,4000);
- assert.equal(await Promise.race([ready.then(()=>'entered'),pending.then(()=>'early')]),'entered');
- const client=await until(pending) as any,ranked=await until(nextRank());
+ const clientDeadlineMs=4000;
+ const clock=controlDeadlineTimers(t,'broker-client',[clientDeadlineMs]);
+ const pending=rankDiscovery(assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}},undefined,clientDeadlineMs);
+ let client:BrokerReply;
+ try{
+  await waitForEvaluation(ready,pending);
+  clock.expire(clientDeadlineMs);
+  client=await until(pending);
+ }finally{clock.restore();}
+ const ranked=await until(nextRank());
+ assert.equal(client.ok,false);
  assert.equal(client.error,'deadline');assert.equal(ranked.status,'unavailable');assert.equal(ranked.rows.length,2);assert.ok(ranked.rows.every((row:any)=>row.reason==='deadline'));
  assert.equal(f.store.snapshot().length,1);assert.equal(f.store.snapshot()[0].status,'unavailable');assert.notEqual(f.store.snapshot()[0].status,'cancelled');
  assert.equal(lease.signal.aborted,false);assert.equal(lease.attemptSignal.aborted,false);assert.equal(channel.owners.size,1);
  assert.ok(!JSON.stringify(f.store.snapshot()).includes('rounding safe file'));assert.ok(!JSON.stringify(ranked).includes('rounding safe file'));
- const g=setup(t);let seen=false;g.service.evaluate=async()=>{seen=true;return new Promise(()=>{});};
+ const g=setup(t);const cancellationReady=Promise.withResolvers<void>();
+ g.service.evaluate=async()=>{cancellationReady.resolve();return new Promise(()=>{});};
  const controller=new AbortController();const ask=g.tools.get('ask_system1_files').execute('id',{paths:['docs/file-0.ts','docs/file-1.ts']},controller.signal);
- while(!seen)await new Promise(r=>setTimeout(r,10));controller.abort();const cancelled=await ask;
+ try{await until(cancellationReady.promise,8000);}finally{controller.abort();}
+ const cancelled=await until(ask);
  assert.equal(cancelled.details.status,'cancelled');assert.equal(g.store.snapshot().at(-1)!.status,'cancelled');
 });
 const lateSuccess=()=>({status:'ok',evaluation:{answers:[{questionId:'d9_relevance',type:'ordinal',value:3,levels:['unrelated','supporting','directly relevant','primary'],uncertainty:{provenance:'provider',confidence:0.91,distribution:[0,0,0,1]}},{questionId:'d9_role',type:'choice',value:'implementation',uncertainty:{provenance:'provider',confidence:0.91,distribution:[1,0,0,0,0,0]}}],metadata:{attempts:1,usage:{inputTokens:3,outputTokens:2}}}});
@@ -243,42 +287,49 @@ async function hubRank(f:any){
 test('configured Hub store projects a broker timer as unavailable deadline before the client and runtime timers',async t=>{
  assert.equal(BROKER_LIMITS.requestMs,20000);assert.equal(BROKER_LIMITS.partialFrameMs,1000);assert.equal(FILE_DISCOVERY_LIMITS.jobTimeoutMs,20000);assert.equal(FILE_DISCOVERY_LIMITS.discoveryMs,1000);
  const f=setup(t);assert.equal(f.snapshot.consumers.fileDiscovery.config.limits.jobTimeoutMs,20000);const hub=await hubRank(f);
- const originalSetTimeout=global.setTimeout;const originalEnd=Socket.prototype.end;let brokerFired=0,terminalSends=0;
- global.setTimeout=function(fn:any,ms?:number,...args:any[]){const stack=new Error().stack??'';if(ms===20000&&stack.includes('file-discovery/broker.ts'))return originalSetTimeout(()=>{brokerFired++;return fn();},500,...args);return originalSetTimeout(fn,ms as any,...args);} as typeof setTimeout;
+ const clock=controlDeadlineTimers(t,'broker',[BROKER_LIMITS.requestMs]);
+ const originalEnd=Socket.prototype.end;let terminalSends=0;
  Socket.prototype.end=function(this:any,chunk:any,...args:any[]){if(typeof chunk==='string'&&chunk.includes('"type":"rank_deadline"'))terminalSends++;return originalEnd.call(this,chunk,...args);} as any;
  try{
-  const started=Date.now();const pending=rankDiscovery(hub.assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}},undefined,8000);
-  assert.equal(await Promise.race([hub.ready.then(()=>'entered'),pending.then(()=>'early')]),'entered');
-  const client=await until(pending,8000) as any,ranked=await until(hub.nextRank(),8000),elapsed=Date.now()-started;
-  assert.equal(client.error,'deadline');assert.equal(terminalSends,0);assert.equal(brokerFired,1);assert.ok(elapsed<3000,'broker timer elapsed '+elapsed);
+  const pending=rankDiscovery(hub.assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}});
+  await waitForEvaluation(hub.ready,pending);
+  clock.expire(BROKER_LIMITS.requestMs);
+  const client=await until(pending) as any,ranked=await until(hub.nextRank());
+  assert.equal(client.error,'deadline');assert.equal(terminalSends,0);
   assert.equal(ranked.status,'unavailable');assert.equal(ranked.rows.length,2);assert.ok(ranked.rows.every((row:any)=>row.reason==='deadline'));
   assert.equal(f.store.snapshot().length,1);assert.equal(f.store.snapshot()[0].status,'unavailable');assert.notEqual(f.store.snapshot()[0].status,'cancelled');assertHealthy(hub.lease,hub.channel,ranked,f.store);
- }finally{global.setTimeout=originalSetTimeout;Socket.prototype.end=originalEnd;}
+ }finally{clock.restore();Socket.prototype.end=originalEnd;}
 });
-async function hubFault(t:any,fault:'epipe'|'end'|'silent'){
+async function hubFault(t:TestContext,fault:'epipe'|'end'|'silent'){
  const f=setup(t);assert.equal(f.snapshot.consumers.fileDiscovery.config.limits.jobTimeoutMs,20000);assert.equal(BROKER_LIMITS.requestMs,20000);assert.equal(BROKER_LIMITS.partialFrameMs,1000);
  const hub=await hubRank(f);const original=Socket.prototype.end;let injected=0;
+ const clientDeadlineMs=400;
+ const clock=controlDeadlineTimers(t,'broker-client',[clientDeadlineMs,BROKER_LIMITS.partialFrameMs]);
  Socket.prototype.end=function(this:any,chunk:any,...args:any[]){
   if(typeof chunk==='string'&&chunk.includes('"type":"rank_deadline"')){injected++;if(fault==='epipe'){this.destroy(Object.assign(new Error('injected terminal write failure'),{code:'EPIPE'}));return this;}if(fault==='end'){this.destroy();return this;}return this;}
   return original.call(this,chunk,...args);
  } as any;
  try{
-  const started=Date.now();const pending=rankDiscovery(hub.assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}},undefined,400);
-  assert.equal(await Promise.race([hub.ready.then(()=>'entered'),pending.then(()=>'early')]),'entered',fault);
-  const client=await until(pending,8000) as any,ranked=await until(hub.nextRank(),8000);
-  return {f,hub,client,ranked,injected,elapsed:Date.now()-started,fault};
- }finally{Socket.prototype.end=original;}
+  const pending=rankDiscovery(hub.assignment,{paths:['docs/file-0.ts','docs/file-1.ts'],discovery:{complete:true}},undefined,clientDeadlineMs);
+  await waitForEvaluation(hub.ready,pending);
+  clock.expire(clientDeadlineMs);
+  assert.equal(injected,1,fault);
+  // EPIPE and close must finish without the cleanup timer. A silently
+  // dropped terminal frame needs that timer to close the connection.
+  if(fault==='silent')clock.expire(BROKER_LIMITS.partialFrameMs);
+  const client=await until(pending) as any,ranked=await until(hub.nextRank());
+  return {f,hub,client,ranked};
+ }finally{clock.restore();Socket.prototype.end=original;}
 }
 test('configured Hub store maps undelivered terminal EPIPE, end/close and ACK cleanup expiry to cancelled, not a typed deadline',async t=>{
- assert.equal(FILE_DISCOVERY_LIMITS.jobTimeoutMs,20000);assert.equal(FILE_DISCOVERY_LIMITS.discoveryMs,1000);const elapsed:Record<string,number>={};
+ assert.equal(FILE_DISCOVERY_LIMITS.jobTimeoutMs,20000);assert.equal(FILE_DISCOVERY_LIMITS.discoveryMs,1000);
  for(const fault of ['epipe','end','silent'] as const){
-  const cell=await hubFault(t,fault);elapsed[fault]=cell.elapsed;
-  assert.equal(cell.injected,1,fault);assert.equal(cell.client.error,'channel_unavailable',fault);assert.notEqual(cell.client.error,'deadline',fault);
+  const cell=await hubFault(t,fault);
+  assert.equal(cell.client.error,'channel_unavailable',fault);assert.notEqual(cell.client.error,'deadline',fault);
   assert.equal(cell.ranked.status,'cancelled',fault);assert.ok(cell.ranked.rows.every((row:any)=>row.reason==='cancelled'&&row.status!=='scored'),fault);
   assert.equal(cell.f.store.snapshot().length,1,fault);assert.equal(cell.f.store.snapshot()[0].status,'cancelled',fault);assert.notEqual(cell.f.store.snapshot()[0].status,'unavailable',fault);
-  assert.ok(cell.elapsed<6000,fault+' elapsed '+cell.elapsed);assertHealthy(cell.hub.lease,cell.hub.channel,cell.ranked,cell.f.store);
+  assertHealthy(cell.hub.lease,cell.hub.channel,cell.ranked,cell.f.store);
  }
- assert.ok(elapsed.silent>=elapsed.epipe+700,'cleanup '+elapsed.silent+' vs epipe '+elapsed.epipe);
 });
 test('late provider success cannot overwrite a failed Hub-store terminal delivery',async t=>{
  const cell=await hubFault(t,'epipe');assert.equal(cell.client.error,'channel_unavailable');assert.equal(cell.ranked.status,'cancelled');assert.equal(cell.f.store.snapshot()[0].status,'cancelled');

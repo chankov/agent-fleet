@@ -11,6 +11,9 @@ const repo=fileURLToPath(new URL('../..',import.meta.url));
 // new runtime file or a dropped .mjs worker fails loudly instead of drifting.
 const expectedRuntimeFiles=['proactive-config.ts','proactive-evaluate.ts','proactive-feedback.ts','proactive-findings.ts','proactive-local.ts','proactive-observer.ts','proactive-rules.ts','proactive-runtime.ts','proactive-selection.ts','proactive-snapshot-worker.mjs','proactive-snapshot.ts','proactive-types.ts'];
 const PACK_MAX_BUFFER=64*1024*1024;
+let archiveDirectory;
+let packed;
+test.after(()=>{if(archiveDirectory)rmSync(archiveDirectory,{recursive:true,force:true});});
 
 function sha16(bytes){return createHash('sha256').update(bytes).digest('hex').slice(0,16);}
 
@@ -28,10 +31,15 @@ function assertNoRemoteKeys(env,label){
 }
 
 function packAndExtract(dir){
- const packed=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',dir],{cwd:repo,encoding:'utf8',maxBuffer:PACK_MAX_BUFFER,timeout:60000,env:scrubbedEnv()}));
+ // The repository snapshot is identical across these tests. Share only its
+ // archive, since each installer and doctor must get a fresh extracted tree.
+ if(!packed){
+  archiveDirectory??=mkdtempSync(join(tmpdir(),'proactive-release-'));
+  packed=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',archiveDirectory],{cwd:repo,encoding:'utf8',maxBuffer:PACK_MAX_BUFFER,timeout:120000,env:scrubbedEnv()}));
+ }
  const files=new Set(packed[0].files.map(f=>f.path));
  const extracted=join(dir,'package');mkdirSync(extracted);
- execFileSync('tar',['-xzf',join(dir,packed[0].filename),'--strip-components=1','-C',extracted]);
+ execFileSync('tar',['-xzf',join(archiveDirectory,packed[0].filename),'--strip-components=1','-C',extracted]);
  return {packed,files,extracted};
 }
 

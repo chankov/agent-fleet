@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import YAML from "yaml";
+import { fastTestFiles } from "./run-fast.js";
+import { selectFullTestFiles } from "./run-full.js";
 
 const workflow = YAML.parse(readFileSync(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8"));
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
@@ -53,10 +55,23 @@ test("npm test defaults to a fast local lane while the full suite remains availa
   assert.equal(packageJson.scripts["test:fast"], "node bin/test/run-fast.js");
   const fullScript = packageJson.scripts["test:full"];
   assert.match(fullScript, /npm run typecheck:workflows/);
-  assert.ok(fullScript.includes("bin/test/*.test.js"));
+  assert.match(fullScript, /npm run test:file-discovery\b.*dispatch-triage\.test\.ts/);
+  assert.match(fullScript, /node --test .*bin\/test\/setup-tty\.test\.js/);
+  assert.match(fullScript, /node bin\/test\/run-full\.js/);
   assert.match(fullScript, /npm run test:watchdog-py/);
   const fastRunner = readFileSync(new URL("./run-fast.js", import.meta.url), "utf8");
   assert.ok(fastRunner.includes('"bin/test/features.test.js"'));
   assert.ok(fastRunner.includes('".pi/harnesses/agent-hub/proactive-config.test.ts"'));
   assert.doesNotMatch(fastRunner, /proactive-installed|package-hermes-watchdog/);
+});
+
+test("the full lane runs each default-environment test file in one phase", () => {
+  const remaining = selectFullTestFiles();
+  const covered = new Set([...fastTestFiles, "bin/test/setup-tty.test.js"]);
+  assert.deepEqual(remaining.filter(file => covered.has(file)), []);
+  assert.equal(new Set(remaining).size, remaining.length);
+  assert.ok(remaining.includes("bin/test/package-surfaces.test.js"));
+  assert.ok(remaining.includes(".pi/harnesses/lib/system1/config-file-discovery.test.js"));
+  assert.match(packageJson.scripts["test:full"], /npm run test:damage-relay\b/);
+  assert.match(packageJson.scripts["test:damage-relay"], /--import .*system1-no-network\.js/);
 });
