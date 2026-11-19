@@ -5,8 +5,8 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
-// AGENTS.md packages a skill as skills/<name>.zip beside its directory. A copy that
-// drifts from the directory ships stale instructions, so every archive must match.
+// Skills distributed as ZIPs keep their archives beside their source directories.
+// See docs/skill-anatomy.md for the rebuild procedure.
 const skills = fileURLToPath(new URL("../../skills/", import.meta.url));
 
 /** Minimal reader for the stored/deflated entries `zip -r` writes. */
@@ -45,7 +45,7 @@ for (const archive of readdirSync(skills).filter(name => name.endsWith(".zip")))
 		const name = archive.slice(0, -4), directory = join(skills, name);
 		const entries = readZip(readFileSync(join(skills, archive)));
 		const expected = files(directory).map(file => `${name}/${file}`).filter(file => !file.endsWith(".DS_Store")).sort();
-		assert.deepEqual([...entries.keys()].sort(), expected, "the archive lists exactly the directory's files");
-		for (const [entry, bytes] of entries) assert.ok(bytes.equals(readFileSync(join(skills, entry))), `${entry} is stale; rebuild with: cd skills && zip -r ${archive} ${name}/`);
+		assert.deepEqual([...entries.keys()].sort(), expected, "The archive must list exactly the source files. See docs/skill-anatomy.md#zip-archives.");
+		for (const [entry, bytes] of entries) assert.ok(bytes.equals(readFileSync(join(skills, entry))), `${entry} is stale. See docs/skill-anatomy.md#zip-archives.`);
 	});
 }

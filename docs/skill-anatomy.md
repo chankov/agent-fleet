@@ -1,20 +1,22 @@
 # Skill Anatomy
 
-This document describes the structure and format of agent-fleet skill files. Use this as a guide when contributing new skills or understanding existing ones.
+Use this guide to create, update, and distribute Agent Fleet skills.
 
 ## File Location
 
-Every skill lives in its own directory under `skills/`:
+Put Fleet-native skills in their own directories under `skills/`.
 
-```
+```text
 skills/
   skill-name/
-    SKILL.md           # Required: The skill definition
-    scripts/           # Optional: Runnable helpers used by the skill workflow
-    supporting-file.md # Optional: Reference material loaded on demand
+    SKILL.md           # Required skill definition
+    scripts/           # Optional runnable helpers
+    supporting-file.md # Optional material loaded on demand
 ```
 
-`SKILL.md` is the only required file. Add `scripts/` only when the skill actually ships runnable helpers, and omit the directory entirely for markdown-only skills.
+`SKILL.md` is the only required file. A Markdown-only skill is complete with
+that file alone. Check [native-first discovery](UPSTREAM-SKILLS.md#layout-and-precedence)
+before adding a skill name that already exists upstream.
 
 ## SKILL.md Format
 
@@ -27,124 +29,105 @@ description: Guides agents through [task/workflow]. Use when [specific trigger c
 ---
 ```
 
-**Rules:**
-- `name`: Lowercase, hyphen-separated. Must match the directory name.
-- `description`: Start with what the skill does in third person, then include one or more clear "Use when" trigger conditions. Include both *what* and *when*. Maximum 1024 characters.
+- Use a lowercase, hyphen-separated `name` that matches the directory name.
+- Start the `description` with what the skill does in third person, then give
+  clear “Use when” triggers. Keep it within 1024 characters.
 
-**Why this matters:** Agents discover skills by reading descriptions. The description is injected into the system prompt, so it must tell the agent both what the skill provides and when to activate it. Do not summarize the workflow — if the description contains process steps, the agent may follow the summary instead of reading the full skill.
+Agents see the description at discovery and load the full workflow on demand.
+Keep process steps in the body so agents read the workflow when they use it.
 
 ### Standard Sections (Recommended Pattern)
 
-The frontmatter contract above is required. The section layout below is a recommended pattern, not a rigid template: equivalent headings are acceptable when they serve the same purpose clearly.
+Use this layout as a starting point. Equivalent headings such as “How It
+Works”, “Core Process”, or “Workflow” are welcome when they serve the same purpose.
 
 ```markdown
 # Skill Title
 
 ## Overview
-One-two sentences explaining what this skill does and why it matters.
+Explain what the skill does and why it matters in one or two sentences.
 
 ## When to Use
-- Bullet list of triggering conditions (symptoms, task types)
-- When NOT to use (exclusions)
+List triggers and exclusions that help an agent identify when the skill applies.
 
-## [Core Process / The Workflow / Steps]
-The main workflow, broken into numbered steps or phases.
-Include code examples where they help.
-Use flowcharts (ASCII) where decision points exist.
+## Workflow
+Number the steps and name the commands, decisions, or outputs for each one.
+Use a diagram for branching decisions when it helps.
 
-## [Specific Techniques / Patterns]
-Detailed guidance for specific scenarios.
-Code examples, templates, configuration.
+## Usage
+Give commands, arguments, and examples when the skill includes runnable helpers.
 
 ## Common Rationalizations
 | Rationalization | Reality |
 |---|---|
-| Excuse agents use to skip steps | Why the excuse is wrong |
+| “I'll add tests later.” | Write the failing test first so it proves the fix. |
 
 ## Red Flags
-- Behavioral patterns indicating the skill is being violated
-- Things to watch for during review
+Describe observable signs that the skill's workflow has been skipped or misapplied.
 
 ## Verification
-After completing the skill's process, confirm:
-- [ ] Checklist of exit criteria
-- [ ] Evidence requirements
+- [ ] Check each exit criterion using a concrete result such as a passing test or build output.
+
+## Output and Troubleshooting
+Include a result example or reporting template and recovery steps where helpful.
 ```
-
-## Section Purposes
-
-### Overview
-The "elevator pitch" for the skill. Should answer: What does this skill do, and why should an agent follow it?
-
-### When to Use
-Helps agents and humans decide if this skill applies to the current task. Include both positive triggers ("Use when X") and negative exclusions ("NOT for Y").
-
-### Core Process
-The heart of the skill. This is the step-by-step workflow the agent follows. Must be specific and actionable — not vague advice.
-
-**Good:** "Run `npm test` and verify all tests pass"
-**Bad:** "Make sure the tests work"
-
-### Common Rationalizations
-The most distinctive feature of well-crafted skills. These are excuses agents use to skip important steps, paired with rebuttals. They prevent the agent from rationalizing its way out of following the process.
-
-Think of every time an agent has said "I'll add tests later" or "This is simple enough to skip the spec" — those go here with a factual counter-argument.
-
-### Red Flags
-Observable signs that the skill is being violated. Useful during code review and self-monitoring.
-
-### Verification
-The exit criteria. A checklist the agent uses to confirm the skill's process is complete. Every checkbox should be verifiable with evidence (test output, build result, screenshot, etc.).
 
 ## Supporting Files
 
-Create supporting files only when:
-- Reference material exceeds 100 lines (keep the main SKILL.md focused)
-- Code tools or scripts are needed
-- Checklists are long enough to justify separate files
+Keep `SKILL.md` focused and aim for fewer than 500 lines. Link supporting
+files directly from it with relative paths and say when to read each file.
+Keep short patterns inline and move substantial examples or checklists to a
+supporting file. Put references shared across skills in `references/`.
 
-Keep patterns and principles inline when under 50 lines.
-
-If a skill does not need runnable helpers, do not create an empty `scripts/` directory just to mirror other skills. Empty directories add noise without changing how the skill works.
+Add `scripts/` when the skill includes runnable helpers. Give Bash helpers a
+kebab-case `.sh` filename, a `#!/bin/bash` shebang, and fail-fast handling with
+`set -e`. Use stderr for status messages, stdout for machine-readable results,
+and a cleanup trap when a script creates temporary files. Show the command
+and working directory in the skill's usage section.
 
 ## Writing Principles
 
-1. **Process over knowledge.** Skills are workflows, not reference docs. Steps, not facts.
-2. **Specific over general.** "Run `npm test`" beats "verify the tests".
-3. **Evidence over assumption.** Every verification checkbox requires proof.
-4. **Anti-rationalization.** Every skip-worthy step needs a counter-argument in the rationalizations table.
-5. **Progressive disclosure.** Main SKILL.md is the entry point. Supporting files are loaded only when needed.
-6. **Token-conscious.** Every section must justify its inclusion. If removing it wouldn't change agent behavior, remove it.
-7. **Prompting-patterns applied.** Before finalizing a skill, verify its language against `references/prompting-patterns.md` — positive instructions over prohibitions, explain *why* behind non-obvious rules, no ALL-CAPS or reward/punishment language.
+- Base the workflow on real work. Use concrete steps, such as running the
+  relevant tests and checking their exit code.
+- Give each step that agents tend to skip a factual counter-argument. Specify
+  the evidence needed to finish, such as test output or a runtime observation.
+- Keep each section focused on what the agent needs to act. Name other skills
+  by their `name` when they already cover part of the work.
+- Review [prompting patterns](../references/prompting-patterns.md) before
+  finalizing the skill. Use positive instructions and explain the reason for
+  non-obvious rules.
 
-## Naming Conventions
+## Installation and distribution
 
-- Skill directories: `lowercase-hyphen-separated`
-- Skill files: `SKILL.md` (always uppercase)
-- Supporting files: `lowercase-hyphen-separated.md`
-- References: stored in `references/` at the project root, not inside skill directories
+For managed Pi workspaces, use `npx @chankov/agent-fleet@latest setup` with the
+applicable preset or named feature. See [installation and lifecycle](npm-install.md)
+and [package-native Pi setup](pi-setup.md#package-native-skills-and-prompts).
+For a standalone manual Pi install, copy the skill directory to `.pi/skills/`
+in the workspace and include the dependencies it references.
 
-## Cross-Skill References
+Regenerate the install manifest with `npm run build:manifest` when skill
+catalog entries change. Keep `pi.skills` aligned with the native-first winners
+and run the catalog checks. See [upstream maintenance](UPSTREAM-SKILLS.md#update-procedure).
 
-Reference other skills by name:
+### ZIP archives
 
-```markdown
-Follow the `test-driven-development` skill for writing tests.
-If the build breaks, use the `debugging-and-error-recovery` skill.
+Ship a ZIP only for a skill with an archive distribution channel. Keep
+`skills/<skill-name>.zip` next to its source directory with `<skill-name>/`
+as the archive's top-level directory. Build a fresh archive after changing
+its source so that deleted files are also removed from the ZIP.
+
+```bash
+# From the repository root, replace <skill-name> with the directory name.
+(
+  set -e
+  skill='<skill-name>'
+  archive_dir=$(mktemp -d)
+  trap 'rm -f "$archive_dir/$skill.zip"; rmdir "$archive_dir"' EXIT
+  (cd skills && zip -r "$archive_dir/$skill.zip" "$skill/" -x '*/.DS_Store')
+  mv "$archive_dir/$skill.zip" "skills/$skill.zip"
+  node --test bin/test/skill-archives.test.js
+)
 ```
 
-Don't duplicate content between skills — reference and link instead.
-
-## Required vs Recommended
-
-Required:
-
-- A `skills/<skill-name>/SKILL.md` file
-- Valid YAML frontmatter with `name` and `description`
-- A description that includes both what the skill does and when to use it
-
-Recommended:
-
-- The standard section flow shown above
-- Equivalent headings such as `How It Works`, `Core Process`, or `Workflow` when they read more naturally for the skill
-- Supporting files only when they keep the main `SKILL.md` focused
+The archive test compares the file list and contents of each checked-in ZIP
+with its source directory.

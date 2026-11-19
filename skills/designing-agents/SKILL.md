@@ -60,7 +60,7 @@ Do not proceed until the one-sentence purpose is locked. If the requester cannot
 
 Read every existing artifact of the target type:
 - For a persona: every persona file already in the workspace.
-- For a skill: every `skills/*/SKILL.md` (start with the Quick Reference table in `skills/using-agent-skills/SKILL.md`).
+- For a skill, start with the Quick Reference table in `skills/using-agent-skills/SKILL.md` and resolve names using [native-first discovery](../../docs/UPSTREAM-SKILLS.md#layout-and-precedence).
 - For a harness: the catalog table in `docs/pi-extensions.md`, then the `README.md` of each `.pi/harnesses/*` that looks close.
 
 If the new artifact overlaps an existing one by more than ~30% (same scope, same output, same session surface), choose one of:
@@ -87,7 +87,7 @@ How the artifact is found and delegated to.
 **Personas & skills** — the frontmatter `description`. Action-oriented; says *when*, not *how*.
 - Persona structure: `<Role noun> <that does what>. Use for <concrete trigger>.`
   - Good: `Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security, and performance. Use for thorough code review before merge.`
-- Skill structure: `<Verb phrase describing what the skill does>. Use when <specific trigger conditions>.`
+- Skill descriptions follow the [frontmatter guide](../../docs/skill-anatomy.md#frontmatter-required).
   - Good: `Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, or only exist as a vague idea.`
 
 **Harnesses** — a harness has no frontmatter. Its discovery surface is the `README.md` (H1 matching the directory name, a one-line subtitle, a "What it does" section) plus the catalog row in `docs/pi-extensions.md`. That row is what an agent actually scans — write it as `| name | Category | one-line what-it-does | run command |`.
@@ -95,7 +95,7 @@ How the artifact is found and delegated to.
 **Bad for any** (avoid):
 - Starts with "Helps with…" or "Assists in…" — vague, not delegation-friendly.
 - Summarizes the full workflow — the description says *when*, not *how*.
-- Over 280 characters — gets truncated in discovery.
+- Gives background before the concrete trigger, which may be cut off in a short preview.
 
 ### 6. Draft the body
 
@@ -120,36 +120,9 @@ You are a <experienced | senior | staff> <role title> focused on <scope>. Your r
 1. <Non-negotiable behavior>
 ```
 
-#### 6b. Skill body (per `docs/skill-anatomy.md`)
+#### 6b. Skill body
 
-Every skill in this repo follows the same section order. Do not invent new section names. See the Skill Template below.
-
-```markdown
-# <Skill Title>
-
-## Overview
-<One-two sentences on what the skill does and why it matters.>
-
-## When to Use
-- <Triggering conditions>
-- NOT for: <Exclusions>
-
-## The Workflow (or Core Process / Steps)
-<Numbered steps or phases. Specific and actionable — run commands, not vague advice.>
-
-## Common Rationalizations
-| Rationalization | Reality |
-|---|---|
-| <Excuse to skip a step> | <Factual rebuttal> |
-
-## Red Flags
-- <Observable sign the skill is being violated>
-
-## Verification
-- [ ] <Checklist of exit criteria with evidence requirements>
-```
-
-Skills have one mandatory section personas don't: **Common Rationalizations**. This table is the anti-rationalization lever that prevents the agent from talking itself out of following the process. Personas don't need it because a persona is a lens, not a workflow with skippable steps.
+Use the [skill authoring guide](../../docs/skill-anatomy.md) for the template and distribution rules. Write the steps as concrete actions, explain why likely shortcuts skip necessary work, and describe the evidence needed to finish.
 
 #### 6c. Harness body (a TypeScript pi extension)
 
@@ -251,59 +224,6 @@ You are a <seniority level> <role> focused on <narrow scope>. Your role is to <2
 3. <Behavior this persona must always follow>
 ```
 
-## Skill Template
-
-Minimal skeleton — the canonical format is documented in `docs/skill-anatomy.md`; do not deviate from its section order.
-
-```markdown
----
-name: <kebab-case-name>
-description: <What the skill does>. Use when <specific trigger conditions, ideally 2-4 clauses>.
----
-
-# <Skill Title>
-
-## Overview
-<One-two sentences: what does this skill do, and why does it matter?>
-
-## When to Use
-- <Triggering condition>
-- <Triggering condition>
-
-**NOT for:** <Clear exclusion so the skill isn't over-triggered.>
-
-## The Workflow
-
-### 1. <First step>
-<Specific, actionable. Include commands or concrete questions. No vague advice.>
-
-### 2. <Second step>
-<...>
-
-### 3. <Third step>
-<...>
-
-## Common Rationalizations
-
-| Rationalization | Reality |
-|---|---|
-| "<Excuse an agent might use to skip a step>" | <Factual rebuttal grounded in why the step exists> |
-| "<Another excuse>" | <Another rebuttal> |
-
-## Red Flags
-
-- <Observable sign the skill is being violated>
-- <Observable sign the skill is being violated>
-
-## Verification
-
-After completing the workflow, confirm:
-
-- [ ] <Exit criterion with evidence requirement>
-- [ ] <Exit criterion with evidence requirement>
-- [ ] <Exit criterion with evidence requirement>
-```
-
 ## Harness Structure
 
 A harness is a directory, not a single file. The `ExtensionAPI` surface, the `index.ts` skeleton, the `package.json` shape, the `README.md` template, and the `justfile` / catalog wiring are all in `pi-harness-authoring.md` alongside this skill — that file is the harness equivalent of `docs/skill-anatomy.md`. Do not start a harness without reading it; copy the closest existing harness it points you to rather than writing `index.ts` from memory.
@@ -344,7 +264,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 - No Common Rationalizations table, or the table contains rationalizations that are too generic to block real excuses.
 - No Verification checklist, or checkboxes that cannot be verified with evidence.
 - Steps are vague ("make sure the tests pass") instead of specific ("run `npm test` and verify exit code 0").
-- Sections appear in a different order from `docs/skill-anatomy.md`.
+- Section headings obscure where to find the workflow or its verification.
 - The skill is a reference catalog with no workflow — the body is bullets of facts, not steps.
 
 **Harness-specific:**
@@ -375,7 +295,7 @@ A harness is a directory, not a single file. The `ExtensionAPI` surface, the `in
 ### Skill-specific checklist
 
 - [ ] File exists at `skills/<name>/SKILL.md`.
-- [ ] Section order follows `docs/skill-anatomy.md`: Overview → When to Use → Workflow/Process → Common Rationalizations → Red Flags → Verification.
+- [ ] The skill covers the purposes in the [recommended section pattern](../../docs/skill-anatomy.md#standard-sections-recommended-pattern).
 - [ ] `When to Use` includes at least one explicit **NOT for** exclusion.
 - [ ] `Common Rationalizations` table has at least three rows, each blocking a specific excuse.
 - [ ] `Verification` checklist has at least three items, each verifiable with evidence (command output, file existence, passing test).

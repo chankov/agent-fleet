@@ -8,7 +8,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 ## Repository Overview
 
-Agent Fleet — a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) plus a library of lifecycle skills and agent personas for pi. Skills live in two roots: fleet-native `skills/` and the vendored upstream import `vendor/agent-skills-upstream/skills/` (native wins on name collisions — see `docs/UPSTREAM-SKILLS.md`).
+Agent Fleet is a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) with a library of lifecycle skills and agent personas for Pi.
 
 ## Project Philosophy
 
@@ -22,12 +22,12 @@ silently changing these principles.
 
 ## Skill-Driven Execution
 
-Agent Fleet runs on a **skill-driven execution model** powered by this repository's `/skills` directory.
-
 ### Core Rules
 
 - If a task matches a skill, you MUST invoke it
-- Skills are located in `skills/<skill-name>/SKILL.md`
+- Read `skills/<skill-name>/SKILL.md` first. If absent, read
+  `vendor/agent-skills-upstream/skills/<skill-name>/SKILL.md`. See
+  [native-first skill discovery](docs/UPSTREAM-SKILLS.md#layout-and-precedence).
 - Never implement directly if a skill applies
 - Always follow the skill instructions exactly (do not partially apply them)
 
@@ -99,7 +99,7 @@ This keeps workflow enforcement identical across every supported runtime.
 
 This repo has three composable layers. They have different jobs and should not be confused:
 
-- **Skills** (`skills/<name>/SKILL.md`) — workflows with steps and exit criteria. The *how*. Mandatory hops when an intent matches.
+- **Skills** define workflows with steps and exit criteria. Invoke the matching skill from its `SKILL.md`.
 - **Personas** (`agents/<role>.md`) — roles with a perspective and an output format. The *who*.
 - **Slash commands** (`.pi/prompts/af-*.md`) — user-facing entry points. The *when*. The orchestration layer.
 
@@ -113,110 +113,5 @@ See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orc
 
 ## Creating a New Skill
 
-### Directory Structure
-
-```
-skills/
-  {skill-name}/           # kebab-case directory name
-    SKILL.md              # Required: skill definition
-    scripts/              # Required: executable scripts
-      {script-name}.sh    # Bash scripts (preferred)
-  {skill-name}.zip        # Required: packaged for distribution
-```
-
-### Naming Conventions
-
-- **Skill directory**: `kebab-case` (e.g. `web-quality`)
-- **SKILL.md**: Always uppercase, always this exact filename
-- **Scripts**: `kebab-case.sh` (e.g., `deploy.sh`, `fetch-logs.sh`)
-- **Zip file**: Must match directory name exactly: `{skill-name}.zip`
-
-### SKILL.md Format
-
-```markdown
----
-name: {skill-name}
-description: {One sentence describing what the skill does, followed by one or more "Use when" trigger conditions. Include trigger phrases like "Deploy my app" or "Check logs" when helpful.}
----
-
-# {Skill Title}
-
-{Brief overview of what the skill does and why it matters.}
-
-## How It Works
-
-{Numbered list explaining the skill's workflow}
-
-Equivalent headings like `Workflow`, `Core Process`, or `When to Use` are fine when they communicate the same structure clearly.
-
-## Usage (Optional)
-
-Include this section only if the skill ships runnable helpers under `scripts/`. Markdown-only skills can omit both the section and the directory entirely.
-
-```bash
-bash /mnt/skills/user/{skill-name}/scripts/{script}.sh [args]
-```
-
-**Arguments:**
-- `arg1` - Description (defaults to X)
-
-**Examples:**
-{Show 2-3 common usage patterns}
-
-## Output
-
-{Show example output users will see}
-
-## Present Results to User
-
-{Template for how Claude should format results when presenting to users}
-
-## Troubleshooting
-
-{Common issues and solutions, especially network/permissions errors}
-```
-
-### Best Practices for Context Efficiency
-
-Skills are loaded on-demand — only the skill name and description are loaded at startup. The full `SKILL.md` loads into context only when the agent decides the skill is relevant. To minimize context usage:
-
-- **Keep SKILL.md under 500 lines** — put detailed reference material in separate files
-- **Write specific descriptions** — helps the agent know exactly when to activate the skill
-- **Use progressive disclosure** — reference supporting files that get read only when needed
-- **Prefer scripts over inline code** — script execution doesn't consume context (only output does)
-- **File references work one level deep** — link directly from SKILL.md to supporting files
-
-### Script Requirements
-
-- Use `#!/bin/bash` shebang
-- Use `set -e` for fail-fast behavior
-- Write status messages to stderr: `echo "Message" >&2`
-- Write machine-readable output (JSON) to stdout
-- Include a cleanup trap for temp files
-- Reference the script path as `/mnt/skills/user/{skill-name}/scripts/{script}.sh`
-
-### Creating the Zip Package
-
-After creating or updating a skill:
-
-```bash
-cd skills
-zip -r {skill-name}.zip {skill-name}/
-```
-
-### End-User Installation
-
-Document these installation methods for users:
-
-**Deterministic workspace lifecycle:**
-```bash
-npx @chankov/agent-fleet@latest setup
-```
-
-Use Default/Full and named features rather than raw item selectors; see
-`docs/npm-install.md`.
-
-**pi (manual):**
-```bash
-cp -r skills/{skill-name} .pi/skills/
-```
+Follow the [skill authoring guide](docs/skill-anatomy.md) for the template,
+optional helpers, distribution, and verification.

@@ -4,7 +4,7 @@ import { inflateRawSync } from "node:zlib";
 
 /**
  * Minimal reader for the skill archives this package ships (`skills/<name>.zip`,
- * written by `zip -r` per AGENTS.md). It exists so an installer command can
+ * written by `zip -r` per docs/skill-anatomy.md). It exists so an installer command can
  * unpack a packaged skill without a new dependency and without trusting the
  * archive: every entry is validated and fully inflated in memory before a
  * single byte reaches the destination.
