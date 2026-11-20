@@ -179,6 +179,30 @@ test("coms serializes inbound turns, reports truthful state, and correlates repl
 	await receiver.peer.settleTurn(receiver.ctx);
 	assert.deepEqual(await invalidJson.promise, { response: null, error: "response not valid JSON" });
 
+	// A peer can accept the prompt and disconnect before its ACK reaches the Hub.
+	const endpoint = join(root, "lost-ack.sock");
+	const { createServer } = await import("node:net");
+	let accepted = 0;
+	const server = createServer(socket => socket.once("data", () => { accepted++; socket.destroy(); }));
+	await new Promise<void>(resolve => server.listen(endpoint, resolve));
+	try {
+		writeRegistryAtomic({
+			session_id: "lost-ack", name: "lost-ack", purpose: "test", model: "test-model",
+			color: "#36F9F6", pid: process.pid, endpoint, cwd: root, started_at: new Date().toISOString(), explicit: false, version: 1,
+		}, project);
+		const unknown = await sender.peer.send({ target: "lost-ack", prompt: "run once", await_reply_on_lost_ack: true });
+		assert.equal(sender.peer.get(unknown.msg_id).status, "pending");
+		await sendEnvelope(sender.peer.identity!.endpoint, {
+			type: "response", msg_id: unknown.msg_id, sender_session: "lost-ack", sender_endpoint: endpoint,
+			hops: 0, timestamp: new Date().toISOString(), response: "late result", error: null,
+		});
+		assert.deepEqual(await unknown.promise, { response: "late result", error: null });
+		assert.equal(accepted, 1);
+	} finally {
+		removeRegistryEntry(project, "lost-ack");
+		await new Promise<void>(resolve => server.close(() => resolve()));
+	}
+
 	writeRegistryAtomic({
 		session_id: "booting-session",
 		name: "booting-peer",

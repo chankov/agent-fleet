@@ -22,7 +22,7 @@ function fixture(kind: string) {
  };
  return { env, d, sent, logs, stats: () => ({ now, submitted, enters }), run: () => respondToClaudePrompt(env, {} as any, () => driveClaude(env, d), async (_endpoint, envelope) => { sent.push(envelope); }, text => logs.push(text)) };
 }
-for (const kind of ['echo', 'foreign', 'stale', 'quoted', 'unchanged', 'malformed']) test(`${kind} status transition never emits success`, async () => {
+for (const kind of ['echo', 'foreign', 'stale', 'quoted', 'unchanged', 'malformed', 'blocked']) test(`${kind} status transition never emits success`, async () => {
  const f = fixture(kind); await f.run(); assert.equal(f.sent.length, 0);
  assert.equal(f.stats().submitted, 1); assert.equal(f.stats().enters, 1);
  assert.ok(f.stats().now >= REPLY_TIMEOUT_HARD_CAP_MS); assert.match(f.logs.join('\n'), /pending/);
@@ -33,10 +33,10 @@ for (const kind of ['valid', 'late', 'hook']) test(`${kind} completes original r
  assert.equal(f.sent[0].error, null);
  if (kind === 'late') assert.match(f.logs.join('\n'), /pending/);
 });
-for (const kind of ['busy', 'blocked']) test(`${kind} remains a distinct bounded error`, async () => {
- const f = fixture(kind); await f.run(); assert.equal(f.sent.length, 1);
- assert.match(f.sent[0].error, kind === 'busy' ? /mid-turn/ : /permission prompt/);
- assert.equal(f.stats().submitted, kind === 'busy' ? 0 : 1);
+test('busy before submission remains a bounded error', async () => {
+ const f = fixture('busy'); await f.run(); assert.equal(f.sent.length, 1);
+ assert.match(f.sent[0].error, /mid-turn/);
+ assert.equal(f.stats().submitted, 0);
  assert.ok(f.stats().now < REPLY_TIMEOUT_HARD_CAP_MS);
 });
 

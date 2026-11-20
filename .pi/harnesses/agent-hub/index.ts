@@ -1,3 +1,4 @@
+import { dispatchAccess } from "./dispatch-access.ts";
 import {createCodexBootstrapControls} from './codex-bootstrap.ts';
 import {homedir} from 'node:os';
 import { privateDeclarationHash, type PrivateProofUse } from './private-config-review.ts';
@@ -34,7 +35,7 @@ import { renderNextInvocation, renderRecoverCommands } from './recover-policy.ts
 import { closeEvidenceSession, pruneEvidenceSessions } from "./execution-evidence.ts";
 import { hasExplicitDispatcher, dispatcherSelection, type ModelProfiles } from './config/model-profiles.ts';
 import { createProfileActivation } from './policy/profile-activation.ts';
-import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profilePeerGate } from './policy/profile-runtime.ts';
+import { readActiveProfile, profileWorkInFlight, withProfileWork, assertProfileModel, profileForcesNativePeers, profilePeerGate } from './policy/profile-runtime.ts';
 import { resolveAssist } from './assist-profile.ts';
 import { registerFilesystemTool, FILESYSTEM_POLICY_ROOTS_ENV } from './filesystem-tool.ts';
 /** Agent Hub composition root: constructs mutable state, contexts, registrars, and ordered lifecycle ports. */
@@ -67,7 +68,7 @@ import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToo
 import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, basePersonaName, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
-import { checkExternalBlockerGate, extractExternalBlockers } from "./external-blocker.js";
+import { confirmsExternalBlockerInChat } from "./external-blocker.js";
 import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "./run-namespace.js";
 import { refreshTaskBrief } from "./task-brief.ts";
 import { validateAssertionBatch } from "./assertion-ledger.js";
@@ -416,6 +417,9 @@ export default function (pi: ExtensionAPI) {
 
 	let activeWritableDispatches = 0;
 	let writableOverlapCounter = 0;
+ function currentProcessRevision(scopes: readonly string[]): string {
+  return currentCtx?.cwd ? revisionOf(currentCtx.cwd, [...scopes]) : "unavailable";
+ }
  function privateProofUse(cwd = currentCtx?.cwd || process.cwd()): PrivateProofUse {
   return { cwd, taskId: noProgress.taskId(), sessionDir, declarationHash: privateDeclarationHash(assertions as any, hubTaskText), activeWriters: activeWritableDispatches, overlap: writableOverlapCounter };
  }
@@ -522,11 +526,15 @@ export default function (pi: ExtensionAPI) {
 	const turnDispatchFingerprints = new Set<string>();
 	// ── External-blocker circuit breaker (external-blocker.js) ──
 	// Set when a specialist reports it needs something outside the fleet's reach;
-	// gates the next dispatch until the human has been addressed. Cleared by an
-	// ask_user call, by a new user turn (the human spoke), and by a new task.
+	// gates dispatch until a human confirms the current packet or a new task starts.
 	let externalBlockers: { agent: string; what: string }[] = [];
 	let externalBlockerAcknowledged = false;
-	let externalBlockerRefusedOnce = false;
+	let externalBlockerMarker = "";
+	function acknowledgeExternalBlocker() {
+		externalBlockers = [];
+		externalBlockerAcknowledged = true;
+		externalBlockerMarker = "";
+	}
 	// Per-run artifact archive retention (run-namespace.js).
 	let runHistoryKeep: number | null = DEFAULT_RUN_HISTORY_KEEP;
 	// ── Drift watchdog (drift-watchdog.js) ──
@@ -593,7 +601,7 @@ export default function (pi: ExtensionAPI) {
 		getTaskTierAssumed: () => taskTierAssumed, setTaskTierAssumed: value => { taskTierAssumed = value; },
 		clearTurnDispatchFingerprints: () => turnDispatchFingerprints.clear(),
 		clearTaskCapabilities: () => workModePolicy.resetCapabilities(),
-		clearExternalBlockers: () => { externalBlockers = []; externalBlockerAcknowledged = false; externalBlockerRefusedOnce = false; },
+		clearExternalBlockers: () => { externalBlockers = []; externalBlockerAcknowledged = false; externalBlockerMarker = ""; },
 		resolveIncomingCapabilities: (acceptedUserInput = "") => { resolveIncomingCapabilities(acceptedUserInput, true); }, applyWorkModeTools: () => { applyWorkModeTools(); },
 		getTurnReport: () => turnReport,
 		setStatus: (key, value) => { widgetCtx?.ui?.setStatus(key, value); },
@@ -816,6 +824,7 @@ export default function (pi: ExtensionAPI) {
 		getSystem1: () => watchdogActivity?.live() ?? null,
 		getTaskTriage: () => {
 			if (!taskTriageConfigured && !processState.additions?.length) return null;
+			// A UI repaint does not inspect the filesystem. Recorded evidence is shown as unverified.
 			try { return { ...taskTriageMetadata(), process: { schema: processState.schema, ...evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }) } }; }
 			catch { return { ...taskTriageMetadata(), process: { schema: "invalid" } }; }
 		},
@@ -857,12 +866,36 @@ export default function (pi: ExtensionAPI) {
 	// ── Dispatch Agent (returns Promise) ─────────
 
 	// ── Extracted coms dispatch, drift judge, and return extraction ──
+	function mayRouteToComs(agent: string): boolean {
+		const substitution = dispatchPolicy.substitutions[agent];
+		if ((substitution?.prefer ?? dispatchPolicy.default) !== "coms") return false;
+		const profile = readActiveProfile();
+		if (profile && (profileForcesNativePeers(profile) || resolveAssist(profile.profile.assist)['write-isolation'])) return false;
+		const peers = comsReady && identity ? peersInScope() : [];
+		const route = resolveDispatchBackend({ agentName: agent, policy: dispatchPolicy, livePeerNames: peers.map(peer => peer.name) });
+		if (route.backend === "coms" && profile && substitution?.fallback !== "none") {
+			const peer = peers.find(candidate => candidate.name.toLowerCase() === agent);
+			if (profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, profile)) return false;
+		}
+		return route.backend === "coms" || route.backend === "await-coms";
+	}
+	function reserveUnisolatedWriter(agent: string): () => void {
+		const id = ++writerSequence;
+		activeWriters.set(id, { agent, scope: [], isolated: false });
+		activeWritableDispatches++;
+		return () => { if (activeWriters.delete(id)) activeWritableDispatches--; };
+	}
 	const dispatchComs = createDispatchComs({
 		getIdentity: () => identity,
 		resolveTarget: target => coms.resolveTarget(target),
 		send: (params, auditExtra) => coms.send(params, auditExtra),
 		getPendingReply: msgId => pendingReplies.get(msgId),
 		deletePendingReply: msgId => { pendingReplies.delete(msgId); },
+		retainPendingWriter: (agent, reply) => {
+			const release = reserveUnisolatedWriter(agent);
+			// Local timeout/cancellation only stops waiting. The correlated peer reply ends its work.
+			void reply.then(release, () => {});
+		},
 		getSessionDir: () => sessionDir,
 		getWatchdogJudgeModel: () => watchdogJudgeModel,
 		getResearcherModel: () => {
@@ -1017,6 +1050,7 @@ export default function (pi: ExtensionAPI) {
 	let lastHubPiSpawnAt: number | null = null;
 
 	let askUserAvailable = false;
+	const isAskUserAvailable = () => askUserAvailable && pi.getActiveTools().includes("ask_user");
 	let baselineTools: string[] = [];
 	let contextPressureState: ContextPressureState = createContextPressureState();
 	const pressureRootState = createContextPressureRootState();
@@ -1024,7 +1058,7 @@ export default function (pi: ExtensionAPI) {
 	function pendingCapabilityOperations(): PendingOperation[] {
 		const pending: PendingOperation[] = [];
 		if (pendingTaskTransition) pending.push({ pack: "fleet", kind: "task-transition" });
-		if (processOpenObligations(processState, undefined, privateProofUse()).some(stage => stage === "plan" || stage === "review")) pending.push({ pack: "fleet", kind: "process-stage" });
+		if (processOpenObligations(processState, currentProcessRevision, privateProofUse()).some(stage => stage === "plan" || stage === "review")) pending.push({ pack: "fleet", kind: "process-stage" });
 		if (Array.from(agentStates.values()).some(state => state.status === "running") || Array.from(researchStates.values()).some(state => state.status === "running")) pending.push({ pack: "fleet", kind: "child" });
 		if (pendingReplies.size > 0 || pendingHandoff) pending.push({ pack: "peer", kind: "message" });
 		if (hubSpawnedPeers.size > 0) pending.push({ pack: "workspace", kind: "pane" });
@@ -1086,13 +1120,18 @@ export default function (pi: ExtensionAPI) {
 				getProcessState: () => processState, setProcessState: value => { processState = value; }, persistProcessVerdict, processBlock,
 				getTurnDispatchFingerprints: () => turnDispatchFingerprints,
 				getExternalBlockers: () => externalBlockers,
-				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged, setExternalBlockerAcknowledged: value => { externalBlockerAcknowledged = value; },
-				getExternalBlockerRefusedOnce: () => externalBlockerRefusedOnce, setExternalBlockerRefusedOnce: value => { externalBlockerRefusedOnce = value; },
-				isAskUserAvailable: () => askUserAvailable && pi.getActiveTools().includes("ask_user"), getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
+				getExternalBlockerAcknowledged: () => externalBlockerAcknowledged,
+				markExternalBlockersPending: () => {
+					externalBlockerAcknowledged = false;
+					externalBlockerMarker = `[[external-blocker:${crypto.randomUUID()}]]`;
+				},
+				getExternalBlockerMarker: () => externalBlockerMarker,
+				isAskUserAvailable, getUserLanguage: () => userLanguage, getSessionDir: () => sessionDir,
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
 				getActiveWriters: () => Array.from(activeWriters.values()),
+				mayRouteToComs,
 				addAgentInstance: (base, instance) => addParallelAgentInstance(base, instance),
 				beginWriter: entry => {
 					const id = ++writerSequence;
@@ -1142,7 +1181,7 @@ export default function (pi: ExtensionAPI) {
 				if (processPersistenceBlocked) throw new Error("corrupt process state");
 				const next = await adoptTaskTriageState({ runtime: taskTriage, taskId: id, newTask,
 					expandedScope, pendingTransition: pendingTaskTransition, state: processState,
-					persist: state => pi.appendEntry("agent-hub-process-state", processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
+					persist: state => pi.appendEntry("agent-hub-process-state", processAuditRecord(state, evaluateProcessObligations(state, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER }))),
 					onPostCommitFailure: () => { processPersistenceBlocked = true; },
 				});
 				pendingTaskTransition = false;
@@ -1152,7 +1191,7 @@ export default function (pi: ExtensionAPI) {
 				try { pi.appendEntry(TASK_TRANSITION_ENTRY_TYPE, { pending: false }); } catch { processPersistenceBlocked = true; }
 				return next;
 			},
-			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() })),
+			persistProcessState: value => persistProcessVerdict(value, evaluateProcessObligations(value, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() })),
 			getTaskDispatchCount: () => taskDispatchCount, getTaskResearchCount: () => taskResearchCount,
 			getTurnReport: () => turnReport, getAssertions: () => assertions, setAssertions: value => { assertions = value; },
 			persistLedger: persistAssertionLedger, ledgerRestoreDiagnostic: () => ledgerRestoreDiagnostic,
@@ -1347,6 +1386,12 @@ export default function (pi: ExtensionAPI) {
 		cancelWait: (state, kind) => cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind } }),
 		cancelOwned: state => { fenceOperatorCancel(state); cancelLocalOwnedProcess({ process: state.proc, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), treeKill: killPiTree }); },
 		restartSpecialist: async (state: AgentState, ctx) => {
+			const key = state.def.name.toLowerCase();
+			const restartingOwnChild = !!state.proc && state.status === "running";
+			if (state.lastBackend === "coms" && (state.comsAbort || [...activeWriters.values()].some(writer => writer.agent.toLowerCase() === key))) {
+				ctx.ui.notify("Wait for the peer's terminal reply before restarting this dispatch.", "warning");
+				return;
+			}
 			if (state.status === "running" && (state.proc || state.comsAbort)) {
 				let resolveTermination!: () => void;
 				const terminated = new Promise<void>(resolve => { resolveTermination = resolve; });
@@ -1356,9 +1401,19 @@ export default function (pi: ExtensionAPI) {
 				else await cancelLocalWaitOnly({ abort: state.comsAbort, monitorBridge, monitorKey: monitorKeyForAgent(state.def.name, state.dispatchId ?? state.runCount), event: { kind: "restart" } });
 				await terminated;
 			}
-			state.sessionFile = null;
-			const result = await dispatchAgent(state.def.name, state.task, ctx);
-			pi.sendMessage({ customType: "agent-restart-result", content: `[${displayName(state.def.name)}] restarted by operator and ${result.exitCode === 0 ? "completed" : "failed"} in ${Math.round(result.elapsed / 1000)}s.`, display: true }, { deliverAs: "followUp", triggerTurn: true });
+			const access = { ...dispatchAccess(state.def), comsWriter: mayRouteToComs(key) };
+			const needsWriter = access.writable || access.comsWriter;
+			const otherWriter = [...activeWriters.values()].some(writer => !(restartingOwnChild && writer.agent.toLowerCase() === key));
+			if (needsWriter && otherWriter) {
+				ctx.ui.notify("Wait for the active writer to finish before restarting this dispatch.", "warning");
+				return;
+			}
+			const release = needsWriter ? reserveUnisolatedWriter(key) : undefined;
+			try {
+				state.sessionFile = null;
+				const result = await dispatchAgent(state.def.name, state.task, ctx, [], state.lastScope ?? state.resumeContract?.scope ?? [], undefined, "auto", false, undefined, [], access);
+				pi.sendMessage({ customType: "agent-restart-result", content: `[${displayName(state.def.name)}] restarted by operator and ${result.exitCode === 0 ? "completed" : "failed"} in ${Math.round(result.elapsed / 1000)}s.`, display: true }, { deliverAs: "followUp", triggerTurn: true });
+			} finally { release?.(); }
 		},
 	});
 
@@ -1437,7 +1492,7 @@ export default function (pi: ExtensionAPI) {
 				taskId: () => noProgress.taskId(), inputRevision: () => taskTriage?.current?.revision ?? "",
 				ask: (nonce, question, askCtx, signal) => requestRuntimeAsk(pi.events, nonce, question, askCtx, signal, undefined, 'permission'),
 				startWait: nonce => executionHistory.startAskUser(nonce), endWait: (nonce, sameTask) => { const wait = executionHistory.endAskUser(nonce, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); },
-				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }))),
+				persist: value => pi.appendEntry("agent-hub-process-state", processAuditRecord(value, evaluateProcessObligations(value, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }))),
 			}, ctx);
 			if (next) processState = next;
 			return !!next;
@@ -2161,7 +2216,7 @@ export default function (pi: ExtensionAPI) {
 			taskTierAssumed,
 			processRisk: processState.risk,
 			processScope: processState.scope,
-			processOpen: Object.entries(evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }).obligations).filter(([, value]) => value.status === "open").map(([name]) => name),
+			processOpen: Object.entries(evaluateProcessObligations(processState, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }).obligations).filter(([, value]) => value.status === "open" || value.status === "unverified").map(([name]) => name),
 			turnDispatchCount,
 			turnResearchCount,
 			taskDispatchCount,
@@ -2193,7 +2248,7 @@ export default function (pi: ExtensionAPI) {
 		const built = assembleHubPrompt(hubPromptCtx);
 		lastHubLedger = built.ledger;
 		const names = new Set(Array.from(agentStates.values(), s => s.def.name.toLowerCase()));
-		const missingRoles = missingProcessRoleRecoveryHints(processState, names);
+		const missingRoles = missingProcessRoleRecoveryHints(processState, names, currentProcessRevision);
 		const additions = activeAdditionRecoveryHints(processState, noProgress.taskId(), taskTriage?.current?.revision);
 		return { systemPrompt: `${built.systemPrompt}\n\nTask-triage (experimental, uncertain): ${JSON.stringify(taskTriage?.status ?? { status: "skipped", detail: "consumer_off" })}. This does not change budget or authorize effects.${processPersistenceBlocked ? ` BLOCKED: ${processBlock()!.message}` : pendingTaskTransition ? ` ${taskTransitionPromptNotice}` : ""}${missingRoles ? ` ${missingRoles} Never auto-raise tier or substitute an unrelated role.` : ""}${additions ? ` ${additions}` : ""}` };
 	}
@@ -2203,11 +2258,11 @@ export default function (pi: ExtensionAPI) {
 		finishMonitorTurn: () => { if (monitorBridge && monitorTurnId) { monitorBridge.finishParent(monitorTurnId, "completed"); monitorTurnId = null; } },
 		startMonitorTurn: () => { if (monitorBridge && monitorHubId) { monitorTurnId = `hub-turn-${monitorHubId}-${crypto.randomUUID()}`; monitorBridge.startParent({ id: monitorTurnId, hubInstanceId: monitorHubId, checkoutId: currentCtx?.cwd || process.cwd() }); } },
 		startAskUser: id => executionHistory.startAskUser(id), endAskUser: (id, at) => executionHistory.endAskUser(id, at),
-		acknowledgeExternalBlocker: () => { externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false; },
+		getExternalBlockerMarker: () => externalBlockerMarker, acknowledgeExternalBlocker,
 		addAskUserWait: waitMs => { if (waitMs > 0) taskClock = addTaskClockWait(taskClock, waitMs); },
 		applyWorkMode: applyWorkModeTools, closeTurnActiveTime, openTaskClock: at => { taskClock = openTaskClock(taskClock, at); }, startHistoryTurn: at => executionHistory.startTurn(at),
 		resetTurnBudgetState: () => {
-			turnDispatchCount = 0; turnResearchCount = 0; turnDispatchFingerprints.clear(); externalBlockerAcknowledged = true; externalBlockerRefusedOnce = false;
+			turnDispatchCount = 0; turnResearchCount = 0; turnDispatchFingerprints.clear();
 			if (turnReport.dispatches.length > 0 || turnReport.research > 0 || turnReport.refusals > 0) { lastTurnReport = turnReport; sessionTotals.turns++; }
 			turnReport = freshTurnReport();
 		},
@@ -2235,7 +2290,7 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const next = applyTaskTriageAdditions(processState, assessment.assessment, { taskId: assessment.taskId, evaluationId: assessment.evaluationId, inputRevision: assessment.revision });
                     if(JSON.stringify(next)!==JSON.stringify(normalizeProcessState(processState))) {
-                        pi.appendEntry("agent-hub-process-state", processAuditRecord(next, evaluateProcessObligations(next, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER })));
+                        pi.appendEntry("agent-hub-process-state", processAuditRecord(next, evaluateProcessObligations(next, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER })));
                         processState = next;
                     }
 				} catch { processPersistenceBlocked = true; }
@@ -2305,7 +2360,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("session_compact", async (_event, ctx) => {
         noProgress.compact(ctx.sessionManager.getEntries());
-		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }));
+		if (!processPersistenceBlocked) persistProcessVerdict(processState, evaluateProcessObligations(processState, { writable: true, currentRevision: currentProcessRevision, budgetTier: taskTier ?? DEFAULT_TASK_TIER, privateUse: privateProofUse() }));
 		const result = toolCatalogRuntime.compact({
 			mode: getWorkMode(), getEffectiveTools: () => pi.getActiveTools(),
 			persist: (type, data) => pi.appendEntry(type, data), counterSnapshot: () => unknownToolCounter.snapshot(),
@@ -2317,6 +2372,7 @@ export default function (pi: ExtensionAPI) {
 		if (result) latestToolCatalogDelta = result.delta;
 	});
 	pi.on("input", async (event, ctx) => {
+		if (externalBlockerMarker && !isAskUserAvailable() && confirmsExternalBlockerInChat(event, externalBlockerMarker)) acknowledgeExternalBlocker();
 		const outcome = pressureLifecycle.input(event, ctx);
 		return { action: outcome.action };
 	});

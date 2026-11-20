@@ -39,7 +39,7 @@ export interface SessionAuditEvent {
 	risk?: "unknown" | "low" | "high";
 	scope?: "unknown" | "read-only" | "small" | "wide";
 	budgetTier?: string | null;
-	obligations?: Record<string, "satisfied" | "open" | "unsupported" | "waived">;
+	obligations?: Record<string, "satisfied" | "open" | "unverified" | "unsupported" | "waived">;
 	processAdditions?: TaskTriageSessionView["process"]["additions"];
 	appliedRuleIds?: string[];
 	currentStage?: string;
@@ -222,10 +222,10 @@ export function buildSessionAudit(input: { entries: readonly unknown[]; sessionD
 			const appliedRuleIds = Array.isArray(data?.appliedRuleIds) ? data.appliedRuleIds.filter((v: unknown) => typeof v === "string").slice(0, 8) : [];
 			const currentStage = text(data?.currentStage, 64) ?? "unavailable", admissibleNextAction = text(data?.admissibleNextAction, 160) ?? "unavailable";
 			const auditScope = Array.isArray(data?.auditScope) ? data.auditScope.filter((v: unknown) => typeof v === "string").slice(0, 64) : [];
-			const raw = object(data?.obligations), obligations: Record<string, "satisfied" | "open" | "unsupported"> = {};
+			const raw = object(data?.obligations), obligations: Record<string, "satisfied" | "open" | "unverified" | "unsupported"> = {};
 			for (const name of ["risk", "acceptance", "review", "plan"]) {
 				const item = object(raw?.[name]), value = item?.status;
-				obligations[name] = ["satisfied", "open", "unsupported"].includes(value) ? value : "unsupported";
+				obligations[name] = ["satisfied", "open", "unverified", "unsupported"].includes(value) ? value : "unsupported";
 			}
 			add({ kind: "process_obligation", rootSessionId, childDispatchId: null, childSessionId: null, snapshotId: null,
 				status: Object.values(obligations).some(value => value !== "satisfied") ? "not_accepted" : "accepted", risk, scope, budgetTier,

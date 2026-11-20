@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { checkExternalBlockerGate, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
+import { checkExternalBlockerGate, confirmsExternalBlockerInChat, externalBlockedProtocol, extractExternalBlockers } from "./external-blocker.js";
 
 test("extractExternalBlockers pulls markers out of a specialist return", () => {
 	const output = [
@@ -62,14 +62,14 @@ test("with ask_user available the gate keeps firing until the human is addressed
 	assert.match(gate.message, /Call `ask_user`.*Wait for the human's explicit answer/);
 });
 
-test("without ask_user the gate fires exactly once so the session cannot deadlock", () => {
+test("without ask_user repeated attempts wait for the addressed human chat reply", () => {
 	const first = checkExternalBlockerGate({ blockers: [{ what: "x" }], acknowledged: false, askUserAvailable: false, refusedOnce: false });
 	assert.ok(first);
 	assert.match(first.message, /ask_user` is unavailable/);
 	assert.match(first.message, /in chat and wait for the human's explicit answer/);
-	assert.match(first.message, /fires once/);
+	assert.match(first.message, /this exact line/);
 	const second = checkExternalBlockerGate({ blockers: [{ what: "x" }], acknowledged: false, askUserAvailable: false, refusedOnce: true });
-	assert.equal(second, null);
+	assert.ok(second);
 });
 
 test("the injected protocol tells specialists to stop rather than substitute", () => {
@@ -86,4 +86,16 @@ test('internal registration failures do not latch unrelated delegation, includin
  }
  assert.ok(checkExternalBlockerGate({blockers:[{what:'human denied secret access'}],acknowledged:false,askUserAvailable:true}));
  assert.ok(checkExternalBlockerGate({blockers:[{what:'damage_transport_unavailable'},{what:'missing production deployment credentials'}],askUserAvailable:true}));
+});
+
+test("only a human chat answer to the current blocker packet confirms resolution", () => {
+	const marker = "[[external-blocker:current]]";
+	for (const source of ["interactive", "rpc"]) {
+		assert.equal(confirmsExternalBlockerInChat({ source, text: `Confirm ${marker}` }, marker), true);
+		assert.equal(confirmsExternalBlockerInChat({ source, text: `Confirm ${marker}\r\nUse the staging endpoint.` }, marker), true);
+		for (const text of ["continue", "please update me", "Confirm [[external-blocker:older]]\nstale", `Cancel ${marker}`, `Status update\nConfirm ${marker}`, `Confirm ${marker} perhaps`]) {
+			assert.equal(confirmsExternalBlockerInChat({ source, text }, marker), false);
+		}
+	}
+	assert.equal(confirmsExternalBlockerInChat({ source: "extension", text: `Confirm ${marker}` }, marker), false);
 });

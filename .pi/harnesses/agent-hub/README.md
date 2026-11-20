@@ -189,6 +189,9 @@ Capped model providers (by default `omlx/` and `custom/`, overridable with
 Read-only audits and `spawn_research` can run alongside an active builder within the provider's
 concurrency limits. The Hub runs read-only dispatches natively with inspection tools and
 `submit_result`. A persona can declare `writes: []` to use this path for ordinary dispatches.
+In native inspection the reviewer reads the scoped files directly and submits its own report.
+The child receives neither the delegation extension nor the optional `filesystem` tool, including
+its UTF-8 and Base64 paging operations. A reviewer routed to a coms peer occupies a writer slot.
 Code and security reviewers also support `review_mode: "run-checks"` to run their configured
 shell checks. That mode and the current-state verification modes follow the writer rules.
 
@@ -931,9 +934,11 @@ dispatch/research** with an owner-escalation packet: what is missing and who own
 assertions are blocked, what is already proven and where, and the human's options (provide
 access / waive as UNPROVEN / drop from scope).
 
-The gate opens when the human has been addressed — an `ask_user` call, or the next user
-message. Without `ask_user` installed it fires exactly once, so a session that cannot reach
-the human can still finish and report instead of deadlocking.
+The Hub resumes dependent work after receiving the human's answer to the outstanding blocker.
+Opening a question, cancelling it, or sending an unrelated message leaves the blocker open.
+When `ask_user` is unavailable, reply in chat with `Confirm [[external-blocker:<UUID>]]`,
+using the exact marker from the current escalation packet on the first line. You can include
+the resolution on the following lines.
 
 This exists because the alternative is the most expensive failure mode observed: with no
 correlation destination available, a run kept substituting internal work for the missing

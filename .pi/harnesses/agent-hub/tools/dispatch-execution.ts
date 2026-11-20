@@ -32,8 +32,8 @@ export type { DispatchExecutionState, DispatchExecutorDeps, WriterEntry } from "
 
 export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
 	const s = d.state;
-	const blocked = checkExternalBlockerGate({ blockers: s.getExternalBlockers(), acknowledged: s.getExternalBlockerAcknowledged(), askUserAvailable: s.isAskUserAvailable(), refusedOnce: s.getExternalBlockerRefusedOnce() });
-	if (blocked) { s.setExternalBlockerRefusedOnce(true); return blocked; }
+	const blocked = checkExternalBlockerGate({ blockers: s.getExternalBlockers(), acknowledged: s.getExternalBlockerAcknowledged(), askUserAvailable: s.isAskUserAvailable(), marker: s.getExternalBlockerMarker() });
+	if (blocked) return blocked;
 	const blockedProcess = s.processBlock?.();
 	if (blockedProcess) return blockedProcess;
 	const process = s.getProcessState?.();
@@ -139,6 +139,12 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 	return `${task}\n\n## Runtime acceptance contract (machine-appended)\nThese requirements survive dispatch and compaction. A claim, file presence, or listed command is not proof; report evidence, while the runtime decides acceptance. Run explicit commands unchanged, one bash call per command, sequentially with no overlapping tool calls. Do not append echo, pipe, redirect, or wrap them; runtime captures exit codes, and altered command strings cannot satisfy the declaration.\n${lines.join("\n")}`;
 }
 
+function needsComsWriter(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams): boolean {
+	if (params.backend === "coms") return true;
+	if (params.backend === "native" || params.parallel || (params.review_mode && params.review_mode !== "changes")) return false;
+	return d.state.mayRouteToComs?.(agent) === true;
+}
+
 const SCOPE_GLOB = /[*?[\]{}!]/;
 
 /**
@@ -146,9 +152,9 @@ const SCOPE_GLOB = /[*?[\]{}!]/;
  * disjoint exact scope (PHILOSOPHY, 2026-11-11). Inspection has no writer slot.
  * An isolated writer with an empty scope cannot write to the repository.
  */
-export function parallelWriterGate(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams): ToolExecutionResult | null {
+export function parallelWriterGate(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams, comsWriter = needsComsWriter(d, agent, params)): ToolExecutionResult | null {
 	const s = d.state; const def = s.getAgentStates().get(agent)?.def;
-	if (!def || !dispatchAccess(def, params.review_mode).writable) return null;
+	if (!def || (!dispatchAccess(def, params.review_mode).writable && !comsWriter)) return null;
 	const parallel = params.parallel === true;
 	const scope = (params.scope || []).map(String).map(entry => entry.trim()).filter(Boolean);
 	if (parallel) {
@@ -192,17 +198,14 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx);
 	if (rosterRefusal) return rosterRefusal;
 	const def = s.getAgentStates().get(agent)?.def;
-	const access = dispatchAccess(def ?? { tools: "" }, params.review_mode);
+	const access = { ...dispatchAccess(def ?? { tools: "" }, params.review_mode), comsWriter: needsComsWriter(d, agent, params) };
 	if (runChecks && (!isReviewPersona(agent) || !access.tools.split(",").some(tool => tool.trim() === "bash") || params.backend === "coms")) {
 		return refusal(d, agent, task, "review_checks_requires_native", "run-checks requires a native reviewer configured with bash.");
-	}
-	if (!access.writable && params.backend === "coms") {
-		return refusal(d, agent, task, "read_only_requires_native", "Read-only dispatch requires a native child whose tool list the Hub can enforce.");
 	}
 	if (!access.writable && def?.readOnly && params.deliverables?.length) {
 		return refusal(d, agent, task, "read_only_deliverables", "A read-only audit returns its report through submit_result. File deliverables require a separate writer.");
 	}
-	const writerRefusal = parallelWriterGate(d, agent, params);
+	const writerRefusal = parallelWriterGate(d, agent, params, access.comsWriter);
 	if (writerRefusal) return writerRefusal;
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
@@ -267,7 +270,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
-	const s = d.state; const canWrite = prepared.access.writable;
+	const s = d.state; const canWrite = prepared.access.writable || prepared.access.comsWriter === true;
 	const tracking: Tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), writerGeneration: s.getWriterGeneration?.(), concurrentAtStart: s.getActiveWritableDispatches() > 0 || !!s.getActiveWriters?.().length };
 	if (canWrite) {
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
@@ -288,7 +291,7 @@ function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx:
   const next = { ...processState, runtimeReceipts: started.state };
   if (prepared.privateConfig) { delete next.privateVerification; next.privateVerificationRequired = true; }
   s.setProcessState(next);
-  s.persistProcessVerdict(next, evaluateProcessObligations(next, { writable: true, budgetTier: s.getTaskTier() ?? "small" }));
+  s.persistProcessVerdict(next, evaluateProcessObligations(next, { writable: true, currentRevision: scopes => revisionOf(ctx.cwd || process.cwd(), [...scopes]), budgetTier: s.getTaskTier() ?? "small" }));
   if (s.processBlock?.()) throw Error("Runtime receipt capture could not be persisted");
   tracking.receiptCapture = started.capture;
   if (prepared.privateConfig) {
@@ -367,8 +370,7 @@ async function finishDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, para
 	const blockers = extractExternalBlockers(result.output);
 	if (sameTask && blockers.length) {
 		for (const what of blockers) if (!s.getExternalBlockers().some(b => b.what === what)) s.getExternalBlockers().push({ agent: p.agent, what });
-		s.setExternalBlockerAcknowledged(false);
-		s.setExternalBlockerRefusedOnce(false);
+		s.markExternalBlockersPending();
 	}
 	return renderDispatchResult(d, p, params, run, tracking, { evidence, receipts, decision, outcome, assessmentPath, unresolved, blockers });
 }
@@ -456,7 +458,7 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
-        if (isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && params.backend !== "coms" && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
+        if (isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && !needsComsWriter(d, agent, params) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
             const state=d.state.getProcessState();
             let cached=null;
             try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
@@ -471,7 +473,7 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
             const state=d.state.getProcessState();
             if(state.review.evidenceRef){
                 const next={...state,review:{...state.review,evidenceRef:null,revision:null},reviews:(state.reviews??[]).filter(r=>r.agent!==agent)};
-                d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,evaluateProcessObligations(next,{writable:true,budgetTier:d.state.getTaskTier()??"small"}));
+                d.state.setProcessState?.(next);d.state.persistProcessVerdict?.(next,evaluateProcessObligations(next,{writable:true,currentRevision:scopes=>revisionOf(ctx.cwd || process.cwd(),[...scopes]),budgetTier:d.state.getTaskTier()??"small"}));
                 if(d.state.processBlock?.())return refusal(d,agent,params.task,"process_state_corrupt","Fresh review invalidation could not be persisted.");
             }
         }

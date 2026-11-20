@@ -15,14 +15,13 @@ import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 
 function dispatchDeps(overrides: Record<string, unknown> = {}): any {
 	const blockers: Array<{ agent: string; what: string }> = [];
-	let refused = false;
+
 	return {
 		state: {
 			getExternalBlockers: () => blockers,
 			getExternalBlockerAcknowledged: () => false,
-			setExternalBlockerAcknowledged() {},
-			getExternalBlockerRefusedOnce: () => refused,
-			setExternalBlockerRefusedOnce: (value: boolean) => { refused = value; },
+			markExternalBlockersPending() {},
+			getExternalBlockerMarker: () => "[[external-blocker:test]]",
 			isAskUserAvailable: () => true,
 			getTaskTier: () => null,
 		},
@@ -93,7 +92,7 @@ test("preflightGate preserves the external-blocker circuit breaker before person
 	const result = preflightGate(deps, "builder");
 	assert.equal(result?.reason, "external_blocked");
 	assert.match(result?.message ?? "", /missing deployment credential/);
-	assert.equal(deps.state.getExternalBlockerRefusedOnce(), true);
+	assert.match(result?.message ?? "", /external-blocker:test/);
 });
 
 test("orchestration routes all executor groups through explicit adapter ports", () => {

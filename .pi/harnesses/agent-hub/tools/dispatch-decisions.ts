@@ -169,7 +169,7 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 		processVerdict = evaluateProcessObligations(processState, { writable: tracking.writable || stage !== null, budgetTier: s.getTaskTier() ?? "small", t2Accepted: !p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted, currentRevision: stageRevision, ...(p.privateConfig ? { privateUse } : {}) });
 		runtimeResult.process = processVerdict;
 		if (!processVerdict.accepted) {
-			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open").map(([name]) => `process_${name}_open`)])] };
+			runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...new Set([...runtimeResult.acceptance.reasons, ...Object.entries(processVerdict.obligations).filter(([, value]) => value.status === "open" || value.status === "unverified").map(([name]) => `process_${name}_open`)])] };
 			if (runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed") runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };
 		}
 		s.persistProcessVerdict?.(processState, processVerdict);

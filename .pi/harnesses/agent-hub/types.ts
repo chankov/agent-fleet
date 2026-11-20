@@ -59,6 +59,7 @@ export interface AgentState {
 	transcriptStore?: FleetTranscriptStore;
 	zoomRender?: (force?: boolean) => void;
 	histEntry?: HistoryEntry;
+	lastScope?: string[];
 	lastBackend?: "native" | "coms";
 	comsPeerModel?: string;
 	comsAbort?: () => void;

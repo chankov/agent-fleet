@@ -71,6 +71,10 @@ test("declaring an audit read-only does not exempt its explicit shell verificati
 	active.d.state.getAgentStates().get("code-reviewer").def.readOnly = true;
 	const audit = { agent: "code-reviewer", task: "review", scope: ["src/a"] };
 	assert.equal(parallelWriterGate(active.d, audit.agent, audit), null);
+	active.d.state.mayRouteToComs = () => true;
+	assert.equal(status(parallelWriterGate(active.d, audit.agent, audit)), "writer_active");
+	assert.equal(status(parallelWriterGate(active.d, audit.agent, { ...audit, backend: "coms" })), "writer_active");
+	assert.equal(parallelWriterGate(active.d, audit.agent, { ...audit, backend: "native" }), null);
 	const verification = { ...audit, review_mode: "run-checks" as const };
 	assert.equal(status(parallelWriterGate(active.d, audit.agent, verification)), "writer_active");
 	assert.equal(status(parallelWriterGate(active.d, audit.agent, { ...verification, parallel: true })), "scope_overlap");

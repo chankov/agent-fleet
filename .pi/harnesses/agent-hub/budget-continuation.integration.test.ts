@@ -19,7 +19,7 @@ test("dispatch, research and flow paths carry no continuation quota or budget co
 test("legacy marked ask_user events cannot authorize a runtime budget", () => {
 	const asks = new Map(); let renewals = 0;
 	const handlers = createTurnLifecycleHandlers({
-		startAskUser() {}, endAskUser: () => 0, addAskUserWait() {}, acknowledgeExternalBlocker() {},
+		startAskUser() {}, endAskUser: () => 0, addAskUserWait() {}, getExternalBlockerMarker: () => "", acknowledgeExternalBlocker() { assert.fail("budget continuation cannot acknowledge a blocker"); },
 		continuationKind: () => "task", getPendingContinuation: () => ({ kind: "task", reason: "cap" }),
 		setContinuationAsk: (id, value) => asks.set(id, value), getContinuationAsk: id => asks.get(id), deleteContinuationAsk: id => asks.delete(id),
 		setPendingContinuation() {}, continuationOutcome: () => "continue", continuationSnapshot: () => ({}),

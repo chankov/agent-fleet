@@ -10,8 +10,8 @@
 //
 // Protocol: a specialist that cannot proceed without something outside the
 // fleet's reach emits `EXTERNAL_BLOCKED: <what is missing and who owns it>`.
-// The hub records it and refuses the NEXT dispatch/research until the human has
-// been addressed — the escalation is the deliverable at that point.
+// The hub records it and refuses the NEXT dispatch/research until the human confirms
+// the outstanding blocker packet — the escalation is the deliverable at that point.
 
 // Runtime plumbing failures are owned by Fleet, not by an external account or
 // service. Do not turn them into a global human-question latch. This does not
@@ -32,31 +32,24 @@ export function extractExternalBlockers(output) {
 	return blockers;
 }
 
-/**
- * Gate the next dispatcher call while an external blocker is unacknowledged.
- *
- * state: {
- *   blockers: [{ agent, what }],   // recorded, newest last
- *   acknowledged: boolean,          // human addressed (ask_user called, or new user turn)
- *   askUserAvailable: boolean,      // whether this session has the ask_user tool
- *   refusedOnce: boolean,           // a refusal was already issued for this blocker set
- * }
- *
- * Returns null when allowed, else { reason, message }. Without ask_user the gate
- * fires exactly once: a session that cannot reach the human must still be able
- * to finish and report, and an unbreakable gate there is a deadlock, not a stop.
- */
+/** Bind direct human chat input to the outstanding blocker packet. */
+export function confirmsExternalBlockerInChat(event, marker) {
+	return Boolean(marker && ["interactive", "rpc"].includes(event.source) &&
+		typeof event.text === "string" && event.text.trim().split(/\r?\n/, 1)[0] === `Confirm ${marker}`);
+}
+
 export function checkExternalBlockerGate(state) {
 	const blockers = (state?.blockers || []).filter(b => !internalRuntimeFailure(b.what));
 	if (blockers.length === 0) return null;
 	if (state?.acknowledged) return null;
-	if (!state?.askUserAvailable && state?.refusedOnce) return null;
+	const marker = state.marker;
 
 	const list = blockers.map((b) => `  - ${b.what}${b.agent ? ` (reported by ${b.agent})` : ""}`).join("\n");
 	const escalation = state?.askUserAvailable
-		? "Call `ask_user` with the packet below. Wait for the human's explicit answer before continuing the blocked work."
+		? "Call `ask_user` with the packet below. Wait for the human's explicit answer before continuing the blocked work." +
+		  ` Include ${marker} in the question context, show all listed blockers, and offer Confirm or Cancel. Confirm means the listed blockers have been addressed.`
 		: "`ask_user` is unavailable. Present the packet below in chat and wait for the human's explicit answer before continuing the blocked work. " +
-		  "This gate fires once so you can finish unrelated work and report.";
+		  `When the listed blockers have been addressed, the human must start their reply with this exact line: Confirm ${marker}\nThey can give the resolution on subsequent lines.`;
 
 	return {
 		reason: "external_blocked",

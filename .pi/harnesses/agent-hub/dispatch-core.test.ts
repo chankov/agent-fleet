@@ -62,6 +62,34 @@ test("coms dispatch preserves fallback refusal and successful reply mapping", as
 	assert.equal(deleted, true);
 });
 
+for (const disposition of ["timeout", "abandon"]) test(`coms ${disposition} keeps the writer bound to the late reply`, async () => {
+	let respond!: (result: { response: string }) => void;
+	const reply = new Promise<{ response: string }>(resolve => { respond = resolve; });
+	const pending = { promise: reply, timer: null };
+	let held = false;
+	const coms = createDispatchComs(comsDeps({
+		getPendingReply: () => pending,
+		deletePendingReply: () => assert.fail("late reply must still be deliverable"),
+		retainPendingWriter: (agent: string, terminal: typeof reply) => {
+			assert.equal(agent, "builder");
+			assert.equal(terminal, reply);
+			held = true;
+			void terminal.then(() => { held = false; });
+		},
+	}));
+	const state: ComsDispatchState = { def: { name: "builder" }, runCount: 1, contextPct: 0, lastWork: "" };
+	const run = coms.dispatchViaComs(state, "task", "builder", disposition === "abandon" ? 5000 : 1, false, extensionContext, [], []);
+	// Keep the process alive for the production unref'ed timer.
+	await new Promise(resolve => setTimeout(resolve, 10));
+	if (disposition === "abandon") state.comsAbort!();
+	const result = await run;
+	assert.ok(result?.pending || result?.abandoned);
+	assert.equal(held, true);
+	respond({ response: "done" });
+	await reply;
+	assert.equal(held, false);
+});
+
 test("coms handoff carries the shared index-first project policy", async () => {
 	let prompt = ""; let pending: any;
 	const coms = createDispatchComs(comsDeps({
@@ -202,6 +230,11 @@ test("a declared reviewer launches with inspection tools, and shell verification
 	assert.ok(launches[1].tools.split(",").includes("bash"));
 	assert.ok(launches[1].extensions.some(path => path.endsWith("/runtime-test-check.ts")));
 	assert.equal(comsCalls, 0);
+	for (const backend of ["auto", "coms"] as const) {
+		const peer = await native.dispatchAgent(def.name, "review through peer", ctx, [], [], undefined, backend, false, undefined, [], { ...dispatchAccess(def), comsWriter: true });
+		assert.equal(peer.output, "remote");
+	}
+	assert.equal(comsCalls, 2);
 });
 
 test("native dispatch refuses a same-persona race before history while distinct personas run in parallel", async () => {

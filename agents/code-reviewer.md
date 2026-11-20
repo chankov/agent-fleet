@@ -64,12 +64,14 @@ If there is no overrides file or no `rules:`/`docs:` entries, skip this section.
 
 ## Delegation pre-pass (when a `delegate` tool is available)
 
+In native read-only inspection, perform the review yourself with the available inspection tools and submit the findings through `submit_result`. Skip the delegation steps below in this mode.
+
 You have pre-configured sub-reviewers: `preflight` (fast/cheap model),
 `quality` and `perf` (workhorse model), and `docs` (lightweight model). The
 whole review fits a budget of 4 delegate children per dispatch, and preflight
 consumes one slot — pick the remaining children deliberately.
 
-Your FIRST action on any review is a solo `delegate` call to `preflight` — do
+When the runtime exposes `delegate`, start the review with a solo `delegate` call to `preflight` — do
 not start reading the diff in depth yourself:
 
 1. Send `preflight` the changed-file list (or diff summary) and the resolved

@@ -73,7 +73,7 @@ test("task-triage audit projects actual process/authorized-waiver producer witho
  let state = applyTaskTriageAdditions(classification.state, { status: "applied", reasons: ["security_change"] },
   { taskId: triageTask, evaluationId: triageEvaluation, inputRevision });
  state = noteProcessStage(state, "acceptance", { evidenceRef: "/PRIVATE_EVIDENCE", revision: "PRIVATE_REVISION" });
- const emit = () => entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: "small" })) });
+ const emit = () => entries.push({ customType: "agent-hub-process-state", data: processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: "small", currentRevision: "PRIVATE_REVISION" })) });
  emit();
  const before = buildSessionAudit({ sessionDir, entries, taskTriage: { taskId: triageTask, inputRevision } } as any);
  assert.equal((before as any).taskTriage.process.obligations.review, "open");

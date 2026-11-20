@@ -163,7 +163,7 @@ test("T11 risk obligations are independent of budget tier and ratchet until a ge
  assert.equal(lowered.ok, true); state = lowered.state;
  assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true }).obligations.review.status, "open", "low does not erase an open high-risk review");
  state = noteProcessStage(state, "review", { evidenceRef: "review:run-1", revision: "rev-1" });
- assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true }).accepted, true);
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "trivial", t2Accepted: true, currentRevision: "rev-1" }).accepted, true);
  const reset = applyProcessClassification(state, { newTask: true, risk: "low", scope: "small", reason: "genuine new task" });
  assert.equal(reset.ok, true); assert.equal(reset.state.review.required, false); assert.equal(reset.state.review.evidenceRef, null);
 });
@@ -193,7 +193,7 @@ test("T11 scope expansion requires an explicit reason and risk reassessment; wid
  assert.equal(verdict.obligations.plan.status, "satisfied"); assert.equal(verdict.obligations.review.status, "open");
  assert.match(verdict.explanation, /budget tier small/i); assert.match(verdict.explanation, /risk high/i);
  state = noteProcessStage(noteProcessStage(state, "plan", { evidenceRef: "plan:run-1", revision: "rev-1" }), "review", { evidenceRef: "review:run-2", revision: "rev-1" });
- assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true }).accepted, true);
+ assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: "small", t2Accepted: true, currentRevision: "rev-1" }).accepted, true);
 });
 
 test("T11 process state round-trips through session entries for resume and compaction", () => {

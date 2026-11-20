@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, nestedRepositoriesInUse, normalizeProcessState, noteProcessStage, processPreEffectGate } from './process-obligations.ts';
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, nestedRepositoriesInUse, normalizeProcessState, noteProcessStage, processAuditRecord, processPreEffectGate } from './process-obligations.ts';
 
 for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alone cannot close independent stages even at lower spend tier`, () => {
  const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
@@ -56,9 +56,47 @@ test('current verification and independent review are revision bound, plan is oc
  let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
  for (const stage of ['plan', 'acceptance', 'review'] as const) state = noteProcessStage(state, stage, { evidenceRef: `${stage}:evidence`, revision: 'current' });
  assert.equal(evaluateProcessObligations(state, { writable: true, budgetTier: 'small', currentRevision: 'current' }).accepted, true);
+ const unverified = evaluateProcessObligations(state, { writable: true, budgetTier: 'project' });
+ assert.equal(unverified.accepted, false);
+ assert.match(unverified.explanation, /unverified for the current revision/);
+ assert.equal(unverified.obligations.review.status, 'unverified');
+ const unavailable = noteProcessStage(state, 'review', { evidenceRef: 'review:evidence', revision: 'unavailable' });
+ assert.equal(evaluateProcessObligations(unavailable, { writable: true, budgetTier: 'project', currentRevision: 'unavailable' }).obligations.review.status, 'unverified');
  const stale = evaluateProcessObligations(state, { writable: true, budgetTier: 'project', currentRevision: 'changed' });
  assert.equal(stale.accepted, false); assert.equal(stale.obligations.plan.status, 'satisfied');
  assert.equal(stale.obligations.acceptance.status, 'open'); assert.equal(stale.obligations.review.status, 'open');
+});
+
+test('direct operator edits reopen journaled approval and passive Fleet metadata stays unverified', async t => {
+ const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+ const { tmpdir } = await import('node:os');
+ const { join } = await import('node:path');
+ const { execFileSync } = await import('node:child_process');
+ const { revisionOf } = await import('./scope-gate.js');
+ const { projectTaskTriage } = await import('../lib/fleet-read-model.ts');
+ const cwd = mkdtempSync(join(tmpdir(), 'review-revision-'));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ execFileSync('git', ['init', '-q', cwd]);
+ execFileSync('git', ['-C', cwd, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base', '--allow-empty']);
+ const file = join(cwd, 'task.txt');
+ writeFileSync(file, 'reviewed');
+ const currentRevision = (scopes: readonly string[]) => revisionOf(cwd, [...scopes]);
+ const reviewed = currentRevision([]);
+ let state = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'work' }).state;
+ for (const stage of ['acceptance', 'review'] as const) {
+  state = noteProcessStage(state, stage, { revision: reviewed, evidenceRef: stage, changedFiles: ['task.txt'] });
+ }
+ const options = { writable: true, budgetTier: 'small' };
+ assert.equal(evaluateProcessObligations(state, { ...options, currentRevision }).accepted, true);
+ writeFileSync(file, 'edited after approval');
+ const verdict = evaluateProcessObligations(state, { ...options, currentRevision });
+ assert.equal(verdict.accepted, false);
+ assert.equal(processAuditRecord(state, verdict).obligations.review.status, 'open');
+ assert.equal(processPreEffectGate(state, 'prove', '', currentRevision)?.reason, 'process_obligations_open');
+ const passive = projectTaskTriage({ process: { schema: state.schema, ...evaluateProcessObligations(state, options) } }).process;
+ assert.equal(passive.obligations?.review, 'unverified');
+ assert.ok(passive.blockers.includes('review'));
+ assert.equal(passive.completion, 'not_complete');
 });
 
 test('current-state origin is explicit, revision-bound and does not waive independent review',()=>{

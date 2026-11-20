@@ -16,8 +16,7 @@ import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harness
 //       requested in the prompt and scraped via pane.read after herdr reports
 //       the agent done;
 //   (d) sends the response envelope back to the sender;
-//   (e) a `blocked` agent status returns a readable error envelope instead of
-//       hanging until timeout;
+//   (e) permission prompts after submission keep the original dispatch pending;
 //   (f) prompts are strictly serialized per pane; queue depth is reported in
 //       the agent card + the pane's herdr peer annotation.
 //
@@ -384,50 +383,50 @@ export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Pro
 
 		// Snapshot immediately before submission, not before a potentially long busy wait.
 		const hookMtimeBefore = d.readHook()?.mtime ?? 0;
-		await d.sendText(formatPanePrompt(env, sentinelMode, requestBoundary));
-		await sleep(ENTER_DELAY_MS);
-		await d.sendEnter();
+		try {
+			await d.sendText(formatPanePrompt(env, sentinelMode, requestBoundary));
+			await sleep(ENTER_DELAY_MS);
+			await d.sendEnter();
 
-		// The sender's local await returns `pending` at replyDeadline, but the
-		// bridge keeps watching the already-running turn up to the hard cap so a
-		// late completion can still resolve the original msg_id.
-		const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
-		let pendingLogged = false;
-		let sawWorking = false;
-		while (now() < monitorDeadline) {
-			await sleep(POLL_MS);
-			if (!pendingLogged && now() >= replyDeadline) {
-				pendingLogged = true;
-				d.log?.(`coms-claude-bridge: ${env.msg_id} exceeded its reply budget and remains pending`);
-			}
+			// The sender's local await returns `pending` at replyDeadline, but the
+			// bridge keeps watching the already-running turn up to the hard cap so a
+			// late completion can still resolve the original msg_id.
+			const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
+			let pendingLogged = false;
+			let sawWorking = false;
+			while (now() < monitorDeadline) {
+				await sleep(POLL_MS);
+				if (!pendingLogged && now() >= replyDeadline) {
+					pendingLogged = true;
+					d.log?.(`coms-claude-bridge: ${env.msg_id} exceeded its reply budget and remains pending`);
+				}
 
-			// primary: Stop hook wrote a new record
-			const hook = d.readHook();
-			if (hook) {
-				const mtime = hook.mtime;
-				if (mtime > hookMtimeBefore) {
-					const rec = parseHookRecord(hook.raw);
-					if (rec) {
-						d.markHookSeen();
-						return rec.text;
+				// primary: Stop hook wrote a new record
+				const hook = d.readHook();
+				if (hook) {
+					const mtime = hook.mtime;
+					if (mtime > hookMtimeBefore) {
+						const rec = parseHookRecord(hook.raw);
+						if (rec) {
+							d.markHookSeen();
+							return rec.text;
+						}
 					}
 				}
-			}
 
-			const status = await paneStatus();
-			if (status === "working") sawWorking = true;
-			if (status === "blocked") {
-				throw new Error(
-					`Claude Code in pane ${paneId} is blocked on a permission prompt — a human must approve it in the pane`,
-				);
+				const status = await paneStatus();
+				if (status === "working") sawWorking = true;
+				// fallback: turn ended without a hook record → scrape the sentinel
+				if (sentinelMode && sawWorking && (status === "done" || status === "idle")) {
+					const text = await d.readPane();
+					const reply = extractSentinelReply(text, env.msg_id, requestBoundary);
+					if (reply) return reply;
+					// sentinel not visible yet — keep polling until deadline
+				}
 			}
-			// fallback: turn ended without a hook record → scrape the sentinel
-			if (sentinelMode && sawWorking && (status === "done" || status === "idle")) {
-				const text = await d.readPane();
-				const reply = extractSentinelReply(text, env.msg_id, requestBoundary);
-				if (reply) return reply;
-				// sentinel not visible yet — keep polling until deadline
-			}
+		} catch (error) {
+			// After submission a pane/transport error cannot prove that Claude stopped.
+			throw new ReplyPendingError(`could not observe completion of the submitted turn: ${error}`);
 		}
 		throw new ReplyPendingError(
 			`no reply from Claude Code before the ${REPLY_TIMEOUT_HARD_CAP_MS}ms hard monitoring cap (requested ${effectiveTimeoutMs}ms)` +

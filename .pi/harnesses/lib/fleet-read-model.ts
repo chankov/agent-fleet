@@ -251,7 +251,7 @@ const triageHash = (v: unknown): v is string => typeof v === "string" && /^[a-f0
 const triageReasons = new Set(["security_change", "wide_change", "irreversible_execution"]);
 const triageStatuses = new Set(["applied", "no_additions", "invalid_result", "stale", "incomplete_input", "sensitive_input", "oversized_input", "skipped", "unavailable", "unsupported", "cancelled", "unknown"]);
 const triageStages = new Set(["classify-risk", "plan", "execute", "acceptance", "review", "confirm-action", "complete"]);
-const triageObligationStatuses = new Set(["satisfied", "open", "unsupported", "waived"]);
+const triageObligationStatuses = new Set(["satisfied", "open", "unverified", "unsupported", "waived"]);
 /** Pure metadata projection shared by Fleet and audit; it neither executes nor authorizes anything. */
 export function projectTaskTriage(input: TaskTriageProjectionInput) {
  const taskId = triageUuid(input.taskId) ? input.taskId : null, inputRevision = triageHash(input.inputRevision) ? input.inputRevision : null;
@@ -275,7 +275,7 @@ export function projectTaskTriage(input: TaskTriageProjectionInput) {
   reasons: assessmentValid && probabilitiesValid && assessmentBinding === "current" && input.configuredStatus !== "off" && input.configuredStatus !== "invalid" ? [...assessmentData!.reasons as string[]] : [],
   probabilities: Object.keys(probabilities).length ? probabilities : null };
  const rawProcess = triageObject(input.process), rawObligations = triageObject(rawProcess?.obligations);
- const obligations: Record<string, "satisfied" | "open" | "unsupported" | "waived"> = {};
+ const obligations: Record<string, "satisfied" | "open" | "unverified" | "unsupported" | "waived"> = {};
  let valid = rawProcess?.schema === "agent-fleet.process-obligations/v1" && !!rawObligations
   && typeof rawProcess.risk === "string" && ["unknown", "low", "high"].includes(rawProcess.risk)
   && typeof rawProcess.scope === "string" && ["unknown", "read-only", "small", "wide"].includes(rawProcess.scope)
@@ -295,7 +295,7 @@ export function projectTaskTriage(input: TaskTriageProjectionInput) {
   additionIds.add(a.id);
   additions.push({ id: a.id, taskId: a.taskId, evaluationId: a.evaluationId, inputRevision: a.inputRevision, reason: a.reason, status: a.status, binding: binding(a.taskId, a.inputRevision) });
  }
- const blockers = valid ? Object.entries(obligations).filter(([, s]) => s === "open" || s === "unsupported").map(([key]) => key === "confirmation" ? "action_confirmation" : key) : rawProcess ? ["process_state_invalid"] : ["process_state_unavailable"];
+ const blockers = valid ? Object.entries(obligations).filter(([, s]) => s !== "satisfied" && s !== "waived").map(([key]) => key === "confirmation" ? "action_confirmation" : key) : rawProcess ? ["process_state_invalid"] : ["process_state_unavailable"];
  const staleTask = valid && taskId !== null && additions.some(a => a.taskId !== taskId);
  if (staleTask) blockers.push("task_binding_stale");
  const runtimeBlocks = [...new Set((input.runtimeBlocks ?? []).filter(b => b === "process_persistence_blocked" || b === "task_transition_pending"))];

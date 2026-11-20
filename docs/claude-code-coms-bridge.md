@@ -98,7 +98,8 @@ A bridge peer that shares a name with an agent-hub team member (e.g. `code-revie
 calls transparently: `.pi/agents/dispatch-policy.yaml` marks the member `prefer: coms`,
 and the hub routes the dispatch to the live peer instead of spawning a native subagent —
 same return contract, ASK_USER handling, and history. The standing Claude session keeps
-its context across review rounds, which is the point for code/plan review. See
+its context across review rounds. A peer can write to the workspace, so its review takes an
+exclusive writer slot. Choose native read-only inspection for review alongside an active builder. See
 "Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
 
 ## Migrating legacy CLI spools
@@ -126,9 +127,9 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
   can join it to the registry entry. It writes the annotation ONLY, never
   `pane.report_agent`: the pane's `agent_status` is herdr's own Claude detection and
   the bridge polls it back as its turn-completion signal.
-- **Blocked panes:** a Claude waiting on a permission prompt returns a readable error
-  envelope ("blocked on a permission prompt — a human must approve it") instead of
-  hanging until timeout.
+- A permission prompt before submission can refuse the dispatch. After submission, a
+  permission prompt leaves the dispatch pending while the human answers in the peer pane.
+  The Hub holds the writer slot until the peer returns a terminal reply.
 - **Busy panes:** the bridge waits with bounded backoff before submitting; exhausting
   that wait returns a mid-turn error without typing the prompt. One absolute reply
   deadline covers both idle waiting and the reply, rather than extending the budget.

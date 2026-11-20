@@ -1,11 +1,14 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
+import { confirmationOutcome } from "../capability-confirmation.ts";
+
 export interface TurnLifecyclePorts {
 	setTurnState(state: "working" | "idle"): void;
 	startMonitorTurn(): void;
 	finishMonitorTurn(): void;
 	startAskUser(id: string): void;
 	endAskUser(id: string, endedAt: number): number;
+	getExternalBlockerMarker(): string;
 	acknowledgeExternalBlocker(): void;
 	addAskUserWait(waitMs: number): void;
 	applyWorkMode(): void;
@@ -32,6 +35,7 @@ export interface TurnLifecycleHandlers {
 }
 
 export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLifecycleHandlers {
+	const pendingQuestions = new Map<string, string>();
 	const resetTurn = () => {
 		ports.applyWorkMode();
 		const startedAt = Date.now();
@@ -46,10 +50,14 @@ export function createTurnLifecycleHandlers(ports: TurnLifecyclePorts): TurnLife
 		toolStart(event) {
 			if (event.toolName !== "ask_user") return;
 			ports.startAskUser(event.toolCallId);
-			ports.acknowledgeExternalBlocker();
+			const marker = ports.getExternalBlockerMarker();
+			if (marker && typeof event.args?.context === "string" && event.args.context.includes(marker)) pendingQuestions.set(event.toolCallId, marker);
 		},
 		toolEnd(event) {
 			if (event.toolName !== "ask_user") return;
+			const marker = pendingQuestions.get(event.toolCallId);
+			pendingQuestions.delete(event.toolCallId);
+			if (marker && marker === ports.getExternalBlockerMarker() && !event.isError && confirmationOutcome(event.result) === "promoted") ports.acknowledgeExternalBlocker();
 			const endedAt = Date.now();
 			ports.addAskUserWait(ports.endAskUser(event.toolCallId, endedAt));
 		},

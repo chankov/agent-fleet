@@ -61,6 +61,7 @@ export interface DispatchComsDeps {
 	send(params: ComsSendParams, auditExtra?: Record<string, unknown>): Promise<ComsSendResult>;
 	getPendingReply(msgId: string): PendingReply | undefined;
 	deletePendingReply(msgId: string): void;
+	retainPendingWriter?(agent: string, reply: PendingReply["promise"]): void;
 	getSessionDir(): string;
 	getWatchdogJudgeModel(): string | null;
 	getResearcherModel(): string | null;
@@ -130,6 +131,7 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 			conversation_id: null,
 			response_schema: null,
 			reply_timeout_ms: timeoutMs,
+			await_reply_on_lost_ack: true,
 		}, { dispatched_as: state.def.name });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -155,14 +157,18 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 		try { clearTimeout(entry.timer); } catch {}
 		entry.timer = null;
 	}
-	if (outcome.error !== "timeout") deps.deletePendingReply(msgId);
+	if (abandoned || outcome.error === "timeout") {
+		deps.retainPendingWriter?.(state.def.name, entry.promise);
+	} else {
+		deps.deletePendingReply(msgId);
+	}
 
 	const after = deps.resolveTarget(peer.name);
  if(binding?.mode==='targeted'&&(!verified(after)||after?.session_id!==peer.session_id))return {output:'coms result refused: target or peer ownership changed; no result was accepted.',exitCode:1,elapsed:0};
 	if (after?.context_used_pct != null) state.contextPct = after.context_used_pct;
 	if (abandoned) {
 		return {
-			output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator. The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
+			output: `Dispatch to coms peer "${peer.name}" was abandoned by the operator (msg_id ${msgId}). The peer may still be working in its own pane — do NOT auto-retry or re-dispatch; wait for the operator's instruction.`,
 			exitCode: 1,
 			elapsed: 0,
 			abandoned: true,

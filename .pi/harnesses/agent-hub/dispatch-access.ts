@@ -5,6 +5,8 @@ export type DispatchReviewMode = DispatchAgentParams["review_mode"];
 
 export interface DispatchAccess {
 	readonly writable: boolean;
+	/** Admission reserved an unisolated writer slot for a possible remote route. */
+	readonly comsWriter?: boolean;
 	readonly tools: string;
 	readonly reviewMode: DispatchReviewMode;
 }

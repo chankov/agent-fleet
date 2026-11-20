@@ -32,8 +32,8 @@ export interface DispatchExecutionState {
 	getSessionTotals(): SessionTotals;
 	getTurnDispatchFingerprints(): Set<string>;
 	getExternalBlockers(): Array<{ agent: string; what: string }>;
-	getExternalBlockerAcknowledged(): boolean; setExternalBlockerAcknowledged(value: boolean): void;
-	getExternalBlockerRefusedOnce(): boolean; setExternalBlockerRefusedOnce(value: boolean): void;
+	getExternalBlockerAcknowledged(): boolean; markExternalBlockersPending(): void;
+	getExternalBlockerMarker(): string;
 	isAskUserAvailable(): boolean;
 	getUserLanguage(): string;
 	getSessionDir(): string;
@@ -46,6 +46,7 @@ export interface DispatchExecutionState {
 	getInstalledAgentNames?(): string[];
 	/** Writable dispatches running now, with their declared scope and whether they are OS-isolated. */
 	getActiveWriters?(): WriterEntry[];
+	mayRouteToComs?(agent: string): boolean;
 	/** Registers a writable dispatch; an isolated one makes its native launch sandboxed. Returns its release. */
 	beginWriter?(entry: WriterEntry): () => void;
 	/** Creates (or reuses) a parallel instance of an installed writable persona, e.g. builder-2. */

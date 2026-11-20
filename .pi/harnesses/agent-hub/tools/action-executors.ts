@@ -105,7 +105,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
         try { snapshot.revision=d.currentRevision(ctx); } catch { /* unchanged unavailable revision remains explicit */ }
 		let reservedNewTaskId: string | undefined;
 		if (new_task) reservedNewTaskId = reserveActualTaskId();
-		if (new_task && processOpenObligations(snapshot.process, undefined, d.privateProofUse?.(ctx)).length) {
+		if (new_task && processOpenObligations(snapshot.process, d.revisionOf ? scopes => d.revisionOf!(ctx, scopes) : snapshot.revision, d.privateProofUse?.(ctx)).length) {
 			let consumed = false;
 			try {
 				const confirmed = !!d.confirmTaskSupersession && await d.confirmTaskSupersession({ oldTaskId: d.currentTaskId(), newTaskId: reservedNewTaskId!, reason: String(reason).trim() }, ctx, signal);

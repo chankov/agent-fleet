@@ -67,6 +67,8 @@ export interface ComsSendParams {
 	conversation_id?: string | null;
 	response_schema?: object | null;
 	reply_timeout_ms?: number | null;
+	/** A dispatch retains its writer until a correlated reply even if the initial ACK is lost. */
+	await_reply_on_lost_ack?: boolean;
 }
 
 export interface ComsSendResult {
@@ -581,7 +583,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 				sender_name: identity.name, sender_cwd: identity.cwd, hops, timestamp: nowIso(), prompt: params.prompt,
 				conversation_id: params.conversation_id ?? null, response_schema: params.response_schema ?? null,
 				reply_timeout_ms: params.reply_timeout_ms ?? null,
-			} as PromptEnvelope);
+			} as PromptEnvelope, params.await_reply_on_lost_ack ? () => audit({ event: "outbound_ack_unknown", msg_id: msgId }) : undefined);
 		} catch (error) {
 			pendingReplies.delete(msgId);
 			throw error;

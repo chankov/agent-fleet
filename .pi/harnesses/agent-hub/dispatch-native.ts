@@ -65,6 +65,7 @@ function beginNativeRun(deps: NativeDispatchDeps, state: NativeDispatchState, ar
 	const evidenceDir = beginExecutionEvidence(sessionDir, dispatchId, { agent: state.def.name, task, scope: scopeGlobs, backendRequested: args.requestedBackend }, inputArtifacts);
 	state.status = "running";
 	state.task = task;
+	state.lastScope = [...scopeGlobs];
 	state.toolCount = 0;
 	state.messageCount = 0;
 	state.elapsed = 0;
@@ -147,8 +148,9 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		if (gate) return run.finishRun(gate.message, 1);
 		if (requestedBackend === "coms") return run.finishRun("Confirmation-required stage production needs a guarded native child; coms has no exact effect binding.", 1);
 	}
-	if (inspection && requestedBackend === "coms") return run.finishRun("Read-only dispatch requires native execution.", 1);
-	const forceNative = inspection || run.access?.reviewMode === "run-checks" || confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	const nativeInspection = inspection && !run.access?.comsWriter;
+	if (nativeInspection && requestedBackend === "coms") return run.finishRun("Read-only dispatch requires native execution.", 1);
+	const forceNative = nativeInspection || run.access?.reviewMode === "run-checks" || confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
 	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
 	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
 	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
@@ -216,7 +218,7 @@ async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatc
 	if (args.access && (args.access.writable !== access?.writable || args.access.tools !== access?.tools)) {
 		return { output: "Dispatch access changed before native admission.", exitCode: 1, elapsed: 0, lifecycle: { launched: false, closeSeen: false } };
 	}
-	const run = beginNativeRun(deps, found, { ...effectiveArgs, access });
+	const run = beginNativeRun(deps, found, { ...effectiveArgs, access: access && { ...access, comsWriter: args.access?.comsWriter } });
 	const execute = async () => {
 		const routed = await routeDispatch(run, args.requestedBackend);
 		if (routed) return routed;

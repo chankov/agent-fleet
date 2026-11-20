@@ -73,6 +73,7 @@ export interface NativeDispatchState extends NativeTimelineTarget, DelegationObs
 	restarting?: boolean;
 	driftFence?: { dispose(): void };
 	onTerminate?: () => void;
+	lastScope?: string[];
 	lastBackend?: "native" | "coms";
 	comsPeerModel?: string;
 	comsAbort?: () => void;

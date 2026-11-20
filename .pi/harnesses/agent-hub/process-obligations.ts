@@ -7,7 +7,7 @@ import { consumeActionGrant, type ActionContract, type ActionGrant } from "./tas
 export const PROCESS_OBLIGATIONS_SCHEMA = "agent-fleet.process-obligations/v1" as const;
 export type TaskRisk = "unknown" | "low" | "high";
 export type TaskScope = "unknown" | "read-only" | "small" | "wide";
-export type ObligationStatus = "satisfied" | "open" | "unsupported" | "waived";
+export type ObligationStatus = "satisfied" | "unverified" | "open" | "unsupported" | "waived";
 export type ProcessStage = "classify-risk" | "plan" | "execute" | "acceptance" | "review" | "confirm-action" | "complete";
 
 export interface ProcessStageState { required: boolean; evidenceRef: string | null; revision: string | null; revisionScopes?: string[]; }
@@ -20,10 +20,16 @@ export type CurrentRevision = string | ((scopes: readonly string[]) => string);
  * task file; a root-repository stage ([]) is compared exactly as before.
  */
 export function stageRevisionCurrent(stage: ProcessStageState, current: CurrentRevision | undefined, changedFiles: readonly string[]): boolean {
- if (!current) return true;
+ return revisionStatus(stage, current, changedFiles) === "satisfied";
+}
+
+function revisionStatus(stage: ProcessStageState, current: CurrentRevision | undefined, changedFiles: readonly string[]): ObligationStatus {
  const scopes = stage.revisionScopes ?? [];
- if (scopes.length && !changedFiles.every(path => scopes.some(scope => path === scope || path.startsWith(`${scope}/`)))) return false;
- return stage.revision === (typeof current === "function" ? current(scopes) : current);
+ if (scopes.length && !changedFiles.every(path => scopes.some(scope => path === scope || path.startsWith(`${scope}/`)))) return "open";
+ if (!current || !stage.revision || stage.revision === "unavailable") return "unverified";
+ const observed = typeof current === "function" ? current(scopes) : current;
+ if (!observed || observed === "unavailable") return "unverified";
+ return observed === stage.revision ? "satisfied" : "open";
 }
 export interface ProcessAddition { id: string; source: "system1"; taskId: string; evaluationId: string; inputRevision: string; policyVersion: string; questionVersion: string; provider: string; model: string; reason: "security_change" | "wide_change" | "irreversible_execution"; status: "active" | "waived"; waiverReason: string | null; }
 export interface ProcessObligationState {
@@ -91,8 +97,8 @@ export function effectiveProcessStage(state: ProcessObligationState, stage: "pla
 export function noteProcessStage(state: ProcessObligationState, stage: "acceptance" | "plan" | "review", evidence: { evidenceRef: string; revision: string; revisionScopes?: readonly string[]; changedFiles?: string[]; workOrigin?: "operator-current-state" }): ProcessObligationState { const next = normalizeProcessState(state); if ((stage === "plan" || stage === "acceptance" || effectiveProcessStage(next, stage)) && evidence.evidenceRef && evidence.revision) { const { revisionScopes: _previous, ...rest } = next[stage]; next[stage] = { ...rest, evidenceRef: evidence.evidenceRef, revision: evidence.revision, ...(evidence.revisionScopes?.length ? { revisionScopes: [...new Set(evidence.revisionScopes)].sort() } : {}) }; } if (stage === "acceptance" && evidence.changedFiles) { delete next.privateVerification; delete next.privateVerificationRequired; next.changedFiles = strings(evidence.changedFiles); if(evidence.workOrigin)next.workOrigin=evidence.workOrigin;else delete next.workOrigin; } return next; }
 export function processOpenObligations(state: ProcessObligationState, revision?: CurrentRevision, privateUse?: PrivateProofUse): string[] { const s = normalizeProcessState(state); const privateRequired = s.privateVerificationRequired || !!s.privateVerification; if (privateProcessProofCurrent(s, privateUse)) return [s.risk === 'unknown' ? 'risk' : '', effectiveProcessStage(s, 'confirmation') ? 'action_confirmation' : ''].filter(Boolean); return [s.risk === "unknown" ? "risk" : "", privateRequired || s.acceptance.required && (!s.acceptance.evidenceRef || !stageRevisionCurrent(s.acceptance, revision, s.changedFiles)) ? "acceptance" : "", privateRequired || effectiveProcessStage(s, "review") && (!s.review.evidenceRef || !stageRevisionCurrent(s.review, revision, s.changedFiles)) ? "review" : "", effectiveProcessStage(s, "confirmation") ? "action_confirmation" : ""].filter(Boolean); }
 // Recovery guidance is derived from effective obligations, not roster size or model advice.
-export function missingProcessRoleRecoveryHints(state: ProcessObligationState, roster: ReadonlySet<string>): string {
- const open = processOpenObligations(state);
+export function missingProcessRoleRecoveryHints(state: ProcessObligationState, roster: ReadonlySet<string>, currentRevision?: CurrentRevision): string {
+ const open = processOpenObligations(state, currentRevision);
  const missingReview = open.includes("review") && !["code-reviewer", "plan-reviewer", "security-auditor"].some(name => roster.has(name));
  return [
   missingReview ? "Review requires a reviewer: ask the human to run /af-agents-add code-reviewer (or plan-reviewer or security-auditor), or choose a roster with /af-agents-team." : "",
@@ -190,8 +196,12 @@ export function reviewRoute(state: Pick<ProcessObligationState, "changedFiles">)
 }
 export function evaluateProcessObligations(state: ProcessObligationState, input: { writable: boolean; budgetTier: string; t2Accepted?: boolean; currentRevision?: CurrentRevision; privateUse?: PrivateProofUse }): ProcessVerdict {
  const s = normalizeProcessState(state); const additions = s.additions!.map(({ id, taskId, evaluationId, inputRevision, reason, status }) => ({ id, taskId, evaluationId, inputRevision, reason, status })); if (!input.writable) return { accepted: false, path: "read-only", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations: { risk: { status: "unsupported" }, acceptance: { status: "unsupported" }, review: { status: "unsupported" }, plan: { status: "unsupported" } }, additions, appliedRuleIds: rules(s.risk, "read-only"), currentStage: "acceptance", admissibleNextAction: "continue read-only research; changed-task acceptance is unavailable", auditScope: [], explanation: `Read-only source-traceable path; T2 acceptance is unsupported and fails closed. Budget tier ${input.budgetTier} controls per-run resources only.` };
- const status = (stage: ProcessStageState, required = stage.required, revisionBound = true): ObligationStatus => !required ? "satisfied" : stage.evidenceRef && (!revisionBound || stageRevisionCurrent(stage, input.currentRevision, s.changedFiles)) ? "satisfied" : "open";
- const obligations: ProcessVerdict["obligations"] = { risk: { status: s.risk === "unknown" ? "open" : "satisfied" }, acceptance: { status: input.t2Accepted || status(s.acceptance) === "satisfied" ? "satisfied" : "open", ...(s.acceptance.evidenceRef ? { evidenceRef: s.acceptance.evidenceRef } : {}) }, review: { status: status(s.review, effectiveProcessStage(s, "review")), ...(s.review.evidenceRef ? { evidenceRef: s.review.evidenceRef } : {}) }, plan: { status: status(s.plan, effectiveProcessStage(s, "plan"), false), ...(s.plan.evidenceRef ? { evidenceRef: s.plan.evidenceRef } : {}) } };
+ const status = (stage: ProcessStageState, required = stage.required, revisionBound = true): ObligationStatus => {
+  if (!required) return "satisfied";
+  if (!stage.evidenceRef) return "open";
+  return revisionBound ? revisionStatus(stage, input.currentRevision, s.changedFiles) : "satisfied";
+ };
+ const obligations: ProcessVerdict["obligations"] = { risk: { status: s.risk === "unknown" ? "open" : "satisfied" }, acceptance: { status: input.t2Accepted ? "satisfied" : status(s.acceptance), ...(s.acceptance.evidenceRef ? { evidenceRef: s.acceptance.evidenceRef } : {}) }, review: { status: status(s.review, effectiveProcessStage(s, "review")), ...(s.review.evidenceRef ? { evidenceRef: s.review.evidenceRef } : {}) }, plan: { status: status(s.plan, effectiveProcessStage(s, "plan"), false), ...(s.plan.evidenceRef ? { evidenceRef: s.plan.evidenceRef } : {}) } };
  const privateCurrent = privateProcessProofCurrent(s, input.privateUse);
  if ((s.privateVerificationRequired || s.privateVerification) && !privateCurrent) for (const stage of ['acceptance', 'review'] as const) obligations[stage] = { status: 'open' };
  if (privateCurrent) for (const stage of ['acceptance', 'review'] as const) obligations[stage] = { status: 'satisfied', evidenceRef: s.privateVerification!.evidenceRef };
@@ -199,9 +209,9 @@ export function evaluateProcessObligations(state: ProcessObligationState, input:
  for (const stage of ["plan", "review"] as const) if (waivedOnly(stage)) obligations[stage] = { status: "waived" };
  if (effectiveProcessStage(s, "confirmation") || waivedOnly("confirmation")) obligations.confirmation = { status: effectiveProcessStage(s, "confirmation") ? "open" : "waived" };
  // Confirmation is checked for each exact effect before execution, not a task-level acceptance stage.
- const open = Object.entries(obligations).filter(([name, x]) => name !== "confirmation" && (x.status === "open" || x.status === "unsupported")).map(([x]) => x), accepted = open.length === 0; const currentStage: ProcessStage = open.includes("risk") ? "classify-risk" : open.includes("acceptance") ? "acceptance" : open.includes("review") ? "review" : "complete";
+ const open = Object.entries(obligations).filter(([name, x]) => name !== "confirmation" && (x.status !== "satisfied" && x.status !== "waived")).map(([x]) => x), accepted = open.length === 0; const currentStage: ProcessStage = open.includes("risk") ? "classify-risk" : open.includes("acceptance") ? "acceptance" : open.includes("review") ? "review" : "complete";
  const next = currentStage === "classify-risk" ? "set_task_tier with explicit risk and reason" : currentStage === "acceptance" ? "execute and verify the changed task" : currentStage === "review" ? "dispatch an independent reviewer over the current changed scope" : "report completion";
- return { accepted, path: privateCurrent ? 'private-config-current-state' : s.workOrigin ?? "changed-task", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations, additions, appliedRuleIds: s.appliedRuleIds.length ? s.appliedRuleIds : rules(s.risk,s.scope), currentStage, admissibleNextAction: next, auditScope: s.changedFiles, explanation: `Risk ${s.risk} and scope ${s.scope} determine correctness obligations; budget tier ${input.budgetTier} controls per-run resources only.${open.length ? ` Open: ${open.join(", ")}.` : " All task-level obligations satisfied; source waivers remain waived, not satisfied."}${obligations.confirmation?.status === "open" ? " Each future effect still requires exact one-use human confirmation." : ""}` };
+ return { accepted, path: privateCurrent ? 'private-config-current-state' : s.workOrigin ?? "changed-task", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations, additions, appliedRuleIds: s.appliedRuleIds.length ? s.appliedRuleIds : rules(s.risk,s.scope), currentStage, admissibleNextAction: next, auditScope: s.changedFiles, explanation: `Risk ${s.risk} and scope ${s.scope} determine correctness obligations; budget tier ${input.budgetTier} controls per-run resources only.${open.length ? ` Open: ${open.join(", ")}.` : " All task-level obligations satisfied; source waivers remain waived, not satisfied."}${Object.values(obligations).some(value => value.status === "unverified") ? " Recorded evidence is unverified for the current revision." : ""}${obligations.confirmation?.status === "open" ? " Each future effect still requires exact one-use human confirmation." : ""}` };
 }
 export function processAllowsPersona(state: ProcessObligationState, persona: string): boolean { const name = basePersonaName(persona), s=normalizeProcessState(state); return effectiveProcessStage(s, "review") && ["code-reviewer","plan-reviewer","security-auditor"].includes(name); }
 export function processAuditRecord(state: ProcessObligationState, verdict: ProcessVerdict) { return { schema: PROCESS_OBLIGATIONS_SCHEMA, risk: verdict.risk, scope: verdict.scope, budgetTier: verdict.budgetTier, obligations: Object.fromEntries(Object.entries(verdict.obligations).map(([k,v])=>[k,{status:v.status}])), additions: verdict.additions, appliedRuleIds: verdict.appliedRuleIds, currentStage: verdict.currentStage, admissibleNextAction: verdict.admissibleNextAction, auditScope: verdict.auditScope, explanation: verdict.explanation, state: normalizeProcessState(state) }; }

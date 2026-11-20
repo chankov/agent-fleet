@@ -1,14 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTurnLifecycleHandlers } from "./turn-handlers.ts";
+import { checkExternalBlockerGate } from "../external-blocker.js";
+import { createTurnLifecycleHandlers, type TurnLifecyclePorts } from "./turn-handlers.ts";
 import { createContextPressureLifecycle, createContextPressureRootState } from "./context-pressure.ts";
+
+function turnFixture(order: string[], overrides: Partial<TurnLifecyclePorts> = {}) {
+	return createTurnLifecycleHandlers({
+		setTurnState: state => { order.push(state); }, startMonitorTurn: () => order.push("monitor-start"), finishMonitorTurn: () => order.push("monitor-finish"),
+		startAskUser: () => {}, endAskUser: () => 0, getExternalBlockerMarker: () => "", acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, settlePeerTurn: async () => { order.push("peer-settle"); }, settlePressure: async () => { order.push("pressure-settle"); }, dispatchQueuedPeerTurn: () => { order.push("peer-dispatch"); },
+		...overrides,
+	});
+}
 
 test("turn lifecycle preserves work, clock, prompt, presence, and closeout order", async () => {
 	const order: string[] = [];
-	const handlers = createTurnLifecycleHandlers({
-		setTurnState: state => { order.push(state); }, startMonitorTurn: () => order.push("monitor-start"), finishMonitorTurn: () => order.push("monitor-finish"),
-		startAskUser: () => {}, endAskUser: () => 0, acknowledgeExternalBlocker: () => {}, addAskUserWait: () => {}, applyWorkMode: () => order.push("work"), closeTurnActiveTime: () => order.push("close-clock"), openTaskClock: () => order.push("open-clock"), startHistoryTurn: () => order.push("history-start"), resetTurnBudgetState: () => order.push("budget-reset"), updateModeStatus: () => order.push("status"), buildPrompt: () => { order.push("prompt"); return { systemPrompt: "p" }; }, endHistoryTurn: () => order.push("history-end"), unaddressedPeerWarning: () => null, settlePeerTurn: async () => { order.push("peer-settle"); }, settlePressure: async () => { order.push("pressure-settle"); }, dispatchQueuedPeerTurn: () => { order.push("peer-dispatch"); },
-	});
+	const handlers = turnFixture(order);
 	handlers.beforeAgentPresence(); handlers.beforeAgentStart();
 	assert.deepEqual(order, ["working", "monitor-finish", "monitor-start", "work", "close-clock", "open-clock", "history-start", "budget-reset", "status", "prompt"]);
 	order.length = 0; await handlers.agentEnd({ ui: { notify() {} } } as any);
@@ -27,4 +33,36 @@ test("context pressure aborts before compaction, compacts after settle, and repl
 	lifecycle.agentSettled(ctx); assert.equal(order.at(-1), "compact");
 	root.deferredInputs.push({ text: "continue", streamingBehavior: "steer" }); compactOptions.onComplete();
 	assert.equal(root.automaticRunning, false); assert.deepEqual(sent, [["continue", { deliverAs: "steer" }]]);
+});
+
+test("a concurrent dispatch waits for the matching external blocker answer", () => {
+	let marker = "[[external-blocker:first]]";
+	let acknowledged = false;
+	const handlers = turnFixture([], {
+		getExternalBlockerMarker: () => marker,
+		acknowledgeExternalBlocker: () => { acknowledged = true; },
+	});
+	const gate = () => checkExternalBlockerGate({ blockers: [{ what: "missing destination" }], marker, acknowledged, askUserAvailable: true });
+	const ask = (id: string, context: string) => handlers.toolStart({ toolName: "ask_user", toolCallId: id, args: { context } });
+	const finish = (id: string, response: string, isError = false, cancelled = false) =>
+		handlers.toolEnd({ toolName: "ask_user", toolCallId: id, result: { details: { response, cancelled } }, isError });
+
+	ask("first", marker);
+	assert.ok(gate(), "same-batch dispatch is still blocked");
+	handlers.beforeAgentStart();
+	assert.ok(gate(), "a new turn is not an answer");
+	marker = "[[external-blocker:second]]";
+	finish("first", "Confirm");
+	ask("unrelated", "another question");
+	finish("unrelated", "Confirm");
+	ask("cancelled", marker);
+	finish("cancelled", "Confirm", false, true);
+	ask("errored", marker);
+	finish("errored", "Confirm", true);
+	ask("declined", marker);
+	finish("declined", "Cancel");
+	assert.ok(gate());
+	ask("current", marker);
+	finish("current", "Confirm");
+	assert.equal(gate(), null);
 });

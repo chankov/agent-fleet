@@ -394,20 +394,25 @@ export function readOneLine(socket: net.Socket): Promise<string> {
 	});
 }
 
-export function sendEnvelope(endpoint: string, envelope: Envelope | Pong | { type: string; msg_id?: string; [key: string]: any }): Promise<any> {
+export function sendEnvelope(endpoint: string, envelope: Envelope | Pong | { type: string; msg_id?: string; [key: string]: any }, onLostAck?: (error: Error) => void): Promise<any> {
 	return new Promise((resolve, reject) => {
 		const socket = net.createConnection({ path: endpoint });
 		let settled = false;
+		let submitted = false;
 		const fail = (error: Error) => {
 			if (settled) return;
 			settled = true;
 			try { socket.destroy(); } catch { /* ignore */ }
-			reject(error);
+			if (submitted && onLostAck) {
+				onLostAck(error);
+				resolve(undefined);
+			} else reject(error);
 		};
 		socket.once("error", fail);
 		socket.once("connect", async () => {
 			try {
 				socket.write(`${JSON.stringify(envelope)}\n`);
+				submitted = true;
 				const parsed = JSON.parse(await readOneLine(socket));
 				try { socket.end(); } catch { /* ignore */ }
 				if (settled) return;

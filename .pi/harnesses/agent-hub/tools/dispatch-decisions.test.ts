@@ -316,6 +316,28 @@ test("T11 reviewer APPROVE covering current changed files records review at curr
  assert.equal(process().review.revision, process().acceptance.revision);
 });
 
+test("a policy-selected coms reviewer owns a writer slot and can approve a stable revision after builders finish", async t => {
+ const { cwd, d, process } = await highRiskChangedFixture(t);
+ const writers: WriterEntry[] = [];
+ let generation = 0;
+ Object.assign(d.state, {
+  mayRouteToComs: () => true,
+  getActiveWriters: () => writers,
+  getWriterGeneration: () => generation,
+  beginWriter(entry: WriterEntry) { generation++; writers.push(entry); return () => { writers.splice(writers.indexOf(entry), 1); }; },
+ });
+ d._agents.get("code-reviewer")!.lastBackend = "coms";
+ d.dispatchAgent = async () => {
+  assert.deepEqual(writers.map(w => [w.agent, w.isolated]), [["code-reviewer", false]]);
+  assert.equal(d.state.getActiveWritableDispatches(), 1);
+  return { output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: "peer-review" };
+ };
+ const result = await createDispatchExecutor(d as any)("peer-review", { agent: "code-reviewer", task: "review", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ assert.ok(process().review.evidenceRef, JSON.stringify(result.details));
+ assert.equal(process().review.revision, process().acceptance.revision);
+ assert.equal(writers.length, 0);
+});
+
 test("an inspection cannot close review after a writer starts and exits during the inspection", async t => {
  const { cwd, d, process } = await highRiskChangedFixture(t);
  let writerGeneration = 1;

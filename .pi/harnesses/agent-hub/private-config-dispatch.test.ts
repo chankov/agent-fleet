@@ -25,7 +25,7 @@ function dispatchFixture(t: any, scenario = 'pass') {
    getTurnDispatchCount: () => count, setTurnDispatchCount: (v: number) => count = v, getTaskDispatchCount: () => count, setTaskDispatchCount: (v: number) => count = v,
    getTurnResearchCount: () => 0, setTurnResearchCount() {}, getTaskResearchCount: () => 0, setTaskResearchCount() {}, getTaskReviewRounds: () => 0, setTaskReviewRounds() {},
    getTaskTier: () => 'small', getTurnReport: () => ({ refusals: 0, dispatches: [] }), getSessionTotals: () => ({ refusals: 0, dispatches: 0 }),
-   getTurnDispatchFingerprints: () => new Set(), getExternalBlockers: () => [], getExternalBlockerAcknowledged: () => false, getExternalBlockerRefusedOnce: () => false, setExternalBlockerRefusedOnce() {},
+   getTurnDispatchFingerprints: () => new Set(), getExternalBlockers: () => [], getExternalBlockerAcknowledged: () => false, getExternalBlockerMarker: () => "[[external-blocker:test]]",
    isAskUserAvailable: () => true, getUserLanguage: () => 'English', getSessionDir: () => f.session, getAgentStates: () => agents, getAssertions: () => assertions, getResearchPersonas: () => [],
    setAssertions: (next: typeof assertions) => { assertions.splice(0, assertions.length, ...next); },
    getActiveWritableDispatches: () => active, setActiveWritableDispatches: (v: number) => active = v, getWritableOverlapCounter: () => overlap, setWritableOverlapCounter: (v: number) => overlap = v,
