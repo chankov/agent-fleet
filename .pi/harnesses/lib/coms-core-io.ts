@@ -59,6 +59,7 @@ export interface Envelope {
 
 export type InstructionTag = { version: 1; owner: { project: string; peer: string; sessionId: string; startedAt: string } };
 export interface PromptEnvelope extends Envelope {
+	review_protocol?: "v1";
  instruction?: InstructionTag;
 	type: "prompt";
 	prompt: string;
@@ -99,6 +100,7 @@ export interface Pong {
 }
 
 export interface PendingReply {
+	review_protocol?: "v1";
 	resolve: (value: any) => void;
 	reject: (err: Error) => void;
 	timer: NodeJS.Timeout | null;
@@ -111,6 +113,7 @@ export interface PendingReply {
 }
 
 export interface InboundContext {
+	review_protocol?: "v1";
 	msg_id: string;
 	hops: number;
 	sender_endpoint: string;

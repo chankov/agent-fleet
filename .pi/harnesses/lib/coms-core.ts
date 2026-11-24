@@ -1,3 +1,4 @@
+import { parseReview, reviewInstructions } from "./coms-review.ts";
 import {publishFleetSourceEvent,fleetSourceDigest} from './fleet-event-source.ts';
 import {SessionResponseReader} from './coms-response-read.ts';
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -62,6 +63,7 @@ export interface ComsListParams {
 }
 
 export interface ComsSendParams {
+	review_protocol?: "v1";
 	target: string;
 	prompt: string;
 	conversation_id?: string | null;
@@ -248,6 +250,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			sender_session: envelope.sender_session,
 			sender_name: envelope.sender_name,
 			sender_cwd: envelope.sender_cwd,
+			review_protocol: envelope.review_protocol,
 			prompt: envelope.prompt,
 			response_schema: envelope.response_schema ?? null,
 			fulfilled: false,
@@ -308,6 +311,18 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 				});
 				nack(socket, envelope.msg_id, "response sender mismatch");
 				return;
+			}
+			if (pending.review_protocol === "v1") {
+				if (pending.result) { ack(socket, envelope.msg_id); return; }
+				if (!envelope.error) {
+					const frame = parseReview(envelope.response, envelope.msg_id);
+					if (!frame.report) {
+						audit({ event: "review_frame_ignored", msg_id: envelope.msg_id, reason: frame.reason });
+						ack(socket, envelope.msg_id);
+						return;
+					}
+					envelope.response = frame.report;
+				}
 			}
 			if (pending.timer) { try { clearTimeout(pending.timer); } catch { /* ignore */ } pending.timer = null; }
 			pending.result = { response: envelope.response, error: envelope.error ?? null };
@@ -568,6 +583,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		let reject!: PendingReply["reject"];
 		const promise = new Promise<{ response?: any; error?: string | null }>((res, rej) => { resolve = res; reject = rej; });
 		pendingReplies.set(msgId, {
+			review_protocol: params.review_protocol,
 			resolve,
 			reject,
 			timer: null,
@@ -580,7 +596,8 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		try {
 			await sendEnvelope(target.endpoint, {
 				type: "prompt", msg_id: msgId, sender_session: identity.session_id, sender_endpoint: identity.endpoint,
-				sender_name: identity.name, sender_cwd: identity.cwd, hops, timestamp: nowIso(), prompt: params.prompt,
+				sender_name: identity.name, sender_cwd: identity.cwd, hops, timestamp: nowIso(), review_protocol: params.review_protocol,
+				prompt: params.prompt + (params.review_protocol === "v1" ? reviewInstructions(msgId) : ""),
 				conversation_id: params.conversation_id ?? null, response_schema: params.response_schema ?? null,
 				reply_timeout_ms: params.reply_timeout_ms ?? null,
 			} as PromptEnvelope, params.await_reply_on_lost_ack ? () => audit({ event: "outbound_ack_unknown", msg_id: msgId }) : undefined);
@@ -665,6 +682,13 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			audit({ event: "outbound_response", msg_id: inbound.msg_id, error });
 		} catch (sendError: any) {
 			audit({ event: "outbound_response_failed", msg_id: inbound.msg_id, reason: sendError?.message ?? String(sendError) });
+		}
+		if (inbound.review_protocol === "v1" && !inbound.instruction && !error) {
+			const frame = parseReview(response, inbound.msg_id);
+			if (!frame.report) {
+				ctx.ui.notify(`Review ${inbound.msg_id} remains pending (${frame.reason}); send a standalone final frame.`, "info");
+				return;
+			}
 		}
 		inbound.fulfilled = true;
 		inboundQueue.delete(inbound.msg_id);

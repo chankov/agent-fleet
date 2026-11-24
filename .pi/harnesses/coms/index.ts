@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_callId, params) {
 			const result = await peer.await(params.msg_id, typeof params.timeout_ms === "number" && params.timeout_ms > 0 ? params.timeout_ms : TIMEOUT_MS);
-			if (result.status === "pending") return { content: [{ type: "text" as const, text: "coms_await: pending — wait budget exhausted; the peer may still complete" }], details: { status: "pending" } };
+			if (result.status === "pending") return { content: [{ type: "text" as const, text: `coms_await: pending — wait budget exhausted; poll coms_get or coms_await with ${params.msg_id}; do not re-dispatch` }], details: { status: "pending" } };
 			if (result.status === "error") {
 				const unknown = result.error === "unknown msg_id";
 				return {

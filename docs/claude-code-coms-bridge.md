@@ -6,6 +6,8 @@ Code itself asks pi peers questions mid-task via `coms-cli`. Requires a running
 [herdr](https://herdr.dev) server (the bridge drives the Claude pane through herdr's
 socket API).
 
+Hub dispatches to `code-reviewer`, `plan-reviewer`, and `security-auditor` (including parallel instances) opt into review protocol v1. Progress does not complete the request. On both Claude and Pi peers, put prose inside the report, not before or after the frame (embedded examples are not final). To finish, return a standalone JSON object, optionally enclosed in a single JSON code fence, with the original `msg_id`, `phase: "final"`, `verdict: "APPROVE"` or `"REJECT"`, and a nonempty `report` string. If the wait times out, use `coms_get` or `coms_await` with that same ID; do not send a second review request. Ordinary messages still accept a plain-text reply.
+
 > **This is the only role Claude Code has in Agent Fleet.** It is not a coding-agent
 > install target: deterministic `agent-fleet setup` targets pi and nothing else, there are no
 > `.claude/` skills, commands, or personas, and no Claude Code plugin. What a bridged

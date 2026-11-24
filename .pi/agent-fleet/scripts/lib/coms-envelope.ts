@@ -52,6 +52,7 @@ export function validateComsName(name: string): string {
 // ━━ Envelope shapes (mirror coms/index.ts) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface PromptEnvelope {
+	review_protocol?: "v1";
 	type: "prompt";
 	msg_id: string;
 	sender_session: string;

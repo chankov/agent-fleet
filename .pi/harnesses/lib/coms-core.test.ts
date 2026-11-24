@@ -154,6 +154,31 @@ test("coms serializes inbound turns, reports truthful state, and correlates repl
 	assert.equal(card?.status, "idle");
 	assert.equal(card?.queue_depth, 0);
 
+	for (const name of ['code-reviewer', 'plan-reviewer', 'security-auditor', 'security-auditor--p2']) await t.test(`P16 ${name} timeout preserves one Pi request until its correlated verdict`, async () => {
+		const { createDispatchComs } = await import("../agent-hub/dispatch-coms.ts");
+		const hub = createDispatchComs({
+			getIdentity: () => sender.peer.identity, resolveTarget: sender.peer.resolveTarget,
+			send: sender.peer.send, getPendingReply: (id: string) => sender.peer.pendingReplies.get(id),
+			getSessionDir: () => root, safePathWithin: join, safeAgentKey: (s: string) => s,
+			appendInputArtifacts: (s: string) => s, appendDeclaredScope: (s: string) => s,
+			buildRulesProtocol: () => '', buildDocsProtocol: () => '', updateWidget() {},
+		} as any);
+		const before = receiver.deliveries.length;
+		const result = await hub.dispatchViaComs({ def: { name }, runCount: 1, contextPct: 0, lastWork: '' }, 'review', 'receiver', 10, false, sender.ctx, [], []);
+		const id = receiver.deliveries[before];
+		assert.ok(id && result?.pending && result.output.includes(id));
+		for (const [phase, msg_id] of [['progress', id], ['final', 'foreign'], ['final', id]]) {
+			receiver.branch.push({ type: 'message', message: { role: 'assistant', stopReason: 'stop', content: '```json\n' + JSON.stringify({ msg_id, phase, verdict: 'APPROVE', report: 'checked' }) + '\n```' } });
+			await receiver.peer.settleTurn(receiver.ctx);
+			if (phase !== 'final' || msg_id !== id) assert.equal((await sender.peer.await(id, 1)).status, 'pending');
+		}
+		assert.deepEqual(sender.peer.get(id), { status: 'complete', response: 'checked\nVerdict: APPROVE', error: null });
+		assert.deepEqual(await sender.peer.await(id, 1), { status: 'complete', response: 'checked\nVerdict: APPROVE' });
+		await sendEnvelope(sender.peer.identity!.endpoint, { type: 'response', msg_id: id, sender_session: receiver.peer.identity!.session_id, sender_endpoint: receiver.peer.identity!.endpoint, hops: 0, timestamp: new Date().toISOString(), error: null, response: JSON.stringify({ msg_id: id, phase: 'final', verdict: 'REJECT', report: 'duplicate' }) });
+		assert.equal(sender.peer.get(id).response, 'checked\nVerdict: APPROVE');
+		assert.deepEqual(receiver.deliveries.slice(before), [id]);
+	});
+
 	const unsuccessful = await sender.peer.send({ target: "receiver", prompt: "fail safely" });
 	receiver.branch.push({
 		type: "message",

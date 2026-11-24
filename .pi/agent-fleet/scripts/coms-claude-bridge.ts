@@ -1,3 +1,4 @@
+import { parseReview } from "../../harnesses/lib/coms-review.ts";
 import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harnesses/lib/workspace-context.ts";
 // .pi/agent-fleet/scripts/coms-claude-bridge.ts
 //
@@ -52,7 +53,7 @@ import {
 	type SenderIdentity,
 } from "./lib/coms-envelope.ts";
 import {
-	extractSentinelReply,
+	extractSentinelReply, extractPaneReview,
 	formatPanePrompt,
 	idleWaitBudgetMs,
 	idleWaitDelayMs,
@@ -310,7 +311,7 @@ async function main(): Promise<void> {
    try { return { mtime: fs.statSync(hookFile).mtimeMs, raw: fs.readFileSync(hookFile, "utf-8") }; }
    catch { return null; }
   },
-  readPane: async () => (await herdr.paneRead({ pane_id: paneId, source: "recent", lines: 200 })).read.text,
+  readPane: async () => (await herdr.paneRead({ pane_id: paneId, source: "recent_unwrapped", lines: 200 })).read.text,
   sendText: text => herdr.paneSendText(paneId, text),
   sendEnter: () => herdr.paneSendKeys(paneId, ["enter"]), log: console.error,
  };
@@ -394,6 +395,14 @@ export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Pro
 			const monitorDeadline = replyDeadlineAt(startedAt, REPLY_TIMEOUT_HARD_CAP_MS);
 			let pendingLogged = false;
 			let sawWorking = false;
+			let lastReason: string | undefined;
+			function checkReply(text: string, pane = false) {
+				if (env.review_protocol !== "v1") return text;
+				const frame = parseReview(text, env.msg_id, pane);
+				if (frame.wire) return frame.wire;
+				if (frame.reason !== lastReason) d.log?.(`Review ${env.msg_id} remains pending (${frame.reason}); expected a standalone final frame`);
+				lastReason = frame.reason;
+			}
 			while (now() < monitorDeadline) {
 				await sleep(POLL_MS);
 				if (!pendingLogged && now() >= replyDeadline) {
@@ -409,7 +418,8 @@ export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Pro
 						const rec = parseHookRecord(hook.raw);
 						if (rec) {
 							d.markHookSeen();
-							return rec.text;
+							const result = checkReply(rec.text);
+							if (result !== undefined) return result;
 						}
 					}
 				}
@@ -419,8 +429,20 @@ export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Pro
 				// fallback: turn ended without a hook record → scrape the sentinel
 				if (sentinelMode && sawWorking && (status === "done" || status === "idle")) {
 					const text = await d.readPane();
-					const reply = extractSentinelReply(text, env.msg_id, requestBoundary);
-					if (reply) return reply;
+					const reply = env.review_protocol === "v1"
+						? extractPaneReview(text, env.msg_id, requestBoundary)
+						: extractSentinelReply(text, env.msg_id, requestBoundary);
+					if (reply) {
+						const result = checkReply(reply, true);
+						if (result !== undefined) return result;
+						if (env.review_protocol === "v1") {
+							const compact = extractPaneReview(text, env.msg_id, requestBoundary, true);
+							if (compact && compact !== reply) {
+								const retry = parseReview(compact, env.msg_id, true);
+								if (retry.wire) return retry.wire;
+							}
+						}
+					}
 					// sentinel not visible yet — keep polling until deadline
 				}
 			}

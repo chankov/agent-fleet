@@ -1,3 +1,4 @@
+import { isReviewPersona } from "./run-budget.js";
 import { SPECIALIST_CLARIFICATION } from "../lib/clarification-policy.ts";
 import { profileService } from './policy/profile-runtime.ts';
 import { randomUUID } from "node:crypto";
@@ -127,6 +128,7 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 	try {
 		sent = await deps.send({
 			target: peer.name,
+			...(isReviewPersona(state.def.name) ? { review_protocol: "v1" as const } : {}),
 			prompt,
 			conversation_id: null,
 			response_schema: null,

@@ -235,7 +235,7 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 	};
 	const executeComsAwait: ToolExecutor<ComsAwaitParams> = async (_id, params) => {
 		const result = await d.getComs().await(params.msg_id, typeof params.timeout_ms === "number" && params.timeout_ms > 0 ? params.timeout_ms : TIMEOUT_MS);
-		if (result.status === "pending") return { content: [{ type: "text", text: "coms_await: pending — wait budget exhausted; the peer may still complete" }], details: { status: "pending" } };
+		if (result.status === "pending") return { content: [{ type: "text", text: `coms_await: pending — wait budget exhausted; poll coms_get or coms_await with ${params.msg_id}; do not re-dispatch` }], details: { status: "pending" } };
 		if (result.status === "error") { const unknown = result.error === "unknown msg_id"; return { content: [{ type: "text", text: unknown ? `coms_await: unknown msg_id ${params.msg_id}` : `coms_await: error — ${result.error}` }], details: unknown ? { error: "unknown msg_id" } : { status: "error", error: result.error } }; }
 		return { content: [{ type: "text", text: typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2) }], details: { response: result.response } };
 	};

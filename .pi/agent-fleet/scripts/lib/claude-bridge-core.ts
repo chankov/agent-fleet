@@ -125,13 +125,13 @@ export function completionSentinel(msgId: string): string {
 // "[from name @ cwd]" framing so Claude knows who is asking; in sentinel mode
 // (no Stop hook seen yet) it also asks for the completion marker.
 export function formatPanePrompt(
-	env: { prompt: string; sender_name: string; sender_cwd: string; msg_id: string },
+	env: { prompt: string; sender_name: string; sender_cwd: string; msg_id: string; review_protocol?: string },
 	sentinelMode: boolean,
 	requestBoundary?: string,
 ): string {
 	const header = `[coms message from ${env.sender_name} @ ${env.sender_cwd}] `;
 	const sentinelNote = sentinelMode
-		? `\n\nEnd your reply with this exact line so the bridge can capture it: ${completionSentinel(env.msg_id)}${requestBoundary ? ` ${requestBoundary}` : ""}`
+		? `\n\nEnd ${env.review_protocol === "v1" ? "only your final review" : "your reply"} with this exact line so the bridge can capture it: ${completionSentinel(env.msg_id)}${requestBoundary ? `\nEnd of request (do not copy):\n${requestBoundary}` : ""}`
 		: "";
 	return `${header}${env.prompt}${sentinelNote}`;
 }
@@ -153,6 +153,24 @@ export function parseHookRecord(raw: string): HookRecord | null {
 	}
 }
 
+// In a review capture Claude marks each response with a bullet. Only inspect
+// the latest response; never search its prose for a plausible JSON suffix.
+export function extractPaneReview(paneText: string, msgId: string, boundary: string, hardWrap = false): string | null {
+ const parts = paneText.replace(/\x1b\[[0-9;]*m/g, "").split(boundary);
+ if (parts.length !== 2) return null;
+ const rows = parts[1].split(/\r?\n/);
+ const start = rows.map(row => /^[●⏺] /.test(row)).lastIndexOf(true);
+ if (start < 0) return null;
+ const turn = rows.slice(start);
+ turn[0] = turn[0].slice(2);
+ const end = turn.findIndex(row => row.trim() === completionSentinel(msgId));
+ if (end < 1 || turn.slice(end + 1).some(row => !/^[\s❯─━┏┗┃│]*$/.test(row))) return null;
+ // A Claude word-wrap row uses a two-column hanging indent in place of
+ // the word separator. Bare hard splits have no such indent. Escaped JSON
+ // newlines remain intact and decode back into real report line breaks.
+ return turn.slice(0, end).join("\n").replace(/\n  /g, hardWrap ? "" : " ");
+}
+
 // Completion requires the unique boundary submitted for this request, not merely
 // a matching marker in scrollback. Missing/truncated provenance stays pending.
 export function extractSentinelReply(paneText: string, msgId: string, requestBoundary?: string): string | null {
@@ -162,11 +180,11 @@ export function extractSentinelReply(paneText: string, msgId: string, requestBou
  if (boundaryAt < 0 || clean.indexOf(requestBoundary, boundaryAt + requestBoundary.length) >= 0) return null;
  const region = clean.slice(boundaryAt + requestBoundary.length);
  // Strip known Claude TUI prefixes, but preserve Markdown quote text (`>`).
- const lines = region.split("\n").map(l => l.replace(/^[●❯\s]+/, "").trimEnd());
+ const lines = region.split("\n").map(l => l.replace(/^[●⏺❯\s]+/, "").trimEnd());
  const sentinel = completionSentinel(msgId);
  const end = lines.findIndex(l => l === sentinel);
- if (end < 0 || lines.slice(end + 1).some(l => l.trim() && !/^[─━┏┗┃│]+/.test(l))) return null;
- const reply = lines.slice(0, end).filter(l => l.trim() && !/^[─━┏┗┃│]+/.test(l));
+ if (end < 0 || lines.slice(end + 1).some(l => l.trim() && !/^[─━┏┗┃│]+$/.test(l))) return null;
+ const reply = lines.slice(0, end).filter(l => l.trim() && !/^[─━┏┗┃│]+$/.test(l));
  if (reply.some(l => /<<COMS_(?:DONE|REQUEST):/.test(l)) || !reply.length) return null;
  return reply.join("\n").trim() || null;
 }
