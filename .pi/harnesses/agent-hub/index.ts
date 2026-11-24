@@ -2125,11 +2125,12 @@ export default function (pi: ExtensionAPI) {
 		const gate = ["bash", "edit", "write"].includes(toolName) ? processPreEffectGate(processState, "write") : null;
 		const finishPolicy = beginRuntimeTrace(pi.events, { kind: "policy", id: `process:${event.toolCallId}`, parentId: String(event.toolCallId), source: "process", tool: toolName, rule: block?.reason ?? gate?.reason ?? "no_process_hold", reason: block?.reason ?? gate?.reason });
 		try {
-		// set_task_tier binds the fence. ask_user is the human supersession path. Every other tool is a diversion.
+		// set_task_tier binds the fence. ask_user is the human supersession path. Only the typed ledger read can inspect normal pending state without binding.
 		// The first assistant step may emit several tools together. Refuse that whole step without aborting,
 		// so the model can still call set_task_tier. Abort only a later step that ignores the hint; terminate
 		// alone cannot stop siblings whose calls already returned.
-		if (block && toolName !== "set_task_tier" && toolName !== "ask_user") {
+		const statusRead = block?.reason === "task_transition_pending" && event.toolName === "get_assertions";
+		if (block && !statusRead && toolName !== "set_task_tier" && toolName !== "ask_user") {
 			const decision = transitionToolDecision(transitionHintDelivered, transitionDiversions, block.message);
 			transitionDiversions = decision.nextCount;
 			transitionBatchRefused = true;
@@ -2538,11 +2539,12 @@ export default function (pi: ExtensionAPI) {
 			recomputeGrid();
 			const sessionEntries = _ctx.sessionManager.getEntries();
 			// Resume restores the persisted fence. A missing entry is the legacy clear state.
-			pendingTaskTransition = latestPendingTaskTransition(sessionEntries);
+			const restoredTransition = latestPendingTaskTransition(sessionEntries);
+			pendingTaskTransition = restoredTransition !== false;
 			transitionDiversions = 0;
 			transitionHintDelivered = false;
 			transitionBatchRefused = false;
-			try { processState = latestProcessState(sessionEntries); processPersistenceBlocked = false; }
+			try { processState = latestProcessState(sessionEntries); processPersistenceBlocked = restoredTransition === "corrupt"; }
 			catch { processState = createProcessState(); processPersistenceBlocked = true; }
 			taskTriage?.restore(sessionEntries);
             const savedTaskIds = new Set(processState.additions?.map(addition => addition.taskId));

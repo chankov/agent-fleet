@@ -47,6 +47,8 @@ When no accepted input is available, including after reload, scope classificatio
 retains the baseline and persisted additions without requesting a scoped assessment.
 This does not require `/af-task-triage-recover`. A pending transition with missing
 input, cancelled assessment, or failed process write still refuses dependent work.
+For a status-only follow-up, `get_assertions` reads the ledger without binding. Writes and agent launches still require binding.
+
 If classification commits but a process block remains, `set_task_tier` reports
 the block rather than success.
 

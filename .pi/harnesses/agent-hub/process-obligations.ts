@@ -105,20 +105,20 @@ export function missingProcessRoleRecoveryHints(state: ProcessObligationState, r
  ].filter(Boolean).join(" ");
 }
 
-export const taskTransitionRecoveryHint = "Pending task transition: before dependent effects, call set_task_tier with the current tier and explicit risk/scope to bind this input to the same task; for a genuinely different task use new_task: true with a reason and obtain human supersession authorization if prior obligations are open. Do not waive while pending; bind first, then use only active addition IDs for the bound task.";
+export const taskTransitionRecoveryHint = "Pending task transition: before dependent effects, call set_task_tier with the current tier and explicit risk/scope to bind this input to the same task; for a genuinely different task use new_task: true with a reason and obtain human supersession authorization if prior obligations are open. For ledger status alone, use get_assertions without binding. Do not waive while pending; bind first, then use only active addition IDs for the bound task.";
 /** System-prompt form of the transition hint. Pi fixes the system prompt for the whole agent run, so this
  * text is still visible after set_task_tier has bound the input: it must describe a start-of-turn snapshot
  * that expires on the first set_task_tier result, never a live BLOCKED state (that caused re-bind loops). */
-export const taskTransitionPromptNotice = "Start-of-turn notice (a snapshot, not live state): this user input opened a task transition. Call set_task_tier exactly once before other tools - the current tier with explicit risk/scope binds the input to the same task; use new_task: true with a reason only for a genuinely different task. As soon as a set_task_tier result in this turn reports a tier or \"Classification unchanged\", the transition is bound and this notice no longer applies: do not call set_task_tier again, continue the work.";
+export const taskTransitionPromptNotice = "Start-of-turn notice (a snapshot, not live state): this user input opened a task transition. For a status inquiry, call get_assertions without binding. Before dependent effects, call set_task_tier exactly once - the current tier with explicit risk/scope binds the input to the same task; use new_task: true with a reason only for a genuinely different task. As soon as a set_task_tier result in this turn reports a tier or \"Classification unchanged\", the transition is bound and this notice no longer applies: do not call set_task_tier again, continue the work.";
 export const TASK_TRANSITION_ENTRY_TYPE = "agent-hub-task-transition";
 export const TRANSITION_DIVERSION_STOP = 2;
 
 /** Resume keeps an unbound transition fenced. A missing entry is the legacy clear state; a corrupt entry fails closed. */
-export function latestPendingTaskTransition(entries: readonly unknown[]): boolean {
+export function latestPendingTaskTransition(entries: readonly unknown[]): boolean | "corrupt" {
  for (let i = entries.length - 1; i >= 0; i--) {
   const entry = entries[i] as { type?: unknown; customType?: unknown; data?: { pending?: unknown } } | null;
   if (!entry || entry.type !== "custom" || entry.customType !== TASK_TRANSITION_ENTRY_TYPE) continue;
-  return entry.data?.pending !== false;
+  return typeof entry.data?.pending === "boolean" ? entry.data.pending : "corrupt";
  }
  return false;
 }
@@ -127,13 +127,13 @@ export function latestPendingTaskTransition(entries: readonly unknown[]): boolea
 export function transitionDiversionDecision(count: number, hint: string): { nextCount: number; terminate?: true; reason: string } {
  const nextCount = count + 1;
  if (nextCount >= TRANSITION_DIVERSION_STOP) return { nextCount, terminate: true, reason: `Turn stopped after ${nextCount} tool calls while a task transition was pending. ${hint} Do not call another tool in this turn.` };
- return { nextCount, reason: `${hint} This was diversion ${nextCount} of ${TRANSITION_DIVERSION_STOP}. The next tool that is not set_task_tier or ask_user stops the turn.` };
+ return { nextCount, reason: `${hint} This was diversion ${nextCount} of ${TRANSITION_DIVERSION_STOP}. The next refused tool stops the turn.` };
 }
 
 /** One assistant step may emit several tools at once. That step is a single refusal, not a stop:
  *  aborting it prevents the model from calling set_task_tier. A later step that still does not bind stops. */
 export function transitionToolDecision(hintDelivered: boolean, count: number, hint: string): { nextCount: number; terminate?: true; reason: string } {
- if (!hintDelivered) return { nextCount: 1, reason: `${hint} Tools in this step are refused, not executed. Call set_task_tier before any other tool. A later step that still does not bind stops the turn.` };
+ if (!hintDelivered) return { nextCount: 1, reason: `${hint} This tool was refused, not executed. A later step attempting a fenced tool stops the turn.` };
  return transitionDiversionDecision(Math.max(count, 1), hint);
 }
 

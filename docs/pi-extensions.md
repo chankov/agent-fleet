@@ -177,7 +177,7 @@ harnesses:
 
 - **One operator** — bare `just fleet` starts the operator with direct coding tools, delegation to
   every installed agent, and an empty native roster. The former orchestrator work mode,
-  `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. A pending task transition lets `set_task_tier` and `ask_user` through; the second other tool call stops the turn, including a parallel batch, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
+  `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. During a pending task transition, `get_assertions` can report the current task’s status repeatedly without binding the input or counting as a diversion. `set_task_tier` and `ask_user` remain available. Other tools, including edits and agent launches, are refused until binding; a second diversion stops the turn, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height

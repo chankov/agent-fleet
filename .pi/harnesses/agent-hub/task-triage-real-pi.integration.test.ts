@@ -594,12 +594,17 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   const pinned = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).devDependencies["@earendil-works/pi-coding-agent"];
   assert.equal(JSON.parse(readFileSync(join(repoRoot, "node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8")).version, pinned);
   const dir = setupWorkspace(t);
-  const fencedPath = join(dir, "transition-must-not-write.txt");
+  const fencedPath = join(dir, "transition-must-not-edit.txt");
+  writeFileSync(fencedPath, "original");
   const boundPath = join(dir, "bound-write.txt");
   const session = await startSession(t, dir, { fake: "security", script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "real-pi adoption bind" } },
     { text: "first turn complete" },
-    { tool: "write", args: { path: fencedPath, content: "must remain absent" } },
+    { tool: "get_assertions", args: {} },
+    { tool: "dispatch_agent", args: { agent: "planner", task: "Before binding" } },
+    { tool: "get_assertions", args: {} },
+    { text: "status only" },
+    { tool: "edit", args: { path: fencedPath, oldText: "original", newText: "changed" } },
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "bind follow-up to same task" } },
     { tool: "write", args: { path: boundPath, content: "bound effect succeeded" } },
     { tool: "dispatch_agent", args: { agent: "planner", task: "Attempt after binding" } },
@@ -609,6 +614,11 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   ]});
   const r1 = await session.request("fix the typo in README");
   assert.equal(r1.success, true, `first prompt failed: ${JSON.stringify(r1)}`);
+  assert.equal((await session.request("Какъв е статусът на задачата?")).success, true);
+  assert.ok(session.contexts()[2].tools.includes("get_assertions"));
+  assert.equal(toolResult(session, 3)?.details?.count, 0);
+  assert.match(toolResult(session, 4)?.text ?? "", /Pending task transition/);
+  assert.equal(toolResult(session, 5)?.details?.count, 0, "status after refusal neither binds nor stops the turn");
   const r2 = await session.request("also update the installer permissions check and verify acceptance criteria");
   assert.equal(r2.success, true, `follow-up prompt failed: ${JSON.stringify(r2)}`);
 
@@ -633,30 +643,30 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
 
   // Empty roster: after binding, dispatch through the real hub refuses with an actionable recovery hint.
   const inbound = inboundText(session);
-  assert.ok(session.contexts().length >= 9, "both turns execute their scripted calls");
+  assert.ok(session.contexts().length >= 13, "all three turns execute their scripted calls");
   // Use the actual tool result rather than a 30KB prefix of the whole growing transcript.
-  const rosterRefusal = toolResult(session, 6)?.text ?? "";
+  const rosterRefusal = toolResult(session, 10)?.text ?? "";
   assert.match(rosterRefusal, /Unknown agent "planner"/, "empty-roster refusal names the agent");
   assert.match(rosterRefusal, /\/af-agents-add/, "empty-roster refusal points at roster recovery");
 
   // Input transition: a changed follow-up fences direct effects; its fleet lease permits binding.
-  const followUp = session.contexts().slice(2);
-  assert.ok(followUp[0].tools.includes("write") && followUp[0].tools.includes("dispatch_agent") && followUp[1].tools.includes("set_task_tier"), "pending transition retains both direct tools and the fleet adoption lease");
-  assert.match(followUp[1].inbound, /Pending task transition: before dependent effects, call set_task_tier/, "follow-up direct effect is refused at the transition fence before adoption");
-  assert.equal(existsSync(fencedPath), false, "refused transition effect did not write");
+  const followUp = session.contexts().slice(6);
+  assert.ok(followUp[0].tools.includes("edit") && followUp[0].tools.includes("dispatch_agent") && followUp[1].tools.includes("set_task_tier"), "pending transition retains both direct tools and the fleet adoption lease");
+  assert.match(toolResult(session, 7)?.text ?? "", /Pending task transition: before dependent effects, call set_task_tier/, "follow-up direct effect is refused at the transition fence before adoption");
+  assert.equal(readFileSync(fencedPath, "utf8"), "original", "refused transition effect did not edit");
   // A successful post-adoption direct effect, not roster validation, proves the fence cleared.
-  const afterBind = session.contexts()[4].inbound.replaceAll('\\"', '"');
+  const afterBind = session.contexts()[8].inbound.replaceAll('\\"', '"');
   assert.match(afterBind, /"status":"ok"/, "follow-up set_task_tier returned a successful adoption result");
   assert.equal(readFileSync(boundPath, "utf8"), "bound effect succeeded", "post-adoption direct write reaches the filesystem");
   assert.match(inbound, /security_change/, "the fake high-risk signal is visible in the real Hub model input");
   assert.match(afterBind, /"tier":"small"/, "adoption did not inflate the budget tier");
   const registeredProof = () => JSON.stringify({
-    exposed: session.contexts()[7]?.tools.includes("update_assertion"),
-    ledger: toolResult(session, 7), proof: toolResult(session, 8),
+    exposed: session.contexts()[11]?.tools.includes("update_assertion"),
+    ledger: toolResult(session, 11), proof: toolResult(session, 12),
   });
-  assert.equal(session.contexts()[7]?.tools.includes("update_assertion"), true, `the verification pack exposes the registered proof tool; ${registeredProof()}`);
-  assert.equal(toolResult(session, 7)?.details?.count, 1, `A1 was registered before the proof attempt; ${registeredProof()}`);
-  const proofGate = toolResult(session, 8);
+  assert.equal(session.contexts()[11]?.tools.includes("update_assertion"), true, `the verification pack exposes the registered proof tool; ${registeredProof()}`);
+  assert.equal(toolResult(session, 11)?.details?.count, 1, `A1 was registered before the proof attempt; ${registeredProof()}`);
+  const proofGate = toolResult(session, 12);
   assert.equal(proofGate?.details?.status, "refused", `registered proof tool refused the request; ${registeredProof()}`);
   assert.equal(proofGate?.details?.reason, "process_obligations_open", `the registered proof gate enforces effective obligations; ${registeredProof()}`);
   assert.match(proofGate.text, /review/, `review remains an actual open obligation; ${registeredProof()}`);

@@ -162,7 +162,7 @@ test("active additions expose exact waiver IDs, plain obligations and transition
  assert.equal(firstDiversion.terminate, undefined);
  assert.equal(firstDiversion.nextCount, 1);
  assert.match(firstDiversion.reason, /set_task_tier/);
- assert.match(firstDiversion.reason, /next tool that is not set_task_tier or ask_user stops the turn/);
+ assert.match(firstDiversion.reason, /next refused tool stops the turn/);
  const stopped = transitionDiversionDecision(firstDiversion.nextCount, taskTransitionRecoveryHint);
  assert.equal(stopped.terminate, true);
  const sameStep = transitionToolDecision(false, 0, taskTransitionRecoveryHint);
@@ -177,7 +177,7 @@ test("active additions expose exact waiver IDs, plain obligations and transition
  assert.equal(latestPendingTaskTransition([]), false);
  assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: true } }]), true);
  assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: true } }, { type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: false } }]), false);
- assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: "bad" } }]), true);
+ assert.equal(latestPendingTaskTransition([{ type: "custom", customType: TASK_TRANSITION_ENTRY_TYPE, data: { pending: "bad" } }]), "corrupt");
  assert.doesNotMatch(activeAdditionRecoveryHints(state, "another-task", binding.inputRevision), /\/af-task-triage-waive/);
  const stale = activeAdditionRecoveryHints(state, binding.taskId, "new-input");
  assert.match(stale, /Waiver unavailable for this input revision/);

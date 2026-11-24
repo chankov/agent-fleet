@@ -85,6 +85,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts): WorkModePolicy
 	function applyWorkModeTools(fromMode: WorkMode = workMode, reason: "refresh" | "mode_switch" = "refresh"): void {
 		const previous = [...(ports.getActiveTools?.() ?? [])];
 		const requested = resolveWorkModeTools({ baselineTools: ports.getBaselineTools(), comsReady: ports.getComsReady(), herdrReady: ports.getHerdrReady(), askUserAvailable: ports.getAskUserAvailable(), deterministicTools: ports.getDeterministicToolsEnabled?.() === true, triageEnabled: ports.getDispatchTriageEnabled?.() === true, recoveryAvailable: ports.getRecoveryAvailable?.() === true, agenticAskEnabled: ports.getAgenticAskEnabled?.() === true, fileDiscoveryEnabled: ports.getFileDiscoveryEnabled?.() === true, capabilityPacks: [...resolution.active, ...resolution.provisional] });
+		if (ports.getPendingOperations().some(op => op.kind === "task-transition") && !requested.includes("get_assertions")) requested.push("get_assertions");
 		ports.setActiveTools(requested);
 		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}
