@@ -3,6 +3,7 @@ import { validateBoundAssertionIds } from "./return-contract.js";
 import { posix } from "node:path";
 
 export interface TaskResumeInput {
+ readonly declaredChecks?: readonly string[];
  privateConfig?: PrivateConfigBinding;
 	taskId: string;
  boundAssertionIds?: readonly string[];

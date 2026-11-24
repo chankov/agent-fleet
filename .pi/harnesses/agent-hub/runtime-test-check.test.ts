@@ -197,3 +197,21 @@ for(const scenario of ['all-non-json','garbage-between-events','unterminated-tra
  for(const record of result.runtimeTests) assert.equal(record.exclusive,false,scenario);
  if(scenario==='all-non-json') assert.deepEqual(result.runtimeTests,[],'no fabricated observation');
 });
+
+test('declared cargo preflight sees child cwd and PATH, never replays setup or mistakes exit 127 for missing', async t => {
+ const fs = await import('node:fs'); const { join, dirname } = await import('node:path');
+ const { tmpdir } = await import('node:os');
+ const api = await import(join(dirname(fs.realpathSync('node_modules/.bin/pi')), 'index.js'));
+ const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'preflight-'))); t.after(() => fs.rmSync(root,{recursive:true,force:true}));
+ const bin = join(root,'.cargo/bin'); fs.mkdirSync(bin,{recursive:true}); fs.mkdirSync(join(root,'privatale-cli'));
+ const command = 'cd privatale-cli && PATH="$HOME/.cargo/bin:$PATH" cargo test --offline';
+ const commandPrefix = 'export HOME="$PWD" PATH=/nonexistent; echo setup >> calls; command_not_found_handle() { echo unexpected >> "$HOME/attempt"; return 127; }';
+ const execute = instrumentBash(api.createBashToolDefinition, api.createLocalBashOperations({shellPath:'/bin/bash'}), root, ()=>'r', {commandPrefix, declaredChecks:[command]});
+ await assert.rejects(execute('missing',{command},undefined,undefined), /not run.*required CLI 'cargo'/);
+ assert.equal(fs.existsSync(join(root,'attempt')),false);
+ fs.writeFileSync(join(bin,'cargo'), '#!/bin/sh\npwd >> "$HOME/attempt"\nexit 127\n',{mode:0o755});
+ const result = await execute('available',{command},undefined,undefined);
+ assert.equal(result.details.runtimeTest.exitCode,127);
+ assert.equal(fs.readFileSync(join(root,'attempt'),'utf8'),join(root,'privatale-cli')+'\n');
+ assert.equal(fs.readFileSync(join(root,'calls'),'utf8'),'setup\nsetup\n');
+});

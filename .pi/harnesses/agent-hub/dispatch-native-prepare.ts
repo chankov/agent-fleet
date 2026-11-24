@@ -1,3 +1,4 @@
+import { RUNTIME_TEST_COMMANDS_ENV } from "./runtime-test-check.ts";
 import { SPECIALIST_RESULT_INSTRUCTION } from "./specialist-result.ts";
 import {appendDiscoveryContext} from './file-discovery/native-context.ts';
 import { fileURLToPath } from "node:url";
@@ -313,6 +314,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		extensions,
 		delegateEnv: {
 			...delegateEnv,
+   [RUNTIME_TEST_COMMANDS_ENV]: JSON.stringify(requestedContract?.declaredChecks ?? []),
 			...(boundedOutput ? { [BOUNDED_OUTPUT_DIR_ENV]: safePathWithin(base.evidenceDir, "bounded-output") } : {}),
 			...(deterministicTools ? { [FILESYSTEM_SESSION_DIR_ENV]: base.sessionDir } : {}),
 			...(proactiveAssignment ? { [PROACTIVE_OBSERVER_ENV]: JSON.stringify(proactiveAssignment) } : {}),

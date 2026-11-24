@@ -258,6 +258,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
 	const agentState = s.getAgentStates().get(agent.toLowerCase());
 	const resumeContract = {
+  declaredChecks: Object.freeze([...new Set(requirements.flatMap(r => [r.testCommand, r.compilerCommand].filter((c): c is string => !!c)))]),
   ...(privateConfig ? {privateConfig} : {}),
 		taskId: d.noProgress.taskId(), instructions: declaredTask, scope: scopeGlobs,
   // No parent ledger is the supported legacy task-text contract, not a bound minimal-only contract.

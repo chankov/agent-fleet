@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PRIVATE_CONFIG_ENV, privateConfigRevision, type PrivateConfigBinding } from './private-config-current-state.ts';
 import { worktreeRevision } from "./scope-gate.js";
 
@@ -31,14 +32,48 @@ export interface RuntimeTestRecord {
  finishedAt?: number;
 }
 
-/** Observe the existing bash operation, never execute a second command or parse output. */
+export const RUNTIME_TEST_COMMANDS_ENV = "AGENT_FLEET_RUNTIME_TEST_COMMANDS";
+
+// Match the whole invocation: no substitutions, redirects, pipelines or arbitrary setup.
+const simpleCheck = /^(?:(cd [a-zA-Z0-9_.][a-zA-Z0-9_./-]* && ))?(PATH="\$HOME\/\.cargo\/bin:\$PATH" )?(cargo|node|npm|pnpm|yarn|pytest|go|bun|deno|python3)((?: [a-zA-Z0-9_./:=@,-]+)*)$/;
+
+function declaredChecks(): string[] {
+ try {
+  const value = JSON.parse(process.env[RUNTIME_TEST_COMMANDS_ENV] ?? '[]');
+  return Array.isArray(value) && value.every(c => typeof c === 'string') ? value : [];
+ } catch { return []; }
+}
+
+/** Observe the existing bash operation, never run a second test or infer its exit code from output. */
 export function instrumentBash(createTool: any, operations: any, cwd: string, revision = () => worktreeRevision(cwd, []), options: any = {}) {
  return async (id: string, params: any, signal: any, update: any, ctx?: any) => {
   let record: RuntimeTestRecord | undefined;
   const tool = createTool(cwd, { ...options, operations: { ...operations, exec: async (...args: any[]) => {
    const beforeRevision = revision();
+   const prefix = options.commandPrefix ? `${options.commandPrefix}\n` : '';
+   const exact = typeof params.command === 'string' && args[0] === prefix + params.command;
+   const check = exact && options.declaredChecks?.includes(params.command) && simpleCheck.exec(params.command);
+   let reachedInvocation: boolean | undefined;
+   if (check && check[0] === params.command) {
+    const [, cd = '', path = '', cli, argv] = check;
+    // One shell operation, after tool approval. The configured prefix runs only once.
+    // A missing launch marker only invalidates evidence (including a prefix that exits
+    // early or hides diagnostics). It never supplies the result or its exit code.
+    reachedInvocation = false;
+    const marker = `fleet-invoke-${randomUUID()}`;
+    const stream = args[2];
+    let tail = '';
+    args[2] = { ...stream, onData(chunk: Buffer) {
+     const text = tail + chunk.toString();
+     reachedInvocation ||= text.includes(marker);
+     tail = text.slice(-marker.length);
+     stream.onData(chunk);
+    } };
+    args[0] = `${prefix}${cd}if fleet_cli=$(${path}command -v ${cli}) && [ -f "$fleet_cli" ] && [ -x "$fleet_cli" ]; then printf '%s\\n' '${marker}' >&2; ${path}${cli}${argv}; else exit 125; fi`;
+   }
    const result = await operations.exec(...args);
-   if (typeof args[0] === "string" && args[0] === (options.commandPrefix ? `${options.commandPrefix}\n${params.command}` : params.command)) record = { producer: "agent-fleet.runtime-test/v1", command: params.command, exitCode: result.exitCode, beforeRevision, afterRevision: revision() };
+   if (reachedInvocation === false) throw new Error(`Declared check not run or launch unconfirmed: verify required CLI '${check[3]}' in the test shell's cwd and PATH.`);
+   if (exact) record = { producer: "agent-fleet.runtime-test/v1", command: params.command, exitCode: result.exitCode, beforeRevision, afterRevision: revision() };
    return result;
   } } });
   try {
@@ -66,7 +101,7 @@ export default async function runtimeTestCheck(pi: any) {
  const api = await import("@mariozechner/pi-coding-agent");
  const cwd = process.cwd();
  const settings = api.SettingsManager.create(cwd);
- registerObservedBash(pi, api, cwd, { shellPath: settings.getShellPath(), commandPrefix: settings.getShellCommandPrefix() });
+ registerObservedBash(pi, api, cwd, { shellPath: settings.getShellPath(), declaredChecks: declaredChecks(), commandPrefix: settings.getShellCommandPrefix() });
 }
 
 /** Accept observer events only on the explicitly enabled native transport and a matching tool start. */
