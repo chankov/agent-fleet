@@ -16,6 +16,15 @@ import {
 	type Exemption,
 } from "../lib/damage-control-shared.ts";
 
+import {approvalTarget} from '../damage-control-continue/approval-target.ts';
+
+function dialog(request: AccessRequest) {
+ const a=request.exactAction;
+ const bound=a && a.tool===request.tool && a.category===request.category && a.pattern===request.pattern && createHash('sha256').update(JSON.stringify(a)).digest('hex')===request.actionDigest;
+ const target=bound ? approvalTarget(a.tool,a.cwd,a.input) : null;
+ return {target,title:`🛡️ Dispatcher approval ${damagePreview(request.msg_id)}: ${damagePreview(request.tool)} — ${damagePreview(request.pattern)}\n${target ?? 'Target withheld'}`};
+}
+
 type ApprovalContext = {
 	hasUI: boolean;
 	ui: {
@@ -73,6 +82,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 	};
 
 	const respond = (socket: ReplySocket, msgId: string, decision: AccessDecisionChoice, metadata:Partial<AccessDecision>={}) => {
+		if(metadata.outcome==='expired'||metadata.outcome==='cancelled')try{deps.appendLog({action:'escalation_'+metadata.outcome,requestId:damagePreview(msgId)});}catch{/* already fail-closed */}
 		const reply: AccessDecision = { ...metadata,type: "access_decision", msg_id: msgId, decision };
 		let queued=false;try { socket.write(JSON.stringify(reply) + "\n");queued=true; } catch { /* child may have timed out */ }
 		try { socket.end(); } catch { /* ignore */ }
@@ -97,7 +107,8 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 			return Promise.resolve("allow_all");
 		}
 		if (denyCache.has(cacheKey)) return Promise.resolve("deny");
-		const existing = pending.get(cacheKey);
+		const pendingKey = request.actionDigest ? JSON.stringify([cacheKey,request.msg_id,request.actionDigest]) : cacheKey;
+		const existing = pending.get(pendingKey);
 		if (signal.aborted) return Promise.resolve('deny');
 		if (existing && !existing.controller.signal.aborted) return subscribe(existing, signal);
 		const controller = new AbortController();
@@ -116,15 +127,16 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 				["allow_agent", `Allow for ${agent} (this session)`],
 				["allow_all", "Allow for all agents (this session)"],
 			]);
-			const allowed = accessDecisionChoices(request.category);
+			const view=dialog(request);
+			const allowed = accessDecisionChoices(view.target ? request.category : 'no_delete');
 			const options = allowed.map((decision) => labels.get(decision)!);
 			ctx.ui.notify(
-				`🛡️ Access request from ${damagePreview(agent)}: ${damagePreview(request.rule)}\n   tool: ${damagePreview(request.tool)}\n   attempted: ${damagePreview(request.invocation, 200)}`,
+				`🛡️ Access request from ${damagePreview(agent)}: ${damagePreview(request.rule)}\n   tool: ${damagePreview(request.tool)}`,
 				"warning",
 			);
 			try {
 				const choice = await ctx.ui.select(
-					`🛡️ ${damagePreview(agent)} requests access: ${damagePreview(pattern)}`,
+					view.title,
 					options,
 					// Each subscriber has its own deadline. The earliest requester must
 					// not time out the dialog while another live requester still needs it.
@@ -141,8 +153,8 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 			}
 		}, controller.signal).then(value=>value??'deny' as AccessDecisionChoice, ():AccessDecisionChoice=>'deny').finally(()=>finishQueue({status:'cancelled'}));
 		const entry: PendingApproval = { controller, waiters: 0, promise: ask };
-		pending.set(cacheKey, entry);
-		void ask.finally(() => { if (pending.get(cacheKey) === entry) pending.delete(cacheKey); });
+		pending.set(pendingKey, entry);
+		void ask.finally(() => { if (pending.get(pendingKey) === entry) pending.delete(pendingKey); });
 		return subscribe(entry, signal);
 	};
 
@@ -168,10 +180,11 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
   let localChoice:AccessDecisionChoice='deny';
   const ctx=deps.getContext();
   if(ctx?.hasUI){
-   const choices:[AccessDecisionChoice,string][]=[['allow_once','Allow once'],...(request.category==='no_delete'||request.category==='bash_pattern'?[]:[['allow_agent','Allow for this agent (this session)'],['allow_all','Allow for all agents (this session)']] as [AccessDecisionChoice,string][]),['deny','Deny (keep blocked)']];
+   const view=dialog(request);
+   const choices:[AccessDecisionChoice,string][]=[['allow_once','Allow once'],...(!view.target||request.category==='no_delete'||request.category==='bash_pattern'?[]:[['allow_agent','Allow for this agent (this session)'],['allow_all','Allow for all agents (this session)']] as [AccessDecisionChoice,string][]),['deny','Deny (keep blocked)']];
    void askQueue.run(async waitSignal=>{
     if(!fresh()||waitSignal.aborted)return;
-    const selected=await ctx.ui.select(`🛡️ ${damagePreview(request.agent)} requests access: ${damagePreview(request.pattern)}`,choices.map(c=>c[1]),{timeout:Math.max(1,request.deadline!-Date.now()),signal:waitSignal});
+    const selected=await ctx.ui.select(view.title,choices.map(c=>c[1]),{timeout:Math.max(1,request.deadline!-Date.now()),signal:waitSignal});
     if(local.signal.aborted||!fresh())return;
     const choice=choices.find(c=>c[1]===selected)?.[0];if(!choice){pending.cancel();return;}
     localChoice=choice;pending.human(choice==='deny'?'deny':'allow_once','local-ui');
@@ -223,11 +236,13 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 				socket.removeListener?.("close", disconnected);
 				socket.removeListener?.("error", disconnected);
 			}
-			if (socket.destroyed) return;
+			if (socket.destroyed || controller.signal.reason==='requester_disconnected') {
+				try { deps.appendLog({action:'escalation_cancelled',requestId:damagePreview(request.msg_id)}); } catch { /* disconnected */ }
+				return;
+			}
             if(JSON.stringify(fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent))!==scopeSnapshot){machine?.failed();respond(socket,request.msg_id,'deny',{outcome:'stale'});return;}
             if(machine&&!machine.valid()){respond(socket,request.msg_id,'deny',{outcome:machine.terminal??'stale'});return;}
 			if (controller.signal.aborted || deadlineReached()) {
-    if(controller.signal.reason==='requester_disconnected')return;
 				respond(socket,request.msg_id,'deny',{outcome:deadlineReached()?'expired':'cancelled'});
 				return;
 			}
@@ -240,7 +255,7 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
             if(decision==='deny'&&!machine&&!denyCache.has(accessRequestCacheKey(request))){respond(socket,request.msg_id,'deny',{outcome:'cancelled'});return;}
             if(machine?.outcome&&deps.appendPermissionLog){try{deps.appendPermissionLog({schema:'damage-permission-decision/v1',permissionId:machine.permissionId,actionDigest:request.actionDigest,...permissionAuditOutcome(machine.outcome)});}catch{machine.failed();respond(socket,request.msg_id,'deny',{outcome:'audit_failed'});return;}}
             if(JSON.stringify(fileExemptionsFor(deps.getExemptionsFile()??undefined,request.agent))!==scopeSnapshot){machine?.failed();respond(socket,request.msg_id,'deny',{outcome:'stale'});return;}
-   try{deps.appendLog({action:`escalation_${decision}`,stage:'intent_before_scope_write',agent:damagePreview(agent),pattern:damagePreview(request.pattern),tool:damagePreview(request.tool),rule:damagePreview(request.rule),actionDigest:request.actionDigest??null,...(machine?.outcome?{permissionId:machine.permissionId,permissionOutcome:permissionAuditOutcome(machine.outcome)}:{}),decisionSource:machine?.source??'legacy_local_ui_or_existing_scope'});}catch{machine?.failed();respond(socket,request.msg_id,'deny',{outcome:'audit_failed'});return;}
+   try{deps.appendLog({action:`escalation_${decision}`,stage:'intent_before_scope_write',requestId:damagePreview(request.msg_id),agent:damagePreview(agent),pattern:damagePreview(request.pattern),tool:damagePreview(request.tool),rule:damagePreview(request.rule),actionDigest:request.actionDigest??null,...(machine?.outcome?{permissionId:machine.permissionId,permissionOutcome:permissionAuditOutcome(machine.outcome)}:{}),decisionSource:machine?.source??'legacy_local_ui_or_existing_scope'});}catch{machine?.failed();respond(socket,request.msg_id,'deny',{outcome:'audit_failed'});return;}
             if (rejectExpired()) return;
 			const exemptionsFile = deps.getExemptionsFile();
 			if ((decision === "allow_agent" || decision === "allow_all") && exemptionsFile && request.category !== "bash_pattern") {

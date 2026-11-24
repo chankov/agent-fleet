@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {EventEmitter} from 'node:events';
 import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -60,7 +61,7 @@ test('deadline bounds the shared dialog and late broad approval cannot persist',
  answer('Allow for all agents (this session)');
  await tick();
  assert.equal(JSON.parse(first.output()).outcome,'expired');
- assert.deepEqual(logs,[]);
+ assert.deepEqual(logs,[{action:'escalation_expired',requestId:'first'}]);
 });
 
 test('expiry of the first requester leaves the second requester and shared dialog live', async () => {
@@ -105,7 +106,7 @@ test('an early timer wake keeps the request pending until its original deadline'
  await tick();
  assert.deepEqual(beforeDeadline,{output:'',aborted:false});
  assert.equal(JSON.parse(first.output()).outcome,'expired');
- assert.deepEqual(logs,[]);
+ assert.deepEqual(logs,[{action:'escalation_expired',requestId:'early-wake'}]);
 });
 
 test('already expired request does not open a dialog', async () => {
@@ -134,7 +135,8 @@ for(const choice of ['Allow once','Allow for all agents (this session)']){
   });
   t.after(()=>router.reset());
   const first=socket();
-  await router.handle(first,{...request('audit-edge'),category:'read_only',deadline});
+  const exactAction={tool:'read',category:'read_only',pattern:'.github/',input:{path:'.github/test'},cwd:root};
+  await router.handle(first,{...request('audit-edge'),tool:'read',exactAction,actionDigest:createHash('sha256').update(JSON.stringify(exactAction)).digest('hex'),category:'read_only',deadline});
   const reply=JSON.parse(first.output());
   assert.deepEqual({decision:reply.decision,outcome:reply.outcome??null,exemptions:JSON.parse(readFileSync(file,'utf8'))},
    {decision:'deny',outcome:'expired',exemptions:[]});

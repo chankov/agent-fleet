@@ -37,8 +37,8 @@ export async function runRecoverCommand(args: string, ctx: ExtensionContext, dep
   const last = op.attempts.at(-1);
   const commands = last ? renderRecoverCommands(deps.noProgress, op.operationId, last.attemptId) : null;
   // T6: proven no-launch history needs no slash reset; each missing prerequisite is distinct.
-  const invocationDetail = last?.completed ? 'completed_execution: normal parent acceptance still applies' : describeInvocationAvailability(deps.noProgress, op.operationId);
   const uncertainty = last && deps.noProgress.continuationBasis(op.operationId, last.attemptId);
+  const invocationDetail = last?.completed ? 'completed_execution: normal parent acceptance still applies' : describeInvocationAvailability(deps.noProgress, op.operationId, uncertainty?.attemptId ?? last?.attemptId);
   const missing = last?.completed ? 'none: latest execution completed; normal parent acceptance still applies'
    : !last?.category ? 'pending_or_unknown_process: settle the live process before recovery; independent inspection is allowed'
    : uncertainty && uncertainty.attemptId !== last.attemptId ? 'retained_indeterminate_fence: correct the no-launch prerequisite, then request continue with fresh research and approval'
@@ -71,8 +71,8 @@ export async function runRecoverCommand(args: string, ctx: ExtensionContext, dep
  if (request.action === "abandon" && (op.abandoned || !deps.noProgress.isIdle(op.executor))) { ctx.ui.notify("Abandon refused: operation already abandoned or executor busy.", "error"); return; }
  const authorized = await deps.confirm({ taskId: deps.noProgress.taskId(), operationId: op.operationId, attemptId: attempt.attemptId, action: request.action, category: attempt.category }, ctx, deps.askPorts(op, attempt, request.action));
  if (!authorized) { ctx.ui.notify("Human approval denied, stale, concurrent, or duplicate; no permission granted.", "error"); return; }
- const next = renderNextInvocation(deps.noProgress, op.operationId);
- const invocationDetail = describeInvocationAvailability(deps.noProgress, op.operationId);
+ const next = renderNextInvocation(deps.noProgress, op.operationId, attempt.attemptId);
+ const invocationDetail = describeInvocationAvailability(deps.noProgress, op.operationId, attempt.attemptId);
  ctx.ui.notify(request.action === "abandon" ? "Operation abandoned; parent obligations remain open." : `One-use permission recorded; no work was started. ${next ? `Next explicit original-contract invocation: ${next}` : `Original validated invocation unavailable (${invocationDetail}); re-establish the contract before dispatching.`} Existing budgets and safety gates apply. ${renderRecoverCommands(deps.noProgress, op.operationId, attempt.attemptId) ?? ''}`, "info");
 }
 

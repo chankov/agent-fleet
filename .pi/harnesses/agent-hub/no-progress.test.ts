@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalExecutor, createNoProgressGuard, normalizeResearchContract, processRecoveryAttempts, RECOVER_ENTRY, withNoProgress } from "./no-progress.ts";
 import { runRecoverCommand } from "./commands/recover.ts";
+import { revisionOf } from "./scope-gate.js";
 
 function failed(id: string, category: any, reason = category) {
 	return { dispatchId: id, reason, category };
@@ -327,16 +329,20 @@ test("evidenced changes permit supported recovery, while indeterminate cause nev
 	assert.equal(guard.begin("unknown", "rev-b").allowed, false, "unknown cause stays fail-closed despite changed conditions");
 });
 
-test("a no-launch refusal does not replace an indeterminate fence, including after task reset and restore", () => {
+test("a no-launch refusal does not replace an indeterminate fence, including after task reset and restore", async () => {
 	const entries: any[] = [];
 	const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
 	const first = guard.begin("contract", "fp", "exec");
+	guard.recordInvocation(first.operationId!, 'contract', { tool: 'dispatch_agent', params: { agent: 'builder', task: 'failed invocation' } });
 	guard.finish(first, "fp", failed("ind-1", "indeterminate"));
 	assert.equal(guard.settle(first.operationId!, first.attemptId!, "proc-close"), true);
 	assert.equal(guard.authorizeIndeterminate(first.operationId!, first.attemptId!, "nonce"), true);
 	const retry = guard.begin("contract", "fp-changed", "exec");
 	assert.equal(retry.allowed, true);
 	guard.finish(retry, "fp-changed", failed("pre-1", "not_started"));
+	const notices: string[] = [];
+	await runRecoverCommand(`inspect ${first.operationId}`, { ui: { notify: (text: string) => notices.push(text) } } as any, { noProgress: guard } as any);
+	assert.equal(JSON.parse(notices[0]).invocationAvailability, 'available');
 	assert.equal(guard.begin("contract", "fp-again", "exec").allowed, false, "same task must not launch after the no-launch retry");
 	guard.reset();
 	assert.equal(guard.begin("contract", "fp-new-task", "exec").allowed, false, "task reset must not drop the unknown-write fence");
@@ -359,6 +365,84 @@ test('one settled indeterminate grant enables only one explicit next attempt, in
  assert.equal(g.begin('contract', 'changed', 'builder').allowed, false);
  assert.equal(g.settle(second.operationId!, second.attemptId!, 'exit-2'), true);
  assert.equal(g.authorizeIndeterminate(second.operationId!, second.attemptId!, 'second-human'), false);
+});
+
+test("nested same-scope recovery uses step 7's own invocation and carries the unresolved fence across tasks", async t => {
+ const cwd = mkdtempSync(join(tmpdir(), 'recovery-nested-'));
+ t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ mkdirSync(join(cwd, 'nested'));
+ const nested = join(cwd, 'nested');
+ execFileSync('git', ['init', '-q', nested]);
+ writeFileSync(join(nested, 'file.ts'), 'baseline');
+ execFileSync('git', ['-C', nested, 'add', 'file.ts']);
+ execFileSync('git', ['-C', nested, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'baseline']);
+ writeFileSync(join(nested, 'file.ts'), 'partial work');
+ const entries: any[] = [];
+ const persist = (type: string, data: unknown) => entries.push({ customType: type, data });
+ let guard = createNoProgressGuard(persist);
+ const calls: string[] = [];
+ const run = (task: string) => withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, 'dispatch', async (_id, params) => {
+  calls.push(params.task);
+  return { content: [], details: params.task === 'step 7 timeout' ? { status: 'timeout', dispatchId: 'step-7', recoveryCategory: 'indeterminate' } : {} };
+ })('nested', { agent: 'builder', scope: ['nested'], task }, undefined, undefined, { cwd } as any);
+ guard.adopt('step-5-task');
+ await run('step 5 completed');
+ guard.adopt('step-7-task');
+ await run('step 7 precheck');
+ await run('step 7 timeout');
+ const op = guard.byDispatch('step-7')!;
+ const timedOut = op.attempts.at(-1)!;
+ assert.equal(op.taskId, 'step-7-task');
+ assert.equal(op.attempts.length, 2);
+ assert.equal(guard.invocation(op.operationId, timedOut.attemptId)?.params.task, 'step 7 timeout');
+ guard.adopt('new-task');
+ guard = createNoProgressGuard(persist);
+ guard.restore(entries);
+ const refusal = await run('new task on same scope');
+ assert.equal((refusal.details as any).previousAttemptId, timedOut.attemptId);
+ assert.match((refusal.content[0] as any).text, /"task":"step 7 timeout"/);
+ assert.doesNotMatch((refusal.content[0] as any).text, /step 5 completed|step 7 precheck/);
+ const file = 'nested/file.ts';
+ const reconcile = () => {
+  const revision = revisionOf(cwd, ['nested']);
+  assert.notEqual(revision, 'unavailable');
+  const original = { dispatchId: 'step-7', taskId: op.taskId, executor: op.executor, revision, revisionScopes: ['nested'], changedScope: [file], readback: [{ path: join(cwd, file), status: 'read' as const, changed: true, sha256: createHash('sha256').update('partial work').digest('hex'), retainedPath: 'evidence/partial' }], concurrentWriters: false, completed: false, blockingFindings: 0, coveredScope: [], edited: false, evidenceRef: 'evidence/timeout', openRequirements: ['A1'] };
+  assert.equal(guard.recordDispatchEvidence(original), true);
+  assert.equal(guard.recordDispatchEvidence({ ...original, dispatchId: 'independent-review', executor: 'independent-reviewer', completed: true, changedScope: [], readback: [], coveredScope: [file], evidenceRef: 'evidence/review' }), true);
+  return guard.reconcile(op.operationId, timedOut.attemptId, revision, { cwd, sessionDir: cwd });
+ };
+ assert.equal(reconcile().cleared, true);
+ await run('new task on same scope');
+ assert.equal(calls.length, 3, 'technical clearance does not attest process termination');
+ const unrelated = join(cwd, 'unrelated.txt');
+ writeFileSync(unrelated, 'outside the reviewed nested repository');
+ assert.equal(guard.settle(op.operationId, timedOut.attemptId, 'trusted process close'), true);
+ writeFileSync(join(nested, 'other.ts'), 'changed after review');
+ await run('new task on same scope');
+ assert.equal(calls.length, 3, 'stale nested revision cannot release the fence');
+ rmSync(join(nested, 'other.ts'));
+ await run('new task on same scope');
+ guard = createNoProgressGuard(persist);
+ guard.restore(entries);
+ await run('new task follow-up');
+ assert.deepEqual(calls, ['step 5 completed', 'step 7 precheck', 'step 7 timeout', 'new task on same scope', 'new task follow-up']);
+ assert.equal(guard.inspect(op.operationId)?.indeterminateGrantUsed, false, 'new work did not authorize a replay');
+});
+
+test('legacy recovery cannot borrow a previous attempt payload', () => {
+ const entries: any[] = [];
+ const guard = createNoProgressGuard((type, data) => entries.push({ customType: type, data }));
+ const stageFive = guard.begin('same-scope', 'before', 'builder');
+ assert.equal(guard.recordInvocation(stageFive.operationId!, 'same-scope', { tool: 'dispatch_agent', params: { agent: 'builder', task: 'step 5' } }), true);
+ delete entries.at(-1).data.event.attemptId; // Old operation-keyed invocation row.
+ guard.finish(stageFive, 'before');
+ const stageSeven = guard.begin('same-scope', 'after', 'builder');
+ guard.finish(stageSeven, 'after', failed('legacy-timeout', 'indeterminate'));
+ const restored = createNoProgressGuard();
+ restored.restore(entries);
+ assert.equal(restored.invocation(stageFive.operationId!, stageFive.attemptId)?.params.task, 'step 5');
+ assert.equal(restored.invocationStatus(stageSeven.operationId!, stageSeven.attemptId).status, 'missing');
+ assert.equal(restored.begin('same-scope', 'changed', 'builder').allowed, false);
 });
 
 test("busy is an immediate refusal and does not poison completion or unrelated work", () => {
@@ -891,4 +975,65 @@ test("an Esc fence is lifted once by human input, a panel kill is not, and both 
  const again = createNoProgressGuard(persist); again.restore(entries);
  assert.equal(again.begin("review", "r", "reviewer").allowed, false);
  assert.equal(again.begin("work", "r", "builder").allowed, true, "the consumed fence does not return");
+});
+
+const inv = (task: string) => ({ tool: 'dispatch_agent' as const, params: { agent: 'builder', task } });
+
+test('an authorized cancellation on another contract neither admits nor clears an unresolved indeterminate fence', () => {
+ const entries: any[] = [];
+ const g = createNoProgressGuard((customType, data) => entries.push({ customType, data }));
+ const a1 = g.begin('K', 'fp', 'E');
+ assert.ok(g.recordInvocation(a1.operationId!, 'K', inv('step 7'), a1.attemptId));
+ g.finish(a1, 'fp', failed('d1', 'indeterminate'));
+ assert.ok(g.settle(a1.operationId!, a1.attemptId!, 'closed'));
+ const b1 = g.begin('K2', 'fp', 'E');
+ assert.equal(b1.allowed, true);
+ g.finish(b1, 'fp', failed('c1', 'operator_cancelled'));
+ assert.equal(g.authorize('c1'), true);
+ const k = g.begin('K', 'fp', 'E');
+ assert.equal(k.allowed, false, 'a foreign one-use grant is not this contract\'s retry grant');
+ assert.equal(k.failure?.dispatchId, 'd1');
+ const b2 = g.begin('K2', 'fp', 'E');
+ assert.equal(b2.allowed, true, 'the grant still admits its own contract');
+ g.finish(b2, 'fp');
+ assert.equal(g.begin('K', 'fp', 'E').failure?.dispatchId, 'd1');
+ assert.ok(!entries.some(e => e.data.event?.type === 'consume' && e.data.event.dispatchId === 'd1'), 'the indeterminate fence was never consumed');
+ const restored = createNoProgressGuard();
+ restored.restore(entries);
+ const after = restored.begin('K', 'fp', 'E');
+ assert.equal(after.allowed, false);
+ assert.equal(after.failure?.dispatchId, 'd1');
+});
+
+test('legacy inference fails closed when a foreign cancellation grant could explain the successor start', () => {
+ const aaa = 'a'.repeat(64);
+ const rows = [
+  { kind: 'ledger', event: { type: 'start', taskId: 't', contract: 'K', executor: 'E', dispatchId: 's1', operationId: 'op', attemptId: 'a1' } },
+  { kind: 'guard', event: { type: 'invocation', operationId: 'op', key: 'K', invocation: inv('ORIGINAL step 5') } },
+  { kind: 'ledger', event: { type: 'dispatch', operationId: 'op', attemptId: 'a1', dispatchId: 'd1' } },
+  { kind: 'ledger', event: { type: 'failure', operationId: 'op', attemptId: 'a1', category: 'indeterminate' } },
+  { kind: 'guard', event: { type: 'failure', key: 'K', fingerprint: 'fp', failure: failed('d1', 'indeterminate'), executorKey: 'E', scope: [] } },
+  { kind: 'ledger', event: { type: 'settled', operationId: 'op', attemptId: 'a1', evidence: 'closed' } },
+  { kind: 'ledger', event: { type: 'continuation', operationId: 'op', attemptId: 'a1', record: { nonce: 'n1', revision: 'rev', reportRef: '/r', reportHash: aaa, settlement: 'runtime', uncertaintyAttemptId: 'a1' } } },
+  { kind: 'ledger', event: { type: 'start', taskId: 't', contract: 'K2', executor: 'E', dispatchId: 's2', operationId: 'op2', attemptId: 'b1' } },
+  { kind: 'ledger', event: { type: 'dispatch', operationId: 'op2', attemptId: 'b1', dispatchId: 'c1' } },
+  { kind: 'ledger', event: { type: 'failure', operationId: 'op2', attemptId: 'b1', category: 'operator_cancelled' } },
+  { kind: 'guard', event: { type: 'failure', key: 'K2', fingerprint: 'fp', failure: failed('c1', 'operator_cancelled'), executorKey: 'E', scope: [] } },
+  { kind: 'guard', event: { type: 'authorize', key: 'K2', dispatchId: 'c1' } },
+  // Base admitted this start through the K2 grant and wrote no successor payload.
+  { kind: 'ledger', event: { type: 'start', taskId: 't', contract: 'K', executor: 'E', dispatchId: 's3', operationId: 'op', attemptId: 'a2' } },
+  { kind: 'guard', event: { type: 'consume', key: 'K2', dispatchId: 'c1' } },
+  { kind: 'guard', event: { type: 'consume', key: 'K', dispatchId: 'd1' } },
+  { kind: 'ledger', event: { type: 'dispatch', operationId: 'op', attemptId: 'a2', dispatchId: 'd2' } },
+  { kind: 'ledger', event: { type: 'failure', operationId: 'op', attemptId: 'a2', category: 'indeterminate' } },
+  { kind: 'guard', event: { type: 'failure', key: 'K', fingerprint: 'fp', failure: failed('d2', 'indeterminate'), executorKey: 'E', scope: [] } },
+ ].map(data => ({ customType: RECOVER_ENTRY, data }));
+ const restored = createNoProgressGuard();
+ restored.restore(rows);
+ assert.equal(restored.invocation('op', 'a1')?.params.task, 'ORIGINAL step 5');
+ assert.equal(restored.invocationStatus('op', 'a2').status, 'missing');
+ assert.equal(restored.canContinue('op', 'a2'), false);
+ const k = restored.begin('K', 'fp', 'E');
+ assert.equal(k.allowed, false);
+ assert.equal(k.failure?.dispatchId, 'd2');
 });

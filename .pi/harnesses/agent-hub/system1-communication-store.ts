@@ -11,23 +11,8 @@ export interface CommunicationPair {
  status: string; requestOmitted?: string; responseOmitted?: string; evaluationId?: string; finalStatus?: string;
 }
 const secretKey = /authorization|api.?key|password|passwd|secret|credential|cookie|access.?token|refresh.?token|private.?key/i;
-function redactSecretText(text: string): string {
- return text
-  .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/g, "[REDACTED]")
-  .replace(/\b(?:Bearer|Basic)\s+\S+/gi, "[REDACTED]")
-  .replace(/\b(?:sk-|gh[pousr]_|github_pat_|AKIA)[A-Za-z0-9_\-]+/g, "[REDACTED]")
-  .replace(/((?:authorization|api[_ -]?key|password|passwd|secret|token|credential|private[_ -]?key)\s*[=:]\s*)[^\s,;]+/gi, "$1[REDACTED]");
-}
-/** True only for credential-like text; path masking is handled separately. */
-export function containsCommunicationSecret(text: string): boolean { return redactSecretText(text) !== text; }
-/** Source-only recognition of an exact Python attribute/parameter copy, not a credential literal.
- * Keep diagnostic redaction conservative. Do not exempt arbitrary identifiers, expressions,
- * other values or adjacent statements; rescan everything outside this narrowly recognized form.
- */
-export function containsActionSourceSecret(text: string): boolean {
- const source = text.replace(/(^[\t ]*|;[\t ]*)self\.(authorization)[\t ]*=[\t ]*\2(?=[\t ]*(?:;|\r?$))/gm, "$1");
- return containsCommunicationSecret(source);
-}
+import {redactSecretText} from "../damage-control-continue/action-presentation.ts";
+export {containsActionSourceSecret, containsCommunicationSecret} from "../damage-control-continue/action-presentation.ts";
 /** Conservative diagnostic copy, never an HTTP capture. Unknown consumer schemas are withheld. */
 export function redactCommunication(value: unknown): unknown {
  const seen = new WeakSet<object>();

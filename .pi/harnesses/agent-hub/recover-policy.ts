@@ -17,21 +17,21 @@ export function renderRecoveryInvocation(state: RecoverState, operationId: strin
 /** Human-facing invocation; the tool call is a template, never executed here.
  *  T6: abandoned operations never render a replay template; missing/invalid contracts
  *  return null so callers can emit their distinct reason (see invocationStatus). */
-export function renderNextInvocation(guard: NoProgressGuard, operationId: string): string | null {
- const operation = guard.inspect(operationId), invocation = guard.invocation(operationId);
+export function renderNextInvocation(guard: NoProgressGuard, operationId: string, attemptId?: string): string | null {
+ const operation = guard.inspect(operationId), invocation = guard.invocation(operationId, attemptId);
  if (!operation || !invocation || operation.abandoned || !ID.test(operationId)) return null;
- const status = (guard as any).invocationStatus?.(operationId);
+ const status = guard.invocationStatus?.(operationId, attemptId);
  if (status && status.status !== 'available') return null;
  return `${invocation.tool}(${JSON.stringify(invocation.params)})`;
 }
 /** T6: distinct invocation-availability reason for exact recovery responses. */
-export function describeInvocationAvailability(guard: NoProgressGuard, operationId: string): string {
- const status = (guard as any).invocationStatus?.(operationId);
+export function describeInvocationAvailability(guard: NoProgressGuard, operationId: string, attemptId?: string): string {
+ const status = guard.invocationStatus?.(operationId, attemptId);
  if (!status) {
   const operation = guard.inspect(operationId);
   if (!operation) return 'missing_original_runtime_invocation: unknown operation';
   if (operation.abandoned) return 'abandoned_operation: abandon closed the operation; parent obligations remain open';
-  if (!guard.invocation(operationId)) return 'missing_original_runtime_invocation: no validated contract was persisted';
+  if (!guard.invocation(operationId, attemptId)) return 'missing_original_runtime_invocation: no validated contract was persisted';
   return 'unknown_process: pending or unsettled process';
  }
  if (status.status === 'available') return 'available';

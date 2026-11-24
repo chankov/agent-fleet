@@ -56,8 +56,9 @@ export function createRecoveryContinuation(deps: ContinuationDeps): ToolExecutor
  return async (toolCallId, request, signal, onUpdate, ctx) => {
   if (!ID.test(request.operationId) || !ID.test(request.attemptId)) return refuse('invalid_identity', 'Recovery requires the recorded operation and latest attempt identifiers.');
   if (pending.has(request.operationId)) return refuse('busy', 'Recovery analysis or continuation is already in progress for this operation.');
-  const op = deps.guard.inspect(request.operationId), attempt = op?.attempts.at(-1), original = deps.guard.invocation(request.operationId);
+  const op = deps.guard.inspect(request.operationId), attempt = op?.attempts.at(-1);
   const basis = deps.guard.continuationBasis(request.operationId, request.attemptId);
+  const original = basis && deps.guard.invocation(request.operationId, basis.attemptId);
   if (!op || !attempt || !basis || !deps.guard.canContinue(request.operationId, request.attemptId) || !original || original.tool !== 'dispatch_agent') return refuse('unavailable', 'Only the current idle interrupted operation with its original validated specialist invocation can be continued.');
   const invocation = original.params as DispatchAgentParams;
   const cwd = resolve(ctx.cwd || process.cwd());
@@ -81,7 +82,7 @@ export function createRecoveryContinuation(deps: ContinuationDeps): ToolExecutor
   let reportRef: string | undefined, reportHash: string | undefined;
   const valid = () => {
    try {
-    return !signal?.aborted && resolve(ctx.cwd || process.cwd()) === cwd && deps.guard.taskToken() === token && deps.guard.taskId() === taskId && deps.guard.canContinue(op.operationId, attempt.attemptId) && deps.sessionDir() === sessionDir && (deps.contextIdentity?.() ?? '') === identity && fenceIdentity() === originalFence && sha256(JSON.stringify(deps.guard.invocation(op.operationId))) === invocationHash && deps.revision(ctx, invocation) === revision && (!reportRef || sha256(safeSourceRead(sessionDir, reportRef, 131072)) === reportHash);
+    return !signal?.aborted && resolve(ctx.cwd || process.cwd()) === cwd && deps.guard.taskToken() === token && deps.guard.taskId() === taskId && deps.guard.canContinue(op.operationId, attempt.attemptId) && deps.sessionDir() === sessionDir && (deps.contextIdentity?.() ?? '') === identity && fenceIdentity() === originalFence && sha256(JSON.stringify(deps.guard.invocation(op.operationId, basis.attemptId))) === invocationHash && deps.revision(ctx, invocation) === revision && (!reportRef || sha256(safeSourceRead(sessionDir, reportRef, 131072)) === reportHash);
    } catch { return false; }
   };
   if (!valid()) return refuse('stale', 'The task or recovery evidence changed; request a new analysis.');

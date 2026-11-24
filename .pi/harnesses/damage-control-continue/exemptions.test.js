@@ -36,6 +36,9 @@ bashToolPatterns:
   - pattern: '\\bgit\\s+stash\\s+drop\\b'
     reason: Permanently deletes a stash
     ask: true
+  - pattern: '\\bdocker\\s+stop\\b'
+    reason: Stops a container
+    ask: true
 zeroAccessPaths:
   - ".env"
 readOnlyPaths:
@@ -218,6 +221,34 @@ test("continue: interactive protected deletion only offers one-call approval", a
 	assert.equal(h.log.some(({ data }) => data.action === "exemption_granted"), false);
 });
 
+for (const toolName of ['edit','write']) test(`local ${toolName} approval identifies its target without contents`, async () => {
+ let title;
+ const h=await boot(continueExt,fixtureCwd(),{hasUI:true,select:value=>{title=value;return 'Keep blocked';}});
+ const result=await h.toolCall({type:'tool_call',toolName,input:{path:'package-lock.json',...(toolName==='write'?{content:'private-body'}:{edits:[{oldText:'private-body',newText:'new'}]})}});
+ assert.equal(result.block,true);
+ assert.ok(title.includes(`${toolName}\n"package-lock.json"`));
+ assert.ok(title.includes(h.log.at(-1).data.requestId));
+ assert.doesNotMatch(JSON.stringify([title,result,h.log]),/private-body/);
+});
+
+test('Docker allow once cannot authorize a changed command', async () => {
+ const titles=[];
+ const h=await boot(continueExt, fixtureCwd(), {hasUI:true, select:title=>{titles.push(title); return titles.length===1?'Allow once':undefined;}});
+ const run=command=>h.toolCall({type:'tool_call',toolName:'bash',input:{command}});
+ assert.equal((await run('docker stop fixture-one')).block,false);
+ const blocked=await run('docker stop fixture-two');
+ assert.equal(blocked.block,true);
+ assert.equal(titles.length,2);
+ assert.match(titles[0],/docker stop fixture-one/);
+ assert.match(titles[1],/local approval dialog[\s\S]*docker stop fixture-two/);
+ const audit=h.log.find(({data})=>data.action==='approval_not_decided').data;
+ assert.ok(titles[1].includes(audit.requestId) && blocked.reason.includes(audit.requestId));
+ assert.match(blocked.reason,/timed out or was dismissed/);
+ assert.doesNotMatch(JSON.stringify([blocked,h.log]),/fixture-one|fixture-two/);
+ const headless=await boot(continueExt, fixtureCwd());
+ assert.match((await headless.toolCall({type:'tool_call',toolName:'bash',input:{command:'docker stop fixture-two'}})).reason,/approval unavailable/);
+});
+
 function fakeHubServer(socketPath, decision) {
 	const seen = [];
 	const server = net.createServer((socket) => {
@@ -294,7 +325,7 @@ test("continue: headless protected deletion requests one-call approval without p
 		assert.equal((await h.toolCall(deleteReadme)).block, false);
 		assert.equal(seen.length, 1);
 		assert.equal(seen[0].category, "no_delete");
-		assert.equal(seen[0].invocation, "rm -- README.md");
+		assert.equal(seen[0].invocation, "See bound exact action");
 		assert.deepEqual(readExemptionsFile(exemptionsFile), []);
 	} finally {
 		server.close();
@@ -312,7 +343,8 @@ test("continue: denied protected deletion returns actionable feedback without ab
 		assert.equal(res.block, true);
 		assert.equal(h.state.aborted, false);
 		assert.match(res.reason, /DENIED/);
-		assert.match(res.reason, /rm -- README\.md/);
+		assert.doesNotMatch(res.reason, /rm -- README\.md/);
+		assert.ok(res.reason.includes(denyHub.seen[0].msg_id));
 		assert.equal(denyHub.seen[0].category, "no_delete");
 	} finally {
 		denyHub.server.close();

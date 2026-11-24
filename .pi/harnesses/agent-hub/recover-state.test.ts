@@ -29,7 +29,11 @@ test('only an opaque continuation permit starts the same operation once; a new c
  assert.ok(permit);
  assert.equal(guard.begin('contract', 'revision', 'builder').allowed, false, 'a persisted audit is not a general retry grant');
  await assert.rejects(guard.runContinuation({}, async () => {}), /permit/i);
- const second = await guard.runContinuation(permit, async () => guard.begin('contract', 'revision', 'builder'));
+ const second = await guard.runContinuation(permit, async () => {
+  const ticket = guard.begin('contract', 'revision', 'builder');
+  assert.ok(guard.recordInvocation(ticket.operationId!, 'contract', guard.invocation(first.operationId!, first.attemptId)!, ticket.attemptId));
+  return ticket;
+ });
  assert.equal(second.allowed, true);
  assert.equal(second.operationId, first.operationId);
  assert.notEqual(second.attemptId, first.attemptId);
@@ -42,6 +46,28 @@ test('only an opaque continuation permit starts the same operation once; a new c
  replay.restore(entries);
  assert.equal(replay.begin('contract', 'changed', 'builder').allowed, false, 'replay cannot recreate an in-memory permit');
  assert.equal(replay.inspect(first.operationId!)?.attempts[1].settled, undefined);
+});
+
+test('legacy continuation inherits only when no ordinary retry could explain the start', async () => {
+ for (const competingGrant of [false, true]) {
+  const entries: any[] = [];
+  const guard = createNoProgressGuard((customType, data) => entries.push({ customType, data }));
+  const first = guard.begin('contract', 'rev', 'builder');
+  const op = first.operationId!, id = first.attemptId!;
+  assert.ok(guard.recordInvocation(op, 'contract', { tool: 'dispatch_agent', params: { agent: 'builder', task: 'original' } }));
+  delete entries.at(-1).data.event.attemptId;
+  guard.finish(first, 'rev', { category: 'indeterminate', reason: 'lost', dispatchId: 'one' });
+  guard.settle(op, id, 'closed');
+  const permit = guard.authorizeContinuation(op, id, { nonce: 'continue', revision: 'rev', reportRef: '/report', reportHash: 'a'.repeat(64), settlement: 'runtime', report: 'report', admit: () => true })!;
+  if (competingGrant) assert.ok(guard.authorizeIndeterminate(op, id, 'retry'));
+  const start = async () => guard.begin('contract', 'rev', 'builder');
+  const second = competingGrant ? await start() : await guard.runContinuation(permit, start);
+  guard.finish(second, 'rev', { category: 'indeterminate', reason: 'lost', dispatchId: 'two' });
+  const restored = createNoProgressGuard();
+  restored.restore(entries);
+  assert.equal(restored.invocation(op, second.attemptId)?.params.task, competingGrant ? undefined : 'original');
+  assert.equal(restored.begin('contract', 'rev', 'builder').allowed, false);
+ }
 });
 
 test('logical operations retain distinct physical attempts; busy is not an attempt and inspect is read-only', () => {

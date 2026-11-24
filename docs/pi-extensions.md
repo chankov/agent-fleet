@@ -218,7 +218,7 @@ harnesses:
   delegate (via an explicit `-e` that survives `--no-extensions`). Protected-path access can be
   granted at runtime: `/af-allow <pattern> [turn|session]` in the hub pre-authorizes, a parent-session
   block opens an approval dialog, and a headless child escalates to the hub. Protected deletion
-  offers only deny/once; other protected paths may be scoped to an agent or session. Denial and
+  offers only deny/once. The approval dialog identifies the request by its opaque reference and tool. It shows a safe target or command, not edit/write contents. A withheld target cannot receive an expanded grant; chat consent does not authorize any call. Denial and
   timeout fail closed without aborting the child turn. Destructive bash patterns are never exemptible,
   and a missing continue harness refuses child dispatch.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,

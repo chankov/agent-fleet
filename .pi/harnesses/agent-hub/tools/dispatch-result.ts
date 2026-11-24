@@ -44,6 +44,11 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 	const notices: string[] = [];
  const checkNotice = checkDiagnostics && verificationDiagnosticNotice(checkDiagnostics);
  if (checkNotice) notices.push(checkNotice);
+ for (const requirement of runtimeResult.verification.requirements) {
+  for (const stale of requirement.staleChecks ?? []) {
+   notices.push(`Stale verification for ${requirement.id}: inspected revision ${stale.inspectedRevision}; final revision ${stale.finalRevision}. Paths changed since check: ${stale.changedPathCount ?? "unknown"}. Finish all edits first, then in a separately authorized attempt rerun this exact command unchanged: ${JSON.stringify(stale.command)}. No retry was started.`);
+  }
+ }
 	if (operatorStateVerification && operatorStateVerification.status !== "accepted" && operatorStateVerification.reason) notices.push(`Current-state review did not register the candidate: ${operatorStateVerification.reason}${(operatorStateVerification.failedQualifiers?.length ?? 0) > 1 ? ` (also: ${operatorStateVerification.failedQualifiers!.slice(1).join(", ")})` : ""}. ${operatorStateVerification.nextStep} Manual assertions stay open; nothing was marked proven.`);
 	if (!sameTask) notices.push("Late result from a prior task/session: evidence retained in its original namespace; current-task counters and blockers were not changed.");
 	if (disposition.delivered) notices.push(accepted

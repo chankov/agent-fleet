@@ -142,6 +142,11 @@ export function buildRuntimeResult(input: RuntimeResultInput) {
   const bound = (check: typeof checks[number]) => check.taskId === input.task.id && check.command.length === 1 && check.coverage?.some(binding => binding.id === requirement.id && binding.source === requirement.source && binding.text === requirement.text && binding.reference === requirement.reference && JSON.stringify(binding.criticalConditions) === JSON.stringify(requirement.criticalConditions ?? []));
   const declared = [requirement.testCommand && { kind: requirement.tag, command: requirement.testCommand }, requirement.compilerCommand && { kind: "compilation", command: requirement.compilerCommand }].filter(Boolean) as {kind: string; command: string}[];
   const matching = checks.filter(check => check.requirementIds.includes(requirement.id) && (declared.length ? automated && bound(check) && declared.some(d => d.kind === check.kind && d.command === check.command[0]) : requirement.id === "AF-MIN-CHANGE"));
+  // Dispatch path observations are not aligned to check and final revision snapshots.
+  const staleChecks = declared.length && input.task.current ? matching.filter(check => check.status === "stale").map(check => ({
+   command: check.command[0], inspectedRevision: check.inspectedRevision, finalRevision: input.task.afterRevision,
+   changedPathCount: null,
+  })) : [];
   let status: RequirementStatus;
   if (!["test", "code-grep"].includes(requirement.tag)) status = "unsupported";
   else if (matching.some(check => check.status === "failed")) status = "failed";
@@ -164,6 +169,7 @@ export function buildRuntimeResult(input: RuntimeResultInput) {
    taskId: input.task.id,
    revision: input.task.afterRevision,
    status,
+   ...(staleChecks.length ? { staleChecks } : {}),
    claimedEvidenceRefs: unique(requirement.evidenceRefs ?? []),
    evidenceRefs: unique(matching.filter(check => check.producer === "runtime").map(check => check.evidenceRef)),
   };

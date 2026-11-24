@@ -50,7 +50,7 @@ export function projectRecoveryRows(entries: readonly unknown[]): any[] {
     if (rows.some(row => !row || !['ledger', 'guard'].includes(row.kind))) throw new Error('Invalid recovery history');
     return rows;
 }
-export type GuardHistory = { type: 'failure' | 'authorize' | 'evidence' | 'task' | 'consume' | 'invocation' | 'no_launch'; key?: string; fingerprint?: string; failure?: Failure; executorKey?: string; scope?: string[]; dispatchId?: string; taskId?: string; evidence?: DispatchEvidence; operationId?: string; evidenceRef?: string; invocation?: { tool: 'dispatch_agent' | 'spawn_research'; params: DispatchAgentParams | SpawnResearchParams } };
+export type GuardHistory = { type: 'failure' | 'authorize' | 'evidence' | 'task' | 'consume' | 'invocation' | 'no_launch'; key?: string; fingerprint?: string; failure?: Failure; executorKey?: string; scope?: string[]; dispatchId?: string; taskId?: string; evidence?: DispatchEvidence; operationId?: string; attemptId?: string; evidenceRef?: string; invocation?: { tool: 'dispatch_agent' | 'spawn_research'; params: DispatchAgentParams | SpawnResearchParams } };
 
 /** Canonical executor identity shared by the wrapper and evidence producers.
  *  Resolves the F3 mismatch: previously the wrapper used canonical([cwd, actor])
@@ -175,7 +175,17 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 		begin(key: string, fingerprint: string, executorKey = key, scope: string[] = [], currentRevision?: string): Ticket {
 			let clarificationGrant: (typeof clarificationGrants)[number] | undefined;
 			const cancelled = [...cancellations.values()].filter(item => item.executorKey === executorKey);
-			const old = cancelled.find(item => !item.entry.authorized)?.entry ?? cancelled[0]?.entry ?? failures.get(key), id = {};
+			const prior = cancelled.find(item => !item.entry.authorized)?.entry ?? failures.get(key) ?? cancelled[0]?.entry, id = {};
+			const existing = recovery.findContract(key);
+			const priorOp = prior ? recovery.byDispatch(prior.failure.dispatchId) : existing;
+			const priorAttempt = prior ? priorOp?.attempts.find(a => a.dispatchId === prior.failure.dispatchId) : priorOp?.attempts.at(-1);
+			const technical = priorOp?.technical;
+			const reconciled = !!priorAttempt && !!currentRevision && currentRevision !== 'unavailable' && technical?.status === 'cleared' && technical.attemptId === priorAttempt.attemptId && technical.revision === currentRevision;
+			// Reconciliation can admit new work, not replay. Process settlement is separate,
+			// and reconciliation never stands in for a cancellation or catalog unlock.
+			const reconciledNewTask = !!priorOp && !priorOp.abandoned && priorOp.taskId !== taskId && reconciled && !cancelled.length &&
+				(priorAttempt?.category === 'verification_failed' || (priorAttempt?.category === 'indeterminate' && !!priorAttempt.settled));
+			const old = reconciledNewTask ? undefined : prior;
 			if (pendingExecutors.has(executorKey)) return { allowed: false, key, executorKey, scope, generation, id, refusal: "busy" };
 			if (restoreBlocked) return { allowed: false, key, executorKey, scope, generation, id, refusal: 'restore' };
             const context = continuationContext.getStore();
@@ -187,8 +197,8 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             }
             // An interrupted append can leave a ledger failure without its guard snapshot.
             // Never treat that as a fresh contract or an unlocked replay.
-            if (!old && !continuing) {
-                const op = recovery.findContract(key);
+            if (!old && !continuing && !reconciledNewTask) {
+                const op = existing;
                 const fenceIndex = latestEffectFenceIndex(op?.attempts);
                 const fence = op && fenceIndex >= 0 ? op.attempts[fenceIndex] : undefined;
                 if (op && fence?.category && !laterAttemptLaunched(op.attempts, fenceIndex)) {
@@ -201,12 +211,13 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 				const category = old.failure.category ?? "indeterminate";
 				const changed = old.fingerprint !== fingerprint || old.failure.noLaunchEstablished === true || (category === "unknown_tool" && old.failure.toolStateChanged === true);
 				clarificationGrant = category === "blocked_on_user" ? clarificationGrants.find(grant => grant.dispatchId === old.failure.dispatchId && !grant.used && !grant.cancelled && grant.taskId === taskId && sameScope(grant.scope, scope)) : undefined;
+				const granted = !!priorAttempt && priorOp?.grantedAttemptId === priorAttempt.attemptId && priorOp.attempts.at(-1) === priorAttempt;
 				const decision = recoveryDecision(category, {
 					explicitInvocation: true,
-					relevantConditionsChanged: changed || category === "busy" || (category === 'verification_failed' && !!currentRevision && recovery.findContract(key)?.technical?.status === 'cleared' && recovery.findContract(key)?.technical?.revision === currentRevision),
-					freshOneUseAuthorization: old.authorized || !!clarificationGrant || (category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId),
-					processSettled: category === 'indeterminate' && !!recovery.findContract(key)?.attempts.at(-1)?.settled,
-					indeterminateGrantUsed: category === 'indeterminate' && recovery.findContract(key)?.grantedAttemptId === recovery.findContract(key)?.attempts.at(-1)?.attemptId,
+					relevantConditionsChanged: changed || category === "busy" || (category === 'verification_failed' && reconciled),
+					freshOneUseAuthorization: old.authorized || !!clarificationGrant || (category === 'indeterminate' && granted),
+					processSettled: category === 'indeterminate' && !!priorAttempt?.settled,
+					indeterminateGrantUsed: category === 'indeterminate' && granted,
 					effectsEstablished: old.failure.effectsEstablished === true,
 					toolStateChanged: old.failure.toolStateChanged === true,
 					noLaunchEstablished: old.failure.noLaunchEstablished === true,
@@ -214,13 +225,10 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 				});
 				if (!decision.allowed && !continuing) return { allowed: false, key, executorKey, scope, generation, id, failure: { ...old.failure, category }, refusal: "recovery" };
 			}
-			// T2: task-scoped logical identity vs persistent effect fence.
-			// A phantom not_started attempt from another task never had a process or effects,
-			// so a truly new safe task must not inherit it. Cancel/unknown-write/indeterminate
-			// fences survive task/model/scope changes and are reused via the old taskId.
-			const existing = recovery.findContract(key);
-			const phantomFromOtherTask = !!existing && existing.taskId !== taskId && phantomSafeAttempts(existing.attempts, failures.get(key)?.failure.noLaunchEstablished === true);
-			const lineageTaskId = phantomFromOtherTask ? taskId : (existing?.taskId ?? taskId);
+			// Keep an unresolved fence on its original lineage, including one-use retry history.
+			// A completed/reconciled contract (or proven no-launch lineage) need not own a new task.
+			const safeNewTask = !!existing && existing.taskId !== taskId && (reconciledNewTask || existing.attempts.at(-1)?.completed || phantomSafeAttempts(existing.attempts, failures.get(key)?.failure.noLaunchEstablished === true));
+			const lineageTaskId = safeNewTask ? taskId : (existing?.taskId ?? taskId);
 			const lineage = recovery.start(lineageTaskId, key, executorKey, randomUUID());
 			if (!lineage) {
 				const active = recovery.activeAttempt(executorKey);
@@ -236,7 +244,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             }
             if (failures.has(key)) {
                 const prior = failures.get(key)!;
-                if (EFFECT_FENCE.has(prior.failure.category)) heldFences.set(key, prior);
+                if (!reconciledNewTask && EFFECT_FENCE.has(prior.failure.category)) heldFences.set(key, prior);
                 else heldFences.delete(key);
                 persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'consume', key, dispatchId: prior.failure.dispatchId } satisfies GuardHistory });
                 failures.delete(key);
@@ -259,7 +267,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
 				recovery.bindDispatch(ticket.operationId, ticket.attemptId, failure.dispatchId);
 				recovery.fail(ticket.operationId, ticket.attemptId, failure.category);
 			} else if (!failure && ticket.operationId && ticket.attemptId) recovery.complete(ticket.operationId, ticket.attemptId);
-			const attempts = recovery.findContract(ticket.key)?.attempts;
+			const attempts = ticket.operationId ? recovery.inspect(ticket.operationId)?.attempts : undefined;
 			const fenceIndex = latestEffectFenceIndex(attempts);
 			const fence = fenceIndex >= 0 ? attempts![fenceIndex] : undefined;
 			const retain = !!failure && NO_EFFECT_CATEGORY.has(failure.category) && !!fence?.category && !laterAttemptLaunched(attempts!, fenceIndex);
@@ -307,13 +315,13 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             return false;
         },
         /** Exact invocation availability (T6): missing/invalid/abandoned/unknown-process differ. */
-        invocationStatus(operationId: string): InvocationStatus {
+        invocationStatus(operationId: string, attemptId?: string): InvocationStatus {
             const op = recovery.inspect(operationId);
             if (!op) return { status: 'missing', reason: 'unknown_operation', nextActions: ['inspect the operation id', 're-establish the contract before dispatching'] };
             if (op.abandoned) return { status: 'abandoned', reason: 'operation_abandoned', nextActions: ['abandon closed the operation; parent obligations remain open', 'start a new task for new work; do not replay the abandoned invocation'] };
-            const attempt = op.attempts.at(-1);
+            const attempt = attemptId ? op.attempts.find(a => a.attemptId === attemptId) : op.attempts.at(-1);
             if (!attempt?.category) return { status: 'unknown_process', reason: 'pending_or_unknown_process', nextActions: ['settle the live process before recovery', 'independent inspection is allowed; replay is not'] };
-            const invocation = invocations.get(operationId);
+            const invocation = invocations.get(attempt.attemptId);
             if (!invocation) return { status: 'missing', reason: 'missing_original_runtime_invocation', nextActions: ['re-establish the validated contract', 'independent inspection is allowed; replay without a contract is not'] };
             if (!validInvocation(invocation)) return { status: 'invalid', reason: 'invalid_original_invocation', nextActions: ['correct the invocation shape before dispatching'] };
             return { status: 'available', invocation: structuredClone(invocation) };
@@ -360,7 +368,15 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                 if (attempt.lateDispatchId === dispatchId) return true;
                 return event.type === 'failure' ? event.failure?.category !== attempt.category : !nextFailures.get(event.key ?? '') || nextFailures.get(event.key ?? '')!.failure.dispatchId !== dispatchId;
             };
-            for (const row of rows.filter(row => row?.kind === 'guard')) {
+            const legacyPayloads = new Set<string>();
+            const currentAttemptByOperation = new Map<string, string>();
+            for (const row of rows) {
+                if (row.kind === 'ledger') {
+                    const event = row.event as RecoverEvent;
+                    if (event.type === 'start') currentAttemptByOperation.set(event.operationId, event.attemptId);
+                    if ((event.type === 'complete' || event.type === 'failure') && currentAttemptByOperation.get(event.operationId) === event.attemptId) currentAttemptByOperation.delete(event.operationId);
+                    continue;
+                }
                 const event = row.event as GuardHistory;
                 if (lateGuardRow(event)) continue;
                 if (event.type === 'failure' && event.failure && event.key && event.fingerprint && event.executorKey && validated.byDispatch(event.failure.dispatchId)?.contract === event.key && validated.byDispatch(event.failure.dispatchId)?.executor === event.executorKey && validated.byDispatch(event.failure.dispatchId)?.attempts.some(a => a.dispatchId === event.failure!.dispatchId && a.category === event.failure!.category)) {
@@ -382,8 +398,15 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                     nextFailures.get(event.key)!.failure.evidencePath = event.evidenceRef;
                 } else if (event.type === 'task' && event.taskId) {
                     nextTaskId = event.taskId;
-                } else if (event.type === 'invocation' && event.operationId && event.key && event.invocation && validated.inspect(event.operationId)?.contract === event.key && !nextInvocations.has(event.operationId) && validInvocation(event.invocation)) {
-                    nextInvocations.set(event.operationId, structuredClone(event.invocation));
+                } else if (event.type === 'invocation' && event.operationId && event.key && event.invocation && validInvocation(event.invocation)) {
+                    const op = validated.inspect(event.operationId);
+                    // Legacy rows belong to the attempt open when they were written,
+                    // not necessarily the first (its payload append may have failed).
+                    const currentAttempt = currentAttemptByOperation.get(event.operationId);
+                    const attemptId = event.attemptId ?? currentAttempt;
+                    if (op?.contract !== event.key || !attemptId || attemptId !== currentAttempt || nextInvocations.has(attemptId)) throw new Error('Invalid recovery invocation history');
+                    if (event.attemptId === undefined) legacyPayloads.add(attemptId);
+                    nextInvocations.set(attemptId, structuredClone(event.invocation));
                 } else if (event.type === 'evidence' && event.evidence && event.evidence.dispatchId && event.evidence.taskId) {
                     nextEvidence.set(event.evidence.dispatchId, event.evidence);
                 } else throw new Error('Invalid recovery guard history');
@@ -393,12 +416,32 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                 if (latest?.type === 'start') nextTaskId = latest.taskId;
             }
             const starts = validated.events().filter(event => event.type === 'start');
+            // A continuation audit is approval, not proof that its permit was used. Only
+            // infer a legacy payload when ordinary admission from the predecessor was
+            // impossible: indeterminate, without a retry grant for that attempt.
+            for (const operationId of new Set(starts.map(start => start.operationId))) {
+                const op = validated.inspect(operationId)!;
+                for (let i = 1; i < op.attempts.length; i++) {
+                    const prior = op.attempts[i - 1], current = op.attempts[i];
+                    if (nextInvocations.has(current.attemptId) || !legacyPayloads.has(prior.attemptId) ||
+                        prior.category !== 'indeterminate' || !prior.continuations?.length || op.grantedAttemptId === prior.attemptId ||
+                        rows.some(row => row?.kind === 'guard' && row.event?.type === 'failure' && row.event.key !== op.contract && row.event.executorKey === op.executor && row.event.failure?.category === 'operator_cancelled')) continue;
+                    const source = nextInvocations.get(prior.attemptId);
+                    if (source?.tool !== 'dispatch_agent') continue;
+                    nextInvocations.set(current.attemptId, source);
+                    legacyPayloads.add(current.attemptId);
+                }
+            }
             const attemptOrder = new Map(starts.map((event, index) => [event.attemptId, index]));
             const noEffectAttempts = new Set(ledger.filter(event => event.type === 'failure' && NO_EFFECT_CATEGORY.has(event.category)).map(event => event.attemptId));
             const latestExecution = new Map<string, number>();
+            const latestContractExecution = new Map<string, number>();
             for (const [index, start] of starts.entries()) {
                 // An orphan may have launched; a proven no-effect refusal did not.
-                if (!noEffectAttempts.has(start.attemptId)) latestExecution.set(start.executor, index);
+                if (!noEffectAttempts.has(start.attemptId)) {
+                    latestExecution.set(start.executor, index);
+                    latestContractExecution.set(start.contract, index);
+                }
             }
             for (const operationId of new Set(starts.map(event => event.operationId))) {
                 let op = validated.inspect(operationId);
@@ -429,7 +472,7 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
                     nextCancellations.delete(fence.dispatchId);
                     continue;
                 }
-                if (laterAttemptLaunched(op.attempts, fenceIndex)) continue;
+                if (latestContractExecution.get(op.contract)! > attemptOrder.get(fence.attemptId)!) continue;
                 if (current && EFFECT_FENCE.has(current.failure.category)) {
                     const currentAttempt = validated.byDispatch(current.failure.dispatchId)?.attempts.find(a => a.dispatchId === current.failure.dispatchId);
                     if (currentAttempt && attemptOrder.get(currentAttempt.attemptId)! >= attemptOrder.get(fence.attemptId)!) continue;
@@ -475,11 +518,17 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
             return reconcileTechnical(recovery, { taskId: op.taskId, operationId, attemptId, currentRevision, observedRevision: original.revision, originalExecutor: original.executor, changedScope: original.changedScope, readback: verifiedReadback, concurrentWriters: original.concurrentWriters, effectsRef: original.effectsRef, reviewer: reviewer && { taskId: reviewer.taskId, executor: reviewer.executor, revision: reviewer.revision, completed: reviewer.completed, blockingFindings: reviewer.blockingFindings, coveredScope: reviewer.coveredScope, edited: reviewer.edited, evidenceRef: reviewer.evidenceRef }, openRequirements: original.openRequirements });
         },
         inspect(operationId: string) { return recovery.inspect(operationId); },
-        invocation(operationId: string) { const item = invocations.get(operationId); return item ? structuredClone(item) : null; },
-        recordInvocation(operationId: string, key: string, invocation: NonNullable<GuardHistory['invocation']>) {
-            if (recovery.inspect(operationId)?.contract !== key || invocations.has(operationId) || !validInvocation(invocation)) return false;
-            persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'invocation', operationId, key, invocation: structuredClone(invocation) } satisfies GuardHistory });
-            invocations.set(operationId, structuredClone(invocation)); return true;
+        invocation(operationId: string, attemptId?: string) {
+            const attempts = recovery.inspect(operationId)?.attempts;
+            const attempt = attemptId ? attempts?.find(a => a.attemptId === attemptId) : attempts?.at(-1);
+            const item = attempt && invocations.get(attempt.attemptId);
+            return item ? structuredClone(item) : null;
+        },
+        recordInvocation(operationId: string, key: string, invocation: NonNullable<GuardHistory['invocation']>, attemptId = recovery.inspect(operationId)?.attempts.at(-1)?.attemptId) {
+            const op = recovery.inspect(operationId);
+            if (op?.contract !== key || !attemptId || op.attempts.at(-1)?.attemptId !== attemptId || invocations.has(attemptId) || !validInvocation(invocation)) return false;
+            persist?.(RECOVER_ENTRY, { kind: 'guard', event: { type: 'invocation', operationId, attemptId, key, invocation: structuredClone(invocation) } satisfies GuardHistory });
+            invocations.set(attemptId, structuredClone(invocation)); return true;
         },
         byDispatch(dispatchId: string) { return recovery.byDispatch(dispatchId); },
         assess(operationId: string, attemptId: string, revision: string, status: 'open' | 'cleared', evidence: string) { return recovery.assess(operationId, attemptId, revision, status, evidence); },
@@ -512,11 +561,12 @@ export function createNoProgressGuard(persist?: (type: string, data: unknown) =>
         },
         canContinue(operationId: string, attemptId: string) {
             const op = recovery.inspect(operationId), attempt = op?.attempts.at(-1);
-            return !restoreBlocked && !!op && op.taskId === taskId && !op.abandoned && attempt?.attemptId === attemptId && !!recovery.continuationBasis(operationId, attemptId) && !pendingExecutors.has(op.executor) && ![...cancellations.values()].some(item => item.executorKey === op.executor) && invocations.get(operationId)?.tool === 'dispatch_agent';
+            const basis = recovery.continuationBasis(operationId, attemptId);
+            return !restoreBlocked && !!op && op.taskId === taskId && !op.abandoned && attempt?.attemptId === attemptId && !!basis && invocations.get(basis.attemptId)?.tool === 'dispatch_agent' && !pendingExecutors.has(op.executor) && ![...cancellations.values()].some(item => item.executorKey === op.executor);
         },
         continuationBasis(operationId: string, attemptId: string) { return recovery.continuationBasis(operationId, attemptId); },
         hasRecoverableOperations(): boolean {
-            return [...invocations.keys()].some(operationId => {
+            return [...new Set(recovery.events().flatMap(event => event.type === 'start' ? [event.operationId] : []))].some(operationId => {
                 const latest = recovery.inspect(operationId)?.attempts.at(-1);
                 return !!latest && this.canContinue(operationId, latest.attemptId);
             });
@@ -692,7 +742,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
         // failures; release the reservation even when storage itself is unavailable.
         if (ticket.allowed && ticket.operationId) {
          let persisted = false;
-         try { persisted = !!d.noProgress.invocation(ticket.operationId) || d.noProgress.recordInvocation(ticket.operationId, key, invocation); }
+         try { persisted = d.noProgress.recordInvocation(ticket.operationId, key, invocation, ticket.attemptId); }
          catch { /* persistence error bodies may contain private payloads */ }
          if (!persisted) {
           const failure: Failure = { dispatchId: randomUUID(), reason: 'invocation_persistence_failed', category: 'not_started', noLaunchEstablished: true };
@@ -732,9 +782,9 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
             // T6: missing/invalid/abandoned/unknown-process each get their own reason.
             const invocationNote = (() => {
                 if (!operation) return 'Original validated invocation unavailable: unknown operation; re-establish the contract before dispatching.';
-                const status = (d.noProgress as any).invocationStatus?.(operation.operationId);
-                if (!status || status.status === 'available') {
-                    const next = renderNextInvocation(d.noProgress, operation.operationId);
+                const status = d.noProgress.invocationStatus(operation.operationId, causeAttempt?.attemptId);
+                if (status.status === 'available') {
+                    const next = renderNextInvocation(d.noProgress, operation.operationId, causeAttempt?.attemptId);
                     return next ? `Original-contract invocation after authorization: ${next}.` : 'Original validated invocation unavailable.';
                 }
                 if (status.status === 'abandoned') return 'Original invocation abandoned: abandon closed the operation and never satisfies parent work; start a new task for new work.';

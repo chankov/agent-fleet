@@ -89,11 +89,13 @@ interface Rules {
 const MAX_ESCALATIONS_PER_TURN = 3;
 const PROMPT_TIMEOUT_MS = 60_000;
 
-function continueFeedback(toolName: string, violationReason: string, invocation: string, note?: string): string {
+import {approvalTarget} from './approval-target.ts';
+
+function continueFeedback(toolName: string, violationReason: string, requestId: string, note?: string): string {
 	return [
 		`🛡️ Damage-Control: ${toolName} blocked — ${violationReason}`,
 		``,
-		`Attempted: ${invocation}`,
+		`Action reference: ${requestId}`,
 		...(note ? [``, note] : []),
 		``,
 		`Don't call ${toolName} directly like this. Decide which case you're in and continue:`,
@@ -104,7 +106,7 @@ function continueFeedback(toolName: string, violationReason: string, invocation:
 		`   configured their environment. If you actually need a value, ask the user for it explicitly.`,
 		``,
 		`→ DESTRUCTIVE (delete, overwrite, force-push, drop, rm, truncate, sudo, kill, etc.):`,
-		`   STOP. Tell the user exactly what you need to ship this task and ask how they want to proceed.`,
+		`   STOP. Report the block using the action reference. Do not seek approval in chat.`,
 		`   Do not invent a workaround that achieves the same destructive effect.`,
 		``,
 		`Pick the right path above and continue working. Do not retry this exact call.`,
@@ -363,7 +365,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
    // reason is recorded so a missing Codex request is never silent.
    const localOnly=async(relayReason?:string)=>{
     if(relayReason)try{pi.appendEntry('damage-control-log',{action:'relay_not_used',tool:event.toolName,rule:violationReason,pattern:matchedPattern,reason:relayReason});}catch{}
-    return {value:ctx.hasUI?await local(new AbortController().signal):undefined,source:'local_human' as const};
+    if(!ctx.hasUI)return {value:undefined,source:'not_decided' as const,failure:'unavailable' as const};
+    return {value:await local(new AbortController().signal),source:'local_human' as const};
    };
    const relay=permissionRelayFor(pi.events);
    if(!relay)return localOnly();
@@ -525,7 +528,9 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 		}
 
 		const command = isToolCallEventType("bash", event) ? event.input.command : null;
-		const invocation = command ?? JSON.stringify(event.input);
+		const target = approvalTarget(event.toolName, ctx.cwd, event.input);
+		const requestId = crypto.randomUUID();
+		const dialogTitle = `🛡️ Damage-Control ${requestId}: review in this local approval dialog (not chat) — ${damagePreview(violationReason,300)} — ${event.toolName}\n${target ?? 'Target withheld'}`;
 
 		// Headless child spawned by agent-hub: escalate the exact action to the
 		// dispatcher (local human and, through its relay, Codex) and wait for one
@@ -539,7 +544,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			const serializedAction=JSON.stringify(exactAction);
 			const req: AccessRequest = {
 				type: "access_request",
-				msg_id: crypto.randomUUID(),
+				msg_id: requestId,
 				sender_session: agentId(),
 				sender_endpoint: "",
 				hops: 0,
@@ -551,7 +556,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				rule: blockedReason,
 				pattern,
 				category,
-				invocation: damagePreview(invocation),
+				invocation: 'See bound exact action',
 				actionDigest: crypto.createHash('sha256').update(serializedAction).digest('hex'),
 				accessEpoch: process.env.AGENT_HUB_ACCESS_EPOCH,
 				...(Buffer.byteLength(serializedAction)<=16000&&damagePreview(serializedAction,16000)===serializedAction?{exactAction}:{}),
@@ -559,15 +564,15 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			const receipt=await requestAccessReceiptFromHub(endpoint,req);
      const decision=receipt.status==='decided'?(receipt.decision==='deny'&&receipt.decisionSource==='codex_machine'?'machine_deny':receipt.decision):receipt.status==='expired'?'timeout':receipt.status;
 			if (decision === "allow_once") {
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: "allowed_once", pattern, via: "escalation",receipt });
+				pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: "allowed_once", pattern, via: "escalation",receipt });
 				return semanticAllow();
 			}
 			// A destructive bash pattern is one-call only; a scoped grant never applies to it.
-			if ((decision === "allow_agent" || decision === "allow_all") && category !== "bash_pattern") {
+			if ((decision === "allow_agent" || decision === "allow_all") && target && req.exactAction && category !== 'no_delete' && category !== "bash_pattern") {
 				// The hub persisted the grant to the shared file; keep a memory
 				// copy too so this run doesn't depend on re-reading it.
 				sessionExemptions.push({ pattern, scope: "session", grantedVia: "escalation", grantedAt: new Date().toISOString() });
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern, via: "escalation",receipt });
+				pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: decision === "allow_all" ? "allowed_all_agents" : "allowed_this_agent", pattern, via: "escalation",receipt });
 				return semanticAllow();
 			}
 			if (decision === 'deny') deniedThisTurn.add(pattern);
@@ -576,17 +581,17 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				: decision === 'machine_deny'
        ? 'Codex denied this exact request as a machine decision (not human refusal).'
        : decision === "timeout"
-					? `This block was escalated to the user via the dispatcher but the approval request timed out (auto-kept blocked). If this action is essential, say so explicitly in your final response so the user can grant it and re-dispatch you.`
-					: `Dispatcher receipt: ${receipt.status}; no authorization and no human denial is inferred.`;
-			pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: `escalation_${decision}`, pattern,receipt });
-			return { block: true, reason: continueFeedback(event.toolName, blockedReason, invocation, note) };
+					? `Dispatcher approval timed out; no decision was received. Start a fresh request when the dispatcher approval surface is available. Chat consent does not authorize it.`
+					: `Dispatcher receipt: ${receipt.status}; no authorization and no human denial is inferred. Check dispatcher availability before requesting fresh authorization.`;
+			pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: blockedReason, action: `escalation_${decision}`, pattern,receipt });
+			return { block: true, reason: continueFeedback(event.toolName, blockedReason, requestId, note) };
 		};
 
 		// ── exemption layer (path categories only) ──
 		if (matchedPattern) {
 			const exempted = activeExemptions().find((ex) => exemptionApplies(ex, matchedPattern!, inputPaths, command, ctx.cwd));
 			if (exempted) {
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
+				pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "exempted", pattern: exempted.pattern, scope: exempted.scope });
 				ctx.ui.notify(`🛡️ Damage-Control: ${event.toolName} allowed by exemption ${exempted.pattern} (${exempted.scope})`, "warning");
 				return semanticAllow();
 			}
@@ -612,7 +617,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					const ONCE = "Allow once";
 					const TURN = "Allow for this turn";
 					const SESSION = "Allow for this session";
-					const choices = matchedCategory === "no_delete"
+					const choices = !target || matchedCategory === "no_delete"
 						? [KEEP, ONCE]
 						: [KEEP, ONCE, TURN, SESSION];
 					const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
@@ -625,7 +630,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:matchedPattern!});
 					 const dialogSignal=AbortSignal.any([signal,permissionSignal]);
 					 try{const selected=await ctx.ui.select(
-						`🛡️ Blocked: ${event.toolName} — ${violationReason}`,
+						dialogTitle,
 						choices,
 						{ timeout: PROMPT_TIMEOUT_MS, signal:dialogSignal },
 					 );finish({status:selected===KEEP?'denied':selected?'allowed':'cancelled'});if(!selected&&!dialogSignal.aborted)dialogUnanswered=true;return selected;
@@ -633,23 +638,23 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice===KEEP?'deny':choice?'allow_once':null,ONCE,PROMPT_TIMEOUT_MS);
      const choice=selected.value;
      const unanswered=!choice&&dialogUnanswered&&(selected.source==='local_human'||selected.failure==='cancelled');
-     if(!choice&&selected.source!=='local_human'&&!unanswered)return {block:true,reason:`Damage-Control: ${selected.source==='codex_machine'?'machine denied the exact action':`permission ${selected.failure??'stale'}; rule: ${matchedPattern}; request fresh authorization for this exact action`}; no human denial is inferred.`};
+     if(!choice&&selected.source!=='local_human'&&!unanswered)return {block:true,reason:`Damage-Control ${requestId}: ${selected.source==='codex_machine'?'machine denied the exact action':`permission ${selected.failure??'stale'}; rule: ${matchedPattern}; request fresh authorization for this exact action`}; no human denial is inferred.`};
 					if (choice === ONCE) {
-						pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern,decisionSource:selected.source });
+						pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "allowed_once", pattern: matchedPattern,decisionSource:selected.source });
 						return semanticAllow();
 					}
-					if (choice === TURN || choice === SESSION) {
+					if (target && (choice === TURN || choice === SESSION)) {
 						grantExemption(matchedPattern, choice === TURN ? "turn" : "session", "prompt");
 						ctx.ui.setStatus("damage-control", statusText());
 						return semanticAllow();
 					}
 					const note = choice === KEEP
 						? `The user reviewed this call and kept the block in place.`
-						: `The approval dialog closed without an answer (timed out or dismissed); the call did not run and no human denial is inferred. Ask the user to approve it when they are present, or to pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
+						: `The approval dialog closed without an answer (timed out or dismissed); the call did not run and no human denial is inferred. Start a fresh local approval when present, or pre-authorize with /af-allow ${matchedPattern} [turn|session].`;
 					if (choice === KEEP) deniedThisTurn.add(matchedPattern);
 					ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
-					pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
-					return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
+					pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: choice === KEEP ? "blocked_by_user" : "blocked_prompt_timeout" });
+					return { block: true, reason: continueFeedback(event.toolName, violationReason, requestId, note) };
 				}
 
 				const escalated = await escalateToHub(matchedCategory!, matchedPattern);
@@ -661,7 +666,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			// A headless child has no dialog and no relay of its own: ask the Hub,
 			// which offers the exact call to the local human and to Codex.
 			if (!ctx.hasUI && !permissionRelayFor(pi.events) && askPattern) {
-				if (deniedThisTurn.has(askPattern)) return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, `This exact kind of call was already denied this turn.`) };
+				if (deniedThisTurn.has(askPattern)) return { block: true, reason: continueFeedback(event.toolName, violationReason, requestId, `This exact kind of call was already denied this turn.`) };
 				const escalated = await escalateToHub("bash_pattern", askPattern);
 				if (escalated) return escalated;
 			}
@@ -670,17 +675,18 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			 finishQueue({status:'completed'});
 			 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:violationReason!});
 			 try{const choice=await ctx.ui.select(
-    `🛡️ Damage-Control Confirmation: ${damagePreview(violationReason,300)} — ${damagePreview(invocation)}`,
+    dialogTitle,
     ['Keep blocked','Allow once'],{timeout:30000,signal:AbortSignal.any([signal,permissionSignal])});finish({status:choice==='Allow once'?'allowed':choice==='Keep blocked'?'denied':'cancelled'});return choice;
 			 }catch(error){finish({status:'failed'});throw error;}
 			}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice==='Allow once'?'allow_once':choice==='Keep blocked'?'deny':null,'Allow once',30000);
 
 			if (selected.value!=='Allow once') {
+                const outcome = selected.source === 'codex_machine' ? 'Codex relay denied' : selected.value === 'Keep blocked' ? 'local human denied in approval dialog' : selected.failure === 'unavailable' ? 'approval unavailable; check dispatcher or local UI availability' : selected.source === 'local_human' ? 'local approval dialog timed out or was dismissed; request fresh authorization' : `approval via Codex relay${ctx.hasUI ? ' / local dialog' : ''}: ${selected.failure}; request fresh authorization`;
 				ctx.ui.setStatus("damage-control", `⚠️ Last Violation Blocked: ${violationReason.slice(0, 30)}...`);
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: selected.source==='codex_machine'?'blocked_by_machine':selected.value==='Keep blocked'?'blocked_by_user':'approval_not_decided' });
-				return { block: true, reason: continueFeedback(event.toolName, `${violationReason} (${selected.source==='codex_machine'?'machine denied':selected.value==='Keep blocked'?'local human denied':'no permission decision'})`, invocation) };
+				pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, outcome, action: selected.source==='codex_machine'?'blocked_by_machine':selected.value==='Keep blocked'?'blocked_by_user':'approval_not_decided' });
+				return { block: true, reason: continueFeedback(event.toolName, violationReason, requestId, `${outcome}. Chat consent is not authorization.`) };
 			} else {
-				pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: selected.source==='codex_machine'?'confirmed_by_machine':'confirmed_by_user' });
+				pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: selected.source==='codex_machine'?'confirmed_by_machine':'confirmed_by_user' });
 				return semanticAllow();
 			}
 		} else {
@@ -689,8 +695,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 				: undefined;
 			ctx.ui.notify(`🛑 Damage-Control: Blocked ${event.toolName} (${violationReason}) — agent will adapt and continue.`);
 			ctx.ui.setStatus("damage-control", `⚠️ Last Violation: ${violationReason.slice(0, 30)}...`);
-			pi.appendEntry("damage-control-log", { tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "blocked" });
-			return { block: true, reason: continueFeedback(event.toolName, violationReason, invocation, note) };
+			pi.appendEntry("damage-control-log", { requestId, tool: event.toolName, input: damageInputAudit(event.input), rule: violationReason, action: "blocked" });
+			return { block: true, reason: continueFeedback(event.toolName, violationReason, requestId, note) };
 		}
 	 };
 	 try{const result=await evaluate();finishPolicy({status:result?.block?'blocked':'allowed',analysis:policyAnalysis,...(result?.reason?{rule:result.reason.split('\n',1)[0],reason:policyTraceReason(result.reason)}:{})});return result;}

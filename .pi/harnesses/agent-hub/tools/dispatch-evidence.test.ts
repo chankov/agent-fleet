@@ -354,6 +354,10 @@ test("T4 check evidence separates observed command, declared coverage, and evalu
    assert.deepEqual(artifact.declaration.coverage.map((item: any) => item.id), ["A1"]);
    assert.equal(artifact.requirements, undefined, "no pre-evaluation requirement status or evidence refs");
    assert.equal(artifact.evaluationSource, "agent-fleet.runtime-result/v1 verification.checks and verification.requirements");
+   if (scenario === "stale") {
+    const text = (result.content[0] as any).text;
+    for (const phrase of [command, assessment.task.revision.after, "changed-during-check", "Paths changed since check: unknown", "Finish all edits first"]) assert.ok(text.includes(phrase), phrase);
+   }
    assert.equal(check.status, scenario);
    assert.equal(requirement.status, scenario);
    assert.deepEqual(requirement.evidenceRefs, [check.evidenceRef]);

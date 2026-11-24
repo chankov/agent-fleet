@@ -16,7 +16,7 @@ export type RecoverEvent =
  * outcome later (sessions are not locked). That late outcome is retained for inspection only
  * and never turns the uncertainty into settlement or completion. */
 type Attempt = { attemptId: string; dispatchId: string; category?: RecoveryCategory; completed?: boolean; settled?: string; continuations?: ContinuationRecord[]; interrupted?: boolean; lateDispatchId?: string; lateOutcome?: RecoveryCategory | 'completed' };
-type Operation = { operationId: string; taskId: string; contract: string; executor: string; attempts: Attempt[]; indeterminateGrantUsed: boolean; grantedAttemptId?: string; abandoned?: boolean; technical?: { status: 'open' | 'cleared'; revision: string; evidence: string } };
+type Operation = { operationId: string; taskId: string; contract: string; executor: string; attempts: Attempt[]; indeterminateGrantUsed: boolean; grantedAttemptId?: string; abandoned?: boolean; technical?: { attemptId: string; status: 'open' | 'cleared'; revision: string; evidence: string } };
 
 /** No-launch successors retain the earlier uncertainty; other outcomes keep their own recovery policy. */
 function continuationBasis(op: Operation | undefined, attemptId: string): Attempt | null {
@@ -88,8 +88,8 @@ export function createRecoverState(history: readonly RecoverEvent[] = [], append
     (attempt.continuations ??= []).push(structuredClone(record)); return;
    }
    case 'technical':
-    if (!attempt.category || !nonempty(event.revision) || !nonempty(event.evidence) || !['open','cleared'].includes(event.status) || (op.technical?.status === 'cleared' && event.status === 'cleared' && op.technical.revision === event.revision)) throw new Error('Invalid recovery history');
-    op.technical = { status: event.status, revision: event.revision, evidence: event.evidence }; return;
+    if (!attempt.category || !nonempty(event.revision) || !nonempty(event.evidence) || !['open','cleared'].includes(event.status) || (op.technical?.attemptId === attempt.attemptId && op.technical.status === 'cleared' && event.status === 'cleared' && op.technical.revision === event.revision)) throw new Error('Invalid recovery history');
+    op.technical = { attemptId: attempt.attemptId, status: event.status, revision: event.revision, evidence: event.evidence }; return;
    default: throw new Error('Invalid recovery history');
   }
  }
@@ -137,7 +137,13 @@ export function createRecoverState(history: readonly RecoverEvent[] = [], append
    const op = operations.get(operationId);
    return op ? structuredClone(op) : null;
   },
-  findContract(contract: string) { for (const op of operations.values()) if (op.contract === contract) return this.inspect(op.operationId); return null; },
+  findContract(contract: string) {
+   for (let i = journal.length - 1; i >= 0; i--) {
+    const event = journal[i];
+    if (event.type === 'start' && event.contract === contract) return this.inspect(event.operationId);
+   }
+   return null;
+  },
   find(taskId: string, contract: string) { const id = byContract.get(key(taskId, contract)); return id ? this.inspect(id) : null; },
  };
 }

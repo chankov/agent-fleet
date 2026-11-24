@@ -229,6 +229,13 @@ test("dispatcher prompt makes declared checks and unsupported requirement limits
 test('explicit compiler command requires its own exact receipt, compiler-only works, prose and manual never bind', () => {
  const requirement = { id: 'A2', tag: 'test', text: 'exact checks', source: 'request', testCommand: 'test-exact', compilerCommand: 'compile-exact' };
  const check = (command: string, kind: string, exitCode: number | null = 0) => ({ producer: 'runtime', taskId: 'task-1', kind, command: [command], exitCode, inspectedRevision: 'rev-after', evidenceRef: `/e/${command}`, requirementIds: ['A2'], coverage: [{ id: 'A2', source: 'request', text: 'exact checks', criticalConditions: [] }] });
+ for (const revision of ['rev-before', 'intermediate']) {
+  const stale = { ...check('test-exact', 'test'), inspectedRevision: revision };
+  const result = runtime({ requirements: [requirement], checks: [stale, { ...stale, command: ['unbound'] }, check('compile-exact', 'compilation')] });
+  assert.equal(result.acceptance.accepted, false);
+  assert.equal(result.verification.status, 'stale');
+  assert.deepEqual(result.verification.requirements[0].staleChecks, [{ command: 'test-exact', inspectedRevision: revision, finalRevision: 'rev-after', changedPathCount: null }]);
+ }
  for (const [requirements, checks, expected] of [
   [[requirement], [check('test-exact', 'test')], 'missing'],
   [[requirement], [check('compile-exact', 'compilation')], 'missing'],

@@ -520,6 +520,12 @@ Wrapper and evidence producers share one canonical executor identity
 (`canonical([cwd, actor])`), so production reconcile matches; task-scoped logical identity is
 separate from the persistent effect fence (phantom `not_started` from another task is never
 inherited, while cancel/unknown-write/indeterminate fences survive task/model/scope changes).
+After completion, a new task starts a fresh operation. For a verification failure or a settled
+indeterminate failure, clearance for that exact attempt at the current revision admits new-task
+work, not replay. Recovery stores invocations per attempt. Restore binds legacy operation-level
+payloads to the attempt open at append time. A missing successor payload is inherited only
+when its indeterminate predecessor had a proven legacy invocation, continuation approval and
+no competing retry grant, and the journal contains no cancellation of the same executor on another contract. Otherwise recovery requires a validated contract.
 Launch/close/termination facts travel separately from exit/acceptance: safety refusal and
 spawn failure never launched, timeout without close stays uncertain, and integer exit alone
 never proves settlement. Unknown shell/backend stays a potential effect with no regex
@@ -527,7 +533,7 @@ exemption; the usable inspection route is the effective catalog's read/grep/find
 opt-in filesystem tool) with an explicit target path. Tool availability is never gate
 admission. Legacy preflight history is freed only with positive runtime-owned no-launch
 evidence, never by missing records; unsupported schemas refuse effects without state deletion.
-Operator cancellation fences the same agent identity until a fresh, one-use authorization is consumed.
+Operator cancellation fences the same agent identity until a fresh, one-use authorization is consumed. Approving that cancellation never releases another contract's own unresolved fence.
 Other agent identities—including the anonymous, read-only research actor—remain independent,
 and a task reset does not erase the cancellation fence. Native session reuse is bound to an exact,
 normalized current-task contract (task identity, instructions, scope, deliverables, input artifacts,

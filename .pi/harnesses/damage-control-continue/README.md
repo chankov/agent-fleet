@@ -4,6 +4,8 @@ Safety auditing — blocks destructive tool calls, but lets the agent **adapt an
 
 > Ported from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by [disler](https://github.com/disler) (MIT). See the [extension catalog](../../../docs/pi-extensions.md).
 
+For a command requiring confirmation, review the action in the local or dispatcher approval surface. Chat consent does not count. The action reference identifies one request; it cannot grant permission. If a request expires, request fresh authorization. If approval is unavailable, check dispatcher or local UI availability first. Neither outcome means a human saw or refused the request.
+
 ## What it does
 
 It loads `.pi/damage-control-rules.yaml` (`bashToolPatterns`, `zeroAccessPaths`,
@@ -87,7 +89,7 @@ permission relay is attached.
 **Escalation from headless children**: when this harness runs inside a subagent
 spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends an
 `access_request` to the hub's coms socket instead. The dispatcher session shows
-who is asking, for what, and why it was blocked. Ordinary protected reads/writes
+the request reference, tool and rule, plus the target or command when safe. If the target is withheld, the dialog cannot grant broader access. Ordinary protected reads/writes with a displayable target
 offer *Deny / Allow once / Allow for this agent / Allow for all agents (session)*.
 A protected deletion offers only *Deny / Allow once*, so approving one file does
 not grant its parent directory. A destructive `bashToolPatterns` rule marked
