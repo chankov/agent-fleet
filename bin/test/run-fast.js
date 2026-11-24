@@ -49,6 +49,7 @@ export const fastTestFiles = [
   ".pi/agent-fleet/scripts/fleet-codex-bootstrap-probe.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-desktop-preflight.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-desktop-discovery.test.ts",
+  ".pi/agent-fleet/scripts/fleet-codex-permissions.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-preflight-diagnostics.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-send-lineage.test.ts",
   ".pi/agent-fleet/scripts/fleet-codex-native-presence.test.ts",

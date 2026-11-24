@@ -147,7 +147,7 @@ LIFECYCLE
       Install Node dependencies for .pi/extensions, .pi/harnesses, and scripts.
       Does not launch Pi, configure STT, install ffmpeg/Herdr, or pair Codex.
   just fleet fix-codex-permissions
-      Remove group write from the active Linux Codex release directory (0775 to 0755).
+      Repair Linux Codex release permissions and start the managed daemon if its listener is missing.
   just fleet doctor [--fix]
   just fleet config
       Read-only JSON report (agent-fleet inspect): item states, verify/doctor findings,

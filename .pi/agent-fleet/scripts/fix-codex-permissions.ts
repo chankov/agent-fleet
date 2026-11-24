@@ -1,12 +1,15 @@
-// One-shot operator repair for the Linux standalone installer's release directory.
+// Operator-invoked Linux repair. Native Fleet discovery itself remains read-only.
+import { execFileSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
+import { discoverDaemonListener, trustedStandaloneBinary, type DesktopDiscoveryOptions } from "./lib/codex-desktop-discovery.ts";
 import { closeSync, constants, fchmodSync, fstatSync, lstatSync, openSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-function repair(): void {
+function repairPermissions(home: string): string {
 	if (process.platform !== "linux") throw new Error("This repair requires Linux.");
 	const uid = process.getuid!();
-	const home = process.env.CODEX_HOME ?? join(homedir(), ".codex");
 	if (resolve(home) !== home) throw new Error("CODEX_HOME must be an absolute canonical path.");
 	const standalone = join(home, "packages", "standalone");
 	const releases = join(standalone, "releases");
@@ -43,11 +46,46 @@ function repair(): void {
 	} finally {
 		closeSync(fd);
 	}
+	return release;
 }
 
-try {
-	repair();
-} catch (error) {
-	console.error(`fix-codex-permissions: ${error instanceof Error ? error.message : error}`);
-	process.exitCode = 1;
+export async function repair(home: string, options: Pick<DesktopDiscoveryOptions, "procRoot" | "socketRoot"> = {}): Promise<void> {
+	const release = repairPermissions(home);
+	const missing = (error: unknown) => error instanceof Error && error.message === "desktop_discovery_daemon_unavailable";
+	const inspect = () => discoverDaemonListener(home, AbortSignal.timeout(5000), options);
+	try {
+		await inspect();
+		console.log("Fleet daemon listener already available.");
+		return;
+	} catch (error) {
+		if (!missing(error)) throw error;
+	}
+
+	const binary = await trustedStandaloneBinary(home);
+	if (!binary || binary !== join(release, "bin", "codex")) throw new Error("Trusted active Codex CLI unavailable.");
+	console.log("Fleet daemon listener missing. Starting the managed Codex daemon.");
+	execFileSync(binary, ["app-server", "daemon", "start"], {
+		env: { ...process.env, CODEX_HOME: home }, stdio: "inherit", timeout: 30000, killSignal: "SIGKILL",
+	});
+	const deadline = performance.now() + 5000;
+	do {
+		try {
+			await inspect();
+			console.log("Fleet daemon listener available after start.");
+			return;
+		} catch (error) {
+			if (!missing(error)) throw error;
+		}
+		await delay(200);
+	} while (performance.now() < deadline);
+	throw new Error("desktop_discovery_daemon_unavailable after daemon start");
+}
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+	try {
+		await repair(process.env.CODEX_HOME ?? join(homedir(), ".codex"));
+	} catch (error) {
+		console.error(`fix-codex-permissions: ${error instanceof Error ? error.message : error}`);
+		process.exitCode = 1;
+	}
 }

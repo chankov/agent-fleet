@@ -68,9 +68,23 @@ export class AutomaticDesktopDiscovery {
   }}finally{try{await dir.close();}catch{}}
   if(pids.length!==1)fail(pids.length?'process_ambiguous':'process_unavailable');
   const pkg=await readDesktopPackageVersion(exe,signal);check(signal,until);await ancestors(home);const homeStat=await lstat(home);if(homeStat.uid!==uid)fail('home_unsafe');
-  await privateDirectory(root);const unix=(await small(join(proc,'net','unix'),1024*1024,signal,until)).toString('utf8');
+  const socketPath=await discoverDaemonListener(home,signal,{procRoot:proc,socketRoot:root},until);
+  const binaryPath=await trustedStandaloneBinary(home);
+  check(signal,until);return {desktopPid:pids[0],desktopVersion:pkg.version,socketPath,codexHome:home,...(binaryPath?{binaryPath}:{})};
+ }
+}
+
+export async function discoverDaemonListener(home:string,signal:AbortSignal,options:Pick<DesktopDiscoveryOptions,'procRoot'|'socketRoot'>={},until=performance.now()+5000):Promise<string>{
+  const uid=process.getuid!(),proc=options.procRoot??'/proc',root=options.socketRoot??'/tmp/codex-daemon-'+uid;
+  let rootMissing=false;
+  try{await privateDirectory(root);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;rootMissing=true;}
+  if(rootMissing){
+   try{await lstat(join(home,'app-server-control','app-server-control.sock'));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')fail('daemon_unavailable');throw error;}
+   fail('daemon_alias_unsafe');
+  }
+  const unix=(await small(join(proc,'net','unix'),1024*1024,signal,until)).toString('utf8');
   const listening=new Set(unix.split('\n').flatMap(line=>{const p=line.trim().split(/\s+/);return p.length===8&&(parseInt(p[3],16)&0x10000)!==0&&p[4]==='0001'?[p[7]]:[];}));
-  const sockets:string[]=[],entries=await opendir(root);count=0;
+  const sockets:string[]=[],entries=await opendir(root);let count=0;
   try{for await(const d of entries){check(signal,until);if(++count>64)fail('limit');if(!/^[a-f0-9]{64}$/.test(d.name))continue;const path=join(root,d.name),s=await lstat(path);if(s.isSocket()&&s.uid===uid&&(s.mode&0o077)===0&&listening.has(path))sockets.push(path);}}finally{try{await entries.close();}catch{}}
   // The official managed endpoint belongs to the configured Codex home. Keep
   // its checked one-hop alias so the existing RPC pin also detects retargeting.
@@ -78,7 +92,18 @@ export class AutomaticDesktopDiscovery {
   try{const at=await lstat(alias);aliasSeen=true;if(at.uid!==uid||!at.isSymbolicLink()||alias.length>100)fail('daemon_alias_unsafe');await privateDirectory(dirname(alias));const target=resolve(dirname(alias),await readlink(alias));if(!sockets.includes(target))fail('daemon_alias_unsafe');socketPath=alias;}
   catch(e){if(aliasSeen)throw e;if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   if(!socketPath){if(sockets.length!==1)fail(sockets.length?'daemon_ambiguous':'daemon_unavailable');socketPath=sockets[0];}
-  let binaryPath:string|undefined;try{binaryPath=await realpath(join(home,'packages','standalone','current','bin','codex'));const releases=join(home,'packages','standalone','releases');if(!binaryPath.startsWith(releases+'/'))fail('binary_unsafe');await ancestors(dirname(binaryPath));const s=await lstat(binaryPath,{bigint:true});if(!safeStat(s,true))fail('binary_unsafe');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
-  check(signal,until);return {desktopPid:pids[0],desktopVersion:pkg.version,socketPath,codexHome:home,...(binaryPath?{binaryPath}:{})};
+  return socketPath;
+}
+
+export async function trustedStandaloneBinary(home: string): Promise<string | undefined> {
+ try {
+  const path = await realpath(join(home, 'packages', 'standalone', 'current', 'bin', 'codex'));
+  if (!path.startsWith(join(home, 'packages', 'standalone', 'releases') + '/')) fail('binary_unsafe');
+  await ancestors(dirname(path));
+  if (!safeStat(await lstat(path, {bigint:true}), true)) fail('binary_unsafe');
+  return path;
+ } catch (error) {
+  if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+  throw error;
  }
 }
