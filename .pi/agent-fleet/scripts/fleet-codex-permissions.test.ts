@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repair } from "./fix-codex-permissions.ts";
@@ -7,7 +7,8 @@ import { createServer } from "node:net";
 import test from "node:test";
 
 test("operator repair is scoped to the selected release and repeatable", { skip: process.platform !== "linux" }, async t => {
-	const home = mkdtempSync(join(tmpdir(), "codex-repair-"));
+	// The repair requires a canonical CODEX_HOME; aliased temp roots are symlinks.
+	const home = realpathSync(mkdtempSync(join(tmpdir(), "codex-repair-")));
 	t.after(() => rmSync(home, { recursive: true, force: true }));
 	const standalone = join(home, "packages", "standalone");
 	const name = "0.170.0-x86_64-unknown-linux-musl";
@@ -15,8 +16,11 @@ test("operator repair is scoped to the selected release and repeatable", { skip:
 	const current = join(standalone, "current");
 	mkdirSync(release, { recursive: true, mode: 0o700 });
 	symlinkSync(join("releases", name), current);
-	const socketRoot = join(home, "sockets");
-	mkdirSync(socketRoot, { mode: 0o700 });
+	// A 64-hex socket name leaves no room for a long TMPDIR under the 108-byte
+	// sun_path limit, so mirror production's short /tmp/codex-daemon-<uid> root.
+	const socketRoot = mkdtempSync("/tmp/cxr-");
+	t.after(() => rmSync(socketRoot, { recursive: true, force: true }));
+	chmodSync(socketRoot, 0o700);
 	const socket = join(socketRoot, "a".repeat(64));
 	const server = createServer();
 	await new Promise<void>((resolve, reject) => server.once("error", reject).listen(socket, resolve));
