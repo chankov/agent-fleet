@@ -632,6 +632,66 @@ test('native completion without an explicit capture integrity fails closed for r
  assert.notEqual(current.details.accepted,true);
 });
 
+for (const scenario of ['missing', 'early', 'legacy', 'tainted', 'no-integrity', 'stale', 'failed'] as const) test(`declared check reporting through native capture and acceptance: ${scenario}`, async t => {
+ const { cwd, d } = await gitDiagnosticsFixture(t);
+ const { dirname } = await import('node:path');
+ const { realpathSync } = await import('node:fs');
+ const api = await import(join(dirname(realpathSync('node_modules/.bin/pi')), 'index.js'));
+ const { instrumentBash } = await import('../runtime-test-check.ts');
+ const { spawnPiAgent } = await import('../spawn.ts');
+ const command = 'cargo --version';
+ const bin = mkdtempSync(join(tmpdir(), 'check-reporting-')); t.after(() => rmSync(bin, { recursive: true, force: true }));
+ const revision = () => worktreeRevision(cwd, [], ['README.md']);
+ writeFileSync(join(cwd, 'README.md'), 'current dirty candidate\n');
+ d._agents.get('builder').def.tools = 'read,bash';
+ d.state.getAssertions = () => [{ id: 'A7', tag: 'test', text: 'exact check', source: 'fixture', testCommand: command, status: 'open' }] as any;
+ let run = 0;
+ d.dispatchAgent = async () => {
+  const seed = ++run === 1;
+  if (seed) writeFileSync(join(bin, 'cargo'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  else if (scenario === 'failed') writeFileSync(join(bin, 'cargo'), '#!/bin/sh\nexit 127\n');
+  else rmSync(join(bin, 'cargo'));
+  const commandPrefix = !seed && scenario === 'early' ? 'exit 125' : `export PATH=${JSON.stringify(bin)}`;
+  const execute = instrumentBash(api.createBashToolDefinition, api.createLocalBashOperations({ shellPath: '/bin/bash' }), cwd, revision, { commandPrefix, declaredChecks: [command] });
+  const result = await execute('check', { command }, undefined, undefined).catch(() => ({ content: [{ type: 'text', text: 'untrusted missing CLI claim' }] }));
+  if (!seed && scenario === 'legacy') delete result.details.runtimeTest.notRunReason;
+  if (result.details?.runtimeTest) result.details.runtimeTest.cli = 'UNTRUSTED_CHILD_TEXT';
+  if (!seed && scenario === 'stale') writeFileSync(join(cwd, 'README.md'), 'edited after lookup\n');
+  const events = [
+   { type: 'tool_execution_start', toolName: 'bash', toolCallId: 'check', args: { command } },
+   { type: 'tool_execution_end', toolName: 'bash', toolCallId: 'check', result },
+   ...(!seed && scenario === 'tainted' ? [{ type: 'tool_execution_start', toolName: 'read', toolCallId: 'open' }] : []),
+  ];
+  writeFileSync(join(bin, 'pi'), `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(events.map(e => JSON.stringify(e)).join('\n') + '\n')});\n`, { mode: 0o755 });
+  const native = await spawnPiAgent({ model: 'fake/offline', tools: 'bash', thinking: 'off', systemPrompt: 'offline', sessionFile: join(bin, 'session.json'), prompt: 'fixture', cwd, env: { PATH: `${bin}:${process.env.PATH ?? ''}` }, runtimeTestObserver: true });
+  if (!seed && scenario === 'no-integrity') delete native.lifecycle.runtimeCaptureIntegrity;
+  return { ...await throughNativeCompletion(native, `reporting-${scenario}-${run}`), elapsed: 1, output: 'report' };
+ };
+ const execute = createDispatchExecutor(d as any);
+ const invoke = () => execute('inspect', { agent: 'builder', task: 'A7 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any) as Promise<any>;
+ const first = await invoke();
+ assert.equal(first.details.verificationResult.requirements.find((r: any) => r.id === 'A7').status, 'passed');
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length, 1);
+ const current = await invoke();
+ const { details } = current;
+ const summary = current.content[0].text;
+ assert.equal(details.accepted, false);
+ assert.equal(d.state.getProcessState().runtimeReceipts.records.length, 0);
+ assert.doesNotMatch(summary, /UNTRUSTED_CHILD_TEXT|untrusted missing CLI claim|fleet-(invoke|missing)-/);
+ assert.deepEqual(JSON.parse(readFileSync(details.assessmentPath, 'utf8')).verificationDiagnostics, details.verificationDiagnostics);
+ if (scenario === 'failed') {
+  assert.equal(details.status, 'verification_failed');
+  assert.equal(details.verificationResult.checks.find((c: any) => c.command[0] === command).exitCode, 127);
+  assert.equal(details.verificationDiagnostics.unverifiedCommands, undefined);
+ } else {
+  assert.equal(details.status, 'completed_unverified');
+  assert.equal(details.verificationResult.checks.some((c: any) => c.command[0] === command), false);
+  assert.deepEqual(details.verificationDiagnostics.unverifiedCommands, [{ command, requirementIds: ['A7'], ...(scenario === 'missing' ? { reason: 'missing_cli', cli: 'cargo' } : { reason: 'insufficient_execution_evidence' }) }]);
+  assert.match(summary, scenario === 'missing' ? /was not run: required CLI 'cargo'/ : /Insufficient execution evidence for declared check/);
+  if (scenario !== 'missing') assert.doesNotMatch(summary, /required CLI/);
+ }
+});
+
 /** Offline composed regression. Fake Pi JSONL only; commands are receipt identities, never executed. */
 const COMPOSED_SHARED = 'node --test --test-timeout=15000 .pi/agent-fleet/scripts/fleet-codex-actions-compat.test.ts';
 const COMPOSED_B2 = 'node --test b2-offline-fixture.test.js';

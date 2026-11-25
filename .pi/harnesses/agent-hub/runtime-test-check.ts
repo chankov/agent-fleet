@@ -25,6 +25,7 @@ export interface RuntimeTestRecord {
  producer: "agent-fleet.runtime-test/v1";
  command: string;
  exitCode: number | null;
+ notRunReason?: "missing_cli";
  beforeRevision: string;
  afterRevision: string;
  exclusive?: boolean;
@@ -54,6 +55,7 @@ export function instrumentBash(createTool: any, operations: any, cwd: string, re
    const exact = typeof params.command === 'string' && args[0] === prefix + params.command;
    const check = exact && options.declaredChecks?.includes(params.command) && simpleCheck.exec(params.command);
    let reachedInvocation: boolean | undefined;
+   let missingCli = false;
    if (check && check[0] === params.command) {
     const [, cd = '', path = '', cli, argv] = check;
     // One shell operation, after tool approval. The configured prefix runs only once.
@@ -61,18 +63,24 @@ export function instrumentBash(createTool: any, operations: any, cwd: string, re
     // early or hides diagnostics). It never supplies the result or its exit code.
     reachedInvocation = false;
     const marker = `fleet-invoke-${randomUUID()}`;
+    const missingMarker = `fleet-missing-${randomUUID()}`;
     const stream = args[2];
     let tail = '';
     args[2] = { ...stream, onData(chunk: Buffer) {
      const text = tail + chunk.toString();
      reachedInvocation ||= text.includes(marker);
-     tail = text.slice(-marker.length);
+     missingCli ||= text.includes(missingMarker);
+     tail = text.slice(-Math.max(marker.length, missingMarker.length));
      stream.onData(chunk);
     } };
-    args[0] = `${prefix}${cd}if fleet_cli=$(${path}command -v ${cli}) && [ -f "$fleet_cli" ] && [ -x "$fleet_cli" ]; then printf '%s\\n' '${marker}' >&2; ${path}${cli}${argv}; else exit 125; fi`;
+    args[0] = `${prefix}${cd}if ! fleet_cli=$(${path}command -v ${cli}); then printf '%s\\n' '${missingMarker}' >&2; exit 125; elif [ -f "$fleet_cli" ] && [ -x "$fleet_cli" ]; then printf '%s\\n' '${marker}' >&2; ${path}${cli}${argv}; else exit 125; fi`;
    }
    const result = await operations.exec(...args);
-   if (reachedInvocation === false) throw new Error(`Declared check not run or launch unconfirmed: verify required CLI '${check[3]}' in the test shell's cwd and PATH.`);
+   if (missingCli && reachedInvocation === false) {
+    record = { producer: "agent-fleet.runtime-test/v1", command: params.command, exitCode: null, notRunReason: "missing_cli", beforeRevision, afterRevision: revision() };
+    throw new Error(`Declared check not run: required CLI '${check[3]}' was not found in the test shell.`);
+   }
+   if (reachedInvocation === false || missingCli) throw new Error('Declared check has insufficient execution evidence.');
    if (exact) record = { producer: "agent-fleet.runtime-test/v1", command: params.command, exitCode: result.exitCode, beforeRevision, afterRevision: revision() };
    return result;
   } } });
@@ -107,8 +115,15 @@ export default async function runtimeTestCheck(pi: any) {
 /** Accept observer events only on the explicitly enabled native transport and a matching tool start. */
 export function runtimeTestFromResult(enabled: boolean | undefined, startedCommand: string | undefined, toolName: string, result: any): RuntimeTestRecord | null {
  const record = result?.details?.runtimeTest;
- if (!enabled || toolName !== "bash" || record?.producer !== "agent-fleet.runtime-test/v1" || typeof record.command !== "string" || !record.command || startedCommand !== record.command || !Number.isInteger(record.exitCode) || !record.beforeRevision || !record.afterRevision || typeof record.beforeRevision !== "string" || typeof record.afterRevision !== "string") return null;
+ if (!enabled || toolName !== "bash" || record?.producer !== "agent-fleet.runtime-test/v1" || typeof record.command !== "string" || !record.command || startedCommand !== record.command || record.notRunReason !== undefined || !Number.isInteger(record.exitCode) || !record.beforeRevision || !record.afterRevision || typeof record.beforeRevision !== "string" || typeof record.afterRevision !== "string") return null;
  return { producer: "agent-fleet.runtime-test/v1", command: record.command, exitCode: record.exitCode, beforeRevision: record.beforeRevision, afterRevision: record.afterRevision };
+}
+
+/** Only a bounded code-owned reason is transported; the CLI comes from the exact command. */
+export function missingRuntimeTestCli(record: RuntimeTestRecord | undefined): string | undefined {
+ if (record?.producer !== 'agent-fleet.runtime-test/v1' || record.exitCode !== null || record.notRunReason !== 'missing_cli') return;
+ const check = simpleCheck.exec(record.command);
+ if (check?.[0] === record.command) return check[3];
 }
 
 /** A real matched bash result with no usable receipt is an unknown observation,
@@ -116,5 +131,11 @@ export function runtimeTestFromResult(enabled: boolean | undefined, startedComma
 export function runtimeTestObservationFromResult(enabled: boolean | undefined, startedCommand: string | undefined, toolName: string, result: any): RuntimeTestRecord | null {
  const valid = runtimeTestFromResult(enabled, startedCommand, toolName, result);
  if (valid) return valid;
- return enabled && toolName === "bash" && startedCommand ? { producer: "agent-fleet.runtime-test/v1", command: startedCommand, exitCode: null, beforeRevision: "unavailable", afterRevision: "unavailable" } : null;
+ if (!enabled || toolName !== 'bash' || !startedCommand) return null;
+ const record = result?.details?.runtimeTest;
+ if (record?.command === startedCommand && missingRuntimeTestCli(record) &&
+     typeof record.beforeRevision === 'string' && record.beforeRevision && typeof record.afterRevision === 'string' && record.afterRevision) {
+  return { producer: 'agent-fleet.runtime-test/v1', command: startedCommand, exitCode: null, notRunReason: 'missing_cli', beforeRevision: record.beforeRevision, afterRevision: record.afterRevision };
+ }
+ return { producer: 'agent-fleet.runtime-test/v1', command: startedCommand, exitCode: null, beforeRevision: 'unavailable', afterRevision: 'unavailable' };
 }

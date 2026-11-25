@@ -421,7 +421,7 @@ bash error-event semantics. The parent accepts a check only when producer schema
 start, exact declared command, task, coverage metadata, exit status, and unchanged inspected
 revision agree. This proves exact command execution, not semantic adequacy: even a declared
 `true` command can pass, so test quality remains subject to independent or human review.
-For exact declared checks with a recognized CLI and literal arguments, the native observer checks shell lookup immediately before invocation, after the configured prefix, optional literal `cd dir &&`, and optional `PATH="$HOME/.cargo/bin:$PATH"` setup. Missing commands produce an unknown observation that supersedes old success; an invoked CLI returning 127 is a failed test. Complex shell syntax remains unchanged.
+For exact declared checks with a recognized CLI and literal arguments, the native observer checks shell lookup immediately before invocation, after the configured prefix, optional literal `cd dir &&`, and optional `PATH="$HOME/.cargo/bin:$PATH"` setup. An explicit lookup-failure marker in a clean, exclusive capture at the final revision lets `completed_unverified` report that the check was not run and name the missing CLI. Missing or unusable launch evidence instead reports insufficient execution evidence; neither result creates a check receipt, and both supersede an older success for that command. An invoked CLI returning 127 is still a failed test. Complex shell syntax remains unchanged.
 Coms peers cannot produce trusted checks, and `manual`/`runtime-ui` requirements currently have
 no trusted producer; all three paths fail closed as missing or unsupported.
 

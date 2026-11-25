@@ -45,7 +45,8 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 		changes, requirements: p.requirements, deliverables: readback, checks,
 		evidenceRefs: [returnPath ?? undefined, failurePath ?? undefined, compilerEvidencePath ?? undefined, protocolEvidencePath ?? undefined].filter((value): value is string => !!value),
 	});
- const checkDiagnostics = captureExpected && disposition.delivered ? verificationDiagnostics(p.requirements, observations, checks) : null;
+ const diagnosticRevision = exclusive && sameTaskNow() && result.dispatchId && /^[a-f0-9]{64}$/.test(afterRevision) ? afterRevision : undefined;
+ const checkDiagnostics = captureExpected && disposition.delivered ? verificationDiagnostics(p.requirements, observations, checks, diagnosticRevision) : null;
 	if (submission && (submission.status !== "completed" || submission.requires_user_decision.some(question => question.trim().toLowerCase() !== "none"))) {
   runtimeResult.acceptance = { status: "not_accepted", accepted: false, reasons: [...runtimeResult.acceptance.reasons, "specialist_" + submission.status] };
   runtimeResult.compatibility = { hubAcceptanceStatus: "needs_verification", flowStatus: "rejected" };

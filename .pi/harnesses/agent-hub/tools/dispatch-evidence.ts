@@ -209,6 +209,8 @@ export function collectDispatchReceipts(d: DispatchExecutorDeps, p: PreparedDisp
     }
     const anchored: RuntimeReceipt[] = [];
     for (const record of latest.values()) for (const kind of ["test", "code-grep", "compilation"] as const) {
+        // Non-execution observations invalidate retained successes but never create check receipts.
+        if (record.exitCode === null) continue;
         const covered = p.requirements.filter(requirement => ["test", "code-grep"].includes(requirement.tag) && requirement.source && (kind === "compilation" ? requirement.compilerCommand === record.command : requirement.tag === kind && requirement.testCommand === record.command));
         if (!covered.length) continue;
         const coverage = covered.map(requirement => ({ id: requirement.id, source: requirement.source, text: requirement.text, reference: requirement.reference, criticalConditions: requirement.criticalConditions ?? [] }));
