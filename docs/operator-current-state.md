@@ -28,6 +28,23 @@ Current-state режимът изисква:
 
 Native `**Verdict:** APPROVE`/`**Verdict**: APPROVE` вече са разпознаваеми, както plain APPROVE/Verdict: APPROVE. Всеки recognized REJECT veto-ва APPROVE; incidental prose/JSON не е verdict. Това не затваря gate без останалите условия.
 
+## Separate operator command evidence is not supported
+
+The reviewer still runs the declared checks. The Hub does not combine a separate
+operator Bash run with a final review. Pi's `tool_call` is a pre-effect gate;
+its result hooks are not operation callbacks. The built-in Bash operation is
+configured when Pi constructs the tool. Re-registering `bash` retains the name
+and pre-effect hook but replaces the built-in catalog owner. Pi's interactive
+`user_bash` hook is a different execution path, not the guarded model tool call.
+Neither is used as a substitute receipt producer.
+
+A future join needs an in-place observation of the guarded Pi operation and an
+independently qualified final review. Both must bind the same task, generation,
+epoch, declarations, exact scope, and revision. Cancellation, overlap, taint,
+and superseded evidence must fail closed. Logs, imported results, and prose
+cannot supply either trusted origin. The real-Pi feasibility test checks catalog
+ownership and pre-effect blocking; it does not prove the join.
+
 ## Какво означава резултатът
 
 Успехът създава runtime evidence artifact `agent-fleet.operator-state-verification/v1`, съдържащ current revision, exact scope, actual check references и `historicalAttribution=not_claimed`. Използва се реалният six-argument artifact writer със captured sessionDir и kind=evidence; payload-ът се readback-ва byte-exact от regular non-symlink file под същия private namespace преди записване на acceptance. Missing/hollow/wrong-kind/foreign-session artifact не е proof. Process origin/path е `operator-current-state`. Нито кодът е „пренаписан“, нито child `changes` е фалшифициран: read-only child остава `unchanged` и `taskAccepted=false`, а отделният `operatorStateVerification.status=accepted`/process verdict описва новия contract.
