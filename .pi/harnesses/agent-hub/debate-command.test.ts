@@ -41,3 +41,43 @@ test("handleAfDebate charges once and emits onAccepted before execute", async ()
 	assert.equal(result.ok, true);
 	assert.deepEqual(order, ["charge", "accepted", "execute"]);
 });
+
+function debatePorts(overrides: { available?: string[]; configured?: string | null } = {}) {
+	const calls: string[] = [];
+	const input = {
+		cwd: "/tmp",
+		pollPanelOverride: overrides.configured ?? null,
+		listPanels: () => overrides.available ?? ["default", "cheap"],
+		checkBudget: () => null,
+		chargeBudget: () => { calls.push("charge"); },
+		execute: async ({ panel, rounds }: { panel: string; rounds: number }) => {
+			calls.push(`execute:${panel}`);
+			return { panel, directory: "d/", rounds, voices: [] };
+		},
+	};
+	return { input, calls };
+}
+
+test("/af-debate selection in this slice: explicit beats configured, configured is used, unknown names refuse before any start", async () => {
+	const explicit = debatePorts({ configured: "cheap" });
+	assert.equal((await handleAfDebate({ ...explicit.input, args: "--panel default q?" })).ok, true);
+	assert.deepEqual(explicit.calls, ["charge", "execute:default"]);
+
+	const configured = debatePorts({ configured: "cheap" });
+	assert.equal((await handleAfDebate({ ...configured.input, args: "q?" })).ok, true);
+	assert.deepEqual(configured.calls, ["charge", "execute:cheap"]);
+
+	const unknown = debatePorts({ configured: "cheap" });
+	const refused = await handleAfDebate({ ...unknown.input, args: "--panel typo q?" });
+	assert.equal(refused.ok, false);
+	assert.match(refused.message, /Unknown panel "typo"\. Available panels: default, cheap/);
+	assert.deepEqual(unknown.calls, []);
+});
+
+test("/af-debate does not adopt the Poll default-panel fallback yet (task 11 extends it)", async () => {
+	const { input, calls } = debatePorts();
+	const refused = await handleAfDebate({ ...input, args: "q?" });
+	assert.equal(refused.ok, false);
+	assert.match(refused.message, /--panel is required \(or set poll-panel: in ## agent-hub\)\. Available panels: default, cheap/);
+	assert.deepEqual(calls, []);
+});

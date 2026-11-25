@@ -1,4 +1,5 @@
 import { readActiveProfile, profilePanel } from './model-profile.ts';
+import { workspaceRoot } from "../../../../harnesses/lib/workspace-context.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -29,8 +30,9 @@ export class VoicesError extends Error {
 	}
 }
 
+/** Panels are workspace configuration: a selected worktree never supplies its own roster. */
 export function voicesPath(cwd = process.cwd()): string {
-	return resolve(cwd, VOICES_REL);
+	return resolve(workspaceRoot(cwd), VOICES_REL);
 }
 
 export function listPanelNames(cwd = process.cwd()): string[] {
