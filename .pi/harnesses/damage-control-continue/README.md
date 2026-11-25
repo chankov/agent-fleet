@@ -78,9 +78,10 @@ They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths
 ```
 
 **Block-time dialog** (when you forgot): in an interactive session a path block
-opens a selector — *Keep blocked / Allow once / Allow for this turn / Allow for
-this session*. An approved call proceeds immediately (the agent never sees the
-block); *Keep blocked* is remembered for the rest of the turn so the agent can't
+opens a selector with *Allow once* initially focused, followed by *Keep blocked*
+and, when eligible, *Allow for this turn / Allow for this session*. Press Enter
+explicitly to approve only the current request; focus alone does not approve it.
+An approved call proceeds immediately (the agent never sees the block); *Keep blocked* is remembered for the rest of the turn so the agent can't
 re-prompt you; no answer within 60s (or dismissing the dialog) fails closed. The
 agent is told the dialog closed unanswered — not that you denied it — and is
 pointed at `/af-allow`; this reads and audits the same whether or not a Codex
@@ -90,11 +91,11 @@ permission relay is attached.
 spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends an
 `access_request` to the hub's coms socket instead. The dispatcher session shows
 the request reference, tool and rule, plus the target or command when safe. If the target is withheld, the dialog cannot grant broader access. Ordinary protected reads/writes with a displayable target
-offer *Deny / Allow once / Allow for this agent / Allow for all agents (session)*.
-A protected deletion offers only *Deny / Allow once*, so approving one file does
-not grant its parent directory. A destructive `bashToolPatterns` rule marked
-`ask: true` escalates the same way (category `bash_pattern`) and also offers only
-*Deny / Allow once* — it never becomes an exemption. The child waits up to 60s and
+offer *Allow once*, *Deny*, and explicit agent/session grants. A protected deletion
+offers only *Allow once* and *Deny*, so approving one file does not grant its
+parent directory. A destructive `bashToolPatterns` rule marked `ask: true` offers
+only one-time approval or denial (30s locally); it escalates the same way
+(category `bash_pattern`) and never becomes an exemption. The child waits up to 60s and
 fails closed on timeout. At most 3 escalations per child run; denials are cached.
 
 **Codex relay**: in a Hub session with a Codex permission relay, every one of

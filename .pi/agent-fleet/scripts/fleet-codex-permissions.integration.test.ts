@@ -222,13 +222,17 @@ test('a child request Codex cannot be offered falls back locally and records why
  const list:any=await f.call('fleet_permissions',{target:owner,operation:'list',snapshot:null});assert.deepEqual(list.requests,[]);
 });
 
-test('machine-capable child lane preserves an actual human agent-scope exemption, never relabels it machine',async t=>{
+for(const decision of ['allow_once','allow_agent'] as const) test(`machine-capable child lane preserves human ${decision} scope`,async t=>{
  const f=await fixture(t),file=join(f.root,'exemptions.json');
- f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>({hasUI:true,ui:{notify(){},select:async()=> 'Allow for this agent (this session)'}}),getExemptionsFile:()=>file,appendLog(){},now:()=>new Date().toISOString()}));
+ f.setChildRouter(createAccessApprovalRouter({relay:f.relay,taskIdentity:()=>({taskId:action.taskId,inputRevision:action.inputRevision}),currentChild:()=>true,getContext:()=>({hasUI:true,ui:{notify(){},select:async(_title,options)=>{
+  assert.equal(options[0],'Allow once');
+  return decision==='allow_once'?options[0]:'Allow for this agent (this session)';
+ }}}),getExemptionsFile:()=>file,appendLog(){},now:()=>new Date().toISOString()}));
  const exactAction={tool:'write',cwd:'/repo',input:{path:'fixture-protected/a',content:'synthetic'},category:'read_only',pattern:'fixture-protected/'};
  const req:AccessRequest={type:'access_request',msg_id:'human-scope',sender_session:'builder',sender_endpoint:'',hops:0,timestamp:new Date().toISOString(),agent:'builder',tool:'write',rule:'synthetic',category:'read_only',pattern:'fixture-protected/',invocation:'synthetic',accessEpoch:'spawn',exactAction,actionDigest:createHash('sha256').update(JSON.stringify(exactAction)).digest('hex')};
- assert.equal(await requestAccessFromHub(f.endpoint,req,1500),'allow_agent');
- assert.equal(readExemptionsFile(file)[0].agent,'builder');assert.equal(readExemptionsFile(file)[0].pattern,'fixture-protected/');
+ assert.equal(await requestAccessFromHub(f.endpoint,req,1500),decision);
+ if(decision==='allow_once')assert.deepEqual(readExemptionsFile(file),[]);
+ else {assert.equal(readExemptionsFile(file)[0].agent,'builder');assert.equal(readExemptionsFile(file)[0].pattern,'fixture-protected/');}
 });
 
 test('exemption file changed during pending child machine decision invalidates that exact request',async t=>{

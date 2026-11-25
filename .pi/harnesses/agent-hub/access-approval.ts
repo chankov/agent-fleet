@@ -107,7 +107,8 @@ export function createAccessApprovalRouter(deps: AccessApprovalDeps) {
 			return Promise.resolve("allow_all");
 		}
 		if (denyCache.has(cacheKey)) return Promise.resolve("deny");
-		const pendingKey = request.actionDigest ? JSON.stringify([cacheKey,request.msg_id,request.actionDigest]) : cacheKey;
+		// Only subscriptions to the same request may share a one-time grant.
+		const pendingKey = JSON.stringify([cacheKey, request.msg_id, request.accessEpoch, request.actionDigest, request.invocation]);
 		const existing = pending.get(pendingKey);
 		if (signal.aborted) return Promise.resolve('deny');
 		if (existing && !existing.controller.signal.aborted) return subscribe(existing, signal);

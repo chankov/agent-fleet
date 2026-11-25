@@ -618,8 +618,8 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 					const TURN = "Allow for this turn";
 					const SESSION = "Allow for this session";
 					const choices = !target || matchedCategory === "no_delete"
-						? [KEEP, ONCE]
-						: [KEEP, ONCE, TURN, SESSION];
+						? [ONCE, KEEP]
+						: [ONCE, KEEP, TURN, SESSION];
 					const finishQueue=beginRuntimeTrace(pi.events,{kind:'queue',id:`baseline:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',reason:'approval_queue'});
 					// The local dialog closed by itself (timeout or dismissal), not because
 					// the relay or the turn aborted it. That outcome is reported the same
@@ -676,7 +676,7 @@ export default function (pi: ExtensionAPI, dependencies: {assignment?:unknown} =
 			 const finish=beginRuntimeTrace(pi.events,{kind:'approval',id:`destructive:${event.toolCallId}`,parentId:event.toolCallId,source:'damage-control',rule:violationReason!});
 			 try{const choice=await ctx.ui.select(
     dialogTitle,
-    ['Keep blocked','Allow once'],{timeout:30000,signal:AbortSignal.any([signal,permissionSignal])});finish({status:choice==='Allow once'?'allowed':choice==='Keep blocked'?'denied':'cancelled'});return choice;
+    ['Allow once','Keep blocked'],{timeout:30000,signal:AbortSignal.any([signal,permissionSignal])});finish({status:choice==='Allow once'?'allowed':choice==='Keep blocked'?'denied':'cancelled'});return choice;
 			 }catch(error){finish({status:'failed'});throw error;}
 			}).finally(()=>finishQueue({status:'cancelled'})),choice=>choice==='Allow once'?'allow_once':choice==='Keep blocked'?'deny':null,'Allow once',30000);
 

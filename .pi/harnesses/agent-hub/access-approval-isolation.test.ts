@@ -30,7 +30,7 @@ test('disconnect of first coalesced requester does not cancel the live second re
  const first=socket(),second=socket();
  const a=router.handle(first,request('first'));
  await tick();
- const b=router.handle(second,request('second'));
+ const b=router.handle(second,request('first'));
  await tick();
  first.emit('close');
  const cancelled=signal?.aborted;
@@ -72,7 +72,7 @@ test('expiry of the first requester leaves the second requester and shared dialo
  });
  const first=socket(),second=socket();
  const a=router.handle(first,{...request('first'),deadline:Date.now()+50});await tick();
- const b=router.handle(second,{...request('second'),deadline:Date.now()+1000});await tick();
+ const b=router.handle(second,{...request('first'),deadline:Date.now()+1000});await tick();
  await sleep(70);await a;
  assert.equal(signal?.aborted,false);
  answer('Allow once');await b;
@@ -221,7 +221,7 @@ test('disconnect of all coalesced requesters aborts shared UI without caching a 
  const first=socket(),second=socket();
  const a=router.handle(first,request('first'));
  await tick();
- const b=router.handle(second,request('second'));
+ const b=router.handle(second,request('first'));
  await tick();
  first.emit('close');second.emit('close');
  assert.equal(signal?.aborted,true);

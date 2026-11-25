@@ -217,7 +217,7 @@ test("continue: interactive protected deletion only offers one-call approval", a
 		select: (_title, options) => options.find((option) => option === "Allow once"),
 	});
 	assert.equal((await h.toolCall(deleteReadme)).block, false);
-	assert.deepEqual(h.state.selectOptions[0], ["Keep blocked", "Allow once"]);
+	assert.deepEqual(h.state.selectOptions[0], ["Allow once", "Keep blocked"]);
 	assert.equal(h.log.some(({ data }) => data.action === "exemption_granted"), false);
 });
 

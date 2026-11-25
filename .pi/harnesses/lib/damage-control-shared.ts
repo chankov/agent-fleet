@@ -152,8 +152,8 @@ export type AccessDecisionChoice = "deny" | "allow_once" | "allow_agent" | "allo
 /** Protected deletions are approved per invocation; broader grants stay operator-explicit. */
 export function accessDecisionChoices(category: AccessCategory): AccessDecisionChoice[] {
 	return category === "no_delete" || category === "bash_pattern"
-		? ["deny", "allow_once"]
-		: ["deny", "allow_once", "allow_agent", "allow_all"];
+		? ["allow_once", "deny"]
+		: ["allow_once", "deny", "allow_agent", "allow_all"];
 }
 
 /** Coalesce identical asks without letting one delete approval cover sibling paths. */

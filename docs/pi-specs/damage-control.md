@@ -30,9 +30,9 @@ The extension uses `isToolCallEventType(toolName, event)` for type-safe narrowin
 - **Status Indicator**: Use `ctx.ui.setStatus()` to show an indicator of active safety rules (e.g., "🛡️ Damage-Control Active: 142 Rules").
 - **Violation Feedback**: When a violation is blocked or confirmed, update the status temporarily to show the last event (e.g., "⚠️ Last Violation: git reset --hard").
 - **Blocking without aborting**: Return `{ block: true, reason: "Security Policy Violation: [Reason]" }`; do not call `ctx.abort()`. The operation fails closed while the agent remains able to report or safely adapt.
-- **Protected-path approval**: Interactive path violations may be approved explicitly. Headless Agent Hub children escalate to the dispatcher and fail closed on denial, timeout, missing UI, or an unreachable endpoint. `noDeletePaths` offers only Deny or Allow once; other path categories may use scoped/session grants.
-- **Non-exemptible commands**: `bashToolPatterns` never open an approval bypass.
-- **User Confirmation (`ask: true`)**: Rules explicitly marked `ask` use `ctx.ui.confirm`; denial blocks without aborting the turn.
+- **Protected-path approval**: Interactive path violations may be approved explicitly. Headless Agent Hub children escalate to the dispatcher and fail closed on denial, timeout, missing UI, or an unreachable endpoint. `noDeletePaths` offers only Allow once or Deny; other path categories may use scoped/session grants.
+- **Non-exemptible commands**: `bashToolPatterns` do not support exemptions. Rules explicitly marked `ask: true` offer one-time approval or denial; other matches remain hard blocks.
+- **Interactive default**: Local and dispatcher Damage-Control action selectors initially focus **Allow once**. Pressing Enter on that choice authorizes only the displayed request, even if a later request has identical inputs. Escape, timeout, or no reply never authorizes it. Existing approval deadlines are unchanged.
 - **Notifications**: Use `ctx.ui.notify()` to alert the user when a rule is triggered.
 
 ## 5. Logging & Persistence

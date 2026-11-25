@@ -62,7 +62,7 @@ test('baseline hard deny never assesses; all local allow branches remain baselin
  await x.commands.get('af-revoke').handler('secret',x.ctx);x.ctx.hasUI=true;
  for(const choice of ['Allow once','Allow for this turn','Allow for this session']){x.ctx.ui.select=async()=>choice;await x.call({...event(choice),input:{command:'cat secret'}});await x.commands.get('af-revoke').handler('secret',x.ctx);}
  // Bash-pattern approval only offers Allow once; reset the path-exemption fixture choice.
- x.ctx.ui.select=async(_title:any,choices:string[])=>{assert.deepEqual(choices,['Keep blocked','Allow once']);return 'Allow once';};
+ x.ctx.ui.select=async(_title:any,choices:string[])=>{assert.deepEqual(choices,['Allow once','Keep blocked']);return 'Allow once';};
  assert.equal((await x.call({...event('confirm'),input:{command:'ASK'}})).block,false);assert.equal(f.calls(),6);
  await x.call({toolName:'read',toolCallId:'read',input:{path:'public'}});assert.equal(f.calls(),6);
 });

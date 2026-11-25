@@ -70,7 +70,7 @@ export function createDamageApproval(deps:{state:ReturnType<typeof createDamageS
       controller.signal.removeEventListener('abort',abortRelay);
       decision=outcome.status==='decided'?(outcome.decision==='allow_once'?'allow':'deny'):'cancel';
       if(outcome.status==='decided'){try{deps.audit?.({schema:'damage-permission-decision/v1',identityAssurance:outcome.source==='codex_machine'?'cooperative_native_thread_no_host_or_turn_attestation':'local_human_ui',permissionId:relayRequest.id,taskId:snapshot.taskId,inputRevision:snapshot.inputRevision,actionId:snapshot.actionId,actionDigest:relayRequest.actionDigest,payloadDigest:snapshot.target,...permissionAuditOutcome(outcome)});}catch{applied(false);return {status:'persistence_failed'};}}
-     }else decision=await decideIdenticalDialog(dialogKey,localDecision,{fresh:deps.state.needsArm(snapshot)});
+     }else decision=await decideIdenticalDialog(dialogKey,localDecision,{fresh:deps.state.needsArm(snapshot),oneUseRequestKey:binding});
      if(!current(snapshot,waitSignal)||!presentationCurrent()||key(action)!==binding){applied?.(false);return {status:'cancelled'};}
      if(decision==='cancel')return controller.signal.aborted?{status:'expired'}:{status:'cancelled'};
      try{if(decision==='deny'){deps.state.deny(snapshot);return {status:'denied'};}if(denialEpoch!==deps.state.denialEpoch(snapshot))return {status:'cancelled'};deps.state.allow(snapshot);}catch{return {status:'persistence_failed'};}

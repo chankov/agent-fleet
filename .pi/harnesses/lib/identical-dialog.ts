@@ -15,11 +15,13 @@ export function resetIdenticalDialogs():void {
  state.generation++;remembered.clear();inflight.clear();
 }
 /** A completed identical dialog is not shown again. Cancellation is not a decision. Fresh dialogs ignore memory but still coalesce. */
-export function decideIdenticalDialog(key:string,ask:()=>Promise<DialogOutcome>,options?:{fresh?:boolean}):Promise<DialogOutcome> {
- if(!options?.fresh){const prior=remembered.get(key);if(prior)return Promise.resolve(prior);}
- const flight=options?.fresh?`${key}:fresh`:key,existing=inflight.get(flight);if(existing)return existing;
+export function decideIdenticalDialog(key:string,ask:()=>Promise<DialogOutcome>,options?:{fresh?:boolean;oneUseRequestKey?:string}):Promise<DialogOutcome> {
+ const exact=options?.oneUseRequestKey;
+ if(!options?.fresh){const prior=remembered.get(key);if(prior&&(exact===undefined||prior==='deny'))return Promise.resolve(prior);}
+ const flight=exact===undefined?(options?.fresh?`${key}:fresh`:key):JSON.stringify([key,exact,options?.fresh??false]);
+ const existing=inflight.get(flight);if(existing)return existing;
  const generation=state.generation;
- const pending=(async()=>{const decision=await ask();if(generation!==state.generation)return 'cancel' as const;if(!options?.fresh&&decision!=='cancel')remembered.set(key,decision);return decision;})();
+ const pending=(async()=>{const decision=await ask();if(generation!==state.generation)return 'cancel' as const;if(!options?.fresh&&(decision==='deny'||decision==='allow'&&exact===undefined))remembered.set(key,decision);return decision;})();
  inflight.set(flight,pending);
  const cleanup=()=>{if(inflight.get(flight)===pending)inflight.delete(flight);};
  void pending.then(cleanup,cleanup);

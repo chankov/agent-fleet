@@ -60,8 +60,8 @@ test("removeExemptionFromFile: removes all entries for a pattern", () => {
 });
 
 test("protected deletion only permits deny or one-call approval", () => {
-	assert.deepEqual(accessDecisionChoices("no_delete"), ["deny", "allow_once"]);
-	assert.deepEqual(accessDecisionChoices("zero_access"), ["deny", "allow_once", "allow_agent", "allow_all"]);
+	assert.deepEqual(accessDecisionChoices("no_delete"), ["allow_once", "deny"]);
+	assert.deepEqual(accessDecisionChoices("zero_access"), ["allow_once", "deny", "allow_agent", "allow_all"]);
 });
 
 test("protected deletion requests are coalesced by invocation, not broad rule pattern", () => {

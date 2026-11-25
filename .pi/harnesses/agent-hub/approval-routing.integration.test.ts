@@ -79,7 +79,7 @@ test("protected deletion routes only Deny and Allow once and persists no broad e
 	});
 	const socket = fakeSocket();
 	await router.handle(socket, request());
-	assert.deepEqual(presentedOptions, ["Deny (keep blocked)", "Allow once"]);
+	assert.deepEqual(presentedOptions, ["Allow once", "Deny (keep blocked)"]);
 	assert.equal(response(socket).decision, "allow_once");
 	assert.deepEqual(readExemptionsFile(exemptionsFile), []);
 });
@@ -87,7 +87,7 @@ test("protected deletion routes only Deny and Allow once and persists no broad e
 test('withheld protected shell action cannot create a broad grant',async()=>{
  const req=bind(request({category:'read_only'}),{command:'echo password=private-body > .github/file'});
  const messages:string[]=[],logs:unknown[]=[];
- const router=createAccessApprovalRouter({getContext:()=>({hasUI:true,ui:{notify:t=>messages.push(t),async select(t,opts){messages.push(t);assert.deepEqual(opts,['Deny (keep blocked)','Allow once']);return 'Allow for all agents (this session)';}}}),getExemptionsFile:()=>null,appendLog:e=>logs.push(e),now:()=>new Date().toISOString()});
+ const router=createAccessApprovalRouter({getContext:()=>({hasUI:true,ui:{notify:t=>messages.push(t),async select(t,opts){messages.push(t);assert.deepEqual(opts,['Allow once','Deny (keep blocked)']);return 'Allow for all agents (this session)';}}}),getExemptionsFile:()=>null,appendLog:e=>logs.push(e),now:()=>new Date().toISOString()});
  const sock=fakeSocket();await router.handle(sock,req);
  assert.equal(response(sock).decision,'deny');assert.ok(messages.some(t=>t.includes('Target withheld')));assert.doesNotMatch(JSON.stringify([messages,logs]),/private-body/);
 });
