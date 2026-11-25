@@ -238,6 +238,14 @@ the same repository revision and matching scope, requirements, and report. A lat
 reopens the review. After builders finish, run one review of the whole task change. Include any
 preliminary reports as input artifacts when their findings are relevant.
 
+For `incomplete_scope`, `details.reviewEvidence.scopeDiagnostic` reports a declared-scope
+omission count only when the task input and revision are comparable. Otherwise it tells you
+how to re-establish the changed-file list and run targeted verification. A current-state
+preflight refusal can report the numbered declaration entry that was not eligible in the
+runtime Git observation, or ask you to check Git status locally if observation is unavailable.
+These diagnostics do not echo omitted filenames or infer actual checked paths or test coverage
+from scope declarations, reviews, or command receipts. They do not change acceptance.
+
 ### Task brief
 
 Agents share facts through files, not through prompts. Each task has one brief,

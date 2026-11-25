@@ -53,6 +53,7 @@ export interface DispatchExecutionState {
 	addAgentInstance?(base: string, instance: string): boolean;
 	/** Records an admitted delegation in the current task brief. */
 	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
+	getTaskDisplayScope?(): import('../scope-diagnostic.ts').TaskDisplayScope;
 	getActiveWritableDispatches(): number; setActiveWritableDispatches(value: number): void;
 	/** Monotonic registration count, including writers that have already exited. */
 	getWriterGeneration?(): number;
@@ -146,4 +147,5 @@ export interface ReviewRunEvidence {
 	revisionScopes: string[];
 	evidenceRef: string;
 	reasons: string[];
+	scopeDiagnostic?: import("../scope-diagnostic.ts").ScopeDiagnostic;
 }

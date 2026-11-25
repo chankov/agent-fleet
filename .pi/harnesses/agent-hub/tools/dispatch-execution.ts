@@ -7,7 +7,8 @@ import { capturePrivateConfig, privateConfigRevision, type PrivateConfigBinding 
 import { beginReceiptCapture, receiptDeclarationHash } from "../runtime-receipts.ts";
 import { captureReviewBaseline, reviewContinuation } from "../review-continuity.ts";
 import { reviewInput, reusableReview } from "../review-reuse.ts";
-import { captureOperatorState, operatorReviewState, operatorScopeSyntax, type OperatorStateCandidate } from "../operator-current-state.ts";
+import { captureOperatorState, OperatorScopeObservationError, operatorReviewState, operatorScopeSyntax, unknownOperatorScope, type OperatorStateCandidate } from "../operator-current-state.ts";
+import { earlyOperatorScopeDiagnostic, formatScopeDiagnostic, type ScopeDiagnostic } from "../scope-diagnostic.ts";
 import { minimalChangeRequirement, preflightDeliverables, type AcceptanceRequirement, type DeliverableContract } from "../acceptance.ts";
 import { normalizeResearchContract, withNoProgress } from "../no-progress.ts";
 import { randomUUID } from "node:crypto";
@@ -62,10 +63,10 @@ function refusalSnapshot(d: DispatchExecutorDeps, ctx: ExtensionContext): string
 
 /** Runtime-owned preflight refusal: never launched a process, never produced effects.
  *  Callers must not infer execution from exitCode alone; started:false is authoritative. */
-function refusal(d: DispatchExecutorDeps, agent: string, task: string, status: string, message: string, reason?: string): ToolExecutionResult {
+function refusal(d: DispatchExecutorDeps, agent: string, task: string, status: string, message: string, reason?: string, scopeDiagnostic?: ScopeDiagnostic): ToolExecutionResult {
 	d.state.getTurnReport().refusals++; d.state.getSessionTotals().refusals++;
 	const recoveryCategory = refusalCategoryFor(status, reason);
-	return { content: [{ type: "text", text: message }], details: { agent, task, status, reason: reason ?? status, recoveryCategory, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none" } };
+	return { content: [{ type: "text", text: scopeDiagnostic ? `${message}\n${formatScopeDiagnostic(scopeDiagnostic)}` : message }], details: { agent, task, status, reason: reason ?? status, recoveryCategory, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none", ...(scopeDiagnostic ? { scopeDiagnostic } : {}) } };
 }
 
 const RESEARCH_DISPATCH_NAMES = new Set(["researcher", "deep-researcher"]);
@@ -231,8 +232,20 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
    if(!tools.includes('bash'))throw Error('operator_state_tests_unavailable');
    operatorSnapshot=takeSnapshot();
    operatorCandidate=captureOperatorState({scope,cwd:ctx.cwd||process.cwd(),snapshot:operatorSnapshot,revision:revisionFor(operatorSnapshot,basisFor(operatorSnapshot))});
-   if(checkScope(s.getProcessState!().changedFiles,operatorCandidate.paths).outOfScope.length)throw Error('operator_state_incomplete_scope');
-  }catch(e){return refusal(d,agent,task,'operator_state_preflight_failed',e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable');}
+   const registered = s.getProcessState!().changedFiles;
+   const omitted = checkScope(registered, operatorCandidate.paths).outOfScope;
+   if (omitted.length) {
+    // Preserve the existing admission decision even if optional display history is unavailable.
+    let prior: ReturnType<NonNullable<typeof s.getTaskDisplayScope>> | undefined;
+    try { prior = s.getTaskDisplayScope?.(); } catch { /* no display provenance */ }
+    const diagnostic = earlyOperatorScopeDiagnostic({ taskId: d.noProgress.taskId(), prior, registered, omitted, declared: operatorCandidate.paths });
+    return refusal(d, agent, task, 'operator_state_preflight_failed', 'operator_state_incomplete_scope', undefined, diagnostic);
+   }
+  }catch(e){
+   const code=e instanceof Error&&/^operator_state_[a-z_]+$/.test(e.message)?e.message:'operator_state_scope_unavailable';
+   const diagnostic=e instanceof OperatorScopeObservationError ? e.diagnostic : code==='operator_state_scope_unavailable' ? unknownOperatorScope() : undefined;
+   return refusal(d,agent,task,'operator_state_preflight_failed',code,undefined,diagnostic);
+  }
  }
 	// One pre-run snapshot is both the revision baseline and a writable run's delta base.
 	const beforeSnapshot = operatorSnapshot ?? takeSnapshot();

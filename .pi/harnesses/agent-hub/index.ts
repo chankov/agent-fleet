@@ -1130,6 +1130,8 @@ export default function (pi: ExtensionAPI) {
 				getAgentStates: () => agentStates as any, getAssertions: () => assertions, getResearchPersonas: () => researchPersonas,
 				getInstalledAgentNames: () => dispatchableAgentDefs().map(def => def.name),
 				recordDelegation,
+				// Same structured declarations already rendered in the task brief, never its prose or on-disk content.
+				getTaskDisplayScope: () => ({ taskId: briefLog.taskId, entries: briefLog.entries.filter(entry => entry.kind === 'specialist').flatMap(entry => entry.scope) }),
 				getActiveWriters: () => Array.from(activeWriters.values()),
 				mayRouteToComs,
 				addAgentInstance: (base, instance) => addParallelAgentInstance(base, instance),

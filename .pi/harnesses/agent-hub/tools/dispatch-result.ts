@@ -8,6 +8,7 @@ import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
 import { MAX_AUTO_RESEARCH_ROUNDS } from "../research/runtime.ts";
 import { countReviewFindings, findingBudgetNotice } from "../review-findings.js";
 import { blockingFindingCap, isReviewPersona } from "../run-budget.js";
+import { formatScopeDiagnostic } from "../scope-diagnostic.ts";
 import { checkScope } from "../scope-gate.js";
 import { verificationDiagnosticNotice } from "../verification-diagnostics.ts";
 import type { DispatchAgentParams, ToolExecutionResult } from "./context.ts";
@@ -67,6 +68,7 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 		if (otherWriters.length) notices.push(`Area review: ${otherWriters.map(writer => writer.agent).join(", ")} was still writing. Run a final review of the whole change after writes finish.`);
 		else if (reviewOverlapped) notices.push("Area review: a writer overlapped this inspection. Run a final review of the whole change after writes finish.");
 		notices.push(`Preliminary review (${reviewEvidence.reasons.join(", ")}). Report and revision evidence: ${assessmentPath}`);
+		if (reviewEvidence.scopeDiagnostic) notices.push(formatScopeDiagnostic(reviewEvidence.scopeDiagnostic));
 	}
 	if (tracking.isolatedScope) notices.push(`Parallel writer: OS-sandboxed to ${tracking.isolatedScope.join(", ") || "no repository paths"}; only changes inside that scope are attributed to ${p.agent}.${observation?.foreignPaths?.length ? ` Changes outside it during the run (not attributed): ${observation.foreignPaths.slice(0, 12).join(", ")}${observation.foreignPaths.length > 12 ? " …" : ""}.` : ""} Run the full checks once no writer is active.`);
 	if (disposition.pending) notices.push("⏳ DELIVERY PENDING — no result or assertion evidence is available yet, and no return/failure artifact was written. Use the msg_id above with coms_get/coms_await; do not re-dispatch.");

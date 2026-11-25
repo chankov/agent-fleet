@@ -11,6 +11,7 @@ import { countReviewFindings } from "../review-findings.js";
 import { retainReview, reviewInput } from "../review-reuse.ts";
 import { affirmativeReviewVerdict } from "../review-verdict.ts";
 import { basePersonaName, isReviewPersona } from "../run-budget.js";
+import { reviewScopeDiagnostic } from "../scope-diagnostic.ts";
 import { checkScope, reviewableChangedPaths, revisionOf } from "../scope-gate.js";
 import { verificationDiagnostics } from "../verification-diagnostics.ts";
 import type { DispatchEvidence, DispatchReceipts } from "./dispatch-evidence.ts";
@@ -134,7 +135,14 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 			];
 			const reasons = qualifies.filter(([, ok]) => !ok).map(([reason]) => reason);
 			if (!reasons.length && !reviewMayClose({ revision: afterRevision, scope: processState.changedFiles, output: result.output, evidenceRef: runPath, declared: !!parsedReturn, wide: processState.scope === "wide" || !!processState.additions?.some(item => item.status === "active" && item.reason === "wide_change") })) reasons.push("regression_not_closed");
-			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons };
+			// The registered task files and declaration are comparable only against a
+			// stable, same-task input. Neither the declaration nor command receipts
+			// enumerate what the reviewer actually inspected or tests exercised.
+			const comparableScope = sameTask && sameTaskNow() && !reviewOverlapped && reviewRevisionStable
+				&& !!p.reviewInput && !reasons.includes("review_input_changed");
+			const scopeDiagnostic = reasons.includes("incomplete_scope")
+				? reviewScopeDiagnostic(comparableScope ? reviewScope.outOfScope.length : undefined) : undefined;
+			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons, ...(scopeDiagnostic ? { scopeDiagnostic } : {}) };
 		}
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained

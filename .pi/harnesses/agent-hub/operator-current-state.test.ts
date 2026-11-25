@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,writeFileSync,rmSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {captureOperatorState,operatorStateChecksDiagnostic,operatorStateNextStep,operatorStateChecksPassed,operatorScopeSyntax,OPERATOR_SCOPE_MAX} from './operator-current-state.ts';
+import {captureOperatorState,OperatorScopeObservationError,operatorStateChecksDiagnostic,operatorStateNextStep,operatorStateChecksPassed,operatorScopeSyntax,OPERATOR_SCOPE_MAX} from './operator-current-state.ts';
+import {earlyOperatorScopeDiagnostic,formatScopeDiagnostic} from './scope-diagnostic.ts';
 const candidate={origin:'operator-current-state' as const,revision:'current',paths:['a.ts'],historicalAttribution:'not_claimed' as const};
 const requirements=[{id:'AF-MIN-CHANGE',tag:'test',status:'passed',evidenceRefs:['check']},{id:'A2',tag:'test',status:'passed',evidenceRefs:['check']},{id:'A1',tag:'manual',status:'unsupported'}];
 const proof={candidate,revision:'current',sameTask:true,native:true,exclusive:true,verification:{requirements,checks:[{producer:'runtime',status:'passed',evidenceRef:'check',requirementIds:['AF-MIN-CHANGE','A2']}]}};
@@ -28,6 +29,38 @@ test('scope capture uses observed Git-visible regular files, rejects ignored/cle
  assert.deepEqual(captureOperatorState({scope:['a.ts'],cwd,snapshot:{...snapshot,nested:true,gaps:[]},revision:'current'}),candidate);
  assert.throws(()=>captureOperatorState({scope:['a.ts'],cwd,snapshot:{...snapshot,nested:true,gaps:[{scope:'loose.md',reason:'no repository'}]},revision:'current'}),{message:'operator_state_scope_unavailable'});
 });
+test('operator observation gap names the declaration entry, not its path or a test coverage claim',t=>{
+ const cwd=mkdtempSync(join(tmpdir(),'operator-state-gap-'));t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ writeFileSync(join(cwd,'cli.ts'),'changed');
+ const scope=['cli.ts','server/private-config.ts'];
+ const snapshot={paths:new Set(['cli.ts','server-old/private-config.ts']),fingerprints:new Map([['cli.ts','hash'],['server-old/private-config.ts','hash']])};
+ for(const [input,kind] of [[snapshot,'observation_gap'],[{...snapshot,paths:undefined},'unknown'],[{...snapshot,skipped:true},'unknown']] as const){
+  assert.throws(()=>captureOperatorState({scope,cwd,snapshot:input,revision:'current'}),error=>{
+   assert.ok(error instanceof OperatorScopeObservationError);
+   assert.equal(error.diagnostic.kind,kind);
+   assert.equal(error.diagnostic.checkedPaths,'unknown');
+   const serialized=JSON.stringify(error.diagnostic);
+   assert.doesNotMatch(serialized,/private-config|server-old|cli\.ts|hash/);
+   if(kind==='observation_gap') assert.match(error.diagnostic.nextStep,/entry #2/);
+   return true;
+  });
+ }
+});
+test('early registered scope gap displays only a safe prior task entry, never an omitted descendant',()=>{
+ const label='packages/server', descendant=`${label}/private.ts`;
+ const gap={taskId:'current',registered:[descendant],omitted:[descendant],declared:['packages/cli/entry.ts']};
+ const prior={taskId:'current',entries:[label]};
+ const diagnostic=earlyOperatorScopeDiagnostic({...gap,prior});
+ assert.equal(diagnostic.kind,'omitted_task_entry');
+ assert.match(formatScopeDiagnostic(diagnostic),/Actual checked paths are unknown.*`packages\/server`/);
+ assert.doesNotMatch(JSON.stringify(diagnostic),/private\.ts/);
+ for(const patch of [{prior:undefined},{prior:{...prior,taskId:'old'}},{prior:{...prior,entries:[`${label}/**`]}},{prior:{...prior,entries:[`${label}\n`] }},{registered:[`./${descendant}`]},{omitted:[`${label}-old/private.ts`]}]){
+  const result=earlyOperatorScopeDiagnostic({...gap,prior,...patch});
+  assert.equal(result.kind,'unknown');
+  assert.doesNotMatch(JSON.stringify(result),/packages\/server|private\.ts/);
+ }
+});
+
 test('scope syntax gate accepts up to OPERATOR_SCOPE_MAX=128 unique exact files and rejects 129',()=>{
  assert.equal(OPERATOR_SCOPE_MAX,128);
  const paths=Array.from({length:128},(_,i)=>`src/dir${i%8}/file${i}.ts`);

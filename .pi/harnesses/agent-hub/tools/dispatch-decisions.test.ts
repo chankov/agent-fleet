@@ -474,23 +474,46 @@ test("a writable review rechecks the repository after asynchronous return extrac
  assert.equal(process().review.evidenceRef, null);
 });
 
-test("final review must cover files from both builder runs", async t => {
+test("final review distinguishes declared CLI/server scope from actual checked paths", async t => {
  const { cwd, d, process } = await highRiskChangedFixture(t);
  d.budget.currentBudget = () => ({ maxDispatches: null, maxResearch: null }) as any;
  const execute = createDispatchExecutor(d as any);
  const ctx = { cwd } as any;
  d.dispatchAgent = async () => {
-  writeFileSync(join(cwd, "src", "caller.ts"), "export const caller = 1;\n");
+  writeFileSync(join(cwd, "src", "cli.ts"), "export const cli = 1;\n");
+  writeFileSync(join(cwd, "src", "server-private.ts"), "export const server = 1;\n");
   return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "caller-build" };
  };
  await execute("builder", { agent: "builder", task: "Update the caller" }, undefined, undefined, ctx);
- assert.deepEqual(process().changedFiles, ["src/api.ts", "src/caller.ts"]);
+ assert.deepEqual(process().changedFiles, ["src/api.ts", "src/cli.ts", "src/server-private.ts"]);
  let reviewRun = 0;
- d.dispatchAgent = async () => ({ output: "verdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: `review-scope-${++reviewRun}` });
- const partial: any = await execute("partial", { agent: "code-reviewer", task: "Inspect the caller", scope: ["src/caller.ts"] }, undefined, undefined, ctx);
+ const approve = async () => ({ output: "I checked every file.\nVerdict: APPROVE", exitCode: 0, elapsed: 1, dispatchId: `review-scope-${++reviewRun}` });
+ d.dispatchAgent = approve;
+ const scope = ["src/api.ts", "src/cli.ts"];
+ const partial: any = await execute("partial", { agent: "code-reviewer", task: "Inspect the CLI", scope }, undefined, undefined, ctx);
  assert.deepEqual(partial.details.reviewEvidence.reasons, ["incomplete_scope"]);
+ const diagnostic = partial.details.reviewEvidence.scopeDiagnostic;
+ assert.equal(diagnostic.kind, "declared_scope_gap");
+ assert.equal(diagnostic.checkedPaths, "unknown");
+ assert.equal(diagnostic.omittedCount, 1);
+ assert.match(partial.content[0].text, /Actual checked paths are unknown.*Add the omitted task files/s);
+ assert.doesNotMatch(JSON.stringify(diagnostic), /src\/api\.ts|src\/cli\.ts|server-private/);
+ assert.doesNotMatch(partial.content[0].text, /server-private/);
+ assert.deepEqual(JSON.parse(readFileSync(partial.details.assessmentPath, "utf8")).reviewEvidence.scopeDiagnostic, diagnostic);
+ assert.equal(partial.details.accepted, false);
  assert.equal(process().review.evidenceRef, null);
- const full: any = await execute("full", { agent: "code-reviewer", task: "Review the API and the caller", scope: ["src/api.ts", "src/caller.ts"] }, undefined, undefined, ctx);
+ d.dispatchAgent = async () => {
+  writeFileSync(join(cwd, "src", "server-private.ts"), "export const server = 2;\n");
+  return approve();
+ };
+ const stale: any = await execute("stale", { agent: "code-reviewer", task: "Recheck CLI scope", scope }, undefined, undefined, ctx);
+ assert.deepEqual(stale.details.reviewEvidence.reasons, ["revision_changed", "incomplete_scope"]);
+ assert.equal(stale.details.reviewEvidence.scopeDiagnostic.kind, "unknown");
+ assert.equal(stale.details.reviewEvidence.scopeDiagnostic.omittedCount, undefined);
+ assert.match(stale.content[0].text, /Actual checked paths are unknown.*Re-establish the changed-file list/s);
+ assert.equal(process().review.evidenceRef, null);
+ d.dispatchAgent = approve;
+ const full: any = await execute("full", { agent: "code-reviewer", task: "Review API, CLI and server", scope: process().changedFiles }, undefined, undefined, ctx);
  assert.equal(full.details.reviewEvidence?.status, "final", full.content[0].text);
  assert.equal(process().review.revision, worktreeRevision(cwd, []));
 });
@@ -674,11 +697,62 @@ test('current-state review closes operator edits in a nested repository under a 
  assert.match(processPreEffectGate(f.state(),'prove','',current)?.message??'',/open: review/,'a later change in the reviewed repository makes the review stale');
 });
 
+test('early current-state refusal names the omitted cli/server task entry only with prior same-task display provenance',async t=>{
+ const cli='packages/cli', server='packages/server';
+ const cliFile=`${cli}/internal-cli-fixture.ts`, serverFile=`${server}/private-server-fixture.ts`;
+ const cases=[
+  {name:'server omitted',declared:cliFile,omitted:serverFile,entries:[cli,server],entry:server},
+  {name:'cli omitted',declared:serverFile,omitted:cliFile,entries:[cli,server],entry:cli},
+  {name:'unknown',declared:cliFile,omitted:serverFile},
+  {name:'private work has no prior label',declared:cliFile,omitted:serverFile,entries:[cli,'private-server-fixture.ts']},
+  {name:'stale task history',declared:cliFile,omitted:serverFile,entries:[server],stale:true},
+  {name:'malicious markup',declared:cliFile,omitted:`${server}\`injected/private-server-fixture.ts`,entries:[`${server}\`injected`]},
+  {name:'neighbor is not a match',declared:cliFile,omitted:`${server}-old/private-server-fixture.ts`,entries:[server]},
+  {name:'included entry is not omitted',declared:cliFile,omitted:`${cli}/private-server-fixture.ts`,entries:[cli]},
+ ];
+ for(const c of cases){
+  // Independent recovery history so each case reaches the actual early refusal.
+  const f=await operatorStateFixture(t);
+  for (const file of [cliFile,serverFile]) {
+   mkdirSync(join(f.cwd,file,'..'),{recursive:true});
+   writeFileSync(join(f.cwd,file),'current work\n');
+  }
+  let launches=0;
+  f.d.dispatchAgent=async()=>{launches++;throw Error('must refuse before launch');};
+  const entries=c.entries;
+  f.d.state.getTaskDisplayScope=entries ? ()=>({taskId:c.stale?'previous-task':f.d.noProgress.taskId(),entries}) : undefined;
+  f.d.state.setProcessState!({...f.state(),changedFiles:[c.declared,c.omitted]});
+  const before=f.state();
+  const r=await f.run(c.name,{agent:'code-reviewer',task:'Review registered task work',scope:[c.declared],backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
+  const details=r.details as any, text=r.content[0].text as string;
+  assert.match(text,/operator_state_incomplete_scope\nActual checked paths are unknown\./,c.name);
+  assert.match(text,/local Git status.*exact workspace-relative changed files.*targeted checks/,c.name);
+  assert.equal(details.scopeDiagnostic.checkedPaths,'unknown',c.name);
+  assert.equal(details.scopeDiagnostic.kind,c.entry?'omitted_task_entry':'unknown',c.name);
+  assert.equal(details.scopeDiagnostic.entry,c.entry,c.name);
+  if(c.entry) assert.ok(text.includes(`\`${c.entry}\``),c.name);
+  else assert.doesNotMatch(JSON.stringify(r),/packages\//,c.name);
+  assert.doesNotMatch(JSON.stringify(r),/internal-cli-fixture|private-server-fixture|injected/,c.name);
+  assert.equal(details.status,'operator_state_preflight_failed');
+  assert.equal(details.started,false);
+  assert.equal(details.effects,'none');
+  assert.equal(f.state(),before);
+  assert.equal(launches,0);
+  assert.equal(f.d._task(),0);
+ }
+});
+
 test('nested current-state still refuses files outside a nested repository, clean files and a changed file during review',async t=>{
  for(const scope of [['loose.md'],['rin-docs/clean.md'],['rin-docs/prd.md','loose.md']]){
   const f=await operatorStateFixture(t,'pass','nested',scope);
   const r=await f.run('nested-invalid',{agent:'code-reviewer',task:'A2 nested invalid '+scope.join(','),scope,backend:'native',review_mode:'operator-current-state'},undefined,undefined,{cwd:f.cwd} as any);
-  assert.equal((r.details as any).started,false,scope.join(','));assert.equal(f.d._task(),0);
+  const details=r.details as any;
+  assert.equal(details.started,false,scope.join(','));assert.equal(f.d._task(),0);
+  const observed=scope[0]==='rin-docs/clean.md';
+  assert.equal(details.scopeDiagnostic.kind,observed?'observation_gap':'unknown');
+  assert.match(r.content[0].text as string,/Actual checked paths are unknown/);
+  assert.match(r.content[0].text as string,observed?/operator_state_scope_unobserved.*entry #1/s:/operator_state_scope_unavailable.*Check the current Git status/s);
+  assert.doesNotMatch(r.content[0].text as string,/clean\.md|loose\.md|prd\.md/);
  }
  const scope=['rin-docs/prd.md'];
  const f=await operatorStateFixture(t,'modified-nested','nested',scope);

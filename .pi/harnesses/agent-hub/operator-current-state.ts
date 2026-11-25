@@ -1,5 +1,18 @@
 import { lstatSync, realpathSync, readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+import type { ScopeDiagnostic } from './scope-diagnostic.ts';
+
+export class OperatorScopeObservationError extends Error {
+ readonly diagnostic: ScopeDiagnostic;
+ constructor(code: 'operator_state_scope_unobserved' | 'operator_state_scope_unavailable', diagnostic: ScopeDiagnostic) {
+  super(code);
+  this.diagnostic = diagnostic;
+ }
+}
+
+export function unknownOperatorScope(): ScopeDiagnostic {
+ return {kind:'unknown',checkedPaths:'unknown',nextStep:'The runtime could not establish comparable observed paths. Check the current Git status locally in each relevant repository, declare exact changed files relative to the workspace, then re-run the review and its targeted checks.'};
+}
 export interface OperatorStateCandidate { origin:'operator-current-state'; revision:string; paths:string[]; historicalAttribution:'not_claimed' }
 export const OPERATOR_SCOPE_MAX=128;
 export function operatorScopeSyntax(scope:unknown):string[] {
@@ -18,12 +31,19 @@ export function operatorScopeSyntax(scope:unknown):string[] {
 // unavailable, so partial coverage never becomes a candidate.
 export function captureOperatorState(input:{scope:unknown;cwd:string;snapshot:any;revision:string}):OperatorStateCandidate {
  const {cwd,snapshot,revision}=input,scope=operatorScopeSyntax(input.scope);
- if(snapshot?.skipped||snapshot?.gaps?.length||!snapshot?.fingerprints||revision==='unavailable'||!revision)throw Error('operator_state_scope_unavailable');
+ if(snapshot?.skipped||snapshot?.gaps?.length||!snapshot?.fingerprints||revision==='unavailable'||!revision)throw new OperatorScopeObservationError('operator_state_scope_unavailable',unknownOperatorScope());
  const root=realpathSync(cwd),seen=new Set<string>();
- for(const path of scope){
+ for(const [index,path] of scope.entries()){
   // Existing Git observation is the boundary: ignored/clean/session output paths
   // are not silently adopted or read through a new filesystem surface.
-  if(path.startsWith('.pi/agent-sessions/')||!snapshot.paths?.has(path)||!snapshot.fingerprints.has(path)||snapshot.fingerprints.get(path)==='missing')throw Error('operator_state_scope_unobserved');
+  if(path.startsWith('.pi/agent-sessions/')||!snapshot.paths?.has(path)||!snapshot.fingerprints.has(path)||snapshot.fingerprints.get(path)==='missing'){
+   const scopeEntry=index+1;
+   const diagnostic: ScopeDiagnostic = snapshot.paths instanceof Set && snapshot.fingerprints instanceof Map ? {
+    kind:'observation_gap',checkedPaths:'unknown',scopeEntry,
+    nextStep:`Scope entry #${scopeEntry} was not eligible in the current Git observation. Compare that entry with local Git status and use the exact workspace-relative changed file before re-running its targeted verification.`,
+   } : unknownOperatorScope();
+   throw new OperatorScopeObservationError('operator_state_scope_unobserved',diagnostic);
+  }
   const file=resolve(root,path);if(relative(root,file).replace(/\\/g,'/')!==path||!lstatSync(file).isFile()||realpathSync(file)!==file)throw Error('operator_state_invalid_file');
   seen.add(path);
  }
