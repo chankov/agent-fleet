@@ -6,8 +6,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const fastTestFiles = [
   "bin/test/features.test.js",
   "bin/test/coms-stop-hook.test.js",
+  ".pi/agent-fleet/scripts/coms-claude-bridge.test.ts",
   ".pi/harnesses/agent-hub/process-obligations.test.ts",
   ".pi/harnesses/agent-hub/operator-current-state.test.ts",
+  ".pi/harnesses/agent-hub/operator-review-reconciliation.test.ts",
   ".pi/harnesses/agent-hub/context/assertion-journal.test.ts",
   ".pi/harnesses/agent-hub/assertion-ledger-reload.integration.test.ts",
   "bin/test/pi-runtime.test.js",

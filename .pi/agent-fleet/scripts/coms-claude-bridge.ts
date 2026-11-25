@@ -352,6 +352,8 @@ export async function respondToClaudePrompt(env: PromptEnvelope, identity: Sende
  }
 }
 
+class AmbiguousReviewWrapError extends Error {}
+
 export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Promise<string> {
  const { paneId, replyTimeoutMs, paneStatus } = d;
  const now = d.now ?? Date.now;
@@ -435,18 +437,15 @@ export async function driveClaude(env: PromptEnvelope, d: ClaudeDrivePorts): Pro
 					if (reply) {
 						const result = checkReply(reply, true);
 						if (result !== undefined) return result;
-						if (env.review_protocol === "v1") {
-							const compact = extractPaneReview(text, env.msg_id, requestBoundary, true);
-							if (compact && compact !== reply) {
-								const retry = parseReview(compact, env.msg_id, true);
-								if (retry.wire) return retry.wire;
-							}
+						if (lastReason === 'ambiguous_wrap' && now() >= replyDeadline) {
+							throw new AmbiguousReviewWrapError("Ambiguous line wrap in the review report; exact Stop hook response unavailable.");
 						}
 					}
 					// sentinel not visible yet — keep polling until deadline
 				}
 			}
 		} catch (error) {
+			if (error instanceof AmbiguousReviewWrapError) throw error;
 			// After submission a pane/transport error cannot prove that Claude stopped.
 			throw new ReplyPendingError(`could not observe completion of the submitted turn: ${error}`);
 		}

@@ -155,7 +155,7 @@ export function parseHookRecord(raw: string): HookRecord | null {
 
 // In a review capture Claude marks each response with a bullet. Only inspect
 // the latest response; never search its prose for a plausible JSON suffix.
-export function extractPaneReview(paneText: string, msgId: string, boundary: string, hardWrap = false): string | null {
+export function extractPaneReview(paneText: string, msgId: string, boundary: string): string | null {
  const parts = paneText.replace(/\x1b\[[0-9;]*m/g, "").split(boundary);
  if (parts.length !== 2) return null;
  const rows = parts[1].split(/\r?\n/);
@@ -165,10 +165,7 @@ export function extractPaneReview(paneText: string, msgId: string, boundary: str
  turn[0] = turn[0].slice(2);
  const end = turn.findIndex(row => row.trim() === completionSentinel(msgId));
  if (end < 1 || turn.slice(end + 1).some(row => !/^[\s❯─━┏┗┃│]*$/.test(row))) return null;
- // A Claude word-wrap row uses a two-column hanging indent in place of
- // the word separator. Bare hard splits have no such indent. Escaped JSON
- // newlines remain intact and decode back into real report line breaks.
- return turn.slice(0, end).join("\n").replace(/\n  /g, hardWrap ? "" : " ");
+ return turn.slice(0, end).join("\n");
 }
 
 // Completion requires the unique boundary submitted for this request, not merely

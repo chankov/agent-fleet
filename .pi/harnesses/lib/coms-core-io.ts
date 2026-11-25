@@ -113,6 +113,7 @@ export interface PendingReply {
 }
 
 export interface InboundContext {
+	finalReviewRequested?: boolean;
 	review_protocol?: "v1";
 	msg_id: string;
 	hops: number;

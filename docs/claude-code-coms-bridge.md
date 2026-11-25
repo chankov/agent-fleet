@@ -8,6 +8,10 @@ socket API).
 
 Hub dispatches to `code-reviewer`, `plan-reviewer`, and `security-auditor` (including parallel instances) opt into review protocol v1. Progress does not complete the request. On both Claude and Pi peers, put prose inside the report, not before or after the frame (embedded examples are not final). To finish, return a standalone JSON object, optionally enclosed in a single JSON code fence, with the original `msg_id`, `phase: "final"`, `verdict: "APPROVE"` or `"REJECT"`, and a nonempty `report` string. If the wait times out, use `coms_get` or `coms_await` with that same ID; do not send a second review request. Ordinary messages still accept a plain-text reply.
 
+When a Pi reviewer ends a turn with an incomplete frame, the receiving peer requests the final frame once on the same message ID. The follow-up respects the normal queue pause. A second incomplete reply ends the review with an error and releases the next queued request.
+
+A terminal row break with a hanging indent can split a word or replace a space. If it falls inside the report, the Claude bridge waits for the exact Stop hook text until the reply deadline. If only the ambiguous final frame is available then, the sender receives a transcription error.
+
 > **This is the only role Claude Code has in Agent Fleet.** It is not a coding-agent
 > install target: deterministic `agent-fleet setup` targets pi and nothing else, there are no
 > `.claude/` skills, commands, or personas, and no Claude Code plugin. What a bridged

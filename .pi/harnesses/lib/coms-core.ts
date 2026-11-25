@@ -274,7 +274,9 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		try {
 			pi.sendMessage({
 				customType: "coms-inbound",
-				content: `[from ${inbound.sender_name} @ ${inbound.sender_cwd}]\n\n${inbound.prompt}`,
+				content: inbound.finalReviewRequested
+					? `Return the completed review as a standalone final frame for the same request.${reviewInstructions(inbound.msg_id)}`
+					: `[from ${inbound.sender_name} @ ${inbound.sender_cwd}]\n\n${inbound.prompt}`,
 				display: true,
 				details: { msg_id: inbound.msg_id, sender_session: inbound.sender_session, response_schema: inbound.response_schema ?? null },
 			}, { deliverAs: "followUp", triggerTurn: true });
@@ -669,7 +671,19 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 
 	async function respond(ctx: ExtensionContext, inbound = currentInbound): Promise<void> {
 		if (!inbound || !identity || inbound.fulfilled) return;
-		const { response, error, sourceEntryId } = responseForInbound(ctx, inbound);
+		let { response, error, sourceEntryId } = responseForInbound(ctx, inbound);
+		if (inbound.review_protocol === "v1" && !inbound.instruction && !error) {
+			const frame = parseReview(response, inbound.msg_id);
+			if (frame.reason) {
+				if (!inbound.finalReviewRequested) {
+					inbound.finalReviewRequested = true;
+					currentInbound = null;
+					return; // settleTurn dispatches the follow-up after any pressure hold.
+				}
+				response = null;
+				error = `Review ended without a correlated final frame (${frame.reason}).`;
+			}
+		}
   const receipt=terminalFor(inbound,response,error,sourceEntryId);
 		try {
 			await sendEnvelope(inbound.sender_endpoint, {
@@ -682,13 +696,6 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			audit({ event: "outbound_response", msg_id: inbound.msg_id, error });
 		} catch (sendError: any) {
 			audit({ event: "outbound_response_failed", msg_id: inbound.msg_id, reason: sendError?.message ?? String(sendError) });
-		}
-		if (inbound.review_protocol === "v1" && !inbound.instruction && !error) {
-			const frame = parseReview(response, inbound.msg_id);
-			if (!frame.report) {
-				ctx.ui.notify(`Review ${inbound.msg_id} remains pending (${frame.reason}); send a standalone final frame.`, "info");
-				return;
-			}
 		}
 		inbound.fulfilled = true;
 		inboundQueue.delete(inbound.msg_id);

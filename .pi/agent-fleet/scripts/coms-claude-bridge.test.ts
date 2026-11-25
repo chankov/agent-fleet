@@ -62,15 +62,26 @@ for (const transport of ['hook', 'pane']) test(`P16 ${transport}: latest standal
  assert.equal(f.stats().submitted, 1); assert.ok(f.stats().now >= 10000); assert.match(f.logs.join(' '), /wrong_id/);
 });
 
-for (const marked of [true, false]) test(`P16 cumulative pane: final follows prose progress (marked=${marked})`, async () => {
+for (const marked of [true, false]) test(`P16 cumulative pane: ambiguous final waits for exact hook after prose progress (marked=${marked})`, async () => {
  const f = fixture('pane'); f.env.review_protocol = 'v1';
  const marker = completionSentinel('current');
  const report = 'Two findings\nSecond paragraph';
- const final = JSON.stringify({msg_id:'current',phase:'final',verdict:'APPROVE',report});
- f.d.readPane = async () => `${f.stats().prompt}\n● Checking tests${marked ? '\n'+marker : ''}${f.stats().now > 7000 ? '\n● '+final.replace('Two findings','Two\n  findings')+'\n'+marker : ''}\n❯`;
+ const final = JSON.stringify({msg_id:'current',phase:'final',verdict:'APPROVE',extra:[':'],report});
+ f.d.readPane = async () => `${f.stats().prompt}\n● Checking tests${marked ? '\n'+marker : ''}${f.stats().now > 2200 ? '\n● '+final.replace('Two findings','Two\n  findings')+'\n'+marker : ''}\n❯`;
+ f.d.readHook = () => f.stats().now > 4000 ? { mtime: 2, raw: JSON.stringify({text:final}) } : null;
  await f.run();
  assert.equal(f.stats().submitted, 1); assert.equal(f.sent.length, 1);
  assert.equal(JSON.parse(f.sent[0].response).report, report); assert.match(f.logs.join(' '), /pending/);
+});
+
+test('ambiguous wrap inside a review path reports failure without delivering altered findings', async () => {
+ const f = fixture('pane'); f.env.review_protocol = 'v1';
+ const frame = JSON.stringify({ msg_id: 'current', phase: 'final', verdict: 'REJECT', report: 'Fix src/worker.ts' });
+ f.d.readPane = async () => `${f.stats().prompt}\n● ${frame.replace('current','cur\n  rent').replace('worker.ts','wor\n  ker.ts')}\n${completionSentinel('current')}\n❯`;
+ await f.run();
+ assert.equal(f.sent.length, 1);
+ assert.equal(f.sent[0].response, null);
+ assert.match(f.sent[0].error, /ambiguous.*wrap/i);
 });
 
 for (const token of ['report','current-id','phase','final']) test(`P16 narrow macOS pane hard-wraps compact frame inside ${token}`, async () => {
