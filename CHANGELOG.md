@@ -1,5 +1,21 @@
 # Agent Fleet changelog
 
+## 2.2.6
+
+### Patch Changes
+
+- 82a4d64: Extend `just fleet fix-codex-permissions` to start the managed Linux Codex daemon once when its listener is missing and verify listener discovery before reporting success.
+- 9409e5b: Keep Hub peer reviews pending across progress updates so a late verdict completes the original request without redispatch.
+- 5b845ab: Focus **Allow once** in interactive Damage-Control action prompts. Press Enter to approve only the current request; dismissal, timeout, or no reply still blocks the action. Existing deadlines and explicit scoped approval choices are unchanged.
+- 45723ce: When current-state dispatch refuses an incomplete scope before launch, identify a confirmed omitted entry from the same task's prior scope declarations when safe. Otherwise give local Git and exact-file follow-up without naming paths. Neither the diagnostic nor the earlier declaration establishes test coverage or changes admission.
+- 3d0f505: Recognize a standalone fully bold Markdown review verdict, retaining the veto of an explicit rejection.
+- 509c27e: Name a confirmed missing test CLI in native `completed_unverified` results, distinguish it from insufficient execution evidence, and record neither as a pass or a failed test.
+- 7cc5745: Report missing test CLIs as not run rather than recording a failing test in native dispatches.
+- 5b1f2ca: Document that separate operator Bash runs do not count toward current-state acceptance, and test why re-registering Bash is not an in-place observation of Pi's built-in tool. Existing verification behavior is unchanged.
+- 9b26f0c: Read the current assertion ledger during a pending task transition without binding the follow-up or authorizing effects.
+- c0a3324: Give settled Pi reviews one follow-up to return a final verdict, then release queued work. Report ambiguous line wrapping in Claude pane reviews when exact Stop hook text is unavailable.
+- 45723ce: Explain when a current-state declaration was not observed or a review declaration omits registered task files, and suggest targeted follow-up without exposing omitted filenames or inferring test coverage. Acceptance requirements are unchanged.
+
 ## 2.2.5
 
 ### Patch Changes
