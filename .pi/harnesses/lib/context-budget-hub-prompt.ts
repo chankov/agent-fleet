@@ -74,7 +74,7 @@ ${parts.comsSection}${parts.herdrSection}${parts.compactionSection ?? ""}
 ## Hard Rules
 ${parts.hardRules}
 ${parts.ambiguityRule}
-- Keep each dispatch focused and use the returned evidence before reporting completion.`;
+- Keep each dispatch focused; check its returned evidence and follow up on gaps before reporting completion.`;
 	return policy + stateSection(parts.stateCapsule);
 }
 

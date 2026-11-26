@@ -72,14 +72,14 @@ test("assertion updates require named evidence and the current revision", () => 
 	assert.equal(updateAssertion({ id: "A1", evidenceRef: "artifacts/evidence/a.json", evidenceRevision: "old", currentRevision: "abc123", changedPaths: [], assertionPaths: ["src/adapter.ts"] }).accepted, false);
 });
 
-test("change authors: a coms peer is its address and registry session; unknown parts fail closed", () => {
+test("change authors: a coms peer is its address whatever its session; an unknown address fails closed", () => {
 	const session1 = comsAuthor({ address: "Peer-A", sessionId: "s1" });
 	assert.equal(session1, 'coms:["peer-a","s1"]');
 	assert.ok([OPERATOR_AUTHOR, nativeAuthor('["/w","editor--p2"]'), session1, comsAuthor(null)].every(isChangeAuthor));
 	for (const invalid of ["", "native:", "coms:[]", 'coms:["",null]', 'coms:["a",""]', "reviewer", 42]) assert.equal(isChangeAuthor(invalid), false, String(invalid));
 	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a", sessionId: "s1" })), true, "the same session, whatever its role");
-	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a", sessionId: "s2" })), false, "a new registry session is another executor");
-	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a" })), true, "an unknown session could be the author");
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "PEER-A", sessionId: "s2" })), true, "a restarted or resumed peer is the same author");
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a" })), true, "an unknown session is the same address");
 	assert.equal(sameChangeAuthor(session1, comsAuthor(null)), true, "an unknown peer could be the author");
 	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-b", sessionId: "s1" })), false);
 	assert.equal(sameChangeAuthor(nativeAuthor('["/w","editor"]'), nativeAuthor('["/w","editor--p2"]')), false, "native instances are distinct");

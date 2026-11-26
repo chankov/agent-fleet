@@ -49,9 +49,10 @@ test("retained review evidence names its reviewer, and an author's review is nev
  state=normalizeProcessState(retainReview(state,input,"review.md",cwd,peer));
  assert.equal(state.reviews?.[0]?.executor,peer);
  assert.ok(reusableReview(state,input,cwd),"an independent reviewer's evidence is reusable");
- // The same peer session later authored the reviewed file (same revision): no reuse.
+ // The same peer later authored the reviewed file (same revision): no reuse, whatever its session.
  assert.equal(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-a",sessionId:"s1"})),input,cwd),null);
- assert.ok(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-a",sessionId:"s2"})),input,cwd),"another session is another executor");
+ assert.equal(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-a",sessionId:"s2"})),input,cwd),null,"a restarted peer is the same author");
+ assert.ok(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-b",sessionId:"s1"})),input,cwd),"another peer address is another executor");
  const legacy={...state.reviews![0]!};delete legacy.executor;
  assert.equal(normalizeReviewEvidence([legacy])[0]?.executor,undefined,"older evidence without a reviewer identity stays valid");
  assert.deepEqual(normalizeReviewEvidence([{...legacy,executor:"somebody"}]),[],"an unreadable reviewer identity is dropped, never reused");

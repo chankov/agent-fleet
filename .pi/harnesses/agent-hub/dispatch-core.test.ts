@@ -253,6 +253,47 @@ test("the reviewer role launches with inspection tools, runs checks only in the 
 	assert.equal(launches.length, 2);
 });
 
+test("self-review is decided before start: an auto route takes a native reviewer, an explicit or required coms route is refused, another peer runs", async () => {
+	const { applyProcessClassification, createProcessState, recordChangeAuthors } = await import("./process-obligations.ts");
+	const { comsAuthor } = await import("./review-closure.ts");
+	const def = applyRoleCeiling(parseAgentFile("agents/reviewer.md")!);
+	const state = { ...nativeState(), def };
+	// The peer authored a file in scope under its first session; it was restarted since.
+	const base = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "fixture" }).state;
+	const process = recordChangeAuthors({ ...base, changedFiles: ["src/client.ts"] }, ["src/client.ts"], comsAuthor({ address: "claude-main", sessionId: "s1" }));
+	let policy: any = { default: "native", grace_s: 0, substitutions: { reviewer: { peer: "claude-main", prefer: "coms", fallback: "native" } } };
+	const peers = [{ name: "claude-main", read_only: true, session_id: "s2" }, { name: "claude-reviewer", read_only: true }];
+	const comsTargets: string[] = []; const notices: string[] = []; let launches = 0;
+	const native = createDispatchNative(nativeDeps(state, {
+		getDispatchPolicy: () => policy, getProcessState: () => process,
+		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => peers,
+		dispatchViaComs: async (_state: unknown, _task: string, peerName: string) => { comsTargets.push(peerName); return { output: "remote", exitCode: 0 }; },
+		spawnPiAgentWithModelFallback: async () => { launches++; return { output: "native review", exitCode: 0, stderr: "", toolCallsStarted: 0 }; },
+	}));
+	const ctx = { ...extensionContext, ui: { notify: (text: string) => notices.push(text) } };
+	const review = (backend: "auto" | "coms", scope = ["src"]) => native.dispatchAgent(def.name, "review", ctx, [], scope, undefined, backend, false, undefined, [], dispatchAccess(def));
+
+	const auto = await review("auto");
+	assert.equal(auto.output, "native review", "the auto route runs an independent native reviewer");
+	assert.deepEqual(comsTargets, [], "the author never receives its own review");
+	assert.equal(launches, 1);
+	assert.ok(notices.some(text => /Self-review refused before start \(review_self_authored\): coms peer "claude-main" authored src\/client\.ts/.test(text) && /native reviewer runs instead/.test(text)));
+
+	const explicit = await review("coms");
+	assert.equal(explicit.exitCode, 1);
+	assert.match(explicit.output, /Self-review refused before start .*Dispatch the reviewer with backend: native/);
+	assert.deepEqual(explicit.lifecycle, { launched: false, closeSeen: false }, "nothing launched, so a corrected dispatch is a fresh admission");
+	policy = { ...policy, substitutions: { reviewer: { peer: "claude-main", prefer: "coms", fallback: "none" } } };
+	assert.match((await review("auto")).output, /Self-review refused before start/, "a coms-required route is refused, not rerouted");
+	assert.equal(launches, 1, "a refused review costs no run");
+	assert.deepEqual(comsTargets, []);
+
+	assert.equal((await review("auto", ["docs"])).output, "remote", "outside the authored scope the peer may review");
+	policy = { ...policy, substitutions: { reviewer: { peer: "claude-reviewer", prefer: "coms", fallback: "none" } } };
+	assert.equal((await review("auto")).output, "remote", "a peer that changed nothing in scope reviews it");
+	assert.deepEqual(comsTargets, ["claude-main", "claude-reviewer"]);
+});
+
 test("native dispatch refuses a same-persona race before history while distinct personas run in parallel", async () => {
 	const builder = nativeState();
 	const verifier = nativeState(); verifier.def = { ...verifier.def, name: "verifier" };

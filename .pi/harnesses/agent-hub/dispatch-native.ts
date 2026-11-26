@@ -13,6 +13,8 @@ import { runPreparedNative } from "./dispatch-native-spawn.ts";
 import { completeNativeRun } from "./dispatch-native-complete.ts";
 import type { TaskResumeInput } from "./task-resume-contract.ts";
 import { dispatchAccess, isInspectionAccess, type DispatchAccess } from "./dispatch-access.ts";
+import { comsAuthor, selfAuthoredPaths } from "./review-closure.ts";
+import { isReviewPersona } from "./run-budget.js";
 import type {
 	DispatchInputArtifactPreview,
 	NativeBackend,
@@ -178,11 +180,23 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		const readOnlyRefusal = readOnlyRole && !enforcedReadOnly
 			? `${deps.displayName(state.def.name)} is a read-only role; coms peer "${route.peerName}" does not declare enforced read-only tools (start it with \`just fleet peer <name> --read-only\`), so it cannot take this assignment.`
 			: null;
-		const profileRefusal = readOnlyRefusal ? { content: [{ type: "text" as const, text: readOnlyRefusal }] } : run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
+		// Self-review is decided before the run (plan task 5): a peer address that authored a file
+		// in this review's scope could not close it, whatever its session. The post-run check stays.
+		const selfAuthored = !readOnlyRefusal && isReviewPersona(state.def.name)
+			? selfAuthoredPaths(processState?.changeAuthors, comsAuthor({ address: String(route.peerName) }), scopeGlobs)
+			: [];
+		const selfReviewRefusal = selfAuthored.length
+			? `Self-review refused before start (review_self_authored): coms peer "${route.peerName}" authored ${selfAuthored.slice(0, 12).join(", ")}${selfAuthored.length > 12 ? " …" : ""} in this review's scope, and the author of reviewed work cannot approve it.`
+			: null;
+		const gateRefusal = readOnlyRefusal ?? selfReviewRefusal;
+		const profileRefusal = gateRefusal ? { content: [{ type: "text" as const, text: gateRefusal }] } : run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
 		if (profileRefusal) {
 			const allowNativeFallback = !route.explicit && (policyRoute(dispatchPolicy, personaKey)?.fallback ?? "native") !== "none";
+			// Refused before any launch: a corrected backend or peer is a fresh admission, not a retry.
+			if (!allowNativeFallback && selfReviewRefusal) return { ...await run.finishRun(`${selfReviewRefusal} Dispatch the reviewer with backend: native, or route it to a peer that changed none of these files.`, 1), lifecycle: { launched: false, closeSeen: false } };
 			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
-			if (!deps.wasComsMissNotified(personaKey)) {
+			if (selfReviewRefusal) ctx.ui.notify(`${selfReviewRefusal} An independent native reviewer runs instead.`, "warning");
+			else if (!deps.wasComsMissNotified(personaKey)) {
 				deps.markComsMissNotified(personaKey);
 				ctx.ui.notify(profileRefusal.content[0].text, "warning");
 			}

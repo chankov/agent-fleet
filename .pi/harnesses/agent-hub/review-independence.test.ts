@@ -1,7 +1,7 @@
 // Plan PLAN-11-01 task 5: close on independent evidence for the integrated revision.
 // Two editors contribute to one change through the normal guarded executor with
 // stubbed dispatches. Each registered file carries who changed it; an author cannot
-// approve its own work (including a coms peer session that changes role), a verdict
+// approve its own work (including a coms peer that changes role or restarts), a verdict
 // on the base revision or on one editor's files cannot close the whole change, and a
 // follow-up edit is reviewed as a delta against the previous findings.
 import assert from "node:assert/strict";
@@ -141,7 +141,7 @@ test("two parallel editors register the union of changed files, each with its ow
 		assert.throws(() => normalizeProcessState({ ...legacy, changeAuthors: corrupt }), /Invalid change authorship; dependent effects are blocked/);
 });
 
-test("(a) the coms peer session that edited cannot approve the change after changing role to reviewer; an independent reviewer can", async t => {
+test("(a) the coms peer that edited cannot approve the change after changing role to reviewer or restarting; an independent reviewer can", async t => {
 	const fx = await independenceFixture(t);
 	const peer = { name: "peer-a", session_id: "session-1" };
 	fx.respond = () => ({ edit: { [API]: "export const api = 2;\n" } });
@@ -166,6 +166,13 @@ test("(a) the coms peer session that edited cannot approve the change after chan
 	assert.equal(fx.process().review.evidenceRef, null);
 	assert.equal(fx.process().reviews, undefined, "no reusable review evidence from an author");
 	assert.equal(fx.process().reviewHistory, undefined, "nor review history");
+
+	// Restarted or resumed under a new registry session, the same address is still the author.
+	fx.respond = () => ({ coms: { name: "peer-a", session_id: "session-2" }, output: APPROVE });
+	const restarted = await fx.dispatch("restarted-review", wholeReview);
+	assert.deepEqual(details(restarted).reviewEvidence.reasons, ["review_self_authored"], text(restarted));
+	assert.match(text(restarted), /reviewer ran as coms peer peer-a \(session session-2\), which authored src\/client\/index\.ts/);
+	assert.equal(fx.process().review.evidenceRef, null);
 
 	fx.respond = () => ({ output: APPROVE });
 	const independent = await fx.dispatch("review", wholeReview);

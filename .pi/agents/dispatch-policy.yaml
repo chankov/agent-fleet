@@ -14,7 +14,10 @@
 #
 # A read-only role (researcher, reviewer) reaches only a peer launched with
 # enforced read-only tools that declares it at registration
-# (`just fleet peer <name> --read-only`); otherwise it runs native.
+# (`just fleet peer <name> --read-only`); otherwise it runs native. A reviewer
+# never reaches a peer address that changed a file in the review's scope, even
+# after a restart: an auto route runs a native reviewer instead, while an
+# explicit coms backend or `fallback: none` is refused before it starts.
 # Missing file = everything native. HOW each peer runs (runner, model, env)
 # is set by the flags of `just fleet peer <name>` (--runner, --model,
 # --read-only, --env-file); there is no peer declaration file.

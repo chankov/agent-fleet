@@ -37,7 +37,7 @@ test("compact stable policy preserves the operator, backend, ambiguity, and evid
 	assert.doesNotMatch(prompt, /dispatcher agent — an orchestrator/);
 	assert.match(prompt, /backend: native.*backend: coms.*backend: auto/s);
 	assert.match(prompt, /NEVER proceed past an ambiguity by guessing/);
-	assert.match(prompt, /returned evidence before reporting completion/);
+	assert.match(prompt, /check its returned evidence and follow up on gaps before reporting completion/);
 	assert.match(prompt, /Task triage/);
 });
 
