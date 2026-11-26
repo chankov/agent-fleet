@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { workspaceRoot } from "../../../../harnesses/lib/workspace-context.ts";
 import { runAgentPhase, type SpawnAgent } from "./agent-phase.ts";
 import type { PollReport } from "./envelopes.ts";
 import type { PermissionPolicy } from "./permissions.ts";
@@ -25,8 +26,9 @@ export interface PollOptions {
 	onVoice?: (result: PollVoiceResult) => void | Promise<void>;
 }
 
+/** Opinions are Fleet records: anchored at the workspace, never written into the worktree voices inspect. */
 export function pollArtifactDir(cwd: string, runId: string): string {
-	return resolve(cwd, POLL_ARTIFACTS_REL, runId);
+	return resolve(workspaceRoot(cwd), POLL_ARTIFACTS_REL, runId);
 }
 
 export function pollVoicePath(cwd: string, runId: string, voiceName: string): string {

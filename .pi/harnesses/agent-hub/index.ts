@@ -120,8 +120,9 @@ import { registerCompound } from "./commands/compound.ts";
 import { registerPoll } from "./commands/poll.ts";
 import { registerDebate } from "./commands/debate.ts";
 import type { CommandContext } from "./commands/context.ts";
-import { formatAfPollStarted, formatAfPollVoiceProgress, handleAfPoll, runAfPoll, type AfPollHandleInput } from "./poll-command.ts";
-import { registerPollPanel } from "./tools/poll-panel.ts";
+import { presentAfPollCommand, runAfPoll, type AfPollHandleInput } from "./poll-command.ts";
+import { hubPollWorkflowPorts } from "./poll-runtime.ts";
+import { pollBlockWidget, POLL_PANEL_SELECT, registerPollPanel } from "./tools/poll-panel.ts";
 import { formatAfDebateStarted, formatAfDebateVoiceProgress, handleAfDebate } from "./debate-command.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
@@ -1283,34 +1284,12 @@ export default function (pi: ExtensionAPI) {
 			return { charged: true, operation: "research", owner: "hub" };
 		},
 	});
-	/** Panel poll ports shared by `/af-poll` and `poll_panel`; only progress delivery differs. */
-	function hubPollPorts(ctx: ExtensionContext, cwd: string, progress: { started(text: string): void; voice(text: string): void }): Omit<AfPollHandleInput, "args"> {
+	/** Panel poll ports shared by `/af-poll` and `poll_panel`; target, roster and workers live in poll-runtime.ts. */
+	function hubPollPorts(ctx: ExtensionContext, command: "/af-poll" | "poll_panel"): Omit<AfPollHandleInput, "args"> {
 		return {
-			cwd,
-			pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
-			listPanels: async dir => {
-				const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-				return listPanelNames(dir);
-			},
-			preflight: async ({ panel, persona, cwd: root }) => {
-				const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
-					import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-					import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
-					import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
-				]);
-				try { resolvePersona(persona, root); }
-				catch (error) { return error instanceof Error ? error.message : String(error); }
-				let voices;
-				try { voices = resolvePanel(panel, root); }
-				catch (error) { return error instanceof Error ? error.message : String(error); }
-				const report = checkChildVisibility(voices.map(voice => voice.model));
-				if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
-				const hidden = report.models.filter(model => !model.ok);
-				if (hidden.length) {
-					return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
-				}
-				return null;
-			},
+			cwd: ctx.cwd || process.cwd(),
+			configuredPanel: workspace => readActiveProfile()?.name ?? parseAgentTeamOverrides(workspace).pollPanel,
+			...hubPollWorkflowPorts({ command }),
 			checkBudget: async () => {
 				ensureTaskTier();
 				return null;
@@ -1321,57 +1300,12 @@ export default function (pi: ExtensionAPI) {
 				sessionTotals.dispatches += 1;
 				updateModeStatus();
 			},
-			onAccepted: async ({ panel, persona, question }) => {
-				let voices: { name: string; model: string }[] = [];
-				try {
-					const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-					voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
-				} catch { /* names are decorative */ }
-				ctx.ui.setStatus("hub-poll", `Poll: ${panel} (${voices.length || "?"} voices) running…`);
-				ctx.ui.notify(`Poll started — panel ${panel}. This can take a minute.`, "info");
-				progress.started(formatAfPollStarted({ panel, persona, question, voices }));
-			},
-			execute: async ({ panel, persona, question }) => {
-				const [{ Run }, { runPoll }, { runMerge }, { resolvePersona }] = await Promise.all([
-					import("../../agent-fleet/scripts/workflows/lib/run.ts"),
-					import("../../agent-fleet/scripts/workflows/lib/poll.ts"),
-					import("../../agent-fleet/scripts/workflows/lib/merge.ts"),
-					import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-				]);
-				const run = new Run({ cwd, command: ["/af-poll", "--panel", panel, question] });
-				const personaDef = resolvePersona(persona, cwd);
-				const poll = await runPoll({
-					run, cwd, persona: personaDef, panel, task: question,
-					onVoice: result => {
-						const voice = result.ok
-							? { name: result.voice.name, model: result.voice.model, ok: true as const, position: result.report.position, confidence: result.report.confidence }
-							: { name: result.voice.name, model: result.voice.model, ok: false as const, reason: result.reason };
-						progress.voice(formatAfPollVoiceProgress(voice));
-					},
-				});
-				ctx.ui.setStatus("hub-poll", `Poll: ${panel} merging…`);
-				const merge = await runMerge({ run, cwd, persona: personaDef, panel, task: question, opinions: poll.results });
-				const directory = path.relative(cwd, poll.directory) || poll.directory;
-				return {
-					panel,
-					directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
-					voices: poll.results.map(item => item.ok
-						? { name: item.voice.name, model: item.voice.model, ok: true as const, position: item.report.position, confidence: item.report.confidence }
-						: { name: item.voice.name, model: item.voice.model, ok: false as const, reason: item.reason }),
-					recommendation: merge.report.recommendation,
-					integrator: merge.integrator.name,
-				};
-			},
 		};
 	}
 
 	registerPollPanel(pi, {
 		blocked: () => provisionalCapabilityRefusal("fleet")?.content[0]?.text ?? null,
-		run: (params, ctx, onProgress) => withProfileWork(async () => {
-			const cwd = ctx.cwd || process.cwd();
-			try { return await runAfPoll({ ...params, ...hubPollPorts(ctx, cwd, { started: onProgress, voice: onProgress }) }); }
-			finally { ctx.ui.setStatus("hub-poll", ""); }
-		}),
+		run: (params, ctx, onProgress) => withProfileWork(() => runAfPoll({ ...params, ...hubPollPorts(ctx, "poll_panel"), selectHint: POLL_PANEL_SELECT, onProgress })),
 	});
 	registerSetTaskTier(pi, toolCtx);
 	registerTeamAdjust(pi, toolCtx);
@@ -1830,23 +1764,11 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
 		},
 		handlePoll: async (args, ctx) => {
-			return withProfileWork(async () => {
-			const cwd = ctx.cwd || process.cwd();
-			const followUp = (customType: string) => (content: string) => pi.sendMessage({ customType, content, display: true }, { deliverAs: "followUp", triggerTurn: false });
-			const result = await handleAfPoll({ args: args ?? "", ...hubPollPorts(ctx, cwd, { started: followUp("af-poll-started"), voice: followUp("af-poll-voice") }) });
-			ctx.ui.setStatus("hub-poll", "");
-			if (!result.ok) {
-				ctx.ui.notify(result.message, "error");
-				pi.sendMessage({ customType: "af-poll-failed", content: `POLL FAILED\n\n${result.message}`, display: true }, { deliverAs: "followUp", triggerTurn: false });
-				return;
-			}
-			ctx.ui.notify(result.digest ?? result.message, "info");
-			pi.sendMessage({
-				customType: "af-poll",
-				content: result.dispatcherNote ?? result.message,
-				display: true,
-			}, { deliverAs: "followUp", triggerTurn: true });
-			});
+			// No in-place transcript update exists in the Pi SDK: a live widget, then one outcome entry.
+			await withProfileWork(() => presentAfPollCommand({ args: args ?? "", ...hubPollPorts(ctx, "/af-poll") }, {
+				show: pollBlockWidget(ctx.ui),
+				send: (message, options) => pi.sendMessage(message, options),
+			}));
 		},
 		handleDebate: async (args, ctx) => {
 			return withProfileWork(async () => {

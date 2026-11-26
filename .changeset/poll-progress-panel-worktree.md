@@ -1,0 +1,5 @@
+---
+"@chankov/agent-fleet": patch
+---
+
+Show each Poll run (`poll_panel` and `/af-poll`) as one compact block that updates in place: the panel appears once it resolves, each configured voice keeps one row as it answers or fails, synthesis shows while the integrator works, and the block finishes with the recommendation or the failure reason (expand it for positions, reasons and the opinions path). `/af-poll` no longer posts a transcript message per voice or a duplicate notification; it leaves one entry and still hands the digest to the dispatcher. When no panel is named, Poll uses the configured `poll-panel:`, then a panel named `default`; unknown names are refused before any voice starts, listing the available panels. Voices and synthesis now run in the session's assigned checkout (`just fleet --worktree`), while panels and opinions stay at the Fleet workspace; a non-Git workspace without an assigned worktree is refused once instead of failing every voice.
