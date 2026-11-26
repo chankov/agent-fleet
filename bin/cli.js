@@ -273,7 +273,7 @@ async function cmdSetHermesTelegram() {
 //     pre-engine workspace, and stale persona names inside YAML the manifest
 //     does not manage. These need rename heuristics, not a manifest lookup.
 //
-// Everything else the scan reports (overrides problems, malformed peer entries)
+// Everything else the scan reports (overrides problems, non-role dispatch routes)
 // is advisory: printed, never auto-fixed, because the fix is always a hand edit.
 function warnAlias(name) { console.error(`Warning: ${name} is deprecated; use setup.`); }
 

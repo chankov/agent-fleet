@@ -135,15 +135,15 @@ test("recovery refuses stale in-memory union and oversized additions without cle
  assert.throws(() => recoverTaskTriageProcessState({ ...opts, state: { ...state, additions: Array.from({ length: 301 }, (_, i) => ({ ...state.additions![0], id: String(i) })) } }), /persistence limit/);
  assert.equal(writes, 0);
 });
-test("partial roster yields exact missing-role recovery, not a substitute agent", () => {
+test("a missing reviewer definition yields exact recovery, not a substitute agent", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("wide_change"), binding);
  const hint = missingProcessRoleRecoveryHints(state, new Set(["editor"]));
- assert.doesNotMatch(hint, /\/af-agents-add (editor|planner)/, "planning is never a required stage, so no planning role is demanded");
- assert.match(hint, /\/af-agents-add reviewer/);
+ assert.doesNotMatch(hint, /editor|planner|planning/, "planning is never a required stage, so no planning role is demanded");
+ assert.match(hint, /reviewer role/);
  assert.match(hint, /agent-fleet setup/);
- assert.match(hint, /\/af-agents-team/);
+ assert.doesNotMatch(hint, /\/af-agents-|roster|team/, "teams are gone (D7): no roster command is suggested");
  assert.equal(missingProcessRoleRecoveryHints(state, new Set(["editor", "reviewer"])), "");
- assert.match(missingProcessRoleRecoveryHints(state, new Set()), /\/af-agents-add reviewer/);
+ assert.match(missingProcessRoleRecoveryHints(state, new Set()), /reviewer role/);
 });
 test("active additions expose exact waiver IDs, plain obligations and transition instructions", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("security_change", "wide_change", "irreversible_execution"), binding);

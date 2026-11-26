@@ -21,6 +21,16 @@ export const OVERRIDES_REL_PATH = ".ai/agent-fleet-overrides.md";
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const SLUG = "[a-z0-9]+(?:-[a-z0-9]+)*";
 
+// The Hub's runtime roles and practice ids (PLAN-11-01, D9), mirrored from
+// .pi/harnesses/agent-hub/config/roles.ts ROLE_NAMES and config/practices.ts
+// PRACTICE_IDS — this installer module must load on Node 18, which cannot
+// import TypeScript. bin/test/validate-overrides.test.js fails on drift.
+export const OVERRIDE_ROLES = Object.freeze(["researcher", "reviewer", "editor"]);
+export const OVERRIDE_PRACTICES = Object.freeze([
+  "research", "architecture", "planning", "implementation", "independent-review",
+  "testing", "security", "performance", "browser-debugging", "documentation", "release",
+]);
+
 // One entry per known `## section`. `keys` maps exact key names to an optional
 // value check; `patterns` covers the agent-hub `<key>.<persona>` families.
 // A value check returns a problem string, or null when the value is fine.
@@ -69,6 +79,16 @@ const KNOWN_SECTIONS = {
         re: new RegExp(`^thinking\\.${SLUG}$`), example: "thinking.<persona>",
         check: oneOf(THINKING_LEVELS),
       },
+      // `model.<role>.<practice>` / `thinking.<role>.<practice>`: the per-practice
+      // model choice the Hub reads (D9). Checked before the subagents family.
+      {
+        re: new RegExp(`^model\\.${SLUG}\\.${SLUG}$`), example: "model.<role>.<practice>",
+        check: (value, ctx, key) => checkRolePractice(key),
+      },
+      {
+        re: new RegExp(`^thinking\\.${SLUG}\\.${SLUG}$`), example: "thinking.<role>.<practice>",
+        check: (value, ctx, key) => checkRolePractice(key) ?? oneOf(THINKING_LEVELS)(value),
+      },
       { re: new RegExp(`^subagents\\.${SLUG}\\.${SLUG}$`), example: "subagents.<persona>.<role>" },
       {
         re: new RegExp(`^delegate-depth\\.${SLUG}$`), example: "delegate-depth.<persona>",
@@ -88,6 +108,19 @@ const KNOWN_SECTIONS = {
     patterns: [{ re: /^quality\.[\w.-]+$/, example: "quality.<repository>" }],
   },
 };
+
+// A per-practice key is dead config unless both segments name what the Hub
+// resolves: the role must be a runtime role, the practice a known practice.
+function checkRolePractice(key) {
+  const [, role, practice] = key.split(".");
+  if (!OVERRIDE_ROLES.includes(role)) {
+    return `"${role}" is not a role (${OVERRIDE_ROLES.join(", ")}) — the Hub never reads this key`;
+  }
+  if (!OVERRIDE_PRACTICES.includes(practice)) {
+    return `"${practice}" is not a known practice (${OVERRIDE_PRACTICES.join(", ")}) — the Hub ignores it`;
+  }
+  return null;
+}
 
 function retiredQuota(value) {
   return `ignored — continuation quotas were removed; usage stays visible and the watchdog supervises progress. Remove this key (was "${value}")`;
@@ -280,7 +313,7 @@ export function validateOverrides({ workspace, env = process.env }) {
     const pattern = (schema.patterns ?? []).find((p) => p.re.test(key));
     if (pattern) {
       if (pattern.check && value && value !== "|") {
-        const problem = pattern.check(value, ctx);
+        const problem = pattern.check(value, ctx, key);
         if (problem) finding(`${key} in ## ${sectionHeading}: ${problem}`, "fix the value");
       }
       continue;

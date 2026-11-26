@@ -34,9 +34,11 @@ async function run() {
   const afterDiff = join(evidence, "README-before-after.git-diff.patch");
   writeFileSync(readme, initial);
   writeFileSync(before, initial);
-  writeFileSync(join(worktree, ".pi/agents/teams.yaml"), "stage:\n  - planner\n  - builder\n  - code-reviewer\n");
-  for (const [name, tools] of [["planner", "read,write,grep,find,ls"], ["builder", "read,edit,bash"], ["code-reviewer", "read,grep,find,ls"]]) {
-    writeFileSync(join(worktree, `.pi/agents/personas/${name}.md`), `---\nname: ${name}\ndescription: Isolated synthetic ${name} for user-run T4 stage closure\ntools: ${tools}\nmodel: ${model}\ndelegate_depth: 0\n---\nWork only inside the isolated synthetic workspace. No delegation. Never read non-fixture repository data or credentials.\n${name === "planner" ? "For this synthetic task, write the plan to the absolute path declared in dispatch deliverables. Generic auto-handoff is separate and never substitutes for the explicit plan; cite the declared path in your return.\n" : name === "code-reviewer" ? "Start your final return with exactly one standalone line: VERDICT: APPROVE or VERDICT: REJECT. Never omit the colon or embed a verdict in prose.\n" : ""}`);
+  // Same-name role files (PLAN-11-01, D2): they replace the prompt and model only;
+  // the code-owned role ceiling still decides the tools. One editor serves both the
+  // planning and the implementation assignment; the practices tell them apart.
+  for (const [name, tools] of [["editor", "read,write,edit,bash,grep,find,ls"], ["reviewer", "read,grep,find,ls"]]) {
+    writeFileSync(join(worktree, `.pi/agents/personas/${name}.md`), `---\nname: ${name}\ndescription: Isolated synthetic ${name} for user-run T4 stage closure\ntools: ${tools}\nmodel: ${model}\ndelegate_depth: 0\n---\nWork only inside the isolated synthetic workspace. No delegation. Never read non-fixture repository data or credentials.\n${name === "editor" ? "For this synthetic task, when the assignment includes the planning practice, write the plan to the absolute path declared in dispatch deliverables and change nothing else. Generic auto-handoff is separate and never substitutes for the explicit plan; cite the declared path in your return. With the implementation practice, edit only the declared scope.\n" : name === "reviewer" ? "Start your final return with exactly one standalone line: VERDICT: APPROVE or VERDICT: REJECT. Never omit the colon or embed a verdict in prose.\n" : ""}`);
   }
   // Copy only this test gate into the synthetic fixture; it is not a Hub policy hook.
   cpSync(join(root, ".pi/harnesses/agent-hub/task-triage-live-stage-boundary.mjs"), join(worktree, "stage-boundary.mjs"));
@@ -47,8 +49,8 @@ async function run() {
     return result;
   };
   git("init", "-q");
-  const fixtureFiles = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md", ".pi/agents/teams.yaml",
-    ...["planner", "builder", "code-reviewer"].map(name => `.pi/agents/personas/${name}.md`)];
+  const fixtureFiles = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md",
+    ...["editor", "reviewer"].map(name => `.pi/agents/personas/${name}.md`)];
   const baselineBytes = new Map(fixtureFiles.map(file => [file, readFileSync(join(worktree, file))]));
   git("add", "--", ...fixtureFiles);
   const commit = git("-c", "user.name=T4 Synthetic", "-c", "user.email=t4-synthetic@example.invalid",
@@ -100,7 +102,7 @@ async function run() {
     "-e", join(root, ".pi/harnesses/ask-user-remote/index.ts"),
     "-e", join(root, ".pi/harnesses/agent-hub/index.ts"),
     "-e", join(worktree, "probe-hooks.ts"),
-    "--solo", "--agent-team", "stage", "--model", model,
+    "--solo", "--model", model,
   ], { cwd: worktree, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   let ended = false, exit, turns = 0, serial = 0, err = "", buffer = "";
   const pending = new Map(), waiters = new Set(), parentModels = [];
@@ -172,7 +174,9 @@ async function run() {
       return { status: "unavailable", reason: "no complete assistant model identity in retained session" };
     return { status: "observed", identities };
   }
-  function snapshot(stage, role) {
+  // `role` is the dispatched role and the Hub's artifact key (editor-<id>.md); the
+  // plan and build stages are both editor runs, so a recorded stage is excluded.
+  function snapshot(stage, role, practices) {
     const sessionsRoot = join(worktree, ".pi/agent-sessions/sessions");
     const sessions = existsSync(sessionsRoot) ? readdirSync(sessionsRoot) : [];
     if (sessions.length !== 1) throw new Error(`Expected one isolated session, got ${sessions.length}`);
@@ -181,7 +185,7 @@ async function run() {
     // Count started dispatches, including any still pending; never hide an extra
     // child just because its result has not been persisted yet.
     const dispatches = readdirSync(dispatchRoot).filter(id => existsSync(join(dispatchRoot, id, "request.json")));
-    const matching = dispatches.filter(id => existsSync(join(dispatchRoot, id, "result.json")) &&
+    const matching = dispatches.filter(id => !outcome.stages.some(s => s.id === id) && existsSync(join(dispatchRoot, id, "result.json")) &&
       existsSync(join(base, "artifacts/returns", `${role}-${id}.md`)))
       .map(id => ({ id, result: JSON.parse(readFileSync(join(dispatchRoot, id, "result.json"), "utf8")) }));
     if (matching.length !== 1 || dispatches.length !== outcome.stages.length + 1) {
@@ -207,13 +211,13 @@ async function run() {
     const acceptance = JSON.parse(readFileSync(acceptancePath, "utf8"));
     const canonicalResultPath = join(dispatchRoot, id, "result.json");
     if (result.evidencePath !== canonicalResultPath || !existsSync(result.evidencePath)) throw new Error(`Missing canonical retained ${role} dispatch result`);
-    const item = { stage, role, id, resultPath: result.evidencePath, returnPath: join(base, "artifacts/returns", `${role}-${id}.md`), acceptancePath, process: acceptance.process, billed: result.billed, modelEvidence: { ...childModel,
+    const item = { stage, role, practices, id, resultPath: result.evidencePath, returnPath: join(base, "artifacts/returns", `${role}-${id}.md`), acceptancePath, process: acceptance.process, billed: result.billed, modelEvidence: { ...childModel,
       requested: result.diagnostics?.modelUsed ?? null, fallback: result.diagnostics?.modelFallback ?? null } };
     outcome.stages.push(item); save();
     return { ...item, result, acceptance };
   }
   const p1 = `SYNTHETIC isolated live task; no repository data or credentials. Call set_task_tier tier "small", risk "low", scope "wide" with reason "synthetic stage-closure fixture". Call the REAL set_assertions tool with ${JSON.stringify({ assertions: [assertion] })}. Do not dispatch any child yet; finish this turn so the harness can declare the absolute plan path in the runtime session. Never manually mark stages satisfied.`;
-  const p2 = `Continue SAME task; the pre-builder test assertion must already be registered. Dispatch exactly one native builder pinned ${model}, backend "native", scope ["README-SYNTH.md"], deliverables ["README-SYNTH.md"]. Task: In the isolated synthetic fixture, read ${before} and README-SYNTH.md. Edit ONLY 'wdiget renders' to 'widget renders', preserving every other byte. After editing, run EXACTLY this declared command via normal approved bash, no wrapper: ${check}. Do not delegate, read repository files, or modify other files. ${contract} Report actual builder result and process obligations; never force pass.`;
+  const p2 = `Continue SAME task; the pre-implementation test assertion must already be registered. Dispatch exactly one native editor with practices ["implementation"], pinned ${model}, backend "native", scope ["README-SYNTH.md"], deliverables ["README-SYNTH.md"]. Task: In the isolated synthetic fixture, read ${before} and README-SYNTH.md. Edit ONLY 'wdiget renders' to 'widget renders', preserving every other byte. After editing, run EXACTLY this declared command via normal approved bash, no wrapper: ${check}. Do not delegate, read repository files, or modify other files. ${contract} Report actual editor result and process obligations; never force pass.`;
   try {
     const one = await request(p1);
     if (!one.success) throw new Error("classification/assertion turn failed");
@@ -225,10 +229,10 @@ async function run() {
       throw new Error("Expected one initialized session and no child before plan path declaration");
     const planArtifact = join(sessionsRoot, planSessions[0], "artifacts/plans/synthetic-readme-fix.md");
     writeFileSync(planPath, planArtifact); // boundary and task share this exact absolute path
-    const pPlan = `Continue SAME synthetic task. Dispatch exactly one native planner pinned ${model}, backend "native", with deliverables ["${planArtifact}"]. Planner task: Read the synthetic README and public verification skill in this isolated worktree, write a short concrete typo-only plan using your write tool to the explicit absolute deliverable ${planArtifact}. This explicit plan artifact is distinct from the generic auto-handoff; do not substitute that auto-handoff for it. Return a matching plan for correcting ONLY 'wdiget renders' in README-SYNTH.md with this declared check: ${check}. The planner must not edit README or execute the check: report A1 and AF-MIN-CHANGE unproven at plan time; the builder will verify them. No other children or delegated helpers. Report the tool results; never manually mark stages satisfied.`;
+    const pPlan = `Continue SAME synthetic task. Dispatch exactly one native editor with practices ["planning"], pinned ${model}, backend "native", with deliverables ["${planArtifact}"]. Editor task: Read the synthetic README and public verification skill in this isolated worktree, write a short concrete typo-only plan using your write tool to the explicit absolute deliverable ${planArtifact}. This explicit plan artifact is distinct from the generic auto-handoff; do not substitute that auto-handoff for it. Return a matching plan for correcting ONLY 'wdiget renders' in README-SYNTH.md with this declared check: ${check}. The planning editor must not edit README or execute the check: report A1 and AF-MIN-CHANGE unproven at plan time; the implementation editor will verify them. No other children or delegated helpers. Report the tool results; never manually mark stages satisfied.`;
     const planned = await request(pPlan);
-    if (!planned.success) throw new Error("planner turn failed");
-    const plan = snapshot("plan", "planner");
+    if (!planned.success) throw new Error("planning editor turn failed");
+    const plan = snapshot("plan", "editor", ["planning"]);
     if (plan.acceptance.process?.obligations?.plan?.status !== "satisfied" ||
       plan.acceptance.readback?.length !== 1 || plan.acceptance.readback[0].status !== "read" ||
       plan.acceptance.readback[0].changed !== true ||
@@ -236,11 +240,11 @@ async function run() {
       plan.acceptance.compatibility?.hubAcceptanceStatus === "deliverable_failed" ||
       !existsSync(planArtifact) || !readFileSync(planArtifact, "utf8").trim())
       throw new Error(plan.acceptance.readback?.[0]?.status !== "read" || !existsSync(planArtifact)
-        ? "real planner declared plan artifact was not read back"
+        ? "real planning editor declared plan artifact was not read back"
         : plan.acceptance.process?.obligations?.plan?.status !== "satisfied"
-          ? "real planner artifact read back, but plan-stage gate remained open"
-          : "real planner artifact did not meet plan readback/change/content requirements");
-    // Planner can write: attribute no off-target change to the builder.
+          ? "real planning editor artifact read back, but plan-stage gate remained open"
+          : "real planning editor artifact did not meet plan readback/change/content requirements");
+    // The editor can write: attribute no off-target change to the implementation stage.
     const planStatus = git("status", "--short", "--untracked-files=all");
     const planNonRuntimeStatus = nonRuntimeStatus(planStatus.stdout, readdirSync(join(worktree, ".pi/agent-sessions/sessions"))[0]);
     const planUnchangedFixture = [...baselineBytes].every(([file, bytes]) => readFileSync(join(worktree, file)).equals(bytes));
@@ -248,11 +252,11 @@ async function run() {
       readmeUnchanged: readFileSync(readme, "utf8") === initial, unchangedFixture: planUnchangedFixture };
     save();
     if (planStatus.status !== 0 || planNonRuntimeStatus !== "" || !outcome.afterPlan.readmeUnchanged || !planUnchangedFixture)
-      throw new Error("planner changed README or non-runtime synthetic fixture before builder");
+      throw new Error("planning editor changed README or non-runtime synthetic fixture before implementation");
     authorize("build");
     const two = await request(p2);
-    if (!two.success) throw new Error("builder turn failed");
-    const build = snapshot("build", "builder");
+    if (!two.success) throw new Error("implementation editor turn failed");
+    const build = snapshot("build", "editor", ["implementation"]);
     const actual = readFileSync(readme, "utf8");
     writeFileSync(after, actual);
     const diff = git("diff", "--no-index", "--", before, after);
@@ -278,7 +282,7 @@ async function run() {
       checkEvidence?.command?.[0] !== check || checkEvidence?.exitCode !== 0 ||
       typeof checkEvidence?.inspectedRevision !== "string" || !checkEvidence.inspectedRevision ||
       checkEvidence.inspectedRevision !== build.acceptance.task?.revision?.after || !existsSync(checkEvidence?.evidenceRef ?? "")) {
-      throw new Error("builder runtime acceptance/check/revision/readback incomplete; reviewer not dispatched");
+      throw new Error("implementation editor runtime acceptance/check/revision/readback incomplete; reviewer not dispatched");
     }
     // Every reviewer reference must be retained before the reviewer is dispatched.
     const reviewInputs = [plan.returnPath, readme, before, after, beforeDiff, afterDiff,
@@ -291,11 +295,11 @@ async function run() {
     const returnTemplate = reviewReturnTemplate({ planReturnPath: plan.returnPath, before, after, afterDiff,
       acceptancePath: build.acceptancePath, checkPath: checkEvidence.evidenceRef, check,
       exitCode: checkEvidence.exitCode, inspectedRevision: checkEvidence.inspectedRevision });
-    const p3 = `Continue SAME synthetic task. Dispatch exactly one native code-reviewer pinned ${model}, backend "native", scope ["README-SYNTH.md"], review_reason "Human explicitly requested independent synthetic wide-stage review despite docs-only lane". Task: Independently inspect the actual planner output ${plan.returnPath} for a relevant typo-only plan and acceptance criteria; README-SYNTH.md in ${worktree}, BEFORE ${before}, AFTER ${after}, baseline diff ${beforeDiff}, before/after diff ${afterDiff}, clean committed baseline git status ${baselineStatusPath}, baseline fixture hashes ${baselineManifest}, immutable baseline fixture bytes ${baselineFilesPath}, full after git status ${afterStatusPath}, builder runtime acceptance ${build.acceptancePath}, builder check ${checkEvidence.evidenceRef}, and builder native result at the absolute canonical dispatch evidence path ${build.resultPath} (dispatches/${build.id}/result.json, NOT under artifacts/evidence). These paths are available NOW; read them as written, without shortening or rebasing relative paths. The only excluded after-status entries are untracked files under the single runtime-owned .pi/agent-sessions/sessions/${sessions[0]}/; every other tracked or untracked path is checked. Check the exact byte-level one-token change, unchanged other fixture bytes, absence of unrelated changes outside that session, and the actual declared check, exit code, inspected revision and deliverable readback. ${contract} Start your final return with exactly one standalone line, VERDICT: APPROVE only if plan, content and verification are adequate, otherwise VERDICT: REJECT. Never omit the colon or embed a verdict in prose. Include the parseable structured return keys changed_files, assertions_proven, assertions_unproven, assertions_failed, tests_run, open_risks, requires_user_decision. REVIEW INSTRUCTIONS / TEMPLATE ONLY — this is NOT returned evidence and the harness never inserts it into your response. The production parser recognizes an A1 evidence field ONLY after the literal delimiter ' — evidence: ' inside an assertions_proven entry. A phrase such as 'source: builder runtime evidence' in the note or tests_run is NOT A1 evidence. If and only if you independently read and confirm every cited file and runtime field, you may write an actual return using the following shape, replacing the observation placeholder with your own findings and choosing the verdict; keep the A1 evidence on ONE physical bullet line, with the JSON-quoted command and paths copied exactly to preserve embedded quotes, escapes, commas or newlines. Do not copy an unverified A1 proven entry. If unsupported, choose VERDICT: REJECT and put A1 under assertions_unproven or assertions_failed with the reason, not assertions_proven. Approval is never required.\n${returnTemplate}\nYou are read-only: do not promise or cite a new review artifact you cannot create; the Hub retains your actual return under its returnPath. No bash, edits, delegation or forced stage updates. Report reviewer result, not a manufactured pass.`;
+    const p3 = `Continue SAME synthetic task. Dispatch exactly one native reviewer with practices ["independent-review"], pinned ${model}, backend "native", scope ["README-SYNTH.md"], review_reason "Human explicitly requested independent synthetic wide-stage review despite docs-only lane". Task: Independently inspect the actual planning editor output ${plan.returnPath} for a relevant typo-only plan and acceptance criteria; README-SYNTH.md in ${worktree}, BEFORE ${before}, AFTER ${after}, baseline diff ${beforeDiff}, before/after diff ${afterDiff}, clean committed baseline git status ${baselineStatusPath}, baseline fixture hashes ${baselineManifest}, immutable baseline fixture bytes ${baselineFilesPath}, full after git status ${afterStatusPath}, implementation editor runtime acceptance ${build.acceptancePath}, implementation editor check ${checkEvidence.evidenceRef}, and implementation editor native result at the absolute canonical dispatch evidence path ${build.resultPath} (dispatches/${build.id}/result.json, NOT under artifacts/evidence). These paths are available NOW; read them as written, without shortening or rebasing relative paths. The only excluded after-status entries are untracked files under the single runtime-owned .pi/agent-sessions/sessions/${sessions[0]}/; every other tracked or untracked path is checked. Check the exact byte-level one-token change, unchanged other fixture bytes, absence of unrelated changes outside that session, and the actual declared check, exit code, inspected revision and deliverable readback. ${contract} Start your final return with exactly one standalone line, VERDICT: APPROVE only if plan, content and verification are adequate, otherwise VERDICT: REJECT. Never omit the colon or embed a verdict in prose. Include the parseable structured return keys changed_files, assertions_proven, assertions_unproven, assertions_failed, tests_run, open_risks, requires_user_decision. REVIEW INSTRUCTIONS / TEMPLATE ONLY — this is NOT returned evidence and the harness never inserts it into your response. The production parser recognizes an A1 evidence field ONLY after the literal delimiter ' — evidence: ' inside an assertions_proven entry. A phrase such as 'source: editor runtime evidence' in the note or tests_run is NOT A1 evidence. If and only if you independently read and confirm every cited file and runtime field, you may write an actual return using the following shape, replacing the observation placeholder with your own findings and choosing the verdict; keep the A1 evidence on ONE physical bullet line, with the JSON-quoted command and paths copied exactly to preserve embedded quotes, escapes, commas or newlines. Do not copy an unverified A1 proven entry. If unsupported, choose VERDICT: REJECT and put A1 under assertions_unproven or assertions_failed with the reason, not assertions_proven. Approval is never required.\n${returnTemplate}\nYou are read-only: do not promise or cite a new review artifact you cannot create; the Hub retains your actual return under its returnPath. No bash, edits, delegation or forced stage updates. Report reviewer result, not a manufactured pass.`;
     authorize("review");
     const three = await request(p3);
     if (!three.success) throw new Error("reviewer turn failed");
-    const review = snapshot("review", "code-reviewer");
+    const review = snapshot("review", "reviewer", ["independent-review"]);
     const reviewStatus = git("status", "--short", "--untracked-files=all");
     writeFileSync(reviewStatusPath, reviewStatus.stdout);
     const reviewNonRuntimeStatus = nonRuntimeStatus(reviewStatus.stdout, sessions[0]);
@@ -331,6 +335,6 @@ async function run() {
     });
     outcome.shutdown = exit; save();
     if (exit?.code !== 0 || exit?.signal) process.exitCode = 1;
-    console.log(JSON.stringify({ fixture: dir, result: resultPath, closed: !!outcome.closed, error: outcome.error, stages: outcome.stages.map(s => ({ role: s.role, process: s.process?.currentStage, modelEvidence: s.modelEvidence })) }));
+    console.log(JSON.stringify({ fixture: dir, result: resultPath, closed: !!outcome.closed, error: outcome.error, stages: outcome.stages.map(s => ({ role: s.role, practices: s.practices, process: s.process?.currentStage, modelEvidence: s.modelEvidence })) }));
   }
 }

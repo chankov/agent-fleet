@@ -569,6 +569,28 @@ test("dispatch persistence rejects unknown keys and invalid triage metadata befo
  }
 });
 
+test("after (D13) is a persisted array of agent keys outside the attempt identity", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "after-identity-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", "-q", cwd]); writeFileSync(join(cwd, "a.ts"), "a");
+	const guard = createNoProgressGuard();
+	let calls = 0;
+	const run = withNoProgress({ noProgress: guard, artifacts: { loadInputArtifacts: () => [] } } as any, "dispatch", async () => ({ content: [], details: { status: "cancelled", reason: "cancelled", exitCode: 1, dispatchId: `after-${++calls}` } }), () => ({ model: "m" }));
+	for (const after of ["editor", [1], [null]]) {
+		const invalid = await run("bad", { agent: "reviewer", task: "inspect", after } as any, undefined, undefined, { cwd } as any);
+		assert.equal((invalid.details as any).reason, "invalid_invocation_shape", JSON.stringify(after));
+	}
+	assert.equal(calls, 0);
+	const base: any = { agent: "reviewer", task: "inspect a.ts", scope: ["a.ts"], after: ["editor"] };
+	await run("1", base, undefined, undefined, { cwd } as any);
+	assert.deepEqual(guard.invocation(guard.byDispatch("after-1")!.operationId), { tool: "dispatch_agent", params: base }, "the original contract keeps its dependencies");
+	// A scheduling precondition is not new work: changing it cannot bypass the cancellation fence.
+	for (const after of [undefined, [], ["editor", "editor--p2"]]) {
+		const refused = await run("2", { ...base, after }, undefined, undefined, { cwd } as any);
+		assert.equal((refused.details as any).recoveryCategory, "operator_cancelled", JSON.stringify(after));
+	}
+	assert.equal(calls, 1);
+});
+
 test("scope_mode, prose and disjoint scope do not bypass same-agent cancellation", async t => {
 	const cwd = mkdtempSync(join(tmpdir(), "dispatch-cancel-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "a.ts"), "a"); writeFileSync(join(cwd, "b.ts"), "b");
@@ -800,11 +822,11 @@ test('registered tool schemas retain runtime optional fields and provider compat
  const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
  const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
  registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
- assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','practices','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','parallel','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','practices','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','parallel','after','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
  assert.equal(tools[0].parameters.properties.parallel.type, 'boolean', 'the parallel writer flag is an optional boolean');
  const schema = tools[0].parameters, fields = schema.properties;
  assert.deepEqual(schema.required, ['agent', 'task'], 'new private declarations remain opt-in');
- for (const name of ['practices', 'private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {
+ for (const name of ['practices', 'private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables', 'after']) {
   assert.equal(fields[name].type, 'array'); assert.equal(fields[name].items.type, 'string');
  }
  for (const [name, values] of Object.entries({ review_mode: ['changes','run-checks','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], scope_mode: ['existing','create'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] })) {
@@ -817,7 +839,7 @@ test('registered tool schemas retain runtime optional fields and provider compat
  assert.doesNotMatch(JSON.stringify(tools.map(t => t.parameters)), /\(\?[=!<]/);
  for (const tool of tools) {
   const kind = tool.name === 'dispatch_agent' ? 'dispatch' : 'research';
-  const params = kind === 'dispatch' ? { agent: 'reviewer', practices: ['independent-review'], task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', review_mode: 'changes', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', practices: ['research'], persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
+  const params = kind === 'dispatch' ? { agent: 'reviewer', practices: ['independent-review'], task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', review_mode: 'changes', backend: 'native', after: ['editor'], triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', practices: ['research'], persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
   let calls = 0;
   const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, kind, async () => { calls++; return { content: [] }; });
   await run('one', params as any, undefined, undefined, { cwd: process.cwd() } as any);

@@ -17,7 +17,7 @@ function fixture() {
   const at = path => join(from, path);
   const base = at("worktree/.pi/agent-sessions/sessions/session-1"), readme = at("worktree/README-SYNTH.md");
   const before = "# Synthetic Widget\nThe wdiget renders a greeting.\n", after = before.replace("wdiget renders", "widget renders");
-  const keys = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md", ".pi/agents/teams.yaml", ".pi/agents/personas/planner.md", ".pi/agents/personas/builder.md", ".pi/agents/personas/code-reviewer.md"];
+  const keys = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md", ".pi/agents/personas/editor.md", ".pi/agents/personas/reviewer.md"];
   const originals = Object.fromEntries(keys.map(key => [key, key === "README-SYNTH.md" ? before : `synthetic ${key}\n`]));
   for (const key of keys) put(at(`worktree/${key}`), key === "README-SYNTH.md" ? after : originals[key]);
   const baseline = { manifest: put(at("evidence/baseline-fixture-sha256.json"), Object.fromEntries(keys.map(key => [key, sha(originals[key])]))),
@@ -28,25 +28,25 @@ function fixture() {
   const status = " M README-SYNTH.md";
   const afterStatus = put(at("evidence/after-git-status.txt"), status);
   const reviewStatus = put(at("evidence/after-review-git-status.txt"), status);
-  const stage = (role, name, id) => {
+  const stage = (role, practices, name, id) => {
     const resultPath = join(base, "dispatches", id, "result.json");
     const acceptancePath = join(base, "artifacts/evidence", `${role}-acceptance-${id}.md`);
     const returnPath = join(base, "artifacts/returns", `${role}-${id}.md`);
     put(returnPath, `${role} return`);
-    put(acceptancePath, role === "builder" ? "{}" : "{}");
+    put(acceptancePath, "{}");
     put(resultPath, { evidencePath: resultPath, exitCode: 0 });
-    return { stage: name, role, id, resultPath, acceptancePath, returnPath,
+    return { stage: name, role, practices, id, resultPath, acceptancePath, returnPath,
       modelEvidence: { fallback: null, status: "observed", identities: [{ provider: "openai-codex", model: "gpt-6-luna" }] } };
   };
-  const plan = stage("planner", "plan", "11111111-1111-1111-1111-111111111111");
-  const build = stage("builder", "build", "22222222-2222-2222-2222-222222222222");
-  const review = stage("code-reviewer", "review", "33333333-3333-3333-3333-333333333333");
+  const plan = stage("editor", ["planning"], "plan", "11111111-1111-1111-1111-111111111111");
+  const build = stage("editor", ["implementation"], "build", "22222222-2222-2222-2222-222222222222");
+  const review = stage("reviewer", ["independent-review"], "review", "33333333-3333-3333-3333-333333333333");
   review.process = { accepted: true, currentStage: "complete", obligations: { review: { status: "satisfied" } } };
   put(review.resultPath, { output: "VERDICT: APPROVE\nassertions_proven: [A1 — evidence: abbreviated]", exitCode: 0 });
   put(join(base, "artifacts/plans/synthetic-readme-fix.md"), "plan");
   const retainedPath = put(join(base, "dispatches", build.id, "deliverables/0"), after);
   const taskId = "task-1", revision = "rev-1", command = "node -e 'declared check only'";
-  const checkPath = put(join(base, "artifacts/evidence/builder-test-check-44444444-4444-4444-4444-444444444444.md"), {
+  const checkPath = put(join(base, "artifacts/evidence/editor-test-check-44444444-4444-4444-4444-444444444444.md"), {
     declaration: { taskId, dispatchId: build.id }, observation: { command, exitCode: 0, afterRevision: revision } });
   put(review.acceptancePath, { task: { id: taskId, revision: { after: revision } }, process: { accepted: true },
     structuredReturn: { assertions_proven: [{ id: "A1", evidence: "abbreviated" }] } });
@@ -79,6 +79,17 @@ test("recorded baseline and first-time snapshot detect changed or missing eviden
     rmSync(f.checkPath);
     assert.throws(() => reviewFixture(f.from), /ENOENT|missing/);
   } finally { f.cleanup(); }
+});
+
+test("a retained fixture from the retired persona stages is refused pre-spend", () => {
+  for (const mutate of [
+    f => { f.result.stages[0].role = "planner"; f.put(f.at("result.json"), f.result); },
+    f => { f.result.stages[2].role = "code-reviewer"; f.put(f.at("result.json"), f.result); },
+    f => { f.result.stages[0].practices = ["implementation"]; f.put(f.at("result.json"), f.result); },
+  ]) {
+    const f = fixture();
+    try { mutate(f); assert.throws(() => reviewFixture(f.from), /three-stage fixture/); } finally { f.cleanup(); }
+  }
 });
 
 test("wrong task/revision, wrong README, or missing original process refuses pre-spend", () => {
@@ -263,12 +274,16 @@ test("user-run entry is isolated reviewer-only, no npm integration or verificati
   assert.match(source, /process\.argv\[2\] !== "--live" \|\| process\.argv\[3\] !== "--from"/);
   assert.match(source, /fixture\.verify\(\);\n    child = spawn/);
   assert.match(source, /writeFileSync\(join\(workspace, "review-gate\.ts"\), reviewGateSource\)/);
-  assert.match(reviewGateSource, /input\?\.agent === "code-reviewer" && input\?\.backend === "native"/);
+  assert.match(reviewGateSource, /input\?\.agent === "reviewer" && JSON\.stringify\(input\?\.practices\) === '\["independent-review"\]' && input\?\.backend === "native"/);
   assert.match(reviewGateSource, /JSON\.stringify\(input\?\.scope\) === '\["README-SYNTH\.md"\]'/);
   assert.match(reviewGateSource, /if \(allowed\) \{ used = true; return; \}/);
   assert.match(reviewGateSource, /input\.artifacts\.length === 0/);
   assert.match(source, /artifacts \[\] \(EMPTY: the cited files are read-only paths in the task/);
   assert.match(source, /tools: read,grep,find,ls/);
+  assert.match(source, /writeFileSync\(join\(workspace, "\.pi\/agents\/personas\/reviewer\.md"\), `---\\nname: reviewer\\n/);
+  assert.match(source, /request\.agent !== "reviewer"/);
+  assert.match(source, /`reviewer-acceptance-\$\{id\}\.md`/);
+  assert.doesNotMatch(source, /\b(planner|builder|code-reviewer)\b/);
   assert.match(source, /models\.some\(m => `\$\{m\.provider\}\/\$\{m\.model\}` !== "openai-codex\/gpt-6-luna"\)/);
   assert.doesNotMatch(source, /m\.output > 0/);
   assert.match(source, /Do NOT execute or propose repeating the verification command/);

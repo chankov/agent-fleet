@@ -138,6 +138,8 @@ export const fastTestFiles = [
   ".pi/harnesses/agent-hub/task-brief.test.ts",
   ".pi/harnesses/agent-hub/scope-overlap.test.ts",
   ".pi/harnesses/agent-hub/parallel-writers.test.ts",
+  ".pi/harnesses/agent-hub/parallel-assignments.test.ts",
+  ".pi/harnesses/agent-hub/review-independence.test.ts",
   ".pi/harnesses/agent-hub/context-window.test.ts",
   ".pi/harnesses/agent-hub/backend-policy.test.ts",
   ".pi/agent-fleet/scripts/workflows/lib/writer-lease.test.ts",

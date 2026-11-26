@@ -1,4 +1,6 @@
-import { isCompleteProfile, parseCompleteProfile, validateProfile, agentSelection, childSelection, profileModels, type ModelProfile, type CompleteModelProfile } from '../config/model-profiles.ts';
+import { isCompleteProfile, parseCompleteProfile, validateProfile, agentSelection, childSelection, practiceSelection, profileModels, splitPracticeKey, type ModelProfile, type CompleteModelProfile } from '../config/model-profiles.ts';
+import { isPracticeId, normalizePracticeInput } from '../config/practices.ts';
+import { basePersonaName } from '../run-budget.js';
 import { assertProfileModel } from './profile-runtime.ts';
 export interface ModelPolicyDef {
 	name: string;
@@ -7,6 +9,26 @@ export interface ModelPolicyDef {
 	models?: string[];
 	thinking?: string;
 	subagents?: Record<string, { model: string; fallbackModel?: string }>;
+	/** Role-file defaults per practice (`practice_models:`). */
+	practiceModels?: Record<string, { model: string; thinking?: string }>;
+}
+
+/**
+ * Where a practice-level choice came from, highest precedence first (D9):
+ * a session command, the active model profile, `.ai/agent-fleet-overrides.md`,
+ * then the role file's `practice_models:`.
+ */
+export type PracticeSelectionTier = "session" | "profile" | "overrides" | "role-file";
+
+/** `practice:<id>:<tier>` when a practice of the assignment selected the model, else `role`. */
+export type ModelSelectionSource = "role" | `practice:${string}:${PracticeSelectionTier}`;
+
+export interface ResolvedModelSelection {
+	model: string | undefined;
+	thinking: string | undefined;
+	source: ModelSelectionSource;
+	/** The winning practice, when one selected the model or thinking. */
+	practice?: string;
 }
 
 export interface ModelPolicyPorts<TDef extends ModelPolicyDef> {
@@ -24,9 +46,13 @@ export interface ModelSubstitutionUiPort {
 export interface ModelPolicy<TDef extends ModelPolicyDef> {
 	allowedModels(def: TDef): string[];
 	substitutedModel(model: string | undefined): string | undefined;
-	resolvedModel(def: TDef): string | undefined;
+	/** Practice-aware: the first practice in `practices` order with any selection wins; none → the role chain. */
+	resolvedModel(def: TDef, practices?: readonly string[]): string | undefined;
 	resolvedSubagentModel(persona: string, role: string, declared: string): string;
-	resolvedThinking(def: TDef): string | undefined;
+	resolvedThinking(def: TDef, practices?: readonly string[]): string | undefined;
+	resolvedSelection(def: TDef, practices?: readonly string[]): ResolvedModelSelection;
+	/** The practice's model and thinking without its session override (what clearing the override returns to). */
+	practiceDefault(def: TDef, practice: string): { model: string | undefined; thinking: string | undefined };
 	switchablePersonaDef(name: string): TDef | undefined;
 	allKnownModels(): string[];
 	getPersonaOverride(name: string): string | undefined;
@@ -34,6 +60,12 @@ export interface ModelPolicy<TDef extends ModelPolicyDef> {
 	getSubagentOverride(persona: string, role: string): string | undefined;
 	setSubagentOverride(persona: string, role: string, model: string | undefined): void;
 	setThinkingOverride(name: string, thinking: string | undefined): void;
+	getPracticeOverride(role: string, practice: string): string | undefined;
+	setPracticeOverride(role: string, practice: string, model: string | undefined): void;
+	getPracticeThinkingOverride(role: string, practice: string): string | undefined;
+	setPracticeThinkingOverride(role: string, practice: string, thinking: string | undefined): void;
+	/** `.ai/agent-fleet-overrides.md` `model.<role>.<practice>` / `thinking.<role>.<practice>`, keyed `<role>.<practice>`. Replaces the previous set. */
+	setConfiguredPracticeSelections(entries: Readonly<Record<string, { model?: string; thinking?: string }>>): void;
 	getSubstitution(source: string): string | undefined;
 	substitutionEntries(): IterableIterator<[string, string]>;
 	applyProfile(profile: ModelProfile): string[];
@@ -46,13 +78,20 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 	const substitutions = new Map<string, string>();
 	const thinkingOverrides = new Map<string, string>();
 	const subagentOverrides = new Map<string, string>();
+	// Practice selections are keyed `<role>.<practice>` (parallel instances use their base role).
+	const practiceOverrides = new Map<string, string>();
+	const practiceThinkingOverrides = new Map<string, string>();
+	/** `<role>.<practice>` entries of the active flat profile; replaced on every flat profile switch. */
+	const flatPracticeModels = new Map<string, string>();
+	let configuredPractices = new Map<string, { model?: string; thinking?: string }>();
 	let complete: CompleteModelProfile | undefined;
-	const maps = [personaOverrides, substitutions, thinkingOverrides, subagentOverrides];
+	const maps = [personaOverrides, substitutions, thinkingOverrides, subagentOverrides, practiceOverrides, practiceThinkingOverrides, flatPracticeModels];
 	let saved: Map<string,string>[] | undefined;
 	const assertAllowed = (model: string) => { if(complete) assertProfileModel(model,{name:'active',profile:complete}); };
 	const refresh = () => { try { ports.refreshUi(); } catch { /* presentation cannot invalidate a model switch */ } };
 	const key = (value: string) => value.toLowerCase();
 	const roleKey = (persona: string, role: string) => `${key(persona)}.${key(role)}`;
+	const practiceKey = (role: string, practice: string) => `${key(basePersonaName(role))}.${normalizePracticeInput(practice)}`;
 
 	function allowedModels(def: TDef): string[] {
 		const out: string[] = [];
@@ -63,14 +102,54 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 	function substitutedModel(model: string | undefined): string | undefined {
 		return model ? substitutions.get(model) ?? model : undefined;
 	}
-	function resolvedModel(def: TDef): string | undefined {
+	function roleModel(def: TDef): string | undefined {
 		return substitutedModel(personaOverrides.get(key(def.name)) ?? (complete ? agentSelection(complete,def.name).model : def.model));
+	}
+	function roleThinking(def: TDef): string | undefined {
+		return thinkingOverrides.get(key(def.name)) ?? (complete ? agentSelection(complete,def.name).thinking : def.thinking);
+	}
+	/**
+	 * Model and thinking each take the highest tier that sets them for this practice.
+	 * A complete profile owns the whole fleet: only session choices and its own
+	 * `<role>.<practice>` entries apply, never the overrides file or the role file.
+	 */
+	function practiceTiers(def: TDef, practice: string, includeSession = true) {
+		const target = practiceKey(def.name, practice);
+		const models: Array<[string | undefined, PracticeSelectionTier]> = [];
+		const levels: Array<[string | undefined, PracticeSelectionTier]> = [];
+		if (includeSession) { models.push([practiceOverrides.get(target), "session"]); levels.push([practiceThinkingOverrides.get(target), "session"]); }
+		if (complete) {
+			const entry = practiceSelection(complete, basePersonaName(def.name), practice);
+			models.push([entry?.model, "profile"]); levels.push([entry?.thinking, "profile"]);
+		} else {
+			const configured = configuredPractices.get(target);
+			const file = def.practiceModels?.[practice];
+			models.push([flatPracticeModels.get(target), "profile"], [configured?.model, "overrides"], [file?.model, "role-file"]);
+			levels.push([configured?.thinking, "overrides"], [file?.thinking, "role-file"]);
+		}
+		return { model: models.find(([value]) => !!value) as [string, PracticeSelectionTier] | undefined, thinking: levels.find(([value]) => !!value) as [string, PracticeSelectionTier] | undefined };
+	}
+	function resolvedSelection(def: TDef, practices?: readonly string[]): ResolvedModelSelection {
+		for (const raw of practices ?? []) {
+			const practice = normalizePracticeInput(raw);
+			if (!isPracticeId(practice)) continue;
+			const tiers = practiceTiers(def, practice);
+			if (!tiers.model && !tiers.thinking) continue;
+			return {
+				model: tiers.model ? substitutedModel(tiers.model[0]) : roleModel(def),
+				thinking: tiers.thinking ? tiers.thinking[0] : roleThinking(def),
+				source: `practice:${practice}:${(tiers.model ?? tiers.thinking)![1]}`,
+				practice,
+			};
+		}
+		return { model: roleModel(def), thinking: roleThinking(def), source: "role" };
+	}
+	function practiceDefault(def: TDef, practice: string) {
+		const tiers = practiceTiers(def, normalizePracticeInput(practice), false);
+		return { model: tiers.model ? substitutedModel(tiers.model[0]) : roleModel(def), thinking: tiers.thinking ? tiers.thinking[0] : roleThinking(def) };
 	}
 	function resolvedSubagentModel(persona: string, role: string, declared: string): string {
 		return substitutedModel(subagentOverrides.get(roleKey(persona, role)) ?? (complete ? childSelection(complete,persona,role).model : declared)) ?? declared;
-	}
-	function resolvedThinking(def: TDef): string | undefined {
-		return thinkingOverrides.get(key(def.name)) ?? (complete ? agentSelection(complete,def.name).thinking : def.thinking);
 	}
 	function switchablePersonaDef(name: string): TDef | undefined {
 		return ports.getActiveDef(key(name)) ?? ports.getResearchDefs().find(def => key(def.name) === key(name));
@@ -83,9 +162,13 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 			add(def.model); add(def.fallbackModel);
 			for (const model of def.models ?? []) add(model);
 			for (const role of Object.values(def.subagents ?? {})) { add(role.model); add(role.fallbackModel); }
+			for (const entry of Object.values(def.practiceModels ?? {})) add(entry.model);
 		}
 		for (const model of personaOverrides.values()) add(model);
 		for (const model of subagentOverrides.values()) add(model);
+		for (const model of practiceOverrides.values()) add(model);
+		for (const model of flatPracticeModels.values()) add(model);
+		for (const entry of configuredPractices.values()) add(entry.model);
 		for (const source of substitutions.keys()) add(source);
 		if(complete) for(const model of profileModels(complete)) add(model);
 		return out;
@@ -98,6 +181,15 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 		if (model !== undefined) assertAllowed(model);
 		const target = roleKey(persona, role);
 		if (model === undefined) subagentOverrides.delete(target); else subagentOverrides.set(target, model);
+	}
+	function setPracticeOverride(role: string, practice: string, model: string | undefined): void {
+		if (model !== undefined) assertAllowed(model);
+		const target = practiceKey(role, practice);
+		if (model === undefined) practiceOverrides.delete(target); else practiceOverrides.set(target, model);
+	}
+	function setPracticeThinkingOverride(role: string, practice: string, thinking: string | undefined): void {
+		const target = practiceKey(role, practice);
+		if (thinking === undefined) practiceThinkingOverrides.delete(target); else practiceThinkingOverrides.set(target, thinking);
 	}
 	function applyProfile(profile: ModelProfile): string[] {
 		if(isCompleteProfile(profile)) {
@@ -115,8 +207,21 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 			saved=undefined;
 		}
 		complete=undefined;
+		// A flat profile replaces the previous profile's practice choices; a session
+		// choice for a practice it names gives way, as a role entry replaces the role's.
+		flatPracticeModels.clear();
 		const applied: string[] = [];
 		for (const [persona, model] of Object.entries(profile)) {
+			const practiceEntry = splitPracticeKey(key(persona));
+			if (practiceEntry) {
+				const def = ports.getAllDefs().find(candidate => key(candidate.name) === practiceEntry.role);
+				if (!def || !isPracticeId(practiceEntry.practice)) continue;
+				const target = practiceKey(practiceEntry.role, practiceEntry.practice);
+				practiceOverrides.delete(target);
+				flatPracticeModels.set(target, model);
+				applied.push(persona);
+				continue;
+			}
 			const def = ports.getAllDefs().find(candidate => key(candidate.name) === key(persona));
 			if (!def) continue;
 			setPersonaOverride(persona, model === def.model ? undefined : model);
@@ -143,11 +248,20 @@ export function createModelPolicy<TDef extends ModelPolicyDef>(ports: ModelPolic
 		return true;
 	}
 	return {
-		allowedModels, substitutedModel, resolvedModel, resolvedSubagentModel, resolvedThinking, switchablePersonaDef, allKnownModels,
+		allowedModels, substitutedModel,
+		resolvedModel: (def, practices) => resolvedSelection(def, practices).model,
+		resolvedSubagentModel,
+		resolvedThinking: (def, practices) => resolvedSelection(def, practices).thinking,
+		resolvedSelection, practiceDefault, switchablePersonaDef, allKnownModels,
 		getPersonaOverride: name => personaOverrides.get(key(name)), setPersonaOverride,
 		getSubagentOverride: (persona, role) => subagentOverrides.get(roleKey(persona, role)), setSubagentOverride,
 		setThinkingOverride: (name, thinking) => { if (thinking === undefined) thinkingOverrides.delete(key(name)); else thinkingOverrides.set(key(name), thinking); },
+		getPracticeOverride: (role, practice) => practiceOverrides.get(practiceKey(role, practice)), setPracticeOverride,
+		getPracticeThinkingOverride: (role, practice) => practiceThinkingOverrides.get(practiceKey(role, practice)), setPracticeThinkingOverride,
+		setConfiguredPracticeSelections: entries => {
+			configuredPractices = new Map(Object.entries(entries).map(([name, entry]) => [key(name), { ...entry }]));
+		},
 		getSubstitution: source => substitutions.get(source), substitutionEntries: () => substitutions.entries(), applyProfile, applySessionSubstitution,
-		reset: () => { complete=undefined; saved=undefined; personaOverrides.clear(); substitutions.clear(); subagentOverrides.clear(); thinkingOverrides.clear(); },
+		reset: () => { complete=undefined; saved=undefined; for (const map of maps) map.clear(); configuredPractices = new Map(); },
 	};
 }

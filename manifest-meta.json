@@ -702,14 +702,12 @@
     },
     "companion:pi-agent-configs": {
       "title": ".pi/agents configs",
-      "summary": "teams, peers, chains, dispatch policy, and model panels (voices.yaml) the harnesses read",
+      "summary": "dispatch policy, model profiles, and model panels (voices.yaml) the harnesses read",
       "agents": {
         "pi": {
           "source": [
             ".pi/agents/dispatch-policy.yaml",
             ".pi/agents/model-profiles.yaml",
-            ".pi/agents/peers.yaml",
-            ".pi/agents/teams.yaml",
             ".pi/agents/voices.yaml"
           ],
           "sourceMode": "all",

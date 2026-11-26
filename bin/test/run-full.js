@@ -75,8 +75,6 @@ const fullTestPatterns = [
   ".pi/agent-fleet/scripts/lib/spawn-stagger.test.ts",
   ".pi/agent-fleet/scripts/lib/monitor-env.test.ts",
   ".pi/agent-fleet/scripts/lib/fleet-extras.test.ts",
-  ".pi/agent-fleet/scripts/lib/team-snapshot.test.ts",
-  ".pi/agent-fleet/scripts/team-snapshot.command.test.ts",
   ".pi/agent-fleet/scripts/lib/coms-envelope.test.ts",
   ".pi/agent-fleet/scripts/lib/claude-bridge-core.test.ts",
   ".pi/agent-fleet/scripts/lib/hermes-bridge-core.test.ts",

@@ -23,6 +23,8 @@ export interface DispatchAgentParams {
 	backend?: "auto" | "native" | "coms";
 	/** Run alongside other parallel writers: OS-sandboxed to its exact scope, refused on overlap. */
 	parallel?: boolean;
+	/** Instances this assignment waits for (D13); see tools/dispatch-execution.ts */
+	after?: string[];
 }
 
 export interface SpawnResearchParams {
@@ -46,12 +48,6 @@ export interface SetTaskTierParams {
 	scope?: "read-only" | "small" | "wide";
 	reason?: string;
 	new_task?: boolean;
-}
-
-export interface TeamAdjustParams {
-	action: string;
-	agent: string;
-	reason: string;
 }
 
 export interface SetAssertionsParams {
@@ -87,15 +83,18 @@ export interface ComsAwaitParams {
 	timeout_ms?: number;
 }
 
+/**
+ * The herdr_spawn_peer parameters; peer-spawn-plan.ts's HubPeerSpawnRequest is
+ * this same type (the rationale for the field set lives there). Declared here,
+ * without importing the launcher, so this types module stays a leaf.
+ */
 export interface HerdrSpawnPeerParams {
 	name: string;
 	runner?: "pi" | "claude-code";
 	persona?: string;
 	no_persona?: boolean;
 	model?: string;
-	extensions?: string;
-	browser?: boolean;
-	all_extensions?: boolean;
+	read_only?: boolean;
 	direction?: "right" | "down";
 }
 
@@ -138,7 +137,6 @@ export interface ToolContext {
 	/** Read-only recovery analysis without the research no-progress fence. */
 	executeRecoveryResearch: ToolExecutor<SpawnResearchParams>;
 	executeSetTaskTier: ToolExecutor<SetTaskTierParams>;
-	executeTeamAdjust: ToolExecutor<TeamAdjustParams>;
 	executeSetAssertions: ToolExecutor<SetAssertionsParams>;
 	executeUpdateAssertion: ToolExecutor<UpdateAssertionParams>;
 	executeGetAssertions: ToolExecutor<Record<string, never>>;

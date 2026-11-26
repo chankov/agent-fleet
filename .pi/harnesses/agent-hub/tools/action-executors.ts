@@ -13,7 +13,7 @@ import type { BudgetContext, TurnReport } from "../context/budgets.ts";
 import type { HubStateContext } from "../context/hub-state.ts";
 import type {
 	ComsAwaitParams, ComsGetParams, ComsListParams, ComsSendParams, SetAssertionsParams,
-	SetTaskTierParams, TeamAdjustParams, ToolExecutionResult, ToolExecutor, UpdateAssertionParams,
+	SetTaskTierParams, ToolExecutionResult, ToolExecutor, UpdateAssertionParams,
 } from "./context.ts";
 
 type Refusal = ToolExecutionResult | null;
@@ -50,9 +50,6 @@ export interface ActionExecutorDeps {
  privateProofUse?(ctx: ExtensionContext): PrivateProofUse;
 	confirmTaskSupersession?(input: { oldTaskId: string; newTaskId: string; reason: string }, ctx: ExtensionContext, signal?: AbortSignal): Promise<boolean>;
 	adoptReservedTaskId?(id: string, resetTaskWindow: () => void): void;
-	getAgentStates(): Map<string, { def: { name: string } }>;
-	rosterAdd(agent: string): { ok: boolean; message: string };
-	rosterDrop(agent: string): { ok: boolean; message: string };
 	getIdentity(): unknown | null;
 	getComs(): any;
 	resolveTarget(target: string): { name: string; model?: string } | null;
@@ -62,7 +59,6 @@ export interface ActionExecutorDeps {
 
 export interface ActionExecutors {
 	executeSetTaskTier: ToolExecutor<SetTaskTierParams>;
-	executeTeamAdjust: ToolExecutor<TeamAdjustParams>;
 	executeSetAssertions: ToolExecutor<SetAssertionsParams>;
 	executeUpdateAssertion: ToolExecutor<UpdateAssertionParams>;
 	executeGetAssertions: ToolExecutor<Record<string, never>>;
@@ -149,18 +145,6 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		return { content: [{ type: "text", text: `${change.message}${new_task ? " (new task window opened; prior assertion ledger cleared)" : ""}\n${processChange.message} The tier sizes the apparatus and child deadlines; it cannot erase correctness obligations.\nThis task so far: ${d.getTaskDispatchCount()} dispatches, ${d.getTaskResearchCount()} research (usage, not quotas).\nThe input is bound to this task; no task transition is pending. Do not call set_task_tier again unless tier, risk or scope really changes.` }], details: { status: "ok", tier: change.tier, risk: adopted.risk, scope: adopted.scope, process: adopted, escalated: change.escalated, newTask: !!new_task, snapshot: { taskId: snapshot.taskId, tier: snapshot.tier, revision: snapshot.revision }, ...(reservedNewTaskId ? { newTaskId: reservedNewTaskId } : {}) } };
 	};
 
-	const executeTeamAdjust: ToolExecutor<TeamAdjustParams> = async (_id, params, _signal, _update, ctx) => {
-		const refusal = d.provisionalCapabilityRefusal("fleet"); if (refusal) return refusal;
-		const act = String(params.action || "").trim().toLowerCase();
-		// Every installed agent is dispatchable and auto-added on first dispatch, so
-		// roster changes are neither tier-gated nor capped (2026-11-11).
-		if (act !== "add" && act !== "drop") return { content: [{ type: "text", text: `Unknown action "${params.action}" — expected add or drop.` }], details: { status: "error" } };
-		const result = act === "add" ? d.rosterAdd(params.agent) : d.rosterDrop(params.agent);
-		if (result.ok) ctx.ui.notify(`team_adjust (${act}): ${result.message} — dispatcher's reason: ${params.reason || "(none given)"}`, "info");
-		const roster = Array.from(d.getAgentStates().values()).map(s => s.def.name).join(", ");
-		return { content: [{ type: "text", text: `${result.message}. Active team: ${roster}.` }], details: { status: result.ok ? "ok" : "refused", roster } };
-	};
-
 	// Persist before adopting: a failed journal append leaves the live ledger untouched.
 	const persistOrRefuse = (next: Assertion[], prefix: string): ToolExecutionResult | null => {
 		try { d.persistLedger?.(next); return null; }
@@ -239,5 +223,5 @@ export function createActionExecutors(d: ActionExecutorDeps): ActionExecutors {
 		if (result.status === "error") { const unknown = result.error === "unknown msg_id"; return { content: [{ type: "text", text: unknown ? `coms_await: unknown msg_id ${params.msg_id}` : `coms_await: error — ${result.error}` }], details: unknown ? { error: "unknown msg_id" } : { status: "error", error: result.error } }; }
 		return { content: [{ type: "text", text: typeof result.response === "string" ? result.response : JSON.stringify(result.response, null, 2) }], details: { response: result.response } };
 	};
-	return { executeSetTaskTier, executeTeamAdjust, executeSetAssertions, executeUpdateAssertion, executeGetAssertions, executeComsList, executeComsSend, executeComsGet, executeComsAwait };
+	return { executeSetTaskTier, executeSetAssertions, executeUpdateAssertion, executeGetAssertions, executeComsList, executeComsSend, executeComsGet, executeComsAwait };
 }

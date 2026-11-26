@@ -6,7 +6,7 @@ import { createContextPressureLifecycle, createContextPressureRootState } from "
 function fixture(rosterSize = 1, _fallbackRosterSize = 0, pendingOperations: any[] = [], comsReady = false) {
 	let activeTools: string[] = []; const entries: [string, unknown][] = []; const catalogChanges: any[] = [];
 	const policy = createWorkModePolicy({
-		getBaselineTools: () => ["read", "edit"], getRosterSize: () => rosterSize, getActiveTeamName: () => rosterSize ? "default" : "",
+		getBaselineTools: () => ["read", "edit"], getRosterSize: () => rosterSize,
 		getComsReady: () => comsReady, getHerdrReady: () => false, getAskUserAvailable: () => true, getIdentityLabel: () => null,
 		getTaskTier: () => "feature", getPendingOperations: () => pendingOperations, getContextState: () => "normal",
 		getActiveTools: () => activeTools, setActiveTools: tools => { activeTools = tools; }, recordToolCatalog: change => catalogChanges.push(change), persist: (type, data) => entries.push([type, data]),
@@ -24,6 +24,8 @@ test("the Hub has one work mode: the operator keeps direct tools and its fleet, 
 	for (const tool of ["read", "edit", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(f.tools().includes(tool), tool);
 	assert.equal(f.catalogChanges.at(-1).toMode, "operator");
 	assert.match(f.policy.statusText(), /Work Mode: operator\nDirect tools: enabled/);
+	assert.match(f.policy.statusText(), /Specialists: \d+ \(editor, reviewer/);
+	assert.doesNotMatch(f.policy.statusText(), /roster|team/i);
 	for (const removed of ["commit", "applySelection", "openPicker", "setRestoredWorkMode", "modelWorkBlockedByRosterRecovery"]) assert.equal((f.policy as any)[removed], undefined, removed);
 	assert.equal(f.entries.some(([type]) => type === "agent-hub-work-mode"), false, "nothing persists a work-mode switch");
 });

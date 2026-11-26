@@ -2,68 +2,46 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRosterPolicy } from "./roster.ts";
 
-const defs = [{ name: "builder" }, { name: "tester" }];
-function fixture(teams: Record<string, string[]> = { default: ["builder"] }) {
-	const states = new Map<string, { def: typeof defs[number]; status: string; sessionFile: string | null }>();
-	let team = ""; const persisted: string[] = []; let refreshes = 0; let recomputes = 0;
+const defs = [{ name: "editor" }, { name: "reviewer" }];
+function fixture(installed = defs) {
+	const states = new Map<string, { def: { name: string }; status: string; sessionFile: string | null }>();
+	let refreshes = 0; let recomputes = 0; let noticeResets = 0;
 	const policy = createRosterPolicy({
-		getTeams: () => teams, getAllDefs: () => defs, getStates: () => states,
-		getActiveTeamName: () => team, setActiveTeamName: value => { team = value; }, clearBackendNotices: () => {},
+		getDispatchableDefs: () => installed, getStates: () => states, clearBackendNotices: () => { noticeResets++; },
 		createFreshState: (def, adoption) => ({ def, status: "idle", sessionFile: adoption?.file ?? null }),
-		adoptSession: def => def.name === "tester" ? { file: null, quarantined: "/q/tester.json", reason: "truncated" } : { file: "/s/builder.json", quarantined: null, reason: null },
-		quarantineSession: () => ({ usable: true, quarantined: null, reason: null }), persist: name => persisted.push(name),
+		adoptSession: def => def.name === "reviewer" ? { file: null, quarantined: "/q/reviewer.json", reason: "truncated" } : { file: `/s/${def.name}.json`, quarantined: null, reason: null },
 		recompute: () => { recomputes++; }, refreshUi: () => { refreshes++; }, displayName: name => name[0].toUpperCase() + name.slice(1),
 	});
-	return { policy, states, team: () => team, persisted, refreshes: () => refreshes, recomputes: () => recomputes };
+	return { policy, states, refreshes: () => refreshes, recomputes: () => recomputes, noticeResets: () => noticeResets };
 }
 
-test("roster activation and persistence preserve the named team and fresh adoptable state", () => {
+test("populate puts every installed dispatchable role on the roster with adoptable state", () => {
 	const f = fixture();
-	f.policy.activateTeam("default");
-	assert.equal(f.team(), "default");
-	assert.equal(f.states.get("builder")?.sessionFile, "/s/builder.json");
-	f.policy.persistActiveRoster();
-	assert.deepEqual(f.persisted, ["default"]);
+	f.states.set("stale", { def: { name: "stale" }, status: "idle", sessionFile: null });
+	f.policy.populate();
+	assert.deepEqual([...f.states.keys()], ["editor", "reviewer"]);
+	assert.equal(f.states.get("editor")?.sessionFile, "/s/editor.json");
+	assert.equal(f.noticeResets(), 1);
 	assert.equal(f.recomputes(), 1);
 });
 
-test("fallback activation selects the first configured valid team, not a hardcoded default", () => {
-	const f = fixture({ empty: [], stale: ["builder", "missing"], plan: ["tester"], default: ["builder"] });
-	assert.equal(f.policy.activateFirstValidTeam(), true);
-	assert.equal(f.team(), "plan");
-	assert.deepEqual([...f.states.keys()], ["tester"]);
-});
-
-test("fallback activation uses default when it is first and leaves existing agents untouched", () => {
+test("add restores a missing installed role and refuses an uninstalled one", () => {
 	const f = fixture();
-	assert.equal(f.policy.activateFirstValidTeam(), true);
-	assert.equal(f.team(), "default");
-	f.policy.add("tester");
-	const builder = f.states.get("builder");
-	assert.equal(f.policy.activateFirstValidTeam(), true);
-	assert.equal(f.states.get("builder"), builder);
-	assert.deepEqual([...f.states.keys()], ["builder", "tester"]);
-});
-
-test("fallback activation leaves an empty roster unchanged when no valid team exists", () => {
-	for (const teams of [{}, { empty: [], stale: ["missing"] }]) {
-		const f = fixture(teams);
-		assert.equal(f.policy.activateFirstValidTeam(), false);
-		assert.equal(f.team(), "");
-		assert.equal(f.states.size, 0);
-		assert.deepEqual(f.persisted, []);
-		assert.equal(f.recomputes(), 0);
-	}
-});
-
-test("dynamic roster reports quarantine recovery and may drop its last member", () => {
-	const f = fixture();
-	f.policy.activateTeam("default");
-	const added = f.policy.add("tester");
+	const added = f.policy.add("Reviewer");
 	assert.equal(added.ok, true); assert.match(added.message, /quarantined.*starts clean/);
-	assert.equal(f.policy.drop("tester").ok, true);
-	const last = f.policy.drop("builder");
-	assert.equal(last.ok, true, "the operator works without a roster, so the last member can go");
-	assert.equal(f.team(), "");
-	assert.equal(f.refreshes(), 3);
+	assert.equal(f.policy.add("reviewer").ok, true, "an available role is not an error");
+	const missing = f.policy.add("builder");
+	assert.equal(missing.ok, false); assert.match(missing.message, /Installed: editor, reviewer/);
+	assert.equal(f.refreshes(), 1);
+});
+
+test("addInstance adds a parallel instance once and keeps the existing state", () => {
+	const f = fixture();
+	f.policy.populate();
+	const first = f.policy.addInstance({ name: "editor--p2" });
+	assert.equal(first.ok, true); assert.match(first.message, /parallel instance/);
+	const state = f.states.get("editor--p2");
+	assert.equal(f.policy.addInstance({ name: "editor--p2" }).ok, true);
+	assert.equal(f.states.get("editor--p2"), state);
+	assert.deepEqual([...f.states.keys()], ["editor", "reviewer", "editor--p2"]);
 });

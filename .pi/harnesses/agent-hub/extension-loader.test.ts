@@ -64,7 +64,7 @@ function startRpcProbe(
 	delete env.HERDR_PANE_ID;
 	delete env.HERDR_WORKSPACE_ID;
 	const stack = [extensionPaths[0], extensionPaths[1], ...(options.beforeHubExtensions ?? []), extensionPaths[2]];
-	const fleetArgs = options.fleetArgs ?? ["--solo", "--agent-team", "default"];
+	const fleetArgs = options.fleetArgs ?? ["--solo"];
 	const child = spawn(piExecutable, [
 		"--mode", "rpc", "--no-session", "--no-extensions",
 		...stack.flatMap(extensionPath => ["-e", resolve(repoRoot, extensionPath)]),
@@ -296,11 +296,12 @@ export default function (pi) {
 		// The opt-in triage trace adds two fields; keep the original budget for
 		// the existing schema and bound the new fields independently.
 		const dispatch = selected.find((tool: any) => tool.name === "dispatch_agent");
-		const { triage_id, triage_reason, review_mode, parallel, practices, ...baseProperties } = dispatch.parameters.properties;
+		const { triage_id, triage_reason, review_mode, parallel, practices, after, ...baseProperties } = dispatch.parameters.properties;
 		assert.ok(triage_id && triage_reason, "triage trace fields must be present");
         assert.ok(review_mode && JSON.stringify(review_mode).length < 400, "explicit current-state review field remains separately bounded");
 		assert.ok(parallel && JSON.stringify(parallel).length < 120, "parallel writer flag (2026-11-11) is separately bounded");
 		assert.ok(practices && JSON.stringify(practices).length < 260, "role practices (PLAN-11-01) are separately bounded");
+		assert.ok(after && JSON.stringify(after).length < 120, "dependent assignments (PLAN-11-01 D13) are separately bounded");
 		const research = selected.find((tool: any) => tool.name === "spawn_research");
 		const { practices: researchPractices, ...researchBase } = research.parameters.properties;
 		assert.ok(researchPractices && JSON.stringify(researchPractices).length < 120, "research practices are separately bounded");
@@ -309,9 +310,9 @@ export default function (pi) {
 		} : tool === research ? { ...tool, parameters: { ...tool.parameters, properties: researchBase } } : tool);
 		assert.ok(JSON.stringify(baseTools).length < 8_000, `compact baseline schemas=${JSON.stringify(baseTools).length}`);
 		// +100 over the earlier 8,500 for the separately bounded parallel flag (2026-11-11),
-		// +350 for the separately bounded role practices (PLAN-11-01).
-		assert.ok(JSON.stringify(selected).length < 8_950, `compact serialized schemas=${JSON.stringify(selected).length}`);
-		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "practices", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "private_config_files", "verifier_sources", "review_mode", "parallel", "backend"]], ["spawn_research", ["task", "practices", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "extensions", "browser", "all_extensions", "direction"]]] as const) {
+		// +350 for the separately bounded role practices and +100 for `after` (PLAN-11-01).
+		assert.ok(JSON.stringify(selected).length < 9_050, `compact serialized schemas=${JSON.stringify(selected).length}`);
+		for (const [name, fields] of [["dispatch_agent", ["triage_id", "triage_reason", "agent", "practices", "task", "artifacts", "scope", "deliverables", "scope_mode", "watchdog", "review_reason", "private_config_files", "verifier_sources", "review_mode", "parallel", "after", "backend"]], ["spawn_research", ["task", "practices", "persona", "model", "artifacts", "read_scope", "goal", "expected_result"]], ["set_assertions", ["assertions"]], ["coms_send", ["target", "prompt", "handoff_token", "conversation_id", "response_schema", "reply_timeout_ms"]], ["herdr_spawn_peer", ["name", "runner", "persona", "no_persona", "model", "read_only", "direction"]]] as const) {
 			const tool = selected.find((entry: any) => entry.name === name);
 			assert.deepEqual(Object.keys(tool.parameters.properties), fields, `${name} accepted fields`);
 		}
@@ -400,7 +401,6 @@ test('real Hub exposes recovery only after restoring an interrupted operation', 
  mkdirSync(join(workspace, 'home'));
  symlinkSync(join(repoRoot, 'node_modules'), join(workspace, 'node_modules'), 'dir');
  symlinkSync(join(repoRoot, '.pi/agents/personas'), join(workspace, '.pi/agents/personas'), 'dir');
- writeFileSync(join(workspace, '.pi/agents/teams.yaml'), 'default:\n  - builder\n');
  writeFileSync(join(workspace, '.ai/agent-fleet-overrides.md'), '## agent-hub\nlanguage: English\n');
  writeFileSync(join(workspace, '.ai/agent-fleet.json'), JSON.stringify({ features: { system1: false } }));
  const probe = join(workspace, 'recovery-catalog-probe.ts');
@@ -424,7 +424,7 @@ test('real Hub exposes recovery only after restoring an interrupted operation', 
 });
 for (const mode of ["off", "recommended"] as const) {
 	for (const profile of budgetProfiles) {
-		test(`effective Hub profiles: ${mode}/${profile.name} stays within budget`, async () => {
+		test(`effective Hub profiles: ${mode}/${profile.name} stays within budget`, async t => {
 		const workspace = mkdtempSync(join(tmpdir(), `agent-hub-budget-${profile.name}-`));
 		// Own the workspace, home, roster and feature configuration: never use a developer's settings.
 		mkdirSync(join(workspace, ".ai"));
@@ -432,7 +432,6 @@ for (const mode of ["off", "recommended"] as const) {
 		mkdirSync(join(workspace, "home"));
 		symlinkSync(join(repoRoot, "node_modules"), join(workspace, "node_modules"), "dir");
 		symlinkSync(join(repoRoot, ".pi/agents/personas"), join(workspace, ".pi/agents/personas"), "dir");
-		writeFileSync(join(workspace, ".pi/agents/teams.yaml"), "default:\n  - builder\n  - test-engineer\n  - code-reviewer\n  - documenter\n");
 		writeFileSync(join(workspace, ".ai/agent-fleet-overrides.md"), "## agent-hub\nlanguage: English\n");
 		writeFileSync(join(workspace, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: mode !== "off" } }));
 		writeFileSync(join(workspace, ".ai/system1.json"), JSON.stringify({
@@ -518,6 +517,7 @@ for (const mode of ["off", "recommended"] as const) {
 			const maxChars = mode === "recommended"
 				? ("recommendedMaxChars" in profile ? profile.recommendedMaxChars : profile.maxChars + RECOMMENDED_SYSTEM1_ALLOWANCE)
 				: profile.maxChars;
+			t.diagnostic(`${mode}/${profile.name} effective chars=${effective} of ${maxChars} (prompt ${measured.promptChars}, schemas ${measured.schemaChars})`);
 			assert.ok(effective <= maxChars,
 				`${profile.name} effective chars=${effective} > ${maxChars} (prompt ${measured.promptChars}; largest schemas ${JSON.stringify(measured.largest)})`);
 			// Off profiles run first in this file; the opt-in System 1 surface must stay bounded.
@@ -739,7 +739,7 @@ export default function (pi) {
 		const state = JSON.parse(readFileSync(statePath, "utf8"));
 		for (const tool of ["read", "bash", "edit", "write", "dispatch_agent"]) assert.ok(state.tools.includes(tool), `${tool} is available to the operator`);
 		assert.ok(state.entries.some((entry: any) => entry.customType === "agent-hub-work-mode" && entry.data.workMode === "operator"), "the operator is recorded so the notice is not repeated");
-		assert.ok(!state.entries.some((entry: any) => entry.customType === "agent-hub-native-roster"), "migration does not invent a roster");
+		assert.ok(!state.entries.some((entry: any) => entry.customType === "agent-hub-native-roster"), "no team roster is ever persisted (D7)");
 
 	} finally {
 		rmSync(workspace, { recursive: true, force: true });
@@ -764,7 +764,6 @@ export default function (pi) {
 					"--mode", "rpc", "--no-session", "--no-extensions",
 					...extensionPaths.flatMap(extensionPath => ["-e", extensionPath]),
 					"-e", probePath, "--solo", "--work-mode", workMode,
-					"--agent-team", "default",
 				],
 				{
 					cwd: repoRoot,
@@ -773,7 +772,8 @@ export default function (pi) {
 				},
 			);
 			assertExtensionStackLoaded(result);
-			assert.match(result.stdout, /Native roster: default \([1-9][0-9]*\)/);
+			assert.match(result.stdout, /Roles: researcher via spawn_research; reviewer, editor via dispatch_agent · 11 practices/, "every installed role is available without a team (D7)");
+			assert.doesNotMatch(result.stdout, /Native roster|teams\.yaml/);
 			assert.match(`${result.stdout}\n${result.stderr}`, /--work-mode .* is ignored/);
 			const active = JSON.parse(readFileSync(capturePath, "utf8"));
 			for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(active.includes(tool), `${tool} should be active (${workMode})`);
@@ -800,10 +800,10 @@ export default function (pi) {
 		const initialCommands = await rpc.request({ type: "get_commands" });
 		assert.equal(initialCommands.success, true, JSON.stringify(initialCommands));
 		const initialNames = initialCommands.data.commands.map((command: { name: string }) => command.name);
-		for (const name of ["af-audit", "af-retry", "af-handoff", "af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart", "probe-active-tools"]) {
+		for (const name of ["af-audit", "af-retry", "af-handoff", "af-compound", "af-agents-kill", "af-agents-restart", "probe-active-tools"]) {
 			assert.ok(initialNames.includes(name), `${name} should remain registered`);
 		}
-		for (const removed of ["af-work-mode", "af-probe", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
+		for (const removed of ["af-work-mode", "af-probe", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont", "af-agents-team", "af-agents-add", "af-agents-drop", "af-agents-save"]) {
 			assert.ok(!initialNames.includes(removed), `${removed} should be removed`);
 		}
 
@@ -818,7 +818,8 @@ export default function (pi) {
 		// proves the same normal prompt updates its tool surface without a classifier.
 		await rpc.request({ type: "prompt", message: "Delegate this to a specialist." });
 		const delegated = await rpc.activeTools();
-		for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust"]) assert.ok(delegated.includes(tool), `${tool} should activate from the incoming prompt`);
+		for (const tool of ["dispatch_agent", "spawn_research", "set_task_tier"]) assert.ok(delegated.includes(tool), `${tool} should activate from the incoming prompt`);
+		assert.ok(!delegated.includes("team_adjust"), "the roster tool is gone (D7)");
 
 	} finally {
 		await rpc.close();

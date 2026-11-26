@@ -8,10 +8,7 @@ export interface HubPromptParts {
 	intro: string;
 	toolList: string;
 	languageLines: string;
-	activeTeamName: string;
-	teamMembers: string;
 	dispatchSection: string;
-	userLanguage: string;
 	askUserBlock: string;
 	modeSection: string;
 	verificationSection: string;
@@ -21,8 +18,10 @@ export interface HubPromptParts {
 	compactionSection?: string;
 	hardRules: string;
 	ambiguityRule: string;
-	agentCatalog: string;
-	researchCatalog: string;
+	/** The three runtime roles with their authority (one line each). */
+	roleCatalog: string;
+	/** The code-owned practice catalog: id and one-line expected result. */
+	practiceCatalog: string;
 	/** Work-mode guidance on when to delegate; stable policy. */
 	delegationGuide?: string;
 	/** Live task state and catalog notices, appended after the stable instructions. */
@@ -51,31 +50,17 @@ function stateSection(stateCapsule?: string): string {
  * authoritative tier/catalog/revision snapshot; tool availability is never gate admission.
  */
 export function assembleHubSystemPrompt(parts: HubPromptParts): string {
-	const team = parts.activeTeamName || "(none)";
-	const members = parts.teamMembers || "(none yet)";
 	const fleet = parts.dispatchSection ? `
-## Native Roster: ${team}
-Members: ${members}
-Every agent under "Agents" is installed and dispatchable; dispatching one outside the active team adds it automatically. Keep added agents. Drop one with \`team_adjust\` only when it actively gets in the way.
 ${parts.delegationGuide ? `\n${parts.delegationGuide}\n` : ""}
 ## How to Work
 ${parts.dispatchSection}
-- Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live same-name peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
-- Review results, follow up when needed, and summarize for the user in ${parts.userLanguage}.
+- Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live coms peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
 
-## Research helpers (read-only)
-- \`spawn_research\` is read-only (read/grep/find/ls; no bash or writes). Use it for necessary reconnaissance, not to read a return artifact you already have.
-- Choose a light persona for simple reads and a stronger one for ambiguous, cross-cutting, or high-stakes research.
-- Specialists cannot spawn helpers; run necessary research and pass its findings or artifact path to the specialist.
-
-## Agents
-Dispatch with \`dispatch_agent\` using the name in backticks.
-
-${parts.agentCatalog}
-
-## Research personas
-
-${parts.researchCatalog}
+## Roles and practices
+An assignment is one role (its authority) plus \`practices\` (combinable; empty: role default) that add method and evidence, never authority. Specialists cannot spawn helpers; pass them findings or artifact paths.
+${parts.roleCatalog}
+Practices:
+${parts.practiceCatalog}
 ` : "";
 	const verification = parts.verificationSection ? `\n${parts.verificationSection}\n` : "";
 	const policy = `${parts.intro} You have ${parts.toolList}.
@@ -96,17 +81,16 @@ ${parts.ambiguityRule}
 export interface NamedHubPart { id: string; text: string; category: ContextCategory; persistence?: ContextBudgetComponent["persistence"]; source?: string; }
 
 export function namedHubLedgerParts(input: {
-	intro: string; languageLines: string; teamMembers: string; agentCards: readonly { id: string; text: string }[];
-	dispatchSection: string; modeSection: string; verificationSection: string; projectPolicySection?: string; researchCards: readonly { id: string; text: string }[];
-	researchCatalog: string; comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string;
+	intro: string; languageLines: string; roleCards: readonly { id: string; text: string }[]; practiceCatalog: string;
+	dispatchSection: string; modeSection: string; verificationSection: string; projectPolicySection?: string;
+	comsSection: string; herdrSection: string; compactionSection?: string; stateCapsule?: string;
 }): NamedHubPart[] {
 	return [
 		{ id: "hub/policy/work-mode", text: input.intro, category: "system", persistence: "fixed", source: "work-mode.ts" },
 		{ id: "hub/policy/language", text: input.languageLines, category: "protocol", persistence: "fixed", source: "hub-policy" },
-		{ id: "hub/roster-header", text: input.teamMembers, category: "roster", persistence: "session", source: "active-roster" },
 		{ id: "hub/policy/dispatch", text: input.dispatchSection, category: "protocol", persistence: "fixed", source: "hub-policy" },
-		...input.agentCards.map(card => ({ id: `hub/roster/${card.id}`, text: card.text, category: "roster" as const, persistence: "session" as const, source: "agent-persona" })),
-		...(input.researchCards.length ? input.researchCards.map(card => ({ id: `hub/research/${card.id}`, text: card.text, category: "persona" as const, persistence: "session" as const, source: "research-persona" })) : [{ id: "hub/research-empty", text: input.researchCatalog, category: "persona" as const, persistence: "session" as const, source: "research-persona" }]),
+		...input.roleCards.map(card => ({ id: `hub/role/${card.id}`, text: card.text, category: "roster" as const, persistence: "session" as const, source: "config/roles.ts" })),
+		{ id: "hub/practices", text: input.practiceCatalog, category: "roster", persistence: "fixed", source: "config/practices.ts" },
 		{ id: "hub/policy/triage", text: input.modeSection, category: "protocol", persistence: "fixed", source: "run-budget" },
 		{ id: "hub/policy/verification", text: input.verificationSection, category: "protocol", persistence: "fixed", source: "orchestration-verification" },
 		{ id: "hub/policy/project", text: input.projectPolicySection ?? "", category: "protocol", persistence: "session", source: "project-overrides" },

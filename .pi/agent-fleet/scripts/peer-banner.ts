@@ -1,7 +1,7 @@
 // .pi/agent-fleet/scripts/peer-banner.ts
 //
 // Print a colored identity banner for a peer pane. Called by the hidden
-// `just _peer`/`_peer-plus` recipes right before exec'ing pi, so every pane
+// `just _peer`/`_peer-read-only` recipes right before exec'ing pi, so every pane
 // announces who lives in it. Never fails the recipe: any problem (missing
 // persona, unreadable file) degrades to a plain banner and exit 0.
 //

@@ -42,11 +42,13 @@ function fixture(overrides: { active?: CapabilityPack[]; askUser?: boolean; lang
 		getCapabilityResolution: () => resolution(active),
 		getActiveTools: () => ["dispatch_agent", ...(overrides.askUser === false ? [] : ["ask_user"])],
 		getToolCatalogNotice: () => overrides.catalogNotice ?? "",
-		getAgents: () => [{ name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write" }],
-		getResearchPersonas: () => [{ name: "recon", displayName: "Recon", description: "Maps code.", model: "fast/model", thinking: "low" }],
+		getAgents: () => [
+			{ name: "reviewer", displayName: "Reviewer", description: "Reviews.", tools: "read,bash", readOnly: true },
+			{ name: "editor", displayName: "Editor", description: "Edits.", tools: "read,write" },
+		],
+		getResearchPersonas: () => [{ name: "researcher", displayName: "Researcher", description: "Researches.", model: "fast/model", thinking: "low" }],
 		getPromptState: () => promptState,
 		getWorkMode: () => "operator",
-		getActiveTeamName: () => "Delivery",
 		getUserLanguage: () => overrides.language ?? "English",
 		isComsReady: () => true,
 		getIdentity: () => ({ name: "hub", project: "fleet" }),
@@ -110,8 +112,8 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	assert.match(built.systemPrompt, /risk high; scope small; open obligations: review/);
 	assert.match(built.systemPrompt, /correctness obligations are independent of tier/);
 	assert.deepEqual(built.ledger.map(entry => entry.id), [
-		"hub/policy/work-mode", "hub/policy/language", "hub/roster-header", "hub/policy/dispatch",
-		"hub/roster/builder", "hub/research/recon", "hub/policy/triage", "hub/policy/verification",
+		"hub/policy/work-mode", "hub/policy/language", "hub/policy/dispatch",
+		"hub/role/researcher", "hub/role/reviewer", "hub/role/editor", "hub/practices", "hub/policy/triage", "hub/policy/verification",
 		"hub/policy/project", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction",
 		"hub/separators-and-rules", "hub/state", ...ALL_PACKS.map(pack => `hub/capability/${pack}`),
 	]);
@@ -145,8 +147,9 @@ test("changing capability packs refreshes applicable instructions and ledger ent
 	ctx.getCapabilityResolution = () => resolution(["core", "fleet", "verification"]);
 	const fleet = buildHubSystemPrompt(ctx);
 
-	assert.doesNotMatch(core.systemPrompt, /## Native Roster|## Verification Contract/);
-	assert.match(fleet.systemPrompt, /## Native Roster/);
+	assert.doesNotMatch(core.systemPrompt, /## Roles|^Practices:$|## Verification Contract/m);
+	assert.match(fleet.systemPrompt, /## Roles and practices/);
+	assert.match(fleet.systemPrompt, /^Practices:$/m);
 	assert.match(fleet.systemPrompt, /## Verification Contract/);
 	assert.equal(core.ledger.find(entry => entry.id === "hub/policy/verification")?.chars, 0);
 	assert.ok((fleet.ledger.find(entry => entry.id === "hub/policy/verification")?.chars ?? 0) > 0);
@@ -209,7 +212,7 @@ for (const fleet of [true, false]) for (const askUser of [true, false]) {
 			assert.match(systemPrompt, /Translate .*specialist questions.*Bulgarian/);
 			assert.match(systemPrompt, /## Fleet \(herdr\)/);
 		} else {
-			assert.doesNotMatch(systemPrompt, /## Native Roster|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery|ORCHESTRATOR_ANSWER:/);
+			assert.doesNotMatch(systemPrompt, /## Roles|## Verification Contract|## Peer agents|## Fleet \(herdr\)|## Context recovery|ORCHESTRATOR_ANSWER:/);
 		}
 	});
 }
@@ -320,24 +323,28 @@ test("decision routing retains material questions but triages specialists first 
  }
 });
 
-test("operator prompt lists every installed agent, marks ones outside the team, and shows local model caps", () => {
+test("operator prompt shows the three roles with their authority, the practice catalog and local model caps (D7)", () => {
  const ctx = fixture();
  const prompt = buildHubSystemPrompt({
   ...ctx,
   getWorkMode: () => "operator",
   getAgents: () => [
-   { name: "builder", displayName: "Builder", description: "Builds changes.", tools: "read,write", model: "omlx/Qwen", inTeam: true },
-   { name: "security-auditor", displayName: "Security Auditor", description: "Audits.", tools: "read,bash,grep", readOnly: true, inTeam: false },
-   { name: "bowser", displayName: "Bowser", description: "Browser automation.", tools: "read,bash" },
+   { name: "editor", displayName: "Editor", description: "Edits.", tools: "read,write", model: "omlx/Qwen" },
   ],
-  getTeamMembers: () => ["Builder"],
+  getResearchPersonas: () => [{ name: "researcher", displayName: "Researcher", description: "Researches.", model: "xai/grok", thinking: "medium" }],
   getProviderLimits: () => [{ provider: "omlx", limit: 2, inFlight: 1, queued: 0 }],
  }).systemPrompt;
- assert.match(prompt, /^- `builder` — Builds changes\. · writes · omlx\/Qwen$/m);
- assert.match(prompt, /^- `security-auditor` \(not in team yet\) — Audits\. · read-only$/m);
- assert.match(prompt, /^- `bowser` — Browser automation\. · writes$/m);
- assert.match(prompt, /Members: Builder\n/);
- assert.match(prompt, /dispatching one outside the active team adds it automatically/);
+ assert.match(prompt, /^- `researcher` — read-only \(read\/grep\/find\/ls\), via `spawn_research`\. Default: research · xai\/grok$/m);
+ assert.match(prompt, /^- `reviewer` — read-only, via `dispatch_agent`; never approves its author's work\. Default: independent-review · not installed$/m);
+ assert.match(prompt, /^- `editor` — writes only inside the declared scope, via `dispatch_agent`\. Default: implementation · omlx\/Qwen$/m);
+ assert.match(prompt, /An assignment is one role \(its authority\) plus `practices` \(combinable; empty: role default\) that add method and evidence, never authority\./);
+ const practices = prompt.split("\nPractices:\n")[1]?.split("\n\n")[0] ?? "";
+ for (const id of ["research", "architecture", "planning", "implementation", "independent-review", "testing", "security", "performance", "browser-debugging", "documentation", "release"]) {
+  assert.match(practices, new RegExp(`^- \`${id}\``, "m"), id);
+ }
+ assert.match(practices, /^- `independent-review` \(reviewer\) — A plan feasibility/m);
+ assert.match(practices, /^- `release` \(editor\) — Release preparation and readiness evidence\. Publishing needs separate permission\.$/m);
+ assert.doesNotMatch(prompt, /Native Roster|team_adjust|active team|Members:|## Agents|## Research personas|not in team yet/);
  assert.match(prompt, /## When to delegate[\s\S]*Research: delegate by default[\s\S]*in parallel in one turn/);
  assert.match(prompt, /`omlx\/` at most 2 parallel runs/);
  assert.match(prompt, /local model slots in use: omlx 1\/2/);

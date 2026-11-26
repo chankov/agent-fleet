@@ -84,7 +84,7 @@ test("new-task reset preserves the capability, blocker, and status side-effect o
 
 test("authorized new-task reset rebinds only current input, clears prior confirmations, and startup never replays it", () => {
  const persisted:unknown[]=[];
- const policy=createWorkModePolicy({getBaselineTools:()=>["read"],getRosterSize:()=>0,activateFallbackRoster(){},getActiveTeamName:()=>"",getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>true,getIdentityLabel:()=>null,getTaskTier:()=>"small",getPendingOperations:()=>[],getContextState:()=>"normal",setActiveTools(){},persist:(_type,data)=>persisted.push(data),replayDeferredInputs(){},watchdogArmed:()=>false});
+ const policy=createWorkModePolicy({getBaselineTools:()=>["read"],getRosterSize:()=>0,getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>true,getIdentityLabel:()=>null,getTaskTier:()=>"small",getPendingOperations:()=>[],getContextState:()=>"normal",setActiveTools(){},persist:(_type,data)=>persisted.push(data),replayDeferredInputs(){},watchdogArmed:()=>false});
  const {context}=fixture(undefined,policy);
  policy.resolveIncomingCapabilities("someone else to handle this");policy.setCapabilityConfirmation("fleet","promoted");policy.refreshCapabilities();
  assert.ok(policy.getCapabilityResolution().active.includes("fleet"));

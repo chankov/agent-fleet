@@ -1,7 +1,8 @@
 import { MAX_OPEN_ASSERTIONS } from "../assertion-ledger.js";
 import { CAPABILITY_PACKS, type CapabilityPack } from "../capability-packs.ts";
-import { dispatchAccess } from "../dispatch-access.ts";
 import { workModePrompt } from "../work-mode.ts";
+import { ROLE_NAMES, ROLES, type RoleName } from "../config/roles.ts";
+import { PRACTICE_IDS, PRACTICES } from "../config/practices.ts";
 import { component, type ContextBudgetComponent } from "../../lib/context-budget.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger } from "../../lib/context-budget-hub-prompt.ts";
 import type { HubPromptContext } from "./context.ts";
@@ -19,11 +20,33 @@ import {
 	verificationFragment,
 } from "./fragments.ts";
 
-/** First sentence of a persona description, capped, so a long keyword list does not bloat the catalog. */
-export function briefDescription(description: string, max = 140): string {
-	const text = String(description ?? "").replace(/\s+/g, " ").trim();
-	const sentence = text.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? text;
-	return sentence.length > max ? `${sentence.slice(0, max - 1)}…` : sentence;
+/** Each role's assignment and authority as the runtime enforces it (config/roles.ts, dispatch-access.ts). */
+const ROLE_LINES: Readonly<Record<RoleName, string>> = Object.freeze({
+	researcher: "read-only (read/grep/find/ls), via `spawn_research`",
+	reviewer: "read-only, via `dispatch_agent`; never approves its author's work",
+	editor: "writes only inside the declared scope, via `dispatch_agent`",
+});
+
+/** One line per role: its authority, default practice and the model it runs on. */
+export function roleCards(ctx: Pick<HubPromptContext, "getAgents" | "getResearchPersonas">): { id: RoleName; text: string }[] {
+	const installed = new Map<string, string | undefined>([
+		...ctx.getAgents().map(agent => [agent.name.toLowerCase(), agent.model] as const),
+		...ctx.getResearchPersonas().map(persona => [persona.name.toLowerCase(), persona.model] as const),
+	]);
+	return ROLE_NAMES.map(name => {
+		const status = !installed.has(name) ? " · not installed" : installed.get(name) ? ` · ${installed.get(name)}` : "";
+		return { id: name, text: `- \`${name}\` — ${ROLE_LINES[name]}. Default: ${ROLES[name].defaultPractices.join(", ")}${status}` };
+	});
+}
+
+/** The code-owned practice catalog: id, roles when restricted, and the one-line expected result. */
+export function practiceCatalog(): string {
+	return PRACTICE_IDS.map(id => {
+		const practice = PRACTICES[id];
+		const roles = practice.roles.length < ROLE_NAMES.length ? ` (${practice.roles.join(", ")})` : "";
+		const note = id === "release" ? " Publishing needs separate permission." : "";
+		return `- \`${id}\`${roles} — ${practice.result}${note}`;
+	}).join("\n");
 }
 
 export interface BuiltHubSystemPrompt {
@@ -47,28 +70,14 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const peerActive = modelPacks.has("peer");
 	const workspaceActive = modelPacks.has("workspace");
 	const compactionActive = modelPacks.has("compaction");
-	const agents = fleetActive ? ctx.getAgents() : [];
-	// One line per agent: the catalog lists every installed agent, so it stays compact.
-	const agentCards = agents.map(agent => ({
-		id: agent.name,
-		text: `- \`${agent.name}\`${agent.inTeam === false ? " (not in team yet)" : ""} — ${briefDescription(agent.description)} · ${dispatchAccess(agent).writable ? "writes" : "read-only"}${agent.model ? ` · ${agent.model}` : ""}`,
-	}));
-	const agentCatalog = agentCards.map(card => card.text).join("\n");
-	const teamMembers = fleetActive
-		? (ctx.getTeamMembers?.() ?? agents.filter(agent => agent.inTeam !== false).map(agent => agent.displayName)).join(", ")
-		: "";
+	// The three roles and the practice catalog replace teams (PLAN-11-01, D7).
+	const roles = fleetActive ? roleCards(ctx) : [];
+	const roleCatalog = roles.map(card => card.text).join("\n");
+	const practices = fleetActive ? practiceCatalog() : "";
 	const providerLimits = fleetActive ? ctx.getProviderLimits?.() ?? [] : [];
 	const providerLimitLine = providerLimits.length
 		? `\n- Local model concurrency: ${providerLimits.map(limit => `\`${limit.provider}/\` at most ${limit.limit} parallel run${limit.limit === 1 ? "" : "s"}`).join("; ")}. Extra dispatches or research on a capped provider queue behind the running ones; choose another agent or model when waiting would stall the task.`
 		: "";
-	const researchPersonas = fleetActive ? ctx.getResearchPersonas() : [];
-	const researchCards = researchPersonas.map(persona => ({
-		id: persona.name,
-		text: `### ${persona.displayName}\n**Spawn as:** \`spawn_research(persona: "${persona.name}")\`\n**Model:** ${persona.model || "(dispatcher’s default)"} · **Thinking:** ${persona.thinking}\n${persona.description}`,
-	}));
-	const researchCatalog = !fleetActive ? "" : researchCards.length > 0
-		? researchCards.map(card => card.text).join("\n\n")
-		: "(No research personas defined. Call `spawn_research` without `persona` for an ad-hoc read-only helper.)";
 	const activeTools = ctx.getActiveTools();
 	const askUserAvailable = activeTools.includes("ask_user");
 	const userLanguage = ctx.getUserLanguage();
@@ -77,7 +86,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const dispatchSection = dispatchFragment(fleetActive) + providerLimitLine + (triageBeforeDispatch ? `
 
 ## Enabled System 1 pre-dispatch advice
-After resolving requirements, task classification and the active roster, call \`dispatch_triage\` once for each focused task you intend to delegate, before choosing its \`dispatch_agent\` persona. Send only minimal non-secret context, relative scope, and the actual language/domain. Do not read files or credentials merely to populate triage.
+After resolving requirements and task classification, call \`dispatch_triage\` once for each focused task you intend to delegate, before choosing its \`dispatch_agent\` role. Send only minimal non-secret context, relative scope, and the actual language/domain. Do not read files or credentials merely to populate triage.
 Then independently decide whether and whom to dispatch. An \`uncalibrated\` result contains experimental observations, NOT an approved recommendation; never invent a calibration profile. Do not ask the human solely because calibration is absent. All existing ambiguity, risk, permission, budget and acceptance rules still apply. Low predicted risk never means safe.
 If triage abstains, fails, is unavailable, stale, or reaches its budget, use ordinary independent judgment without automatic retries or forcing a specialist. Do not delegate operator/research-only work just to exercise triage. When dispatching after an applicable result, include its \`triage_id\` and a truthful \`triage_reason\` (\`independent_judgment\` for uncalibrated observations). A triage result is never authorization to execute.
 ` : "");
@@ -101,10 +110,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		intro: workModeText.intro,
 		toolList: `these active packs: ${[...modelPacks].join(", ")}. Tools: ${activeTools.map(name => `\`${name}\``).join(", ") || "(none)"}`,
 		languageLines,
-		activeTeamName: ctx.getActiveTeamName(),
-		teamMembers,
 		dispatchSection,
-		userLanguage,
 		askUserBlock,
 		modeSection: stableModeSection,
 		verificationSection,
@@ -115,22 +121,20 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		compactionSection,
 		hardRules: workModeText.hardRules,
 		ambiguityRule: AMBIGUITY_RULE,
-		agentCatalog,
-		researchCatalog,
+		roleCatalog,
+		practiceCatalog: practices,
 		delegationGuide: workModeText.delegationGuide,
 	});
 	const ledger = recordHubLedger(systemPrompt, namedHubLedgerParts({
 		intro: workModeText.intro,
 		languageLines,
-		teamMembers,
-		agentCards,
+		roleCards: roles,
+		practiceCatalog: practices,
 		dispatchSection: (fleetActive ? workModeText.delegationGuide : "") + dispatchSection,
 		modeSection: stableModeSection,
 		verificationSection,
 		projectPolicySection,
 		stateCapsule,
-		researchCards,
-		researchCatalog,
 		comsSection,
 		herdrSection,
 		compactionSection,

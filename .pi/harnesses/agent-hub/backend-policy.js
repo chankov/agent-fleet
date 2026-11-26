@@ -1,9 +1,16 @@
 // Dispatch backend policy — pure logic for routing dispatch_agent calls to a
-// native pi subagent or a same-name coms peer (.pi/agents/dispatch-policy.yaml).
+// native pi subagent or a coms peer (.pi/agents/dispatch-policy.yaml).
 // Parsing + resolution only: no I/O, no pi imports, testable under node --test.
 // The wiring (pool lookup, envelope send, fallback spawn) lives in index.ts.
+//
+// Routes are keyed by runtime role (PLAN-11-01, D11). `peer:` names the coms
+// address, which is distinct from the role; without it the peer has the role's
+// name. A parallel instance (`reviewer--p2`) uses its role's route.
+
+import { basePersonaName } from "./run-budget.js";
 
 const NAME_RE = /^[A-Za-z0-9_-]+$/;
+const ROUTE_ROLES = new Set(["researcher", "reviewer", "editor"]);
 const DEFAULT_GRACE_S = 30;
 
 export const DEFAULT_POLICY = Object.freeze({
@@ -21,8 +28,9 @@ function stripComment(line) {
 // Minimal parser for the specific dispatch-policy.yaml shape:
 //   default: native | coms
 //   grace_s: <seconds>
-//   substitutions:
-//     <member>:
+//   routes:                 (legacy spelling: substitutions)
+//     <role>:               (researcher | reviewer | editor)
+//       peer: <coms address> (default: the role name)
 //       prefer: native | coms
 //       fallback: native | none
 //       timeout_s: <seconds>
@@ -54,7 +62,7 @@ export function parseDispatchPolicy(raw) {
 		if (indent === 0) {
 			currentMember = null;
 			inSubstitutions = false;
-			if (key === "substitutions" && value === "") {
+			if ((key === "routes" || key === "substitutions") && value === "") {
 				inSubstitutions = true;
 			} else if (key === "default") {
 				if (value === "native" || value === "coms") policy.default = value;
@@ -73,9 +81,12 @@ export function parseDispatchPolicy(raw) {
 
 		// Member header (one indent level, no value).
 		if (value === "") {
-			if (NAME_RE.test(key)) {
+			if (NAME_RE.test(key) && ROUTE_ROLES.has(key.toLowerCase())) {
 				currentMember = key.toLowerCase();
 				policy.substitutions[currentMember] = { prefer: "coms", fallback: "native" };
+			} else if (NAME_RE.test(key)) {
+				warnings.push(`dispatch-policy: "${key}" is not a role; routes are keyed by researcher, reviewer or editor (use peer: <address> for the coms name)`);
+				currentMember = null;
 			} else {
 				warnings.push(`dispatch-policy: invalid member name "${key}"`);
 				currentMember = null;
@@ -89,7 +100,10 @@ export function parseDispatchPolicy(raw) {
 			continue;
 		}
 		const sub = policy.substitutions[currentMember];
-		if (key === "prefer") {
+		if (key === "peer") {
+			if (NAME_RE.test(value)) sub.peer = value;
+			else warnings.push(`dispatch-policy: ${currentMember}.peer must be a coms address, got "${value}"`);
+		} else if (key === "prefer") {
 			if (value === "native" || value === "coms") sub.prefer = value;
 			else warnings.push(`dispatch-policy: ${currentMember}.prefer must be native|coms, got "${value}"`);
 		} else if (key === "fallback") {
@@ -105,6 +119,11 @@ export function parseDispatchPolicy(raw) {
 	}
 
 	return { policy, warnings };
+}
+
+/** The route for an agent key: a parallel instance uses its role's route. */
+export function policyRoute(policy, agentName) {
+	return (policy?.substitutions || {})[basePersonaName(agentName)];
 }
 
 // Decide the backend for one dispatch. Pure: the caller supplies the CURRENT
@@ -123,8 +142,8 @@ export function resolveDispatchBackend({ agentName, policy, livePeerNames, reque
 	if (requestedBackend === "native") return { backend: "native" };
 
 	const p = policy && typeof policy === "object" ? policy : DEFAULT_POLICY;
-	const name = String(agentName || "").toLowerCase();
-	const sub = (p.substitutions || {})[name];
+	const sub = policyRoute(p, agentName);
+	const name = String(sub?.peer || basePersonaName(agentName)).toLowerCase();
 	const live = Array.isArray(livePeerNames) ? livePeerNames : [];
 	const match = live.find((n) => String(n).toLowerCase() === name);
 
@@ -168,7 +187,7 @@ export function comsRequiredRefusal(agentName, graceS) {
 	return (
 		`"${agentName}" is configured as coms-required (fallback: none) but no live peer named ` +
 		`"${String(agentName).toLowerCase()}" appeared in the pool within ${graceS}s. ` +
-		"Start it with `just hub-team <team>` / `just team-up <team>`, widen the pool with /af-coms, " +
+		`Start it with \`just fleet peer ${String(agentName).toLowerCase()}\` (or herdr_spawn_peer inside Herdr), widen the pool with /af-coms, ` +
 		"or set `fallback: native` in .pi/agents/dispatch-policy.yaml."
 	);
 }

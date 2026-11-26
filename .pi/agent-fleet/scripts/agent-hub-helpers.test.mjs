@@ -10,7 +10,6 @@ import {
   applyModelOverride,
   fallbackModelFor,
   normalizeDelegateRuntimeBudgets,
-  parseTeamsYaml,
   planDelegateSpawn,
   READ_ONLY_TOOLS,
   isReadOnlyToolList,
@@ -18,16 +17,6 @@ import {
   safeAgentKey,
   safePathWithin,
 } from '../../../.pi/harnesses/agent-hub/helpers.ts';
-
-test('parseTeamsYaml accepts trailing whitespace on team headers', () => {
-  const teams = parseTeamsYaml(`default:\n  - planner\ndebug:  \n  - builder\ninfo:\t\n  - documenter\n`);
-
-  assert.deepEqual(teams, {
-    default: ['planner'],
-    debug: ['builder'],
-    info: ['documenter'],
-  });
-});
 
 test('safeAgentKey accepts only lowercase slug keys', () => {
   assert.equal(safeAgentKey('code-reviewer'), 'code-reviewer');
@@ -198,25 +187,4 @@ test('taskFingerprint collides on trivial rewording but not on different tasks',
   assert.equal(a, b);
   assert.notEqual(a, taskFingerprint('builder', 'Implement the signup form, then run tests.'));
   assert.notEqual(a, taskFingerprint('test-engineer', 'Implement the login form, then run tests.'));
-});
-
-test('upsertTeamInYaml replaces one block, preserving comments and other teams', async () => {
-  const { upsertTeamInYaml, parseTeamsYaml: parse } = await import('../../../.pi/harnesses/agent-hub/helpers.ts');
-  const raw = '# header comment\n\ndefault:\n  - planner\n  - builder\n\ndebug:\n  - builder\n';
-  const next = upsertTeamInYaml(raw, 'default', ['builder', 'code-reviewer']);
-  assert.match(next, /^# header comment\n/);
-  assert.deepEqual(parse(next), {
-    default: ['builder', 'code-reviewer'],
-    debug: ['builder'],
-  });
-});
-
-test('upsertTeamInYaml appends a new team at the end', async () => {
-  const { upsertTeamInYaml, parseTeamsYaml: parse } = await import('../../../.pi/harnesses/agent-hub/helpers.ts');
-  const raw = 'default:\n  - planner\n';
-  const next = upsertTeamInYaml(raw, 'custom', ['builder', 'bowser']);
-  assert.deepEqual(parse(next), {
-    default: ['planner'],
-    custom: ['builder', 'bowser'],
-  });
 });

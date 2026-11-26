@@ -9,9 +9,9 @@ import { fileURLToPath } from "node:url";
 import { parseFleetCommand } from "./fleet-command.ts";
 
 test('explicit worktree parsing is independent of topology and strips only startup selection',()=>{
- const selected=parseFleetCommand(['--worktree','../repo.worktree','--agents','frontend','--dry-run']);
+ const selected=parseFleetCommand(['--worktree','../repo.worktree','--no-coms','--dry-run']);
  assert.equal(selected.recipe,'_fleet-hub');assert.equal(selected.preview,true);assert.deepEqual(selected.selection,{worktree:'../repo.worktree',repository:undefined});assert.ok(!selected.args.includes('--worktree'));assert.ok(!selected.args.includes('--dry-run'));
- const topology=parseFleetCommand(['--peers','review','--worktree','../repo.worktree','--dry-run']);assert.equal(topology.recipe,'_fleet-hub-team-dry');assert.ok(topology.selection);
+ const topology=parseFleetCommand(['--herdr','--worktree','../repo.worktree','--dry-run']);assert.equal(topology.recipe,'_fleet-herdr');assert.equal(topology.dryRun,true);assert.equal(topology.preview,undefined);assert.ok(topology.selection);
  assert.equal(parseFleetCommand(['peer','builder','--worktree','../repo.worktree','--dry-run']).recipe,'_fleet-peer-launch');
  assert.throws(()=>parseFleetCommand(['--worktree','a','--worktree','b']));assert.throws(()=>parseFleetCommand(['--worktree']));assert.throws(()=>parseFleetCommand(['setup','--worktree','../repo']));
  assert.ok(parseFleetCommand(['--','--worktree','prompt text']).args.includes('--worktree'));
@@ -20,18 +20,22 @@ test('explicit worktree parsing is independent of topology and strips only start
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 function assertCompleteFleetGuide(output: string): void {
-	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "DETERMINISTIC FLOWS", "UNIFIED HUB", "ROSTER", "HERDR TOPOLOGY", "TEAM LIFECYCLE", "HERMES CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
+	for (const section of ["SET UP A NEW REPOSITORY", "QUICK START", "DETERMINISTIC FLOWS", "UNIFIED HUB", "HERDR", "ONE STANDALONE PEER", "HERMES CONDUCTOR", "CAPABILITY FLAGS", "COMPATIBILITY ALIASES", "LIFECYCLE", "UPDATE NOTE"]) {
 		assert.match(output, new RegExp(section));
 	}
-	assert.match(output, /just fleet\s+# Hub\/operator, empty native roster/);
-	assert.match(output, /just fleet --agents frontend --peers frontend --project af/);
+	assert.match(output, /just fleet\s+# Hub\/operator with the editor, researcher and reviewer roles/);
+	assert.match(output, /just fleet --herdr --project af/);
+	assert.match(output, /just fleet peer <name> \[--runner pi\|claude-code\]/);
+	assert.match(output, /\[--model <m>\] \[--read-only\] \[--env-file <path>\]/);
+	assert.match(output, /just fleet conductor hermes \[name\]/);
 	assert.match(output, /just flow cleanup 2/);
 	assert.match(output, /just flow merge 2/);
 	assert.doesNotMatch(output, /\/af-work-mode|orchestrator/);
-	assert.match(output, /\/af-agents-add code-reviewer/);
+	// Peer groups and native teams are gone (PLAN-11-01, D7/D8/D14/D16).
+	assert.doesNotMatch(output, /\/af-agents-|teams\.yaml|peers\.yaml|--agents <|--peers <|TEAM LIFECYCLE|ROSTER|--extensions a,b|code-reviewer/);
 	assert.match(output, /backend: "native"/);
-	assert.match(output, /herdr_spawn_peer\(\{ name: "code-reviewer" \}\)/);
-	assert.match(output, /\/af-handoff code-reviewer/);
+	assert.match(output, /herdr_spawn_peer\(\{ name: "claude-reviewer", runner: "claude-code", read_only: true \}\)/);
+	assert.match(output, /\/af-handoff claude-reviewer/);
 	assert.doesNotMatch(output, /Safe interactive Pi without Hub/);
 	assert.match(output, /Full docs:\s+docs\/pi-extensions\.md/);
 	assert.match(output, /just fleet deps/);
@@ -61,7 +65,7 @@ test("bare just routes to the complete Fleet guide", (context) => {
 	assertCompleteFleetGuide(result.stdout);
 });
 
-test("bare fleet selects the Hub in operator work mode with an empty roster", () => {
+test("bare fleet selects the Hub in operator work mode", () => {
 	assert.deepEqual(parseFleetCommand([]), {
 		recipe: "_fleet-hub",
 		args: ["false", "false", "false", "false"],
@@ -73,32 +77,34 @@ test("canonical Hub flags preserve Pi argv; the deprecated --work-mode is droppe
 		recipe: "_fleet-hub",
 		args: ["false", "true", "false", "true", "--model", "openai/gpt"],
 	});
-	assert.deepEqual(parseFleetCommand(["--agents", "frontend", "--model", "m/x"]), {
-		recipe: "_fleet-hub",
-		args: ["false", "false", "false", "false", "--agent-team", "frontend", "--model", "m/x"],
-	});
-	const legacy = parseFleetCommand(["--work-mode", "orchestrator", "--agents", "frontend", "--project", "af"]);
+	const legacy = parseFleetCommand(["--work-mode", "orchestrator", "--project", "af"]);
 	assert.equal(legacy.recipe, "_fleet-hub");
-	assert.deepEqual(legacy.args, ["false", "false", "false", "false", "--agent-team", "frontend", "--project", "af"]);
+	assert.deepEqual(legacy.args, ["false", "false", "false", "false", "--project", "af"]);
 	assert.ok(legacy.warnings?.some(warning => /--work-mode orchestrator. is deprecated and ignored/.test(warning)), JSON.stringify(legacy.warnings));
 });
 
-test("canonical topology flags select Hub-only, peer-preset, and combined Herdr layouts", () => {
+test("--herdr selects the one-pane Hub launcher and forwards only the Hub's own flags", () => {
 	assert.deepEqual(parseFleetCommand(["--herdr", "--project", "af"]), {
-		recipe: "_fleet-hub-team",
-		args: ["base", "--project", "af"],
+		recipe: "_fleet-herdr",
+		args: ["--project", "af"],
 	});
-	assert.deepEqual(parseFleetCommand(["--peers", "frontend", "--project", "af"]), {
-		recipe: "_fleet-hub-team",
-		args: ["frontend", "--project", "af"],
+	assert.deepEqual(parseFleetCommand(["--herdr", "--no-coms", "--browser", "--voice", "--all-extensions", "--project", "af", "--dry-run"]), {
+		recipe: "_fleet-herdr",
+		args: ["--no-coms", "--browser", "--voice", "--all-extensions", "--project", "af", "--dry-run"],
+		dryRun: true,
 	});
-	const combined = parseFleetCommand(["--agents", "frontend", "--peers", "frontend", "--work-mode", "operator"]);
-	assert.equal(combined.recipe, "_fleet-hub-team");
-	assert.deepEqual(combined.args, ["frontend", "--agents", "frontend"]);
-	assert.deepEqual(parseFleetCommand(["--peers", "review", "--dry-run", "--no-coms"]), {
-		recipe: "_fleet-hub-team-dry",
-		args: ["review", "--no-coms"],
-	});
+	const solo = parseFleetCommand(["--herdr", "--solo"]);
+	assert.deepEqual(solo.args, ["--no-coms"]);
+	assert.throws(() => parseFleetCommand(["--herdr", "--model", "m/x"]), /forwards no Pi arguments \(got --model m\/x\)/);
+	assert.throws(() => parseFleetCommand(["--herdr", "--", "prompt"]), /forwards no Pi arguments/);
+});
+
+test("removed peer-group flags are refused with the reason, never passed to pi", () => {
+	assert.throws(() => parseFleetCommand(["--agents", "frontend"]), /--agents was removed: the Hub always has the editor, researcher and reviewer roles/);
+	assert.throws(() => parseFleetCommand(["--peers", "review", "--project", "af"]), /--peers was removed with peer groups: start each peer with `just fleet peer <name>`/);
+	assert.throws(() => parseFleetCommand(["hub", "--agents", "default"]), /--agents was removed/);
+	// After `--` they are Pi arguments like any other.
+	assert.deepEqual(parseFleetCommand(["--", "--agents"]).args.slice(-2), ["--", "--agents"]);
 });
 
 test("fleet peer requires an identity and forwards its flag set verbatim", () => {
@@ -120,7 +126,7 @@ test("fleet peer requires an identity and forwards its flag set verbatim", () =>
 test("legacy hub and --solo map deterministically with migration warnings", () => {
 	assert.deepEqual(parseFleetCommand(["hub", "--solo", "--browser", "--project", "af"]), {
 		recipe: "_fleet-hub",
-		args: ["true", "true", "false", "false", "--agent-team", "default", "--project", "af"],
+		args: ["true", "true", "false", "false", "--project", "af"],
 		warnings: [
 			"`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags.",
 			"`--solo` is deprecated; use `--no-coms`.",
@@ -149,7 +155,7 @@ test("Fleet entrypoint prints compatibility guidance before launching the mapped
 		assert.equal(result.status, 0, result.stderr);
 		assert.match(result.stderr, /compatibility alias/);
 		assert.match(result.stderr, /--solo.*deprecated/);
-		assert.equal(result.stdout.trim(), "_fleet-hub true false false false --agent-team default");
+		assert.equal(result.stdout.trim(), "_fleet-hub true false false false");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -192,28 +198,23 @@ test("Fleet launcher blocks before Just/Pi when a runtime dependency root is inc
 	}
 });
 
-test("legacy team maps matching native roster and peer preset, while peers-only stays compatible", () => {
-	assert.deepEqual(parseFleetCommand(["team", "frontend", "--project", "af"]), {
-		recipe: "_fleet-hub-team",
-		args: ["frontend", "--legacy-agents", "frontend", "--project", "af"],
-		warnings: ["`just fleet team frontend` is a compatibility alias; use `just fleet --agents <roster> --peers frontend`."],
-	});
+test("only `fleet team base` survives as an alias of --herdr; other peer-group modes are refused", () => {
 	assert.deepEqual(parseFleetCommand(["team", "base", "--project", "af"]), {
-		recipe: "_fleet-hub-team",
-		args: ["base", "--project", "af"],
+		recipe: "_fleet-herdr",
+		args: ["--project", "af"],
 		warnings: ["`just fleet team base` is a compatibility alias; use `just fleet --herdr`."],
 	});
-	assert.deepEqual(parseFleetCommand(["team", "frontend", "--no-hub", "--dry-run"]), {
-		recipe: "_fleet-team-up-dry",
-		args: ["frontend"],
-		warnings: ["`just fleet team frontend --no-hub` is a compatibility alias; prefer `just fleet peer` or a canonical Hub topology."],
+	assert.deepEqual(parseFleetCommand(["team", "base", "--dry-run"]), {
+		recipe: "_fleet-herdr",
+		args: ["--dry-run"],
+		dryRun: true,
+		warnings: ["`just fleet team base` is a compatibility alias; use `just fleet --herdr`."],
 	});
-	assert.deepEqual(parseFleetCommand(["team", "web", "--browser", "--dry-run"]), {
-		recipe: "_fleet-hub-team-dry",
-		args: ["web", "--legacy-agents", "web", "--browser"],
-		warnings: ["`just fleet team web` is a compatibility alias; use `just fleet --agents <roster> --peers web`."],
-	});
-	assert.throws(() => parseFleetCommand(["team", "web", "--no-hub", "--browser"]), /requires the hub/);
+	assert.throws(() => parseFleetCommand(["team", "frontend", "--project", "af"]), /`just fleet team frontend` was removed with peer groups: use `just fleet --herdr` for the Hub and `just fleet peer <name>` for each peer/);
+	assert.throws(() => parseFleetCommand(["team", "web", "--no-hub"]), /was removed with peer groups/);
+	for (const mode of ["snapshot", "down", "resume"]) {
+		assert.throws(() => parseFleetCommand([mode, "docs"]), new RegExp(`\`just fleet ${mode}\` was removed with peer groups`));
+	}
 });
 
 test("fleet lifecycle commands map to deterministic CLI and dependency recipes", () => {
@@ -232,19 +233,18 @@ test("fleet lifecycle commands map to deterministic CLI and dependency recipes",
 	assert.deepEqual(parseFleetCommand(["uninstall", "--all", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--all", "--yes"] });
 	assert.deepEqual(parseFleetCommand(["uninstall", "--items", "pi-harness:coms", "--yes"]), { recipe: "_fleet-lifecycle", args: ["uninstall", "--items", "pi-harness:coms", "--yes"] });
 	assert.deepEqual(parseFleetCommand(["--voice", "--model", "openai/gpt"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false", "--model", "openai/gpt"] });
-	assert.deepEqual(parseFleetCommand(["hub", "--voice"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false", "--agent-team", "default"], warnings: ["`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags."] });
-	assert.deepEqual(parseFleetCommand(["snapshot", "docs", "--project", "af"]), {
-		recipe: "_fleet-team-snapshot",
-		args: ["docs", "--project", "af"],
-	});
-	assert.deepEqual(parseFleetCommand(["down", "docs"]), { recipe: "_fleet-team-down", args: ["docs"] });
-	assert.deepEqual(parseFleetCommand(["resume", "docs"]), { recipe: "_fleet-team-resume", args: ["docs"] });
+	assert.deepEqual(parseFleetCommand(["hub", "--voice"]), { recipe: "_fleet-hub", args: ["false", "false", "true", "false"], warnings: ["`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags."] });
 });
 
-test("fleet conductor maps Hermes runtime mode and refuses Codex", () => {
+test("fleet conductor maps Hermes to the one-pane launcher and refuses Codex", () => {
 	assert.deepEqual(parseFleetCommand(["conductor", "hermes", "docs", "--dry-run", "--project", "af"]), {
-		recipe: "_fleet-conductor-dry",
-		args: ["docs", "--project", "af"],
+		recipe: "_fleet-conductor",
+		args: ["docs", "--dry-run", "--project", "af"],
+		dryRun: true,
+	});
+	assert.deepEqual(parseFleetCommand(["conductor", "hermes", "--project", "af"]), {
+		recipe: "_fleet-conductor",
+		args: ["full", "--project", "af"],
 	});
 	assert.throws(() => parseFleetCommand(["conductor", "codex", "docs"]), /Unknown conductor backend/);
 });
@@ -252,15 +252,13 @@ test("fleet conductor maps Hermes runtime mode and refuses Codex", () => {
 test("fleet rejects unknown modes, invalid canonical combinations, and duplicate Fleet flags", () => {
 	assert.throws(() => parseFleetCommand(["wat"]), /Unknown fleet mode/);
 	assert.throws(() => parseFleetCommand(["team"]), /team requires/);
-	assert.throws(() => parseFleetCommand(["snapshot"]), /snapshot requires/);
 	assert.throws(() => parseFleetCommand(["conductor"]), /conductor requires/);
 	assert.throws(() => parseFleetCommand(["--work-mode"]), /--work-mode requires a value/);
 	assert.throws(() => parseFleetCommand(["--work-mode", "operator", "--work-mode", "operator"]), /--work-mode may only be provided once/);
 	for (const retiredPostureArgs of [["--posture", "operator"], ["--posture=operator"], ["--", "--posture", "operator"]]) {
 		assert.throws(() => parseFleetCommand(retiredPostureArgs), /--posture was removed; the Hub has one operator work mode/);
 	}
-	assert.throws(() => parseFleetCommand(["--agents"]), /--agents requires/);
-	assert.throws(() => parseFleetCommand(["--peers", "a", "--peers", "b"]), /--peers may only/);
+	assert.throws(() => parseFleetCommand(["--herdr", "--herdr"]), /--herdr may only/);
 	assert.throws(() => parseFleetCommand(["--no-coms", "--solo"]), /only be provided once/);
-	assert.throws(() => parseFleetCommand(["--dry-run"]), /requires --herdr or --peers/);
+	assert.throws(() => parseFleetCommand(["--dry-run"]), /--dry-run requires --herdr/);
 });

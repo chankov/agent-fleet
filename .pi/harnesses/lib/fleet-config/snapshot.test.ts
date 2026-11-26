@@ -25,7 +25,7 @@ test("every source missing yields a complete, problem-free snapshot", () => {
 		assert.equal(snapshot.overview.installationStatus, "missing");
 		assert.equal(snapshot.setup, null); assert.equal(snapshot.state, null); assert.equal(snapshot.overrides, null); assert.equal(snapshot.aiState, null);
 		assert.equal(snapshot.system1?.status, "missing"); assert.equal(snapshot.system1?.readiness.status, "skipped");
-		assert.equal(snapshot.stt, null); assert.deepEqual(snapshot.fleet.teams, []); assert.equal(snapshot.fleet.dispatch, null);
+		assert.equal(snapshot.stt, null); assert.equal("teams" in snapshot.fleet, false, "teams are gone (D7)"); assert.equal(snapshot.fleet.dispatch, null);
 		assert.equal(snapshot.safety.autoPolicy.status, "disabled"); assert.equal(snapshot.safety.rules, null);
 		assert.equal(snapshot.runtime, null); assert.deepEqual(snapshot.changedSinceStart, []);
 	} finally { rmSync(root, { recursive: true, force: true }); }
@@ -37,13 +37,13 @@ test("invalid JSON and non-object documents are reported as invalid, never throw
 		write(root, ".ai/agent-fleet.json", "{ not json");
 		write(root, ".ai/agent-fleet-ai-state.json", JSON.stringify({ schemaVersion: 1, entries: [] }));
 		write(root, ".ai/stt.json", "[]");
-		write(root, ".pi/agents/teams.yaml", "- just\n- a list\n");
+		write(root, ".pi/agents/voices.yaml", "- just\n- a list\n");
 		const snapshot = collectFleetConfigSnapshot({ cwd: root, env });
 		assert.equal(snapshot.sources.desired.status, "invalid");
 		assert.equal(snapshot.overview.installationStatus, "invalid"); assert.equal(snapshot.overview.installationReason, "invalid_desired");
 		assert.equal(snapshot.sources.aiState.status, "invalid"); assert.match(snapshot.sources.aiState.problems.join(), /entries/);
 		assert.equal(snapshot.sources.stt.status, "invalid"); assert.equal(snapshot.stt, null);
-		assert.equal(snapshot.sources.teams.status, "invalid"); assert.deepEqual(snapshot.fleet.teams, []);
+		assert.equal(snapshot.sources.voices.status, "invalid"); assert.deepEqual(snapshot.fleet.voices, []);
 		assert.ok(problemCount(snapshot) >= 4);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -132,26 +132,28 @@ test("System 1 and STT expose env variable names and presence, never values", ()
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("fleet YAML: peers with runner/env_file presence, LIVE marks from the injected registry, dispatch substitutions and voices", () => {
+test("fleet YAML: LIVE marks from the injected registry, role routes and voices; stale teams.yaml and peers.yaml are not read", () => {
 	const root = workspace();
 	try {
-		write(root, ".pi/agents/teams.yaml", "default:\n  - builder\n  - code-reviewer\nplan:\n  - planner\n");
-		write(root, ".pi/agents/peers.yaml", "review:\n  - name: claude-main\n    runner: claude-code\n    model: opus\n    env_file: .env.peer\n  - persona: code-reviewer\n    extensions: chrome-devtools-mcp\n");
-		write(root, ".pi/agents/dispatch-policy.yaml", "default: native\ngrace_s: 30\nsubstitutions:\n  code-reviewer:\n    prefer: coms\n    fallback: none\n    timeout_s: 600\n  documenter: {}\n");
+		write(root, ".pi/agents/teams.yaml", "default:\n  - builder\n");
+		write(root, ".pi/agents/peers.yaml", "review:\n  - name: claude-main\n    runner: claude-code\n");
+		write(root, ".pi/agents/dispatch-policy.yaml", "default: native\ngrace_s: 30\nroutes:\n  reviewer:\n    peer: code-reviewer\n    prefer: coms\n    fallback: none\n    timeout_s: 600\n  editor: {}\n");
 		write(root, ".pi/agents/voices.yaml", "default:\n  - name: sol\n    model: openai/x\n    thinking: medium\n  - name: opus\n    model: anthropic/y\n    integrator: true\n");
 		const snapshot = collectFleetConfigSnapshot({ cwd: root, env, livePeerNames: () => ["code-reviewer"] });
-		assert.deepEqual(snapshot.fleet.teams, [{ name: "default", members: ["builder", "code-reviewer"] }, { name: "plan", members: ["planner"] }]);
-		assert.deepEqual(snapshot.fleet.peers, [
-			{ team: "review", name: "claude-main", persona: null, runner: "claude-code", model: "opus", extensions: null, envFile: ".env.peer", envFilePresent: false, live: false },
-			{ team: "review", name: "code-reviewer", persona: "code-reviewer", runner: "pi", model: null, extensions: "chrome-devtools-mcp", envFile: null, envFilePresent: null, live: true },
-		]);
-		assert.deepEqual(snapshot.fleet.dispatch, { default: "native", graceS: 30, substitutions: [
-			{ member: "code-reviewer", prefer: "coms", fallback: "none", timeoutS: 600, live: true },
-			{ member: "documenter", prefer: "coms", fallback: "native", timeoutS: null, live: false },
+		assert.equal("teams" in snapshot.fleet, false, "a stale teams.yaml is not read (D7)");
+		assert.equal("peers" in snapshot.fleet, false, "a stale peers.yaml is not read (D16)");
+		assert.equal("peers" in snapshot.sources, false, "peers.yaml is no longer a config source (D16)");
+		assert.deepEqual(snapshot.fleet.dispatch, { default: "native", graceS: 30, routes: [
+			{ role: "reviewer", peer: "code-reviewer", prefer: "coms", fallback: "none", timeoutS: 600, live: true },
+			{ role: "editor", peer: "editor", prefer: "coms", fallback: "native", timeoutS: null, live: false },
 		] });
+		write(root, ".pi/agents/dispatch-policy.yaml", "default: native\nsubstitutions:\n  reviewer:\n    prefer: native\n");
+		assert.deepEqual(collectFleetConfigSnapshot({ cwd: root, env }).fleet.dispatch?.routes, [
+			{ role: "reviewer", peer: "reviewer", prefer: "native", fallback: "native", timeoutS: null, live: false },
+		], "the legacy substitutions spelling still reads as routes");
 		assert.deepEqual(snapshot.fleet.voices, [{ panel: "default", voices: [{ name: "sol", model: "openai/x", thinking: "medium", integrator: false }, { name: "opus", model: "anthropic/y", thinking: null, integrator: true }] }]);
 		const failing = collectFleetConfigSnapshot({ cwd: root, env, livePeerNames: () => { throw new Error("registry down"); } });
-		assert.ok(failing.fleet.peers.every(peer => !peer.live));
+		assert.ok(failing.fleet.dispatch?.routes.every(route => !route.live));
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 

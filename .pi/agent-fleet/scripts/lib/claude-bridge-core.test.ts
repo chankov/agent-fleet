@@ -185,29 +185,18 @@ test("the bridge entry carries the fields the fleet panel reads", () => {
 
 test("runner: claude-code peers build a _claude-peer command; misuse rejected", () => {
 	assert.deepEqual(
-		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }, "t"),
+		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }),
 		["just", "_claude-peer", "claude-main", "opus"],
 	);
 	assert.deepEqual(
-		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }, "t", undefined, "acme"),
-		["just", "_claude-peer", "claude-main", "opus", "", "acme"],
+		peerCommand({ name: "claude-main", runner: "claude-code", model: "opus" }, "acme"),
+		["just", "_claude-peer", "claude-main", "opus", "acme"],
 	);
-	// no persona required; resume ref (claude session id) fills the session slot
-	assert.deepEqual(
-		peerCommand({ name: "c", runner: "claude-code" }, "t", "b7cd33df-412f"),
-		["just", "_claude-peer", "c", "", "b7cd33df-412f"],
-	);
-	assert.deepEqual(
-		peerCommand({ name: "c", runner: "claude-code" }, "t", "b7cd33df-412f", "acme"),
-		["just", "_claude-peer", "c", "", "b7cd33df-412f", "acme"],
-	);
-	assert.throws(() => peerCommand({ name: "x", runner: "cursor" }, "t"), /Unknown runner/);
-	assert.throws(
-		() => peerCommand({ name: "x", runner: "claude-code", extensions: "chrome-devtools-mcp" }, "t"),
-		/pi-only/,
-	);
+	// no persona required; a missing model keeps the project positional aligned
+	assert.deepEqual(peerCommand({ name: "c", runner: "claude-code" }, "acme"), ["just", "_claude-peer", "c", "", "acme"]);
+	assert.throws(() => peerCommand({ name: "x", runner: "cursor" }), /Unknown runner/);
 	// pi peers still demand a persona
-	assert.throws(() => peerCommand({ name: "x" }, "t"), /missing a persona/);
+	assert.throws(() => peerCommand({ name: "x" }), /missing a persona/);
 });
 
 test("resolveReplyTimeoutMs lets the caller's deadline win, clamped to the hard cap", () => {

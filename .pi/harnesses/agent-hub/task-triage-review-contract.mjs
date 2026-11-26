@@ -6,8 +6,8 @@ export function reviewReturnTemplate({ planReturnPath, before, after, afterDiff,
     `BEFORE bytes ${JSON.stringify(before)}`,
     `AFTER bytes ${JSON.stringify(after)}`,
     `before/after diff ${JSON.stringify(afterDiff)}`,
-    `builder runtime acceptance ${JSON.stringify(acceptancePath)}`,
-    `builder check ${JSON.stringify(checkPath)}`,
+    `editor runtime acceptance ${JSON.stringify(acceptancePath)}`,
+    `editor check ${JSON.stringify(checkPath)}`,
     `declared command ${JSON.stringify(check)}`,
     `exit code ${exitCode}`,
     `inspected revision ${JSON.stringify(inspectedRevision)}`,
@@ -19,7 +19,7 @@ assertions_proven:
 - A1: independently checked plan, exact bytes, diff and runtime check — evidence: ${evidence}
 assertions_unproven: []
 assertions_failed: []
-tests_run: [declared command and result observed in builder evidence, not run by reviewer]
+tests_run: [declared command and result observed in editor evidence, not run by reviewer]
 open_risks: []
 requires_user_decision: []`;
 }

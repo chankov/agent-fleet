@@ -32,12 +32,12 @@ The Full deterministic preset selects every stable persona and copies it to
 fleet YAML configuration, so the personas get a subdirectory of their own. Nothing is translated: the canonical format *is* the pi format,
 which is why a persona verifies byte-for-byte against its source.
 
-## Teams of subagents
+## Roles, peers and the Hub
 
-The personas are designed to be composed, not used one at a time. For the full hub → team → agent → sub-agent picture, see [ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
+Native teams (`.pi/agents/teams.yaml`) and peer groups (`.pi/agents/peers.yaml`, `just fleet team <name>`) were removed in favor of three runtime roles (PLAN-11-01). For the Hub → agent → sub-agent picture, see [ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
 
-- **pi (agent-hub harness)** — the dispatcher spawns personas as specialist agents on a named team from [.pi/agents/teams.yaml](../.pi/agents/teams.yaml): `default` (plan → build → review → document), `debug`, `frontend`, `security`, `hotfix`, `release`, `info`. `just fleet team <name> --no-hub` instead spawns [peers.yaml](../.pi/agents/peers.yaml) personas (e.g. `architect`, `releaser`) as standalone, addressable peers in a tiled [herdr](https://herdr.dev) workspace (requires a running herdr server). Personas with a `subagents:` block additionally delegate slices of their own job to pre-configured children: `code-reviewer` has `preflight`/`quality`/`perf`/`docs`; `planner` has `scout`, `rules`, and `voice-1`/`voice-2`/`voice-3` (a three-model poll used only for an unresolved architectural fork at tier `feature`/`project`).
-- **Coms peers** — a team member can be served by a live peer instead of a fresh subagent, including a bridged Claude Code pane (`runner: claude-code` in [peers.yaml](../.pi/agents/peers.yaml)). `.pi/agents/dispatch-policy.yaml` decides that per member at dispatch time, which is how `plan-reviewer` and `code-reviewer` get cross-model review with a session that keeps its context across rounds. See [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
+- **pi (agent-hub harness)** — the Hub dispatches one of three built-in roles, `researcher`, `reviewer` and `editor`, and shapes each assignment with practices (for example `editor` with the `planning` practice). The Hub always has all three roles and every practice; there is no team to activate. A retired persona name (`planner`, `builder`, `code-reviewer`, …) is refused with its role-and-practice mapping. `just fleet --herdr` opens the Hub alone in a one-pane [herdr](https://herdr.dev) workspace ([herdr-hub.ts](../.pi/agent-fleet/scripts/herdr-hub.ts); requires a running herdr server).
+- **Coms peers** — each peer is started on its own with `just fleet peer <name>` (flags `--runner pi|claude-code`, `--model`, `--read-only`, `--env-file`) or by the Hub's `herdr_spawn_peer`. A role can be served by a live peer instead of a fresh subagent, including a bridged Claude Code pane (`--runner claude-code`). [.pi/agents/dispatch-policy.yaml](../.pi/agents/dispatch-policy.yaml) routes by role at dispatch time, and a read-only role (researcher, reviewer) reaches only a peer started with `--read-only`. See [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
 ## How personas relate to skills and commands
 
@@ -135,9 +135,9 @@ Why this fails:
 
 ## Harness interop
 
-Personas run under the `agent-hub` harness as native specialist subagents, and
-as standalone peers via `just fleet team <name> --no-hub`. Both read the same
-canonical file.
+The role files run under the `agent-hub` harness as native subagents, and a
+persona can run as a standalone peer via `just fleet peer <name>` (a same-named
+persona is loaded). Both read the same canonical file.
 
 **A Claude Code peer carries no persona.** `runner: claude-code` spawns the
 Claude CLI plus its coms bridge; what the pane knows about its role comes from

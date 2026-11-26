@@ -742,6 +742,8 @@ targets an end-of-session compound pass writes lessons to.
 | `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
 | `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
 | `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
+| `model.<role>.<practice>` | role file `practice_models:` | Model for assignments of that role whose first practice with a model choice is `<practice>` (for example `model.editor.planning: openai-codex/gpt-6.2-astra`). See [Per-practice models](#per-practice-models). An unknown practice id is ignored with a session-start warning that lists the known ids; a role with no definition is ignored with a warning. |
+| `thinking.<role>.<practice>` | role file `practice_models:` | Thinking level for the same practice selection: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. An invalid value is ignored with a session-start warning. |
 | `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>][, thinking=<off\|minimal\|low\|medium\|high\|xhigh>]`. Other declared roles keep their frontmatter values. Existing roles retain their original frontmatter model as the same one-shot, pre-work-only runtime fallback; model-only overrides retain the declared tool cap. An invalid `thinking=` value is ignored with a session-start warning and the role stays at `off` unless frontmatter already set a valid level. |
 | `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
 | `rules` | none | Comma-separated repo-relative folders holding the project's own rule files (HOW — implementation patterns the work must comply with). Resolution is **index-first**: when a folder has a top-level `README.md`/`index.md`, personas read it first and follow its loading manifest (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without an index is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live and how to resolve them; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
@@ -779,6 +781,46 @@ append-prompt: references/communication-contract.md
 rules: docs/rules, .ai/rules
 docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```
+
+#### Per-practice models
+
+An assignment is a role plus practices, for example `editor` with `["planning"]`. Its model
+is the role's model unless one of its practices selects another (decision D9 of the runtime
+roles plan). The Hub checks the practices in assignment order, including a role's default
+practice when none was named. The first practice with a choice from any source below wins,
+highest precedence first:
+
+1. `/af-agent-model <role>.<practice>` and `/af-agent-model-thinking <role>.<practice>` for
+   this session. A suffix that is not a practice id still names a delegate sub-role.
+2. The active model profile's `<role>.<practice>` entry: a flat profile entry
+   (`editor.planning: <model>`, which must be on the role's `model`/`models` list) or a
+   `version: 2` profile's `agents:` entry (`editor.planning: { model, thinking }`). An
+   unknown practice id rejects the profile and names the known ids.
+3. `model.<role>.<practice>` and `thinking.<role>.<practice>` in this section.
+4. The role file's `practice_models:` block, in the same format as `subagents:`:
+
+   ```yaml
+   practice_models:
+     planning: { model: openai-codex/gpt-6.2-astra, thinking: high }
+   ```
+
+   An unknown practice id or an entry without a model is skipped with a warning on the role.
+
+Model and thinking each come from the highest source that sets them for the winning practice;
+anything it leaves unset comes from the role. When no practice has a choice, the role's model
+and thinking apply as before. A `version: 2` profile owns the whole fleet: while it is active,
+only its own entries and session choices apply, not this file or the role file. Applying a flat
+profile replaces the previous profile's practice entries and clears session choices for the
+practices it names. The role's original model remains the one-shot pre-work fallback, as for
+`model.<persona>`. Research helpers started with `spawn_research` use the role model.
+
+The shipped role files keep the models of the retired personas: the editor uses
+`openai-codex/gpt-6.2-astra` (thinking `high`) for planning, `openai-codex/gpt-6.2-sol` for
+architecture (`high`), documentation (`minimal`) and release (`low`), and `xai/grok-4.7` for
+testing (`low`); the reviewer uses `openai-codex/gpt-6.2-sol` for security and architecture
+(`high`) and `openai-codex/gpt-6-luna` for performance (`high`). The researcher has one model.
+Each native run records the selection on its resume contract as `modelSource`: `role`, or
+`practice:<id>:<source>` with source `session`, `profile`, `overrides` or `role-file`.
 
 ### `workflows`
 
@@ -1095,6 +1137,8 @@ local-full:
   Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
   depth remain unchanged. Unknown persona/child names are rejected, except a
   leftover `orchestrator` entry from before that persona was retired, which is ignored.
+  `agents` also accepts `<role>.<practice>` keys (`editor.planning: { model, thinking }`)
+  for a practice-level selection; see [Per-practice models](#per-practice-models).
 - `dispatcher` changes the current Pi session's model and thinking. When omitted,
   the live dispatcher keeps its current selection and may use any Pi model, even
   outside `allowed-models`; that list still applies to workers and peers.

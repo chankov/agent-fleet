@@ -54,9 +54,9 @@ flowchart LR
 
 Two consequences fall out of that shape and are worth stating plainly:
 
-- **Nothing about launching a fleet changes.** `just fleet team default` already
-  exports the monitor variables and already registers peers in coms; the panel
-  attaches to that. There is no "start the plugin" step on the fleet side.
+- **Nothing about launching a fleet changes.** `just fleet --herdr` already
+  exports the monitor variables, and the Hub and every peer started with
+  `just fleet peer <name>` already register in coms; the panel attaches to that. There is no "start the plugin" step on the fleet side.
 - **Reads only, with two exceptions.** `focus` (a herdr workspace) and subagent
   `cancel` are the sole write doors, and both re-derive their target from a
   fresh snapshot server-side — the renderer runs with the full privileges of the
@@ -169,7 +169,7 @@ you launch a fleet.
 
 # 2. restart the Hermes DESKTOP APP  (not `hermes gateway restart` — see rule 3)
 # 3. start a fleet, then open the "Agent Fleet" tab in Desktop
-just fleet team default
+just fleet --herdr
 ```
 
 It backs up `config.yaml` into `<profile>/backups/agent-fleet/`, links both
@@ -523,12 +523,12 @@ publishes every child run into it, but `monitorLifecycleConfig()` returns
 in) and `AGENT_FLEET_MONITOR_RUNTIME_DIR` (default
 `$XDG_RUNTIME_DIR/agent-fleet-monitor`, created mode 0700), and
 [.pi/agent-fleet/scripts/fleet.ts](../.pi/agent-fleet/scripts/fleet.ts) merges them into every `just fleet`
-mode. [.pi/agent-fleet/scripts/team-up.ts](../.pi/agent-fleet/scripts/team-up.ts) passes them as **pane env**
+mode. [.pi/agent-fleet/scripts/herdr-hub.ts](../.pi/agent-fleet/scripts/herdr-hub.ts) (`just fleet --herdr`) passes them as **pane env**
 instead: the hub pane is spawned by a herdr daemon that inherits nothing from
 the launcher's shell.
 
 ```bash
-just fleet team default            # monitored, no setup
+just fleet --herdr                 # monitored, no setup
 AGENT_FLEET_MONITOR=0 just fleet hub   # opt out
 ```
 

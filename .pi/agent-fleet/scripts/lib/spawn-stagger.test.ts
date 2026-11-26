@@ -1,10 +1,11 @@
-// Tests for the pure pre-warm/stagger logic that shields simultaneous pi
-// pane spawns from the auth.json boot lock race.
+// Tests for the pure stale-token detection that shields back-to-back pi pane
+// spawns from the auth.json boot lock race (the delay itself is
+// spawned-peers.js spawnStaggerSeconds).
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { EXPIRY_MARGIN_MS, oauthNeedsWarmup, STEP_SECONDS, staggerDelays, WARMUP_SECONDS } from "./spawn-stagger.ts";
+import { EXPIRY_MARGIN_MS, oauthNeedsWarmup, STAGGER_ENV_VAR, WARMUP_SECONDS } from "./spawn-stagger.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -49,27 +50,7 @@ test("api_key credentials never stagger — no refresh, no long lock hold", () =
 	assert.equal(oauthNeedsWarmup(raw, NOW), false);
 });
 
-test("not needed → all-zero delays regardless of shape", () => {
-	assert.deepEqual(staggerDelays({ peerIsPi: [true, true, true], rootIsPi: true, needed: false }), [0, 0, 0]);
-	assert.deepEqual(staggerDelays({ peerIsPi: [true, false], rootIsPi: false, needed: false }), [0, 0]);
-});
-
-test("hub mode: hub warms, every pi peer waits", () => {
-	const delays = staggerDelays({ peerIsPi: [true, true, true], rootIsPi: true, needed: true });
-	assert.deepEqual(delays, [WARMUP_SECONDS, WARMUP_SECONDS + STEP_SECONDS, WARMUP_SECONDS + 2 * STEP_SECONDS]);
-});
-
-test("peers mode: first pi peer warms at 0, the rest wait", () => {
-	const delays = staggerDelays({ peerIsPi: [true, true, true], rootIsPi: false, needed: true });
-	assert.deepEqual(delays, [0, WARMUP_SECONDS, WARMUP_SECONDS + STEP_SECONDS]);
-});
-
-test("claude-code panes never wait and never count as the warmer", () => {
-	const delays = staggerDelays({ peerIsPi: [false, true, true], rootIsPi: false, needed: true });
-	assert.deepEqual(delays, [0, 0, WARMUP_SECONDS]);
-});
-
-test("conductor mode (non-pi root) behaves like peers mode", () => {
-	const delays = staggerDelays({ peerIsPi: [true, true], rootIsPi: false, needed: true });
-	assert.deepEqual(delays, [0, WARMUP_SECONDS]);
+test("the delay travels as AGENT_FLEET_SPAWN_DELAY with a positive warm-up", () => {
+	assert.equal(STAGGER_ENV_VAR, "AGENT_FLEET_SPAWN_DELAY");
+	assert.ok(WARMUP_SECONDS > 0);
 });

@@ -421,3 +421,46 @@ test("no operator item declares a workspace target", () => {
     assert.equal(item.binding.strategy, "operator", `${item.id} is not an operator strategy`);
   }
 });
+
+// ── retired .pi/agents configs (PLAN-11-01, D7/D8/D16) ─────────────────────
+
+test("refreshing .pi/agents configs retires an unmodified teams.yaml/peers.yaml and keeps an edited one", () => {
+  // The real catalogue entry, selected explicitly.
+  const real = loadManifest(repoRoot).items.find((entry) => entry.id === "companion:pi-agent-configs");
+  assert.ok(real, "companion:pi-agent-configs is catalogued");
+  const current = real.agents[AGENT].source;
+  assert.deepEqual(current.filter((rel) => /(teams|peers)\.yaml$/.test(rel)), [], "the package no longer ships either file");
+  const asManifest = (source) => ({
+    schemaVersion: 1,
+    packageVersion: VERSION,
+    groups: [{ id: "companions", title: "Companions", order: 1, agents: [AGENT] }],
+    profiles: {},
+    items: [{ ...real, agents: { [AGENT]: { ...real.agents[AGENT], source } } }],
+  });
+
+  // The previous release shipped both files next to the ones that remain.
+  const previous = tmp("src-prev");
+  for (const rel of current) write(previous, rel, readFileSync(join(repoRoot, rel), "utf8"));
+  write(previous, ".pi/agents/teams.yaml", "default:\n  - builder\n");
+  write(previous, ".pi/agents/peers.yaml", "base:\n");
+  const workspace = tmp("ws");
+  const before = buildPlan({
+    workspace, sourceRoot: previous, packageVersion: VERSION, manifest: asManifest([...current, ".pi/agents/peers.yaml", ".pi/agents/teams.yaml"]),
+    verb: "install", agent: AGENT, method: "copy", items: [real.id],
+  });
+  assert.equal(applyPlan({ plan: before, manifest: asManifest([...current, ".pi/agents/peers.yaml", ".pi/agents/teams.yaml"]) }).exitCode, 0);
+  assert.ok(existsSync(join(workspace, ".pi/agents/teams.yaml")));
+  write(workspace, ".pi/agents/peers.yaml", "base:\nmine:\n  - name: scout\n"); // the user's own edit
+
+  // This release: refresh from the real package tree.
+  const manifest = asManifest(current);
+  const refresh = buildPlan({ workspace, sourceRoot: repoRoot, packageVersion: VERSION, manifest, verb: "install", agent: AGENT, method: "copy", items: [real.id] });
+  assert.equal(refresh.actions.find((action) => action.id === "companion:pi-agent-configs")?.kind, "refresh");
+  assert.equal(applyPlan({ plan: refresh, manifest }).exitCode, 0);
+
+  assert.equal(existsSync(join(workspace, ".pi/agents/teams.yaml")), false, "an unmodified retired copy is removed");
+  assert.equal(readFileSync(join(workspace, ".pi/agents/peers.yaml"), "utf8"), "base:\nmine:\n  - name: scout\n", "an edited retired copy is kept");
+  const recorded = readState(workspace).items["companion:pi-agent-configs"].files.map((file) => file.path);
+  assert.equal(recorded.some((path) => /(teams|peers)\.yaml$/.test(path)), false, "the kept copy is the user's now");
+  for (const rel of current) assert.equal(readFileSync(join(workspace, rel), "utf8"), readFileSync(join(repoRoot, rel), "utf8"));
+});

@@ -1,9 +1,12 @@
-# Flat profiles switch named roles (researcher, reviewer, editor); version: 2 profiles
-# switch the complete fleet. See docs/agent-fleet-setup.md for defaults, child roles,
-# services and policies.
+# Flat profiles switch named roles (researcher, reviewer, editor) and per-practice
+# choices (<role>.<practice>); version: 2 profiles switch the complete fleet. See
+# docs/agent-fleet-setup.md for defaults, child roles, services and policies.
 mix-max:
   reviewer: xai/grok-4.7
   editor: openai-codex/gpt-6.2-sol
+  # Keeps the retired planner and security-auditor choices (D9).
+  editor.planning: openai-codex/gpt-6.2-astra
+  reviewer.security: openai-codex/gpt-6.2-sol
 local-workers:
   version: 2
   defaults:

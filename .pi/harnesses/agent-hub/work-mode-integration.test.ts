@@ -31,7 +31,6 @@ const commandContextSource = readFileSync(new URL("./commands/context.ts", impor
 const dispatchAgentToolSource = readFileSync(new URL("./tools/dispatch-agent.ts", import.meta.url), "utf8");
 const spawnResearchToolSource = readFileSync(new URL("./tools/spawn-research.ts", import.meta.url), "utf8");
 const setTaskTierToolSource = readFileSync(new URL("./tools/set-task-tier.ts", import.meta.url), "utf8");
-const teamAdjustToolSource = readFileSync(new URL("./tools/team-adjust.ts", import.meta.url), "utf8");
 const verificationContractToolSource = readFileSync(new URL("./tools/verification-contract.ts", import.meta.url), "utf8");
 const comsToolsSource = readFileSync(new URL("./tools/coms-tools.ts", import.meta.url), "utf8");
 const fleetToolsSource = readFileSync(new URL("./tools/fleet-tools.ts", import.meta.url), "utf8");
@@ -39,23 +38,17 @@ const filesystemToolSource = readFileSync(new URL("./filesystem-tool.ts", import
 const toolContextSource = readFileSync(new URL("./tools/context.ts", import.meta.url), "utf8");
 const executionOrchestrationSource = readFileSync(new URL("./tools/execution-orchestration.ts", import.meta.url), "utf8");
 const dispatchExecutionSource = readFileSync(new URL("./tools/dispatch-execution.ts", import.meta.url), "utf8");
-const agentsTeamCommandSource = readFileSync(new URL("./commands/agents-team.ts", import.meta.url), "utf8");
-const agentsSaveCommandSource = readFileSync(new URL("./commands/agents-save.ts", import.meta.url), "utf8");
 const agentsRestartCommandSource = readFileSync(new URL("./commands/agents-restart.ts", import.meta.url), "utf8");
 const agentsCommandSources = [
-	"agents-add", "agents-drop", "agents-kill", "agents-restart",
+	"agents-kill", "agents-restart",
 ].map(name => readFileSync(new URL(`./commands/${name}.ts`, import.meta.url), "utf8"));
 const commandModules = [
-	["agents-team", "registerAgentsTeam"],
 	["agents-list", "registerAgentsList"],
 	["agents-history", "registerAgentsHistory"],
 	["context-command", "registerContextCommand"],
 	["audit", "registerAudit"],
 	["config", "registerConfig"],
 	["watchdog", "registerWatchdog"],
-	["agents-add", "registerAgentsAdd"],
-	["agents-drop", "registerAgentsDrop"],
-	["agents-save", "registerAgentsSave"],
 	["hub-report", "registerHubReport"],
 	["zoom", "registerZoom"],
 	["agent-model", "registerAgentModel"],
@@ -108,8 +101,8 @@ test("operator always holds fleet tools; transitions and S1 stages lease them wi
  assert.match(pressureLifecycleSource, /ports\.onAcceptedInput\?\.\(text, event\.source, replaying\);[\s\S]*?ports\.resolveCapabilities\(text\); ports\.applyWorkMode\(\)/);
 });
 
-test("wiring contract: all 28 Hub commands use typed modules and one flat registrar list", () => {
-	assert.equal(commandModules.length, 28);
+test("wiring contract: all 24 Hub commands use typed modules and one flat registrar list", () => {
+	assert.equal(commandModules.length, 24);
 	for (const [file, registrar] of commandModules) {
 		const commandSource = readFileSync(new URL(`./commands/${file}.ts`, import.meta.url), "utf8");
 		assert.match(commandSource, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, commandCtx: CommandContext\\)`));
@@ -129,7 +122,7 @@ test("wiring contract: the single work mode has no switching command, shortcut o
 	for (const removed of ["af-work-mode", "af-posture", "af-research", "af-research-cont", "af-research-rm", "af-research-clear", "af-agents-cont"]) {
 		assert.doesNotMatch(indexSource, new RegExp(`registerCommand\\("${removed}"`));
 	}
-	for (const retained of ["af-agents-add", "af-agents-drop", "af-agents-kill", "af-agents-restart"]) {
+	for (const retained of ["af-agents-kill", "af-agents-restart"]) {
 		assert.ok(agentsCommandSources.some(source => source.includes(`registerCommand(\"${retained}\"`)), `${retained} is registered`);
 	}
 	assert.match(indexSource, /registerHandoff\(pi, commandCtx\)/);
@@ -149,21 +142,36 @@ test("wiring contract: an old orchestrator session is told once and continues as
 	assert.match(indexSource, /const sessionEntries = _ctx\.sessionManager\.getEntries\(\)/);
 	assert.match(indexSource, /if \(legacyFlag \|\| sessionSavedInRetiredWorkMode\(sessionEntries\)\)[\s\S]*?RETIRED_WORK_MODE_NOTICE[\s\S]*?pi\.appendEntry\(WORK_MODE_ENTRY_TYPE, \{ workMode: "operator" \}\)/);
 });
-test("wiring contract: Hub restores named rosters without an orchestrator recovery gate", () => {
-	assert.match(indexSource, /resolveSessionRoster\(\{/);
-	assert.match(indexSource, /persist: team => pi\.appendEntry\(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState\(team\)\)/);
-	assert.match(rosterPolicySource, /ports\.persist\(team\)/);
-	assert.match(indexSource, /registerAgentsSave\(pi, commandCtx\)/);
-	assert.match(agentsSaveCommandSource, /registerCommand\("af-agents-save"[\s\S]*?handleAgentsSave/);
-	assert.match(indexSource, /handleAgentsSave: async \(args, ctx\) => \{[\s\S]*?activeTeamName = name;[\s\S]*?persistActiveRoster\(\)/);
+test("wiring contract: the Hub has no teams; every installed role is on the roster from session start (D7)", () => {
+	for (const removed of ["commands/agents-team.ts", "commands/agents-add.ts", "commands/agents-drop.ts", "commands/agents-save.ts", "tools/team-adjust.ts"]) {
+		assert.equal(existsSync(new URL(`./${removed}`, import.meta.url)), false, removed);
+	}
+	for (const removed of ["af-agents-team", "af-agents-add", "af-agents-drop", "af-agents-save"]) assert.doesNotMatch(indexSource + commandContextSource, new RegExp(removed));
+	assert.doesNotMatch(indexSource, /registerFlag\("agent-team"|resolveSessionRoster|NATIVE_ROSTER_ENTRY_TYPE|persistedNativeRosterState|activeTeamName|teams\.yaml|team_adjust|handleAgents(Team|Add|Drop|Save)/);
+	assert.doesNotMatch(commandContextSource, /handleAgents(Team|Add|Drop|Save)/);
+	assert.doesNotMatch(rosterPolicySource, /activateTeam|persistActiveRoster|ports\.persist|function drop|getTeams|TeamName/);
+	assert.match(sessionStartSource, /"restoreRoster"[\s\S]*?"resolveCapabilities"/);
+	// restoreRoster keeps its non-roster duties: process state, recovery, the ledger and the tool catalog.
+	assert.match(indexSource, /restoreRoster: async \(_ctx\) => \{\s*(?:\/\/[^\n]*\n\s*)*rosterPolicy\.populate\(\);[\s\S]*?latestProcessState\(sessionEntries\)[\s\S]*?noProgress\.restore\([\s\S]*?restoreAssertionLedgerForSession\([\s\S]*?latestPersistedToolCatalog\(sessionEntries\)/);
+	assert.match(indexSource, /addInstalledAgent: name => \{[\s\S]*?rosterPolicy\.add\(def\.name\)/, "dispatch auto-add stays");
+	assert.match(indexSource, /function addParallelAgentInstance\([\s\S]*?rosterPolicy\.addInstance\(clone\)/);
+	assert.match(indexSource, /handleCompound: async[\s\S]*?agentStates\.has\("editor"\)[\s\S]*?Dispatch agent "editor" with practices \["documentation"\]/);
+	assert.doesNotMatch(indexSource, /documenter/);
 	assert.doesNotMatch(workModePolicySource + indexSource, /rosterRecoveryRequired|modelWorkBlockedByRosterRecovery/);
 	assert.match(pressureLifecycleSource, /ports\.modelWorkBlocked\(ctx\)[\s\S]*?return \{ action: "handled" \}/);
 	assert.doesNotMatch(indexSource, /registerCommand\("af-persona"/);
 	assert.doesNotMatch(indexSource, /personaGateEnabled|pickDispatcherPersona/);
-	assert.match(indexSource, /registerAgentsTeam\(pi, commandCtx\)/);
-	assert.match(agentsTeamCommandSource, /registerCommand\("af-agents-team"[\s\S]*?handleAgentsTeam/);
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?persistActiveRoster\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/);
 	assert.doesNotMatch(indexSource, /throw new Error\("Orchestrator workMode requires --agent-team/);
+});
+
+test("wiring contract: dispatch-policy lookups go through the role-keyed policyRoute (D11)", () => {
+	assert.doesNotMatch(indexSource, /dispatchPolicy\.substitutions\[/);
+	assert.match(indexSource, /function prefersComsRoute\(agent: string\): boolean \{\s*return \(policyRoute\(dispatchPolicy, agent\)\?\.prefer \?\? dispatchPolicy\.default\) === "coms";/);
+	assert.match(indexSource, /function mayRouteToComs\(agent: string\): boolean \{\s*if \(!prefersComsRoute\(agent\)\) return false;/);
+	assert.match(indexSource, /prefersComs: name => prefersComsRoute\(name\)/);
+	assert.match(indexSource, /getDispatchPreference: name => prefersComsRoute\(name\.toLowerCase\(\)\)/);
+	assert.match(indexSource, /handleDispatchPolicy: async[\s\S]*?policyRoute\(dispatchPolicy, key\)[\s\S]*?route\?\.peer \|\| basePersonaName\(key\)/);
+	assert.match(indexSource, /notifyStartup: \(_ctx\) => \{[\s\S]*?policyRoute\(dispatchPolicy, role\)[\s\S]*?`\$\{role\} → \$\{route\.peer \|\| role\} \(\$\{route\.prefer\}/, "the startup line shows role → peer for each route");
 });
 
 test("wiring contract: extracted Hub tools use typed modules and one flat registrar list", () => {
@@ -171,26 +179,26 @@ test("wiring contract: extracted Hub tools use typed modules and one flat regist
 		[dispatchAgentToolSource, "registerDispatchAgent", 1],
 		[spawnResearchToolSource, "registerSpawnResearch", 1],
 		[setTaskTierToolSource, "registerSetTaskTier", 1],
-		[teamAdjustToolSource, "registerTeamAdjust", 1],
 		[verificationContractToolSource, "registerVerificationContract", 3],
 		[comsToolsSource, "registerComsTools", 4],
 		[fleetToolsSource, "registerFleetTools", 5],
 		[filesystemToolSource, "registerFilesystemTool", 1],
 	] as const;
-	assert.equal(toolModules.length, 8);
+	assert.equal(toolModules.length, 7);
 	for (const [source, registrar, count] of toolModules) {
 		const secondParameter = registrar === "registerFilesystemTool" ? "ports: FilesystemToolPorts" : registrar === "registerDispatchAgent" ? "toolCtx: ToolContext, triage[\\s\\S]*?" : "toolCtx: ToolContext";
 		assert.match(source, new RegExp(`export function ${registrar}\\(pi: ExtensionAPI, ${secondParameter}\\)`));
 		assert.equal((source.match(/registerTool\(\{/g) ?? []).length, count, registrar);
 	}
-	const extractedNames = ["dispatch_agent", "spawn_research", "set_task_tier", "team_adjust", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify", "filesystem"];
-	assert.equal(extractedNames.length, 17);
+	const extractedNames = ["dispatch_agent", "spawn_research", "set_task_tier", "set_assertions", "update_assertion", "get_assertions", "coms_list", "coms_send", "coms_get", "coms_await", "herdr_spawn_peer", "herdr_spawn_pane", "herdr_read_pane", "herdr_close_pane", "herdr_notify", "filesystem"];
+	assert.equal(extractedNames.length, 16);
 	for (const name of extractedNames) assert.doesNotMatch(indexSource, new RegExp(`name: "${name}"`));
 	assert.equal((indexSource.match(/registerTool\(\{/g) ?? []).length, 0);
-	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx, \{[^\n]+\}\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerRunFlow\(pi, \{[\s\S]*?\}\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerTeamAdjust\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
+	assert.match(indexSource, /registerDispatchAgent\(pi, toolCtx, \{[^\n]+\}\);\s*registerSpawnResearch\(pi, toolCtx\);\s*registerRunFlow\(pi, \{[\s\S]*?\}\);\s*registerSetTaskTier\(pi, toolCtx\);\s*registerVerificationContract\(pi, toolCtx\);\s*registerComsTools\(pi, toolCtx\);\s*registerFleetTools\(pi, toolCtx\);\s*registerFilesystemTool\(pi, \{/);
 	assert.equal(existsSync(new URL("./tools/ask-user.ts", import.meta.url)), false);
 	assert.match(toolContextSource, /export interface ToolContext/);
-	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeTeamAdjust", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {
+	assert.doesNotMatch(toolContextSource, /executeTeamAdjust|TeamAdjustParams/);
+	for (const callback of ["executeDispatchAgent", "executeSpawnResearch", "executeSetTaskTier", "executeSetAssertions", "executeUpdateAssertion", "executeGetAssertions", "executeComsList", "executeComsSend", "executeComsGet", "executeComsAwait", "executeHerdrSpawnPeer", "executeHerdrSpawnPane", "executeHerdrReadPane", "executeHerdrClosePane", "executeHerdrNotify"]) {
 		assert.match(toolContextSource, new RegExp(`${callback}: ToolExecutor<`));
 	}
 	assert.match(toolContextSource, /getAssertionCount\(\): number/);
@@ -295,9 +303,7 @@ test("high-context startup and input defer prompts until compaction completes", 
 	assert.match(pressureLifecycleSource, /state\(\)\.deferredInputs\.push[\s\S]*?action: "handled"/);
 	assert.match(pressureLifecycleSource, /const replayDeferred[\s\S]*?ports\.sendUserMessage\(/);
 	assert.match(pressureLifecycleSource, /const markSucceeded[\s\S]*?automaticPending = false/, "any observed compaction success clears a stale pending request");
-	assert.match(pressureLifecycleSource, /if \(replaying && ports\.modelWorkBlocked\(ctx\)\)[\s\S]*?deferredInputs\.push/, "recovery replay is retained again when a roster gate is still active");
-	assert.match(indexSource, /handleAgentsTeam: async \(_args, ctx\) => \{[\s\S]*?persistActiveRoster\(\);[\s\S]*?setTimeout\(replayDeferredRecoveryInputs/,
-		"selecting a team replays retained input");
+	assert.match(pressureLifecycleSource, /if \(replaying && ports\.modelWorkBlocked\(ctx\)\)[\s\S]*?deferredInputs\.push/, "recovery replay is retained again when a model-work gate is still active");
 });
 
 test("the orchestrator-only roster gate is gone; modules keep their own model-work ports", () => {
@@ -338,7 +344,7 @@ test("verification-only pack classifies risk without leasing fleet, and the oper
  const baseline=["read","bash","edit","write"];
  const verificationOnly=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:["core","verification"]});
  for(const name of ["set_task_tier","set_assertions","update_assertion","get_assertions"])assert.ok(verificationOnly.includes(name),name);
- for(const name of ["dispatch_agent","spawn_research","team_adjust"])assert.ok(!verificationOnly.includes(name),name);
+ for(const name of ["dispatch_agent","spawn_research"])assert.ok(!verificationOnly.includes(name),name);
  const tools=resolveWorkModeTools({workMode:"operator",baselineTools:baseline,comsReady:false,herdrReady:false,askUserAvailable:true,capabilityPacks:packs.active});
  for(const name of ["dispatch_agent","spawn_research","set_assertions"])assert.ok(tools.includes(name),name);
  assert.deepEqual(tools.filter(name=>baseline.includes(name)),baseline);

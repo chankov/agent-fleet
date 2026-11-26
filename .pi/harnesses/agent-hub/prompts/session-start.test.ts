@@ -11,9 +11,9 @@ import { buildSessionStartNotice, createSessionFooter } from "./session-start.ts
 
 const noticeData = {
 	workMode: "operator",
-	activeTeamName: "Default",
-	agentCount: 2,
-	members: "Builder, Verifier",
+	roles: "reviewer, editor",
+	missingRoles: "",
+	practiceCount: 11,
 	dispatchLabel: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)",
 	userLanguage: "English",
 	askUserLabel: "available (via pi-ask-user)",
@@ -23,8 +23,11 @@ const noticeData = {
 
 test("session-start notice remains an exact data-oriented template", () => {
 	const notice = buildSessionStartNotice(noticeData);
-	assert.equal(createHash("sha256").update(notice).digest("hex"), "a670ac4c40754c3b50c25cbe39aefc8dd1df23f94b90312e5acad18972ea04e9");
+	assert.equal(createHash("sha256").update(notice).digest("hex"), "2dad5d454357b93fe9823b1daf677f65623d9168f56ac8d1a4a554c31952bfd8");
 	assert.match(notice, /^Work Mode: operator \(direct tools and delegation\)/);
+	assert.match(notice, /^Roles: researcher via spawn_research; reviewer, editor via dispatch_agent · 11 practices$/m);
+	assert.doesNotMatch(notice, /roster|team|af-agents-(team|add|drop|save)/i, "teams are gone (D7)");
+	assert.match(buildSessionStartNotice({ ...noticeData, roles: "editor", missingRoles: "reviewer" }), /^Roles: researcher via spawn_research; editor via dispatch_agent \(not installed: reviewer\) · 11 practices$/m);
 	assert.doesNotMatch(notice, /af-work-mode|Alt\+M|orchestrator/i);
 	assert.match(notice, /\/af-poll \[--panel NAME\].*same question/);
 	assert.match(notice, /\/af-debate \[--panel NAME\].*model panel$/);

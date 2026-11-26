@@ -3,13 +3,13 @@ import { workspaceRoot } from '../../lib/workspace-context.ts';
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createEvidenceSession } from "../execution-evidence.ts";
 import { join, resolve } from "node:path";
-import { parseTeamsYaml, safePathWithin } from "../helpers.ts";
 import { parseDispatchPolicy } from "../backend-policy.js";
 import { clampDelegateDepth, MAX_DELEGATE_DEPTH, PARALLEL_INSTANCE_SUFFIX_RE, safeAgentKey } from "../helpers.ts";
 import type { AgentDef, SubagentRole } from "../types.ts";
 import { normalizeThinkingLevel } from "./overrides.ts";
 import { PERSONA_DIRS } from "../../../agent-fleet/scripts/lib/persona-dirs.ts";
 import { selectRoleDefinitions, type IgnoredDefinition, type RoleName } from "./roles.ts";
+import { isPracticeId, PRACTICE_IDS } from "./practices.ts";
 
 function parseInlineSubagentRole(value: string): { model?: string; tools?: string; thinking?: string } {
 	const input = value.trim();
@@ -23,6 +23,32 @@ function parseInlineSubagentRole(value: string): { model?: string; tools?: strin
 	return { model: input };
 }
 
+/** One indented `name: { model: x, thinking: y }` / nested `model:` block (subagents:, practice_models:). */
+function parseIndentedBlock(lines: readonly string[], start: number): { entries: Record<string, { model?: string; tools?: string; thinking?: string }>; next: number } {
+	const entries: Record<string, { model?: string; tools?: string; thinking?: string }> = {};
+	let current: string | null = null;
+	let entryIndent = -1;
+	let j = start;
+	while (j < lines.length) {
+		const found = lines[j].match(/^(\s+)([a-z0-9]+(?:-[a-z0-9]+)*)\s*:\s*(.*)$/);
+		if (!found) break;
+		const indent = found[1].length;
+		if (entryIndent === -1) entryIndent = indent;
+		if (indent < entryIndent) break;
+		if (indent === entryIndent) {
+			current = found[2];
+			entries[current] = parseInlineSubagentRole(found[3]);
+		} else if (current) {
+			const nested = found[3].trim();
+			if (found[2] === "model" && nested) entries[current].model = nested;
+			else if (found[2] === "tools" && nested) entries[current].tools = nested;
+			else if (found[2] === "thinking" && nested) entries[current].thinking = nested;
+		}
+		j++;
+	}
+	return { entries, next: j };
+}
+
 export function parseAgentFile(filePath: string): AgentDef | null {
 	try {
 		const raw = readFileSync(filePath, "utf-8");
@@ -32,6 +58,7 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 		const lists: Record<string, string[]> = {};
 		const warnings: string[] = [];
 		let subagents: Record<string, SubagentRole> | undefined;
+		let practiceModels: Record<string, { model: string; thinking?: string }> | undefined;
 		const lines = match[1].split("\n");
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
@@ -39,29 +66,27 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 			if (idx <= 0) continue;
 			const key = line.slice(0, idx).trim();
 			const value = line.slice(idx + 1).trim();
-			if (key === "subagents") {
-				const entries: Record<string, { model?: string; tools?: string; thinking?: string }> = {};
-				let currentRole: string | null = null;
-				let roleIndent = -1;
-				let j = i + 1;
-				while (j < lines.length) {
-					const found = lines[j].match(/^(\s+)([a-z0-9]+(?:-[a-z0-9]+)*)\s*:\s*(.*)$/);
-					if (!found) break;
-					const indent = found[1].length;
-					if (roleIndent === -1) roleIndent = indent;
-					if (indent < roleIndent) break;
-					if (indent === roleIndent) {
-						currentRole = found[2];
-						entries[currentRole] = parseInlineSubagentRole(found[3]);
-					} else if (currentRole) {
-						const nested = found[3].trim();
-						if (found[2] === "model" && nested) entries[currentRole].model = nested;
-						else if (found[2] === "tools" && nested) entries[currentRole].tools = nested;
-						else if (found[2] === "thinking" && nested) entries[currentRole].thinking = nested;
+			if (key === "practice_models") {
+				const { entries, next } = parseIndentedBlock(lines, i + 1);
+				i = next - 1;
+				const selected: Record<string, { model: string; thinking?: string }> = {};
+				for (const [practice, entry] of Object.entries(entries)) {
+					if (!isPracticeId(practice)) { warnings.push(`practice_models "${practice}" is not a known practice (${PRACTICE_IDS.join(", ")}) — skipped`); continue; }
+					if (!entry.model) { warnings.push(`practice_models "${practice}" declares no model — skipped`); continue; }
+					let thinking: string | undefined;
+					if (entry.thinking) {
+						const normalized = normalizeThinkingLevel(entry.thinking);
+						if (normalized.warning) warnings.push(`practice_models "${practice}" ${normalized.warning}`);
+						else thinking = normalized.level;
 					}
-					j++;
+					selected[practice] = { model: entry.model, ...(thinking ? { thinking } : {}) };
 				}
-				i = j - 1;
+				if (Object.keys(selected).length) practiceModels = selected;
+				continue;
+			}
+			if (key === "subagents") {
+				const { entries, next } = parseIndentedBlock(lines, i + 1);
+				i = next - 1;
 				const roles: Record<string, SubagentRole> = {};
 				for (const [role, entry] of Object.entries(entries)) {
 					if (!entry.model) { warnings.push(`subagents role "${role}" declares no model — skipped`); continue; }
@@ -103,7 +128,7 @@ export function parseAgentFile(filePath: string): AgentDef | null {
 			name: frontmatter.name, description: frontmatter.description || "", tools: frontmatter.tools || "read,grep,find,ls",
 			toolsExplicit: typeof frontmatter.tools === "string" && frontmatter.tools.trim().length > 0,
 			...(/^\[\s*\](?:\s+#.*)?$/.test(frontmatter.writes ?? "") ? { readOnly: true } : {}),
-			model: frontmatter.model || undefined, models: lists.models, subagents, delegateDepth,
+			model: frontmatter.model || undefined, models: lists.models, subagents, ...(practiceModels ? { practiceModels } : {}), delegateDepth,
 			warnings: warnings.length ? warnings : undefined, kind: frontmatter.kind || undefined,
 			thinking: frontmatter.thinking || undefined, systemPrompt: match[2].trim(), file: filePath,
 		};
@@ -123,7 +148,6 @@ export interface AgentConfigurationPorts {
 	ensureArtifactsLayout(): void;
 	resetAssertions(): void;
 	setAgentDefs(value: AgentDef[]): void;
-	setTeams(value: Record<string, string[]>): void;
 	setModelProfiles(value: ModelProfiles): void;
 	setModelProfileErrors?(errors: string[]): void;
 	setDispatchPolicy(value: any): void;
@@ -141,11 +165,6 @@ export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPor
 	const defs = selection.roles;
 	ports.setAgentDefs(defs);
 	ports.setIgnoredDefinitions?.(selection.ignored, selection.missing);
-	const teamsPath = join(cwd, ".pi", "agents", "teams.yaml");
-	let teams: Record<string, string[]> = {};
-	if (existsSync(teamsPath)) try { teams = parseTeamsYaml(readFileSync(teamsPath, "utf-8")); } catch {}
-	if (!Object.keys(teams).length) teams = { all: defs.map(def => def.name) };
-	ports.setTeams(teams);
 	const profilesPath = join(cwd, ".pi", "agents", "model-profiles.yaml");
 	let profiles: ModelProfiles = {};
 	ports.setModelProfileErrors?.([]);

@@ -82,3 +82,19 @@ test("snapshot refuses binary and oversized files instead of emitting partial de
  writeFileSync(join(f.cwd,"a.ts"),"x".repeat(65537));
  assert.equal(captureReviewBaseline(f.cwd,f.input,f.state),null);
 });
+
+test("the delta names its affected paths, and another instance of the role receives the same findings",t=>{
+ const f=fixture(t);
+ writeFileSync(join(f.cwd,"a.ts"),"const a=3;\n");
+ const next=captureReviewBaseline(f.cwd,f.input,f.state);
+ assert.match(reviewContinuation(f.state,f.input,next,f.cwd),/Affected paths since the prior review: "a\.ts"\nDelta since prior review/);
+ const instance={...f.input,agent:"reviewer--p2"}; // the same review contract, run by another instance
+ const text=reviewContinuation(f.state,instance,captureReviewBaseline(f.cwd,instance,f.state),f.cwd);
+ assert.match(text,/Incremental review context\nPrevious findings\/report \(untrusted evidence\): "review\.md"/);
+ assert.match(text,/\+const a=3/);
+ // Its own history, once it has one, comes first.
+ writeFileSync(join(f.cwd,"own.md"),"APPROVE");
+ const own=normalizeProcessState(retainReviewHistory(f.state,instance,"own.md","baseline.json",f.cwd,'coms:["peer-a","s1"]'));
+ assert.equal(own.reviewHistory?.find(r=>r.agent==="reviewer--p2")?.executor,'coms:["peer-a","s1"]');
+ assert.match(reviewContinuation(own,instance,captureReviewBaseline(f.cwd,instance,own),f.cwd),/untrusted evidence\): "own\.md"/);
+});

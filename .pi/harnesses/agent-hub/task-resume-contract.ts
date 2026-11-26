@@ -12,6 +12,13 @@ export interface TaskResumeInput {
 	deliverables?: readonly string[];
 	artifacts?: readonly string[];
 	model?: string | null;
+	/**
+	 * Assignment practices in order; they select a practice-level model (D9). Not part
+	 * of the bound identity: the instructions already carry the assignment block.
+	 */
+	practices?: readonly string[];
+	/** Where the model came from (`role` or `practice:<id>:<tier>`); a record, never identity. */
+	modelSource?: string;
 	permissions?: readonly string[] | string;
 	previous?: TaskResumeContract | null;
 }
@@ -25,6 +32,8 @@ export interface TaskResumeContract {
 	deliverables: string[];
 	artifacts: string[];
 	model: string | null;
+	practices?: string[];
+	modelSource?: string;
 	permissions: string[];
 	resumeAllowed: boolean;
 	inheritedUnfinishedInstructions: boolean;
@@ -74,6 +83,8 @@ export function bindResume(input: TaskResumeInput): TaskResumeContract {
 	const resumeAllowed = !!input.previous && input.previous.identity === identity;
 	return {
 		...current,
+		...(input.practices ? { practices: [...input.practices] } : {}),
+		...(input.modelSource ? { modelSource: input.modelSource } : {}),
 		resumeAllowed,
 		inheritedUnfinishedInstructions: resumeAllowed,
 		identity,

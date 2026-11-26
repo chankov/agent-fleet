@@ -49,7 +49,6 @@ test('F8 actual root specialist/research/nested launches use production D6 with 
  const root=mkdtempSync(join(tmpdir(),'d6-root-'));mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai','agent-fleet.json'),JSON.stringify({features:{system1:false}}));
  mkdirSync(join(root,'.pi','agents','personas'),{recursive:true});mkdirSync(join(root,'.pi','harnesses','damage-control-continue'),{recursive:true});
  writeFileSync(join(root,'.pi','harnesses','damage-control-continue','index.ts'),'export default function(){}');
- writeFileSync(join(root,'.pi','agents','teams.yaml'),'fixture:\n  - editor\n');
  writeFileSync(join(root,'.pi','agents','personas','editor.md'),'---\nname: editor\ndescription: synthetic worker\ntools: read,bash,delegate\nmodel: fake/worker\nmodels:\n  - fake/worker\n  - fake/primary\nsubagents:\n  nested:\n    model: fake/nested\n    tools: read,bash\n---\nSynthetic policy.');
  writeFileSync(join(root,'pi'),`#!/usr/bin/env node
 const fs=require('node:fs'),args=process.argv;
@@ -74,7 +73,7 @@ let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',async
  import {prepareDamageGuardNative} from ${JSON.stringify(new URL('./damage-guard-hub.ts',import.meta.url).href)};
  const handlers=new Map(),commands=new Map(),tools=new Map(),entries=[];let asks=0,failInput=false;
  const {readFileSync}=await import('node:fs');
- const pi=new Proxy({events:{on(){return ()=>{}},emit(){}},on(name,fn){const rows=handlers.get(name)||[];rows.push(fn);handlers.set(name,rows)},registerCommand(name,value){commands.set(name,value)},registerTool(value){tools.set(value.name,value)},appendEntry(customType,data){if(failInput&&customType==='damage-guard-input')throw Error('synthetic disk failure');entries.push({customType,data})},getFlag(name){return name==='agent-team'?'fixture':name==='work-mode'?'operator':undefined},getActiveTools(){return ['read','bash','edit','write']},getAllTools(){return []},setActiveTools(){},getThinkingLevel(){return 'off'}},{get(target,key){return key in target?target[key]:()=>{}}});
+ const pi=new Proxy({events:{on(){return ()=>{}},emit(){}},on(name,fn){const rows=handlers.get(name)||[];rows.push(fn);handlers.set(name,rows)},registerCommand(name,value){commands.set(name,value)},registerTool(value){tools.set(value.name,value)},appendEntry(customType,data){if(failInput&&customType==='damage-guard-input')throw Error('synthetic disk failure');entries.push({customType,data})},getFlag(name){return name==='work-mode'?'operator':undefined},getActiveTools(){return ['read','bash','edit','write']},getAllTools(){return []},setActiveTools(){},getThinkingLevel(){return 'off'}},{get(target,key){return key in target?target[key]:()=>{}}});
  const ctx={cwd:process.cwd(),model:{provider:'fake',id:'worker',contextWindow:100000},hasUI:false,isIdle:()=>true,getContextUsage:()=>undefined,sessionManager:{getEntries:()=>entries,getSessionId:()=> 'root-fixture',getSessionFile:()=>undefined,getBranch:()=>[],getLeafId:()=>null},ui:{select:async()=>{asks++;return 'Allow once'},notify(){},setStatus(){},setWidget(){},setFooter(){},setEditorText(){},getEditorText:()=>'',setWorkingMessage(){},setTitle(){}}};
  register(pi);
  const emit=async(name,event)=>{for(const fn of handlers.get(name)||[])await fn(event,ctx)};

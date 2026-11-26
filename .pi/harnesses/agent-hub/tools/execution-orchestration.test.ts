@@ -42,7 +42,7 @@ test("both Herdr spawn effects refuse an open transition or unsupported confirma
    isFleetReady: () => true, isComsReady: () => true, getIdentity: () => ({ project: "test" }),
    getCurrentContext: () => null, peersInScope: () => [], getComsPeerNames: () => [],
    herdr: { paneSplit: () => { effects++; throw Error("unexpected effect"); }, paneRead: async () => ({ read: { text: "read-only" } }) },
-   readEnvFile: () => "", envFileExists: () => false, getLastPiSpawnAt: () => null,
+   getLastPiSpawnAt: () => null,
    setLastPiSpawnAt() {}, recordSpawnedPeer() {},
   } as any);
   for (const name of ["executeHerdrSpawnPeer", "executeHerdrSpawnPane"] as const) {
@@ -71,7 +71,7 @@ test("both Herdr spawn effects execute when the process gate permits them", asyn
     paneRead: async () => ({ read: { text: "$ " } }),
     paneSendText: async () => { launches++; }, paneSendKeys: async () => {},
    },
-   readEnvFile: () => "", envFileExists: () => false, getLastPiSpawnAt: () => null,
+   getLastPiSpawnAt: () => null,
    setLastPiSpawnAt() {}, recordSpawnedPeer() {},
   } as any);
   const signal = new AbortController().signal;

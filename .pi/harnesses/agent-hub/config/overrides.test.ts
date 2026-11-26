@@ -79,3 +79,27 @@ test("legacy continuation quota keys warn and cannot reintroduce periodic approv
  assert.deepEqual(parsed.budgetOverrides, { agentTurnMs: 60_000 });
  assert.equal(parsed.warnings.filter(w => w.includes("continuation quotas were removed")).length, 3);
 });
+
+test("model.<role>.<practice> and thinking.<role>.<practice> parse into practice selections; unknown practices warn with the known ids", () => {
+	const dir = mkdtempSync(join(tmpdir(), "overrides-practice-models-"));
+	try {
+		mkdirSync(join(dir, ".ai"), { recursive: true });
+		writeFileSync(join(dir, ".ai", "agent-fleet-overrides.md"), `## agent-hub
+model.editor: p/role
+model.editor.planning: openai-codex/gpt-6.2-astra
+thinking.editor.planning: HIGH
+thinking.reviewer.security: xhigh
+model.editor.planing: p/typo
+thinking.editor.testing: loud
+`);
+		const overrides = parseAgentTeamOverrides(dir);
+		assert.equal(overrides.personaModels.editor, "p/role", "role-level keys are unchanged");
+		assert.deepEqual(overrides.practiceModels, {
+			"editor.planning": { model: "openai-codex/gpt-6.2-astra", thinking: "high" },
+			"reviewer.security": { thinking: "xhigh" },
+		});
+		assert.ok(overrides.warnings.some(w => /model\.editor\.planing: "planing" is not a known practice \(research, architecture, planning/.test(w)), overrides.warnings.join("\n"));
+		assert.ok(overrides.warnings.some(w => /thinking\.editor\.testing "loud" is not a valid level/.test(w)));
+		assert.equal(overrides.personaThinking["editor.planning"], undefined, "a practice key never lands on a persona map");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

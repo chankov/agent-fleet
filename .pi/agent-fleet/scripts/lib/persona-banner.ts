@@ -1,6 +1,6 @@
 // .pi/agent-fleet/scripts/lib/persona-banner.ts
 //
-// Pure logic for the per-pane identity banner (`just _peer`/`_peer-plus`
+// Pure logic for the per-pane identity banner (`just _peer`/`_peer-read-only`
 // print it before exec'ing pi): persona frontmatter → colored ANSI banner.
 // Frontmatter parsing mirrors the coms harness convention (name /
 // description / color, quoted values allowed). Backend-agnostic — works in

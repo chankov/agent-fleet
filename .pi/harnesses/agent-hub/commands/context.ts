@@ -22,12 +22,8 @@ interface ModelCommandContext {
 export interface CommandContext {
 	setWidgetContext(ctx: ExtensionContext): void;
 	modelCommands: ModelCommandContext;
-	handleAgentsTeam(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsList(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsHistory(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentsAdd(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentsDrop(args: string, ctx: ExtensionContext): Promise<void>;
-	handleAgentsSave(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsKill(args: string, ctx: ExtensionContext): Promise<void>;
 	handleAgentsRestart(args: string, ctx: ExtensionContext): Promise<void>;
 	handleContext(args: string, ctx: ExtensionContext): Promise<void>;

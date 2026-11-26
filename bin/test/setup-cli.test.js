@@ -491,11 +491,12 @@ test("A9 bare doctor is read-only; doctor --fix recovers transactions and retrie
   assert.equal(JSON.parse(readFileSync(join(ws, ".ai", "agent-fleet-state.json"), "utf8")).runtimeRepairs[0].status, "unauthorized", "state argv is never execution authority");
   writeState(ws, { runtimeRepairs: [] });
   mkdirSync(join(ws, ".pi", "agents"), { recursive: true });
-  const peers = join(ws, ".pi", "agents", "peers.yaml");
-  writeFileSync(peers, "team:\n  runner: pi\n");
+  const policy = join(ws, ".pi", "agents", "dispatch-policy.yaml");
+  writeFileSync(policy, "routes:\n  code-reviewer:\n    prefer: coms\n");
   result = run(["doctor", "--workspace", ws, "--json"]);
   assert.equal(result.status, 0, result.stderr, "advisories are non-actionable");
-  assert.equal(readFileSync(peers, "utf8"), "team:\n  runner: pi\n", "bare doctor never changes advisory files");
+  assert.ok(JSON.parse(result.stdout).findings.some((f) => f.type === "yaml-shape" && /route "code-reviewer" is not a role/.test(f.issue)), "the non-role route is reported");
+  assert.equal(readFileSync(policy, "utf8"), "routes:\n  code-reviewer:\n    prefer: coms\n", "bare doctor never changes advisory files");
 
   const tx = workspace();
   const backupRel = ".ai/.agent-fleet-recovery/test/backup";

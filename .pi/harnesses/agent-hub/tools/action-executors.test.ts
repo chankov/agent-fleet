@@ -45,9 +45,6 @@ function comsDeps(overrides: Record<string, unknown> = {}) {
 		setAssertions() {},
 		currentTaskId: () => "task-1",
 		currentRevision: () => "rev-1",
-		getAgentStates: () => new Map(),
-		rosterAdd: () => ({ ok: true, message: "ok" }),
-		rosterDrop: () => ({ ok: true, message: "ok" }),
 		getIdentity: () => ({}),
 		getComs: () => ({
 			send: async ({ target }: { target: string }) => {

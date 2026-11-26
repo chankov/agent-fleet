@@ -20,10 +20,11 @@
 // split always opens a plain interactive shell in `cwd`. The hub used to pass
 // `command: argv` to it; herdr silently ignores unknown params, so every
 // "spawned peer" was an empty shell pane with the right label, the tool
-// reported success, and the peer never existed. `just fleet team` was
-// unaffected because it launches through `layout.apply`, whose pane nodes DO
-// carry an argv. A hub spawn is therefore three steps: split, wait for the
-// pane's shell prompt, then type the command line.
+// reported success, and the peer never existed. A new one-pane workspace
+// (`just fleet --herdr`, or `just fleet peer` outside Herdr) is unaffected
+// because it launches through `layout.apply`, whose pane nodes DO carry an
+// argv. A split spawn is therefore three steps: split, wait for the pane's
+// shell prompt, then type the command line.
 
 /** Longest we wait for a spawned peer to register in the coms pool. */
 export const PEER_READY_TIMEOUT_MS = 45_000;

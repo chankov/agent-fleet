@@ -34,7 +34,7 @@ const ARTIFACT_PATHS = [
   ".pi/skills",
   ".pi/agents",
   ".pi/damage-control-rules.yaml",
-  // .pi/agent-fleet/scripts/ ships runtime helpers like team-up.ts that the
+  // .pi/agent-fleet/scripts/ ships runtime helpers like herdr-hub.ts that the
   // pi harness recipes shell out to. Test files stay out (filtered below) —
   // they're dev-only.
   ".pi/agent-fleet/scripts",

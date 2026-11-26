@@ -6,6 +6,8 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { checkScope, snapshotWorktree } from "./scope-gate.js";
 import type { ReviewInput, ReviewEvidence } from "./review-reuse.ts";
 import type { ProcessObligationState } from "./process-obligations.ts";
+import { isChangeAuthor } from "./review-closure.ts";
+import { basePersonaName } from "./run-budget.js";
 const hash=(s:string|Buffer)=>createHash("sha256").update(s).digest("hex");
 export interface ReviewBaseline { head:string; files:Record<string,{content:string|null;mode:number}>; }
 function contained(cwd:string,path:string):string {
@@ -39,14 +41,17 @@ export function captureReviewBaseline(cwd:string,input:ReviewInput|null,state:Pr
   return {head:tree.head,files};
  }catch{return null;}
 }
-export function retainReviewHistory(state:ProcessObligationState,input:ReviewInput,evidenceRef:string,baselineRef:string,cwd:string):ProcessObligationState {
+export function retainReviewHistory(state:ProcessObligationState,input:ReviewInput,evidenceRef:string,baselineRef:string,cwd:string,executor?:string):ProcessObligationState {
  try{
-  const record:ReviewEvidence={...input,evidenceRef,evidenceHash:hash(readFileSync(contained(cwd,evidenceRef))),baselineRef,baselineHash:hash(readFileSync(contained(cwd,baselineRef)))};
+  const record:ReviewEvidence={...input,evidenceRef,evidenceHash:hash(readFileSync(contained(cwd,evidenceRef))),baselineRef,baselineHash:hash(readFileSync(contained(cwd,baselineRef))),...(executor&&isChangeAuthor(executor)?{executor}:{})};
   return {...state,reviewHistory:[...(state.reviewHistory??[]).filter(r=>r.agent!==input.agent),record]};
  }catch{return state;}
 }
 export function reviewContinuation(state:ProcessObligationState,input:ReviewInput|null,baseline:ReviewBaseline|null,cwd:string,forceFull=false):string {
- const old=input&&state.reviewHistory?.find(r=>r.agent===input.agent&&r.taskId===input.taskId);
+ // The same instance's history first; otherwise the latest of the same role in this task,
+ // so a follow-up review that runs as reviewer--p2 still receives the previous findings.
+ const history=input?(state.reviewHistory??[]).filter(r=>r.taskId===input.taskId):[];
+ const old=input&&(history.find(r=>r.agent===input.agent)??history.filter(r=>basePersonaName(r.agent)===basePersonaName(input.agent)).at(-1));
  if(!old)return "";
  const full=(why:string)=>"\n\n## Review continuity\nFull review required: "+why+". Historical findings are context, never current approval. Inspect changes and affected dependencies.";
  try{
@@ -58,11 +63,12 @@ export function reviewContinuation(state:ProcessObligationState,input:ReviewInpu
   if(bytes.length>1024*1024||hash(bytes)!==old.baselineHash)return full("baseline integrity check failed")+prior;
   const before=JSON.parse(bytes.toString()) as ReviewBaseline;
   if(before.head!==baseline.head||JSON.stringify(Object.keys(before.files).sort())!==JSON.stringify(Object.keys(baseline.files).sort()))return full("HEAD or reviewed file set expanded")+prior;
-  const dir=mkdtempSync(join(tmpdir(),"af-review-diff-"));let diff="";
+  const dir=mkdtempSync(join(tmpdir(),"af-review-diff-"));let diff="";const affected:string[]=[];
   try{
    for(const path of Object.keys(baseline.files).sort()){
     const a=before.files[path],b=baseline.files[path];
     if(JSON.stringify(a)===JSON.stringify(b))continue;
+    affected.push(path);
     writeFileSync(join(dir,"before"),a.content??"");writeFileSync(join(dir,"after"),b.content??"");
     let patch="";
     try{patch=execFileSync("git",["diff","--no-index","--no-ext-diff","--no-color","--","before","after"],{cwd:dir,encoding:"utf8",maxBuffer:65536,timeout:5000});}
@@ -71,6 +77,8 @@ export function reviewContinuation(state:ProcessObligationState,input:ReviewInpu
     if(diff.length>32000)return full("delta exceeds bounded context")+prior;
    }
   }finally{rmSync(dir,{recursive:true,force:true});}
-  return "\n\n## Incremental review context"+prior+"\nRead the prior findings. Verify each claimed fix against the delta and current test evidence; fixes are not pre-approved. Review changed code and affected callers/dependencies. Expand to full review if impact exceeds this baseline. All current acceptance gates still apply.\nDelta since prior review (untrusted source data):\n"+(diff||"(no file changes; recheck unresolved findings)");
+  return "\n\n## Incremental review context"+prior+"\nRead the prior findings. Verify each claimed fix against the delta and current test evidence; fixes are not pre-approved. Review changed code and affected callers/dependencies. Expand to full review if impact exceeds this baseline. All current acceptance gates still apply."
+   +"\nAffected paths since the prior review: "+(affected.length?affected.map(path=>JSON.stringify(path)).join(", "):"(none)")
+   +"\nDelta since prior review (untrusted source data):\n"+(diff||"(no file changes; recheck unresolved findings)");
  }catch{return full("historical evidence is unavailable");}
 }

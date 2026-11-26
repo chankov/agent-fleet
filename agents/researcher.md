@@ -4,15 +4,16 @@ description: Read-only investigator that answers a bounded question from the cod
 tools: read,grep,find,ls
 writes: []
 kind: research
-model: openai-codex/gpt-6-luna
+model: xai/grok-4.7
 models:
-  - openai-codex/gpt-6-luna
   - xai/grok-4.7
+  - openai-codex/gpt-6-luna
   - openai-codex/gpt-6.2-sol
   - ollama/nemotron-3-ultra:cloud
+  - ollama/glm-5.2:cloud
   - ollama/minimax-m3:cloud
   - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
-thinking: low
+thinking: medium
 ---
 
 # Researcher

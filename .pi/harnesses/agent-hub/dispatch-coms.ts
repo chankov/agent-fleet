@@ -22,12 +22,18 @@ export interface DispatchInputArtifactPreview {
 	resolvedFromKind?: string | null;
 }
 
+/** The coms peer that served a dispatch: its registry address and session. A null
+ * session means the registry could not tie the work to one session (it changed). */
+export interface ComsPeerIdentity { address: string; sessionId: string | null; }
+
 export interface ComsDispatchState {
 	dispatchId?: string;
 	def: { name: string };
 	runCount: number;
 	lastBackend?: "native" | "coms";
 	comsPeerModel?: string;
+	/** Set by each coms route, cleared when it starts; read with comsRouteIdentity. */
+	comsPeer?: ComsPeerIdentity;
 	contextPct: number;
 	lastWork: string;
 	comsAbort?: () => void;
@@ -85,6 +91,13 @@ export interface ComsDispatchResult {
 	pending?: boolean;
 }
 
+/** The peer identity a coms route recorded on its agent state, or null. */
+export function comsRouteIdentity(state: unknown): ComsPeerIdentity | null {
+	const peer = (state as { comsPeer?: unknown } | null | undefined)?.comsPeer as Partial<ComsPeerIdentity> | undefined;
+	if (!peer || typeof peer.address !== "string" || !peer.address) return null;
+	return { address: peer.address, sessionId: typeof peer.sessionId === "string" && peer.sessionId ? peer.sessionId : null };
+}
+
 async function dispatchViaComs(
 	deps: DispatchComsDeps,
 	state: ComsDispatchState,
@@ -96,6 +109,7 @@ async function dispatchViaComs(
 	inputArtifacts: DispatchInputArtifactPreview[],
 	scopeGlobs: string[],
 ): Promise<ComsDispatchResult | null> {
+ delete state.comsPeer;
  const binding=sessionRootsFromEnv();
  const targetCurrent=()=>{try{return sessionRootsFromEnv()?.targetId===binding?.targetId&&(!binding||validateSessionRoots(binding).targetId===binding.targetId);}catch{return false;}};
  const verified=(entry:RegistryEntry|null)=>{if(!targetCurrent())return false;if(binding?.mode!=='targeted')return true;try{const identity=deps.getIdentity();return entry?.targetId===binding.targetId&&identity?.targetId===binding.targetId&&typeof identity.baseProject==='string'&&identity.project===targetProject(identity.baseProject,binding)&&realpathSync(entry.cwd)===binding.executionRoot;}catch{return false;}};
@@ -106,6 +120,8 @@ async function dispatchViaComs(
 	}
 	state.lastBackend = "coms";
 	state.comsPeerModel = peer.model;
+	// Review independence (plan task 5) compares this route's peer session with the change's authors.
+	state.comsPeer = { address: peer.name, sessionId: typeof peer.session_id === "string" && peer.session_id ? peer.session_id : null };
 	state.contextPct = peer.context_used_pct ?? 0;
 	state.lastWork = `→ coms peer ${peer.name}...`;
 	deps.updateWidget();
@@ -166,6 +182,8 @@ ${buildDeliverableProtocol(agentKey, runNumber, deps.safePathWithin(deps.getSess
 	}
 
 	const after = deps.resolveTarget(peer.name);
+	// A peer that re-registered under another session may have done part of the work: unknown session.
+	if (after && after.session_id !== peer.session_id) state.comsPeer = { address: peer.name, sessionId: null };
  if(binding?.mode==='targeted'&&(!verified(after)||after?.session_id!==peer.session_id))return {output:'coms result refused: target or peer ownership changed; no result was accepted.',exitCode:1,elapsed:0};
 	if (after?.context_used_pct != null) state.contextPct = after.context_used_pct;
 	if (abandoned) {

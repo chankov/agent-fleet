@@ -7,12 +7,12 @@ import { parseStructuredReturn } from "./return-contract.js";
 import { reviewClosureUnmet, reviewReturnTemplate } from "./task-triage-review-contract.mjs";
 
 const input = {
-  planReturnPath: "/tmp/fixture/artifacts/returns/planner.md",
+  planReturnPath: "/tmp/fixture/artifacts/returns/editor-plan.md",
   before: "/tmp/fixture/evidence/BEFORE, original.md",
   after: "/tmp/fixture/evidence/AFTER.md",
   afterDiff: "/tmp/fixture/evidence/diff.patch",
-  acceptancePath: "/tmp/fixture/artifacts/evidence/builder-acceptance.md",
-  checkPath: "/tmp/fixture/artifacts/evidence/builder-test-check.md",
+  acceptancePath: "/tmp/fixture/artifacts/evidence/editor-acceptance.md",
+  checkPath: "/tmp/fixture/artifacts/evidence/editor-test-check.md",
   check: 'node -e \'const text="widget";\nif (!text) process.exit(1)\'',
   exitCode: 0,
   inspectedRevision: "inspected-revision-abc123",
@@ -43,8 +43,9 @@ test("generated reviewer gate admits tier preparation without abort, but only on
   assert.deepEqual(call("set_assertions", { assertions: [{ id: "A1", tag: "manual", text: "review", source: "fixture" }] }), { aborts: 0, blocked: false });
   for (const tool of ["spawn_research", "ask_user", "write", "bash"])
     assert.deepEqual(call(tool, {}), { aborts: 1, blocked: true });
-  const reviewer = { agent: "code-reviewer", backend: "native", scope: ["README-SYNTH.md"] };
-  for (const input of [{ ...reviewer, backend: "coms" }, { ...reviewer, agent: "builder" }, { ...reviewer, scope: ["other.md"] },
+  const reviewer = { agent: "reviewer", practices: ["independent-review"], backend: "native", scope: ["README-SYNTH.md"] };
+  for (const input of [{ ...reviewer, backend: "coms" }, { ...reviewer, agent: "editor" }, { ...reviewer, agent: "code-reviewer" },
+    { ...reviewer, practices: ["independent-review", "security"] }, { ...reviewer, practices: undefined }, { ...reviewer, scope: ["other.md"] },
     { ...reviewer, artifacts: ["/tmp/synthetic-review-note.md"] }])
     assert.deepEqual(call("dispatch_agent", input), { aborts: 1, blocked: true });
   assert.deepEqual(call("dispatch_agent", { ...reviewer, artifacts: [] }), { aborts: 0, blocked: false });
@@ -66,7 +67,7 @@ test("review template is one-line A1 evidence parseable by production parser wit
 });
 
 test("source-only note and tests_run cannot stand in for parsed A1 evidence", () => {
-  const text = `${verdict}\nassertions_proven: [A1 — exact SHA-256 f81b90f3, matching expected bytes; source: after README and builder runtime evidence]\nassertions_unproven: []\nassertions_failed: []\ntests_run: [${input.check} → exit 0; inspected revision ${input.inspectedRevision}; evidence: builder check]`;
+  const text = `${verdict}\nassertions_proven: [A1 — exact SHA-256 f81b90f3, matching expected bytes; source: after README and editor runtime evidence]\nassertions_unproven: []\nassertions_failed: []\ntests_run: [${input.check} → exit 0; inspected revision ${input.inspectedRevision}; evidence: editor check]`;
   assert.equal(parseStructuredReturn(text).assertions_proven[0].evidence, null);
   assert.deepEqual(gaps(text), [
     "parsed A1 assertions_proven evidence field missing",

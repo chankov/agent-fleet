@@ -36,6 +36,7 @@ export interface NativeAgentDefinition {
 	fallbackModel?: string;
 	models?: string[];
 	subagents?: Record<string, NativeSubagentRole>;
+	practiceModels?: Record<string, { model: string; thinking?: string }>;
 	delegateDepth?: number;
 	thinking?: string;
 	systemPrompt: string;
@@ -87,6 +88,8 @@ export interface NativeExecutionDiagnostics {
 	stderr: string;
 	spawnError: string | null;
 	modelUsed: string | null;
+	/** Which practice (and tier) selected the model, or `role` (D9); from the prepared run. */
+	modelSource?: string;
 	effectiveTools: string[];
 	toolCallsStarted: number | null;
 	termination: SpawnPiAgentResult["termination"] | null;
@@ -195,8 +198,11 @@ export interface NativeDispatchDeps {
 	executionHistory: Pick<ExecutionHistoryStore, "start" | "end">;
 	displayName(name: string): string;
 	shortModel(model: string): string;
-	resolvedModel(def: NativeAgentDefinition): string | undefined;
-	resolvedThinking(def: NativeAgentDefinition): string | undefined;
+	/** Practice-aware (D9): the first practice in assignment order with a selection wins; none → the role. */
+	resolvedModel(def: NativeAgentDefinition, practices?: readonly string[]): string | undefined;
+	resolvedThinking(def: NativeAgentDefinition, practices?: readonly string[]): string | undefined;
+	/** `role` or `practice:<id>:<tier>` for the same resolution; absent means `role`. */
+	modelSelectionSource?(def: NativeAgentDefinition, practices?: readonly string[]): string;
 	resolveThinkingLevel(raw?: string): string;
 	resolvedSubagentModel(personaKey: string, role: string, model: string): string;
 	substitutedModel(model: string | undefined): string | undefined;
@@ -268,6 +274,8 @@ export interface PreparedNativeRun extends NativeRunBase {
  discoveryContext?:import('./file-discovery/native-context.ts').NativeDiscoveryContext|null;
  discoveryAdmitted?():boolean;
 	model: string;
+	/** Which practice (and tier) selected the model, or `role`; also on the bound resume contract. */
+	modelSource: string;
 	originalModelFallback?: string;
 	agentWindow: { window: number; source: string };
 	agentSessionFile: string;

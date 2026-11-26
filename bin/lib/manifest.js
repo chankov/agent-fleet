@@ -462,7 +462,7 @@ function deriveCompanions(sourceRoot, meta) {
           source: [...dirs, ...files],
           sourceMode: "all",
           // Every entry keeps its repo-relative path in the workspace, so
-          // `.pi/agent-fleet/scripts/lib/team-project.ts` lands where the recipes expect it.
+          // `.pi/agent-fleet/scripts/herdr-hub.ts` lands where the recipes expect it.
           target: null,
           preserveLayout: true,
           strategy: "copy-tree",

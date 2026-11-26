@@ -26,6 +26,7 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
    review_mode: Type.Optional(Type.Union([Type.Literal("changes"),Type.Literal("run-checks"),Type.Literal("operator-current-state"),Type.Literal("private-config-current-state")],{description:"run-checks enables native bash."})),
 
 			parallel: Type.Optional(Type.Boolean({ description: "Extra instance; writers need disjoint scopes." })),
+			after: Type.Optional(Type.Array(Type.String(), { description: "Wait for these instances." })),
 			backend: Type.Optional(Type.Union([
 				Type.Literal("auto"),
 				Type.Literal("native"),
@@ -60,6 +61,16 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 			if (!details) {
 				const text = result.content[0];
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+			}
+
+			// Queued behind `after` dependencies: nothing has started yet (D13).
+			if (details.status === "queued") {
+				const waiting = Array.isArray(details.waitingFor) ? details.waitingFor.join(", ") : "dependencies";
+				return new Text(
+					theme.fg("warning", `◌ ${details.agent || "?"}`) +
+					theme.fg("dim", ` queued after ${waiting}`),
+					0, 0,
+				);
 			}
 
 			// Streaming/partial result while agent is still running

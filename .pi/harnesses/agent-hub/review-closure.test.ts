@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closeReview, updateAssertion } from "./review-closure.ts";
+import { closeReview, comsAuthor, describeChangeAuthor, isChangeAuthor, nativeAuthor, OPERATOR_AUTHOR, sameChangeAuthor, selfAuthoredPaths, updateAssertion } from "./review-closure.ts";
 
 const current = { revision: "abc123", scope: ["src/adapter.ts"] };
 
@@ -70,4 +70,30 @@ test("post-review mutation invalidates the reviewed file but not an unrelated as
 test("assertion updates require named evidence and the current revision", () => {
 	assert.equal(updateAssertion({ id: "A1", evidenceRef: "", evidenceRevision: "abc123", currentRevision: "abc123", changedPaths: [], assertionPaths: ["src/adapter.ts"] }).accepted, false);
 	assert.equal(updateAssertion({ id: "A1", evidenceRef: "artifacts/evidence/a.json", evidenceRevision: "old", currentRevision: "abc123", changedPaths: [], assertionPaths: ["src/adapter.ts"] }).accepted, false);
+});
+
+test("change authors: a coms peer is its address and registry session; unknown parts fail closed", () => {
+	const session1 = comsAuthor({ address: "Peer-A", sessionId: "s1" });
+	assert.equal(session1, 'coms:["peer-a","s1"]');
+	assert.ok([OPERATOR_AUTHOR, nativeAuthor('["/w","editor--p2"]'), session1, comsAuthor(null)].every(isChangeAuthor));
+	for (const invalid of ["", "native:", "coms:[]", 'coms:["",null]', 'coms:["a",""]', "reviewer", 42]) assert.equal(isChangeAuthor(invalid), false, String(invalid));
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a", sessionId: "s1" })), true, "the same session, whatever its role");
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a", sessionId: "s2" })), false, "a new registry session is another executor");
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-a" })), true, "an unknown session could be the author");
+	assert.equal(sameChangeAuthor(session1, comsAuthor(null)), true, "an unknown peer could be the author");
+	assert.equal(sameChangeAuthor(session1, comsAuthor({ address: "peer-b", sessionId: "s1" })), false);
+	assert.equal(sameChangeAuthor(nativeAuthor('["/w","editor"]'), nativeAuthor('["/w","editor--p2"]')), false, "native instances are distinct");
+	assert.equal(sameChangeAuthor(comsAuthor(null), nativeAuthor('["/w","reviewer"]')), false, "a native run is never a coms peer");
+	assert.equal(sameChangeAuthor(OPERATOR_AUTHOR, nativeAuthor('["/w","reviewer"]')), false);
+	assert.equal(describeChangeAuthor(nativeAuthor('["/w","editor--p2"]')), "native instance editor--p2");
+	assert.equal(describeChangeAuthor(comsAuthor({ address: "peer-a" })), "coms peer peer-a (session unknown)");
+});
+
+test("self-authored paths are the reviewer's own files inside the review scope", () => {
+	const editor = nativeAuthor('["/w","editor"]'), peer = comsAuthor({ address: "peer-a", sessionId: "s1" });
+	const authors = { "src/api/index.ts": [editor], "src/client/index.ts": [editor, peer] };
+	assert.deepEqual(selfAuthoredPaths(authors, comsAuthor({ address: "peer-a", sessionId: "s1" }), ["src"]), ["src/client/index.ts"]);
+	assert.deepEqual(selfAuthoredPaths(authors, peer, ["src/api"]), [], "outside the review scope");
+	assert.deepEqual(selfAuthoredPaths(authors, nativeAuthor('["/w","reviewer"]'), ["src"]), []);
+	assert.deepEqual(selfAuthoredPaths(undefined, peer, ["src"]), [], "an older state has no recorded authors");
 });

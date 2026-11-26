@@ -60,8 +60,11 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  const permissions = inspection ? declaredToolList : requestedContract?.permissions ?? declaredToolList;
  const admittedCwd=ctx.cwd||process.cwd();
  const payloadSnapshot=JSON.stringify([task,scopeGlobs,inputArtifacts]);
-	const model = deps.resolvedModel(state.def)
+	// The assignment's practices select a practice-level model before the role default (D9).
+	const practices = requestedContract?.practices;
+	const model = deps.resolvedModel(state.def, practices)
 		?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
+	const modelSource = deps.modelSelectionSource?.(state.def, practices) ?? "role";
 	const fallbackCandidate = profileFallback(deps.substitutedModel(fallbackModelFor(state.def, model)));
 	const originalModelFallback = fallbackCandidate === model ? undefined : fallbackCandidate;
 	const agentWindow = resolveContextWindow(model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
@@ -74,6 +77,8 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		deliverables: requestedContract?.deliverables,
 		artifacts: requestedContract?.artifacts ?? inputArtifacts.map(artifact => artifact.path),
 		model: requestedContract?.model ?? model,
+		practices,
+		modelSource,
 		permissions,
 		boundAssertionIds: requestedContract?.boundAssertionIds,
   previous: state.resumeContract,
@@ -119,7 +124,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	} else {
 		const overflow = contextOverflowDiagnostic(state.runsSinceFresh, state.contextPct, {
 			agent: deps.displayName(state.def.name),
-			model: deps.resolvedModel(state.def) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model"),
+			model: deps.resolvedModel(state.def, practices) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown model"),
 		});
 		if (overflow) ctx.ui.notify(overflow, "warning");
 	}
@@ -235,7 +240,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect."
 			: inspection ? "\n\nRead-only dispatch. Inspect the supplied scope and evidence with the available tools. Return your findings through submit_result. Report checks you could not run as unverified."
 			: activeCheck ? "\n\nRead-only active-check dispatch inside a write-denying sandbox. Run the requested checks with bash; writes outside the session temp and evidence directories fail by design. Do not modify files. A check that needs to write to the working tree belongs to an editor: report it as unverified and say so. Return your findings through submit_result." : "");
-	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
+	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def, practices));
 	const wantThinking = thinkingLevel !== "off";
 	extensions.push(fileURLToPath(new URL("./specialist-result.ts", import.meta.url)));
  effectiveTools = [...new Set([...effectiveTools.split(",").filter(Boolean), "submit_result"])].join(",");
@@ -307,6 +312,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		...base,
   discoveryContext,discoveryAdmitted,damageRegistration,nativeAdmitted,admittedCwd,
 		model,
+		modelSource,
 		originalModelFallback,
 		agentWindow,
 		agentSessionFile,

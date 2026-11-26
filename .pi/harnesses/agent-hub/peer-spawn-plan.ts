@@ -2,33 +2,30 @@ import {
 	buildPeerLaunchPlan,
 	type PeerLaunchContext,
 	type PeerLaunchPlan,
-	type PeerRunner,
 } from "../../agent-fleet/scripts/lib/peer-launch.ts";
 import { launchPeerInPane, peerReadyVerdict } from "../lib/spawned-peers.js";
+import type { HerdrSpawnPeerParams } from "./tools/context.ts";
 
-export interface HubPeerSpawnRequest {
-	name: string;
-	runner?: PeerRunner;
-	persona?: string;
-	no_persona?: boolean;
-	model?: string;
-	extensions?: string;
-	browser?: boolean;
-	all_extensions?: boolean;
-	direction?: "right" | "down";
-}
+/**
+ * The herdr_spawn_peer parameters: the `just fleet peer <name>` flags the
+ * model may choose (PLAN-11-01, D16). Every Pi peer loads chrome-devtools-mcp
+ * and a read-only one loads no extension (D17), so there is no extension
+ * choice. `--env-file`, `--project`, placement and raw Pi argv stay out of the
+ * model's reach: an env file can carry secrets that zero-access rules protect,
+ * the project is the Hub's own, and the pane is always a sibling split.
+ *
+ * One shape, declared in tools/context.ts: that module is the dependency-free
+ * leaf every tool imports its parameter types from, so it must not import this
+ * launcher adapter (and through it the Fleet launch scripts).
+ */
+export type HubPeerSpawnRequest = HerdrSpawnPeerParams;
 
 export interface HubPeerSpawnContext extends PeerLaunchContext {
 	/** The current Hub/coms project. The request cannot override it. */
 	project: string;
 }
 
-/**
- * Constrained Agent Hub adapter for the canonical Fleet peer resolver.
- * Project, placement, env-file source, and raw Pi argv are not LLM-controlled:
- * the project comes from the Hub identity and envFile can only come back from
- * a validated peers.yaml declaration inside buildPeerLaunchPlan().
- */
+/** Constrained Agent Hub adapter for the canonical Fleet peer resolver. */
 export function buildHubPeerSpawnPlan(
 	request: HubPeerSpawnRequest,
 	context: HubPeerSpawnContext,
@@ -40,14 +37,12 @@ export function buildHubPeerSpawnPlan(
 			...(request.persona ? { persona: request.persona } : {}),
 			...(request.no_persona ? { noPersona: true } : {}),
 			...(request.model ? { model: request.model } : {}),
-			...(request.extensions ? { extensions: request.extensions } : {}),
-			...(request.browser ? { browser: true } : {}),
-			...(request.all_extensions ? { allExtensions: true } : {}),
+			...(request.read_only ? { readOnly: true } : {}),
 			...(request.direction ? { direction: request.direction } : {}),
 			project: context.project,
 			here: false,
 		},
-		context,
+		{ personaExists: context.personaExists, worktreeTag: context.worktreeTag },
 	);
 }
 

@@ -5,26 +5,19 @@ import { workModePrompt } from "../agent-hub/work-mode.ts";
 import { assembleHubSystemPrompt, HUB_HERDR_SECTION, namedHubLedgerParts, recordHubLedger, type HubPromptParts } from "./context-budget-hub-prompt.ts";
 
 function representativeParts(herdr: boolean): HubPromptParts & {
-	agentCards: { id: string; text: string }[];
-	researchCards: { id: string; text: string }[];
+	roleCards: { id: string; text: string }[];
 } {
 	const pose = workModePrompt();
-	const agentCards = [
-		{ id: "builder", text: "### Builder\n**Dispatch as:** `builder`\nImplements slices.\n**Tools:** read,write" },
-		{ id: "reviewer", text: "### Reviewer\n**Dispatch as:** `reviewer`\nReviews code.\n**Tools:** read" },
-	];
-	const researchCards = [
-		{ id: "deep-researcher", text: "### Deep Researcher\n**Spawn as:** `spawn_research(persona: \"deep-researcher\")`\n**Model:** local · **Thinking:** off\nCross-cutting recon." },
-		{ id: "coverage-scout", text: "### Coverage Scout\n**Spawn as:** `spawn_research(persona: \"coverage-scout\")`\n**Model:** local · **Thinking:** off\nTest inventory." },
+	const roleCards = [
+		{ id: "researcher", text: "- `researcher` — Read-only investigation. Authority: `spawn_research` only." },
+		{ id: "reviewer", text: "- `reviewer` — Independent assessment. Authority: `dispatch_agent`, read-only." },
+		{ id: "editor", text: "- `editor` — Changes within scope. Authority: `dispatch_agent`, writes in scope." },
 	];
 	return {
 		intro: pose.intro,
 		toolList: "these tools: `dispatch_agent`, `spawn_research`",
 		languageLines: "- ALWAYS communicate with the human user in **English**.",
-		activeTeamName: "default",
-		teamMembers: "Builder, Reviewer",
 		dispatchSection: "- Dispatch tasks via `dispatch_agent`.",
-		userLanguage: "English",
 		askUserBlock: "## ask_user is NOT available in this session",
 		modeSection: "## Task triage (before dispatch)",
 		verificationSection: "## Verification Contract",
@@ -32,10 +25,9 @@ function representativeParts(herdr: boolean): HubPromptParts & {
 		herdrSection: herdr ? HUB_HERDR_SECTION : "",
 		hardRules: pose.hardRules,
 		ambiguityRule: "- NEVER proceed past an ambiguity by guessing.",
-		agentCatalog: agentCards.map((card) => card.text).join("\n\n"),
-		researchCatalog: researchCards.map((card) => card.text).join("\n\n"),
-		agentCards,
-		researchCards,
+		roleCatalog: roleCards.map((card) => card.text).join("\n"),
+		practiceCatalog: "- `research` — An answer with sources.\n- `implementation` (editor) — A scoped change.",
+		roleCards,
 	};
 }
 
@@ -49,15 +41,15 @@ test("compact stable policy preserves the operator, backend, ambiguity, and evid
 	assert.match(prompt, /Task triage/);
 });
 
-test("ledger identifies each roster and research card and does not mutate the prompt", () => {
+test("ledger identifies each role card and the practice catalog and does not mutate the prompt", () => {
 	const parts = representativeParts(true);
 	const prompt = assembleHubSystemPrompt(parts);
 	const ledger = recordHubLedger(prompt, namedHubLedgerParts(parts));
 	assert.equal(assembleHubSystemPrompt(parts), prompt);
-	assert.ok(ledger.some((entry) => entry.id === "hub/roster/builder"));
-	assert.ok(ledger.some((entry) => entry.id === "hub/roster/reviewer"));
-	assert.ok(ledger.some((entry) => entry.id === "hub/research/deep-researcher"));
-	assert.ok(ledger.some((entry) => entry.id === "hub/research/coverage-scout"));
+	for (const role of ["researcher", "reviewer", "editor"]) assert.ok(ledger.some((entry) => entry.id === `hub/role/${role}`), role);
+	assert.equal(ledger.find((entry) => entry.id === "hub/practices")?.chars, parts.practiceCatalog.length);
+	assert.match(prompt, /## Roles and practices\n[\s\S]*`editor`[\s\S]*\nPractices:\n[\s\S]*`implementation`/);
+	assert.doesNotMatch(prompt, /Native Roster|team_adjust|active team|## Agents|Research personas/, "teams are gone (D7)");
 	const herdr = ledger.find((entry) => entry.id === "hub/policy/workspace");
 	assert.equal(herdr?.chars, HUB_HERDR_SECTION.length);
 	assert.equal(herdr?.confidence, "exact-chars");
@@ -86,13 +78,13 @@ test("volatile state is separately attributable while stable policy stays byte-s
 
 
 test("inactive pack policy fragments are absent and active fragments are attributed deterministically", () => {
-	const inactive = { ...representativeParts(false), dispatchSection: "", verificationSection: "", comsSection: "", herdrSection: "", compactionSection: "", agentCatalog: "", researchCatalog: "", agentCards: [], researchCards: [] };
+	const inactive = { ...representativeParts(false), dispatchSection: "", verificationSection: "", comsSection: "", herdrSection: "", compactionSection: "", roleCatalog: "", practiceCatalog: "", roleCards: [] };
 	const inactivePrompt = assembleHubSystemPrompt(inactive);
 	const inactiveLedger = recordHubLedger(inactivePrompt, namedHubLedgerParts(inactive));
 	for (const id of ["hub/policy/dispatch", "hub/policy/verification", "hub/policy/coms", "hub/policy/workspace", "hub/policy/compaction"]) {
 		assert.equal(inactiveLedger.find(entry => entry.id === id)?.chars, 0, `${id} must cost zero`);
 	}
-	assert.doesNotMatch(inactivePrompt, /Native Roster|Verification Contract|Peer agents|Fleet \(herdr\)|Context recovery/);
+	assert.doesNotMatch(inactivePrompt, /## Roles|Practices:|Verification Contract|Peer agents|Fleet \(herdr\)|Context recovery/);
 
 	const active = { ...representativeParts(true), compactionSection: "## Context recovery\n- request_compaction is active." };
 	const activeLedger = recordHubLedger(assembleHubSystemPrompt(active), namedHubLedgerParts(active));

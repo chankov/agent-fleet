@@ -4,28 +4,9 @@ export interface FleetInvocation {
  preview?:boolean;
 	recipe: string;
 	args: string[];
+	/** A Herdr launcher preview (`--dry-run`): no runtime-dependency check, no Herdr. */
+	dryRun?: true;
 	warnings?: string[];
-}
-
-interface Capabilities {
-	browser: boolean;
-	voice: boolean;
-	allExtensions: boolean;
-	rest: string[];
-}
-
-function capabilities(args: string[]): Capabilities {
-	const rest: string[] = [];
-	let browser = false;
-	let voice = false;
-	let allExtensions = false;
-	for (const arg of args) {
-		if (arg === "--browser") browser = true;
-		else if (arg === "--voice") voice = true;
-		else if (arg === "--all-extensions") allExtensions = true;
-		else rest.push(arg);
-	}
-	return { browser, voice, allExtensions, rest };
 }
 
 function bool(value: boolean): string {
@@ -37,25 +18,24 @@ function requireValue(value: string | undefined, message: string): string {
 	return value;
 }
 
-function withoutFlag(args: string[], flag: string): { present: boolean; rest: string[] } {
-	return { present: args.includes(flag), rest: args.filter((arg) => arg !== flag) };
-}
-
 interface HubParseDefaults {
-	defaultAgents?: string;
 	forceHerdr?: boolean;
-	forcedPeers?: string;
-	legacyAgents?: boolean;
 	warnings?: string[];
 }
 
+// Retired Hub flags (PLAN-11-01, D7/D8): refused with the reason, not passed to pi.
+const REMOVED_HUB_FLAGS: Record<string, string> = {
+	"--agents": "--agents was removed: the Hub always has the editor, researcher and reviewer roles.",
+	"--peers": "--peers was removed with peer groups: start each peer with `just fleet peer <name>`.",
+};
+
 function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): FleetInvocation {
+	const options = args.slice(0, args.includes("--") ? args.indexOf("--") : args.length);
 	if (args.some(arg => arg === "--posture" || arg.startsWith("--posture="))) {
 		throw new Error("--posture was removed; the Hub has one operator work mode.");
 	}
+	for (const arg of options) if (REMOVED_HUB_FLAGS[arg]) throw new Error(REMOVED_HUB_FLAGS[arg]);
 
-	let agents = defaults.defaultAgents;
-	let peers = defaults.forcedPeers;
 	let herdr = defaults.forceHerdr ?? false;
 	let noComs = false;
 	let browser = false;
@@ -63,8 +43,6 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 	let allExtensions = false;
 	let dryRun = false;
 	let projectSeen = false;
-	let agentsSeen = false;
-	let peersSeen = false;
 	let workModeSeen = false;
 	let herdrSeen = false;
 	let noComsSeen = false;
@@ -88,21 +66,6 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 				// Deprecated (2026-11-11): one release of tolerance, then the flag goes.
 				const value = requireValue(args[++i], "--work-mode requires a value");
 				warnings.push(`\`--work-mode ${value}\` is deprecated and ignored: the Hub has one operator work mode.`);
-				break;
-			}
-			case "--agents":
-				if (agentsSeen) throw new Error("--agents may only be provided once");
-				agentsSeen = true;
-				agents = requireValue(args[++i], "--agents requires a native roster name");
-				break;
-			case "--peers": {
-				if (peersSeen) throw new Error("--peers may only be provided once");
-				peersSeen = true;
-				const value = requireValue(args[++i], "--peers requires a peer preset name");
-				if (defaults.forcedPeers && value !== defaults.forcedPeers) {
-					throw new Error(`Compatibility team preset ${defaults.forcedPeers} cannot combine with --peers ${value}`);
-				}
-				peers = value;
 				break;
 			}
 			case "--herdr":
@@ -147,31 +110,31 @@ function parseHubInvocation(args: string[], defaults: HubParseDefaults = {}): Fl
 		}
 	}
 
-	const topology = herdr || peers !== undefined;
-	if (dryRun && !topology) throw new Error("--dry-run requires --herdr or --peers");
+	if (dryRun && !herdr) throw new Error("--dry-run requires --herdr");
 
 	let invocation: FleetInvocation;
-	if (topology) {
-		const forwarded = [
-			...(agents ? [defaults.legacyAgents ? "--legacy-agents" : "--agents", agents] : []),
-			...(noComs ? ["--no-coms"] : []),
-			...(browser ? ["--browser"] : []),
-			...(voice ? ["--voice"] : []),
-			...(allExtensions ? ["--all-extensions"] : []),
-			...rest,
-		];
-		invocation = { recipe: dryRun ? "_fleet-hub-team-dry" : "_fleet-hub-team", args: [peers ?? "base", ...forwarded] };
+	if (herdr) {
+		// The one-pane Herdr launcher forwards no Pi arguments into its pane.
+		const unsupported = rest.filter((arg, index) => !(arg === "--project" || rest[index - 1] === "--project"));
+		if (unsupported.length > 0) {
+			throw new Error(`--herdr starts the Hub in a Herdr pane and forwards no Pi arguments (got ${unsupported.join(" ")}); run \`just fleet\` inside Herdr instead`);
+		}
+		invocation = {
+			recipe: "_fleet-herdr",
+			args: [
+				...(noComs ? ["--no-coms"] : []),
+				...(browser ? ["--browser"] : []),
+				...(voice ? ["--voice"] : []),
+				...(allExtensions ? ["--all-extensions"] : []),
+				...rest,
+				...(dryRun ? ["--dry-run"] : []),
+			],
+			...(dryRun ? { dryRun: true as const } : {}),
+		};
 	} else {
 		invocation = {
 			recipe: "_fleet-hub",
-			args: [
-				bool(noComs),
-				bool(browser),
-				bool(voice),
-				bool(allExtensions),
-				...(agents ? ["--agent-team", agents] : []),
-				...rest,
-			],
+			args: [bool(noComs), bool(browser), bool(voice), bool(allExtensions), ...rest],
 		};
 	}
 	if (warnings.length > 0) invocation.warnings = warnings;
@@ -182,7 +145,7 @@ export function parseFleetCommand(argv: string[]): FleetInvocation {
  const {rest,selection}=parseWorktreeSelection(argv);
  const boundary=rest.indexOf('--'),end=boundary<0?rest.length:boundary;
  const options=rest.slice(0,end);
- const direct=(options.length===0||options[0].startsWith('--')||options[0]==='hub')&&!options.includes('--herdr')&&!options.includes('--peers')&&!options.includes('--conductor');
+ const direct=(options.length===0||options[0].startsWith('--')||options[0]==='hub')&&!options.includes('--herdr')&&!options.includes('--conductor');
  const preview=Boolean(selection&&direct&&options.includes('--dry-run'));
  const effective=preview?rest.filter((arg,index)=>arg!=='--dry-run'||index>=end):rest;
  const invocation=parseFleetCommandBase(effective);
@@ -218,50 +181,40 @@ function parseFleetCommandBase(argv: string[]): FleetInvocation {
 
 	if (mode === "hub") {
 		return parseHubInvocation(tail, {
-			defaultAgents: "default",
 			warnings: ["`just fleet hub` is a compatibility alias; use `just fleet` with canonical flags."],
 		});
 	}
 
+	// Peer groups are gone (PLAN-11-01, D8/D14). The empty `base` group meant
+	// "Hub only", so that one spelling keeps working as an alias of --herdr.
 	if (mode === "team") {
-		const team = requireValue(tail[0], "fleet team requires a team preset");
-		const noHub = withoutFlag(tail.slice(1), "--no-hub");
-		if (!noHub.present) {
-			return parseHubInvocation(noHub.rest, {
-				defaultAgents: team === "base" ? undefined : team,
-				forceHerdr: true,
-				forcedPeers: team,
-				legacyAgents: team !== "base",
-				warnings: [team === "base"
-					? "`just fleet team base` is a compatibility alias; use `just fleet --herdr`."
-					: `\`just fleet team ${team}\` is a compatibility alias; use \`just fleet --agents <roster> --peers ${team}\`.`],
-			});
+		const team = requireValue(tail[0], "fleet team requires a name");
+		if (team !== "base") {
+			throw new Error(`\`just fleet team ${team}\` was removed with peer groups: use \`just fleet --herdr\` for the Hub and \`just fleet peer <name>\` for each peer`);
 		}
-		const dry = withoutFlag(noHub.rest, "--dry-run");
-		const c = capabilities(dry.rest);
-		if (c.browser || c.allExtensions) {
-			throw new Error("--browser/--all-extensions requires the hub; peer capabilities belong in .pi/agents/peers.yaml");
-		}
-		return {
-			recipe: dry.present ? "_fleet-team-up-dry" : "_fleet-team-up",
-			args: [team, ...c.rest],
-			warnings: [`\`just fleet team ${team} --no-hub\` is a compatibility alias; prefer \`just fleet peer\` or a canonical Hub topology.`],
-		};
+		return parseHubInvocation(tail.slice(1), {
+			forceHerdr: true,
+			warnings: ["`just fleet team base` is a compatibility alias; use `just fleet --herdr`."],
+		});
 	}
 
 	if (mode === "snapshot" || mode === "down" || mode === "resume") {
-		const team = requireValue(tail[0], `fleet ${mode} requires a team preset`);
-		return { recipe: `_fleet-team-${mode === "snapshot" ? "snapshot" : mode}`, args: [team, ...tail.slice(1)] };
+		throw new Error(`\`just fleet ${mode}\` was removed with peer groups; close a workspace with \`herdr workspace close <id>\``);
 	}
 
+	// One Hermes conductor pane on the same one-pane launcher (D15). The
+	// optional name only labels the workspace.
 	if (mode === "conductor") {
 		const backend = requireValue(tail[0], "fleet conductor requires hermes");
 		if (backend !== "hermes") throw new Error(`Unknown conductor backend: ${backend}`);
 		const rest = tail.slice(1);
-		const team = rest[0] && !rest[0].startsWith("--") ? rest[0] : "full";
-		const afterTeam = rest[0] === team ? rest.slice(1) : rest;
-		const dry = withoutFlag(afterTeam, "--dry-run");
-		return { recipe: dry.present ? "_fleet-conductor-dry" : "_fleet-conductor", args: [team, ...dry.rest] };
+		const name = rest[0] && !rest[0].startsWith("--") ? rest[0] : "full";
+		const afterName = rest[0] === name ? rest.slice(1) : rest;
+		return {
+			recipe: "_fleet-conductor",
+			args: [name, ...afterName],
+			...(afterName.includes("--dry-run") ? { dryRun: true as const } : {}),
+		};
 	}
 
 	throw new Error(`Unknown fleet mode: ${mode}`);

@@ -203,13 +203,13 @@ test("manifest contains the executable harness runtime closure without product d
     ".pi/agent-fleet/scripts/workflows/lib/agent-phase.ts",
     ".pi/agent-fleet/scripts/workflows/lib/scout-data-boundary.ts",
     ".pi/agent-fleet/scripts/workflows/wf-scout.ts",
-    ".pi/agent-fleet/scripts/team-up.ts",
+    ".pi/agent-fleet/scripts/herdr-hub.ts",
     ".pi/agent-fleet/scripts/lib/coms-envelope.ts",
     ".pi/agent-fleet/scripts/lib/herdr-layout.ts",
     ".pi/agent-fleet/scripts/lib/hermes-bridge-core.ts",
     ".pi/agent-fleet/scripts/lib/team-project.ts",
   ]) assert.ok(paths.files.includes(required), required);
-  for (const retired of [".pi/agent-fleet/scripts/codex-conductor.ts", ".pi/agent-fleet/scripts/codex-remote-control.ts", ".pi/agent-fleet/scripts/lib/codex-conductor.ts", ".pi/agent-fleet/scripts/lib/codex-remote-control.ts"]) {
+  for (const retired of [".pi/agent-fleet/scripts/codex-conductor.ts", ".pi/agent-fleet/scripts/codex-remote-control.ts", ".pi/agent-fleet/scripts/lib/codex-conductor.ts", ".pi/agent-fleet/scripts/lib/codex-remote-control.ts", ".pi/agent-fleet/scripts/team-up.ts", ".pi/agent-fleet/scripts/team-snapshot.ts", ".pi/agent-fleet/scripts/lib/team-snapshot.ts"]) {
     assert.equal(paths.files.includes(retired), false, retired);
   }
 });
@@ -242,8 +242,9 @@ test("copy and symlink installs carry the manifest closure and preserve user jus
       assert.match(readFileSync(join(workspace, "justfile"), "utf8"), /user-recipe/);
       const installedJustfile = readFileSync(join(workspace, "justfile"), "utf8");
       assert.match(installedJustfile, /\nfleet \*args:/);
-      assert.match(installedJustfile, /_fleet-conductor team=/);
-      assert.doesNotMatch(installedJustfile, /_fleet-conductor-codex/);
+      assert.match(installedJustfile, /\n_fleet-herdr \*args:/);
+      assert.match(installedJustfile, /\n_fleet-conductor name=/);
+      assert.doesNotMatch(installedJustfile, /_fleet-conductor-codex|_fleet-hub-team|_fleet-team-|team-up\.ts|team-snapshot\.ts/);
       assert.doesNotMatch(installedJustfile, /\n(?:hub|hub-team|team-up|safe-coms|conductor-codex)(?: |:)/);
       assert.equal(existsSync(join(workspace, "codex")), false, `${method}: product contract must not land at repository root`);
       assert.equal(lstatSync(join(workspace, ".pi", "agent-fleet", "scripts", "coms-cli.ts")).isSymbolicLink(), method === "symlink");

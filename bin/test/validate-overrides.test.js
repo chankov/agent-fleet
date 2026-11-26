@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validateOverrides, OVERRIDES_REL_PATH } from "../lib/validate-overrides.js";
+import { validateOverrides, OVERRIDES_REL_PATH, OVERRIDE_PRACTICES, OVERRIDE_ROLES } from "../lib/validate-overrides.js";
 import { runDoctor } from "../lib/doctor.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -185,6 +185,35 @@ test("child deadline and recycling keys accept valid values", () => {
 agent-turn-timeout-s: off
 session-recycle-runs: 5
 `), []);
+});
+
+test("per-practice model and thinking keys the Hub reads are accepted (PLAN-11-01, D9)", () => {
+  assert.deepEqual(findingsFor(`## agent-hub
+model.editor: openai-codex/gpt-6-luna
+model.editor.planning: anthropic/claude-opus-4-8
+thinking.editor.planning: high
+model.reviewer.independent-review: openai-codex/gpt-6-luna
+thinking.researcher.browser-debugging: low
+`), []);
+});
+
+test("per-practice keys flag an unknown role, an unknown practice, and a bad thinking level", () => {
+  const issues = findingsFor(`## agent-hub
+model.builder.planning: m/x
+model.editor.plannning: m/x
+thinking.editor.planning: extreme
+`).map((f) => f.issue);
+  assert.equal(issues.length, 3, JSON.stringify(issues));
+  assert.match(issues[0], /model\.builder\.planning in ## agent-hub: "builder" is not a role \(researcher, reviewer, editor\)/);
+  assert.match(issues[1], /model\.editor\.plannning in ## agent-hub: "plannning" is not a known practice/);
+  assert.match(issues[2], /thinking\.editor\.planning in ## agent-hub: "extreme" is not one of: off\|minimal\|low\|medium\|high\|xhigh/);
+});
+
+test("the mirrored role and practice ids match the Hub's own tables", async () => {
+  const { PRACTICE_IDS } = await import("../../.pi/harnesses/agent-hub/config/practices.ts");
+  const { ROLE_NAMES } = await import("../../.pi/harnesses/agent-hub/config/roles.ts");
+  assert.deepEqual([...OVERRIDE_PRACTICES], [...PRACTICE_IDS]);
+  assert.deepEqual([...OVERRIDE_ROLES], [...ROLE_NAMES]);
 });
 
 test("retired continuation quota keys are flagged for removal", () => {

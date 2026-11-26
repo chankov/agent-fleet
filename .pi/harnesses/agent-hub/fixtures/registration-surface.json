@@ -21,21 +21,16 @@
     "set_assertions",
     "set_task_tier",
     "spawn_research",
-    "team_adjust",
     "update_assertion"
   ],
   "commands": [
     "af-agent-model",
     "af-agent-model-thinking",
     "af-agent-models-substitute",
-    "af-agents-add",
-    "af-agents-drop",
     "af-agents-history",
     "af-agents-kill",
     "af-agents-list",
     "af-agents-restart",
-    "af-agents-save",
-    "af-agents-team",
     "af-audit",
     "af-codex-events",
     "af-compound",
@@ -57,7 +52,6 @@
     "af-zoom"
   ],
   "flags": [
-    "agent-team",
     "color",
     "explicit",
     "name",

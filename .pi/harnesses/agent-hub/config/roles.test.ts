@@ -190,7 +190,7 @@ test("the configuration loader hands the Hub the three roles under their ceiling
 		const got: any = {};
 		loadAgentConfiguration(fx.root, {
 			setSessionDir(value) { got.session = value; }, getSessionDir() { return got.session; }, archivePreviousRun() {}, ensureArtifactsLayout() {}, resetAssertions() {},
-			setAgentDefs(value) { got.defs = value; }, setTeams(value) { got.teams = value; }, setModelProfiles() {}, setDispatchPolicy() {}, setDispatchPolicyWarnings() {},
+			setAgentDefs(value) { got.defs = value; }, setModelProfiles() {}, setDispatchPolicy() {}, setDispatchPolicyWarnings() {},
 			setIgnoredDefinitions(ignored, missing) { got.ignored = ignored; got.missing = missing; },
 		});
 		const byName = Object.fromEntries(got.defs.map((entry: AgentDef) => [entry.name, entry]));
@@ -205,7 +205,6 @@ test("the configuration loader hands the Hub the three roles under their ceiling
 		assert.deepEqual(got.missing, []);
 		// The shadowed installed editor never reaches selection: the scan keeps the first file per name.
 		assert.deepEqual(got.ignored.map((entry: any) => entry.name), ["builder"]);
-		assert.deepEqual([...got.teams.all].sort(), ["editor", "researcher", "reviewer"]);
 		// The raw scan still sees every file; only the Hub's dispatchable set is narrowed.
 		assert.ok(scanAgentDirs(fx.root).some(entry => entry.name === "builder"));
 	} finally { fx.done(); }

@@ -1,18 +1,64 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { CommandContext } from "./context.ts";
 import { displayName } from "../presentation.ts";
+import { isPracticeId, normalizePracticeInput, PRACTICE_IDS } from "../config/practices.ts";
 
 export function registerAgentModel(pi: ExtensionAPI, commandCtx: CommandContext): void {
 	pi.registerCommand("af-agent-model", {
-		description: "Switch a persona's or sub-role's model from its declared candidates: /af-agent-model <persona>[.<role>]",
+		description: "Switch a role's, practice's or sub-role's model from its declared candidates: /af-agent-model <role>[.<practice>|.<sub-role>]",
 		getArgumentCompletions: prefix => commandCtx.getAgentModelCompletions(prefix),
 		handler: async (args, ctx) => {
 			commandCtx.setWidgetContext(ctx);
 			const { policy, activeAgents, getResearchPersonas, updateWidget, prefersComs } = commandCtx.modelCommands;
 			const arg = (args || "").trim().toLowerCase();
 
-			// Dot form: <persona>.<role> targets a delegate sub-role. Candidates are
-			// the role's declared model (default) + the parent's candidate list.
+			// Dot form: <role>.<practice> targets a practice-level model (D9); any other
+			// suffix is a delegate sub-role. Practice ids and sub-role names do not collide.
+			if (arg.includes(".") && isPracticeId(normalizePracticeInput(arg.slice(arg.indexOf(".") + 1)))) {
+				const dot = arg.indexOf(".");
+				const roleName = arg.slice(0, dot);
+				const practice = normalizePracticeInput(arg.slice(dot + 1));
+				const def = roleName ? policy.switchablePersonaDef(roleName) : undefined;
+				if (!def) {
+					const known = [
+						...Array.from(activeAgents.values()).map(s => s.def.name),
+						...getResearchPersonas().map(d => d.name),
+					].join(", ");
+					ctx.ui.notify(`No role "${roleName}" for /af-agent-model <role>.<practice>. Known: ${known || "none"}. Practices: ${PRACTICE_IDS.join(", ")}.`, "error");
+					return;
+				}
+				// Clearing the session choice returns to the profile, overrides file, role file or role model.
+				const fallback = policy.practiceDefault(def, practice).model;
+				const current = policy.resolvedModel(def, [practice]);
+				const candidates: string[] = [];
+				for (const m of [fallback, ...policy.allowedModels(def)]) {
+					if (m && !candidates.includes(m)) candidates.push(m);
+				}
+				if (!candidates.length) {
+					ctx.ui.notify(`${displayName(def.name)} declares no model candidates — add a \`models:\` list to ${def.file}.`, "warning");
+					return;
+				}
+				const options = candidates.map(m => {
+					const tags = [m === fallback ? "default" : "", m === current ? "current" : ""].filter(Boolean);
+					return tags.length ? `${m} (${tags.join(", ")})` : m;
+				});
+				const label = `${displayName(def.name)}.${practice}`;
+				const choice = await ctx.ui.select(`Model for ${label}`, options);
+				if (choice === undefined) return;
+				const picked = candidates[options.indexOf(choice)];
+				const effectivePicked = policy.substitutedModel(picked) ?? picked;
+				if (effectivePicked === current) {
+					ctx.ui.notify(`${label} is already on ${effectivePicked}`, "info");
+					return;
+				}
+				policy.setPracticeOverride(def.name, practice, picked === fallback ? undefined : picked);
+				updateWidget();
+				ctx.ui.notify(
+					`${label} → ${effectivePicked} (applies on the next ${def.name} assignment whose first practice with a model choice is ${practice})`,
+					"info",
+				);
+				return;
+			}
 			if (arg.includes(".")) {
 				const dot = arg.indexOf(".");
 				const personaName = arg.slice(0, dot);
@@ -24,7 +70,7 @@ export function registerAgentModel(pi: ExtensionAPI, commandCtx: CommandContext)
 					const valid = Array.from(activeAgents.values()).flatMap(s =>
 						Object.keys(s.def.subagents || {}).map(r => `${s.def.name}.${r}`));
 					ctx.ui.notify(
-						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}`,
+						`No sub-role "${arg}". Valid targets: ${valid.join(", ") || "none (no persona declares subagents:)"}. For a practice use <role>.<practice> with one of: ${PRACTICE_IDS.join(", ")}.`,
 						"error",
 					);
 					return;
@@ -69,7 +115,7 @@ export function registerAgentModel(pi: ExtensionAPI, commandCtx: CommandContext)
 					...Array.from(activeAgents.values()).map(s => s.def.name),
 					...getResearchPersonas().map(d => d.name),
 				].join(", ");
-				ctx.ui.notify(`Usage: /af-agent-model <persona>[.<role>]. Known: ${known || "none"}`, "error");
+				ctx.ui.notify(`Usage: /af-agent-model <role>[.<practice>|.<sub-role>]. Known: ${known || "none"}`, "error");
 				return;
 			}
 			if (!def.models || def.models.length === 0) {

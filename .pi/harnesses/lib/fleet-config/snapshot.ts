@@ -28,7 +28,7 @@ export interface SourceFile { path: string; status: SourceStatus; digest?: strin
 
 export const SOURCE_IDS = [
 	"desired", "state", "setup", "transaction", "overrides", "aiState", "system1", "stt",
-	"teams", "peers", "dispatch", "voices", "damageRules", "autoPolicy",
+	"dispatch", "voices", "damageRules", "autoPolicy",
 ] as const;
 export type SourceId = typeof SOURCE_IDS[number];
 export const SOURCE_PATHS: Record<SourceId, string> = {
@@ -40,8 +40,6 @@ export const SOURCE_PATHS: Record<SourceId, string> = {
 	aiState: ".ai/agent-fleet-ai-state.json",
 	system1: ".ai/system1.json",
 	stt: ".ai/stt.json",
-	teams: ".pi/agents/teams.yaml",
-	peers: ".pi/agents/peers.yaml",
 	dispatch: ".pi/agents/dispatch-policy.yaml",
 	voices: ".pi/agents/voices.yaml",
 	damageRules: ".pi/damage-control-rules.yaml",
@@ -116,9 +114,8 @@ export interface FleetConfigSnapshot {
 	system1: { selected: boolean; status: string; mode: string | null; provider: string | null; model: string | null; apiKeyEnv: string | null; apiKeyPresent: boolean | null; readiness: { status: string; reason?: string }; consumers: Array<{ name: string; status: string; mode: string | null }>; errors: number } | null;
 	stt: { providerType: string | null; language: string | null; envNames: EnvNameView[] } | null;
 	fleet: {
-		teams: Array<{ name: string; members: string[] }>;
-		peers: Array<{ team: string; name: string; persona: string | null; runner: string; model: string | null; extensions: string | null; envFile: string | null; envFilePresent: boolean | null; live: boolean }>;
-		dispatch: { default: string | null; graceS: number | null; substitutions: Array<{ member: string; prefer: string; fallback: string; timeoutS: number | null; live: boolean }> } | null;
+		/** Role-keyed routes (D11); `peer` is the coms address, the role name when unset. */
+		dispatch: { default: string | null; graceS: number | null; routes: Array<{ role: string; peer: string; prefer: string; fallback: string; timeoutS: number | null; live: boolean }> } | null;
 		voices: Array<{ panel: string; voices: Array<{ name: string; model: string; thinking: string | null; integrator: boolean }> }>;
 	};
 	safety: { rules: Array<{ category: string; count: number }> | null; autoPolicy: { status: string; digest: string; rules: number; expired: number } };
@@ -301,35 +298,18 @@ function collectStt(env: NodeJS.ProcessEnv, file: SourceFile, bytes: Buffer | un
 	};
 }
 
-function collectFleet(root: string, sources: Record<SourceId, SourceFile>, bytes: Partial<Record<SourceId, Buffer>>, live: Set<string>) {
-	const teamsDoc = parseYamlDoc(sources.teams, bytes.teams);
-	const teams = isRecord(teamsDoc) ? Object.entries(teamsDoc).map(([name, members]) => ({ name, members: Array.isArray(members) ? members.map(text) : [] })) : [];
-	if (teamsDoc !== undefined && teamsDoc !== null && !isRecord(teamsDoc)) { sources.teams.status = "invalid"; sources.teams.problems.push("not a mapping"); }
-	const peersDoc = parseYamlDoc(sources.peers, bytes.peers);
-	const peers: FleetConfigSnapshot["fleet"]["peers"] = [];
-	if (isRecord(peersDoc)) {
-		for (const [team, list] of Object.entries(peersDoc)) {
-			for (const raw of Array.isArray(list) ? list : []) {
-				if (!isRecord(raw)) continue;
-				const envFile = typeof raw.env_file === "string" ? raw.env_file : null;
-				const name = text(raw.name) || text(raw.persona);
-				peers.push({
-					team, name, persona: typeof raw.persona === "string" ? raw.persona : null, runner: typeof raw.runner === "string" ? raw.runner : "pi",
-					model: typeof raw.model === "string" ? raw.model : null, extensions: typeof raw.extensions === "string" ? raw.extensions : null,
-					envFile, envFilePresent: envFile ? existsSync(join(root, envFile)) : null, live: live.has(name),
-				});
-			}
-		}
-	} else if (peersDoc !== undefined && peersDoc !== null) { sources.peers.status = "invalid"; sources.peers.problems.push("not a mapping"); }
+function collectFleet(sources: Record<SourceId, SourceFile>, bytes: Partial<Record<SourceId, Buffer>>, live: Set<string>) {
 	const dispatchDoc = parseYamlDoc(sources.dispatch, bytes.dispatch);
 	let dispatch: FleetConfigSnapshot["fleet"]["dispatch"] = null;
 	if (isRecord(dispatchDoc)) {
 		dispatch = {
 			default: typeof dispatchDoc.default === "string" ? dispatchDoc.default : null,
 			graceS: typeof dispatchDoc.grace_s === "number" ? dispatchDoc.grace_s : null,
-			substitutions: Object.entries(isRecord(dispatchDoc.substitutions) ? dispatchDoc.substitutions : {}).map(([member, raw]) => {
-				const sub = isRecord(raw) ? raw : {};
-				return { member, prefer: typeof sub.prefer === "string" ? sub.prefer : "coms", fallback: typeof sub.fallback === "string" ? sub.fallback : "native", timeoutS: typeof sub.timeout_s === "number" ? sub.timeout_s : null, live: live.has(member) };
+			// `routes:` (legacy spelling `substitutions:`), keyed by role, as backend-policy.js parses it.
+			routes: Object.entries(isRecord(dispatchDoc.routes) ? dispatchDoc.routes : isRecord(dispatchDoc.substitutions) ? dispatchDoc.substitutions : {}).map(([role, raw]) => {
+				const route = isRecord(raw) ? raw : {};
+				const peer = typeof route.peer === "string" && route.peer ? route.peer : role;
+				return { role, peer, prefer: typeof route.prefer === "string" ? route.prefer : "coms", fallback: typeof route.fallback === "string" ? route.fallback : "native", timeoutS: typeof route.timeout_s === "number" ? route.timeout_s : null, live: live.has(peer) };
 			}),
 		};
 	} else if (dispatchDoc !== undefined && dispatchDoc !== null) { sources.dispatch.status = "invalid"; sources.dispatch.problems.push("not a mapping"); }
@@ -338,7 +318,7 @@ function collectFleet(root: string, sources: Record<SourceId, SourceFile>, bytes
 		panel, voices: (Array.isArray(list) ? list : []).filter(isRecord).map(voice => ({ name: text(voice.name), model: text(voice.model), thinking: typeof voice.thinking === "string" ? voice.thinking : null, integrator: voice.integrator === true })),
 	})) : [];
 	if (voicesDoc !== undefined && voicesDoc !== null && !isRecord(voicesDoc)) { sources.voices.status = "invalid"; sources.voices.problems.push("not a mapping"); }
-	return { teams, peers, dispatch, voices };
+	return { dispatch, voices };
 }
 
 function collectSafety(root: string, now: number, sources: Record<SourceId, SourceFile>, bytes: Partial<Record<SourceId, Buffer>>) {
@@ -392,7 +372,7 @@ export function collectFleetConfigSnapshot(input: SnapshotInput): FleetConfigSna
 		aiState: collectAiState(root, sources.aiState, bytes.aiState),
 		system1: collectSystem1(root, env, sources.system1),
 		stt: collectStt(env, sources.stt, bytes.stt),
-		fleet: collectFleet(root, sources, bytes, live),
+		fleet: collectFleet(sources, bytes, live),
 		safety: collectSafety(root, now, sources, bytes),
 		runtime: null,
 	};

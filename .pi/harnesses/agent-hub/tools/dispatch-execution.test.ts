@@ -94,6 +94,20 @@ test("genuine read-only operations stay lightweight regardless of task prose", (
  }
 });
 
+test("the prepared resume contract carries the assignment practices in order and resolves its model with them (D9)", () => {
+	const d = prepareDeps({ agents: ["editor"], tools: "read,edit" });
+	const asked: Array<readonly string[] | undefined> = [];
+	(d as any).resolvedAgentModel = (_def: unknown, _ctx: unknown, practices?: readonly string[]) => { asked.push(practices); return practices?.includes("planning") ? "p/astra" : "p/role"; };
+	const planned = prepareDispatch(d as any, { agent: "editor", task: "Save the plan", practices: ["Implementation", "planning"] } as any, { cwd: process.cwd() } as any) as any;
+	assert.equal(planned.agent, "editor", JSON.stringify(planned.content ?? planned.details ?? {}));
+	assert.deepEqual(planned.resumeContract.practices, ["implementation", "planning"]);
+	assert.equal(planned.resumeContract.model, "p/astra");
+	const defaulted = prepareDispatch(d as any, { agent: "editor", task: "Build the parser" } as any, { cwd: process.cwd() } as any) as any;
+	assert.deepEqual(defaulted.resumeContract.practices, ["implementation"], "the role default practice is part of the selection");
+	assert.equal(defaulted.resumeContract.model, "p/role");
+	assert.deepEqual(asked, [["implementation", "planning"], ["implementation"]]);
+});
+
 test("structured research prompt is additive and task-only calls remain byte-compatible", () => {
 	assert.equal(structuredResearchPrompt({ task: "legacy task" }), "legacy task");
 	const prompt = structuredResearchPrompt({ task: "legacy task", read_scope: ["./src/", "docs\\a.md"], goal: " find   API ", expected_result: " path:line " });
@@ -542,4 +556,17 @@ test("an aborted dispatch tool call stops the running child, and only while it r
 	await createDispatchExecutor(d)("done", { agent: "editor", task: "Produce other work" } as any, later.signal, undefined, {} as any);
 	later.abort();
 	assert.deepEqual(stopped, ["editor"]);
+});
+
+test("native completion surfaces the practice-aware model source in the dispatch diagnostics (D9)", async () => {
+	const { completeNativeRun } = await import("../dispatch-native-complete.ts");
+	const complete = (modelSource: string | undefined) => {
+		const state: any = { def: { name: "editor" }, status: "running", killedByOperator: false, restarting: false, timeline: [] };
+		const run: any = { deps: { displayName: (n: string) => n, finalizeMonitorChild: async () => {}, updateWidget() {}, appendTimelineText() {}, flushTimelineStore() {}, executionHistory: { end() {} }, bumpDriftStop() {} }, state, ctx: { ui: { notify() {} } }, histEntry: { id: "hist" }, monitorStart: undefined, startTime: Date.now(), key: "editor", agentKey: "editor", effectiveTools: "read,edit", evidenceDir: "/tmp", dispatchId: "model-source", transcriptPath: "/tmp/transcript.jsonl", resumeContract: {}, agentSessionFile: "/tmp/session.json", modelSource };
+		return completeNativeRun(run, { res: { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0, modelUsed: "provider/astra" } as any, runBilled: 0, runOut: 0, sessionRecycled: false, sessionReset: null, driftStop: null, driftAdvisories: [] });
+	};
+	const planned = await complete("practice:planning:role-file");
+	assert.equal(planned.diagnostics?.modelSource, "practice:planning:role-file");
+	assert.equal(planned.diagnostics?.modelUsed, "provider/astra");
+	assert.equal(Object.hasOwn((await complete(undefined)).diagnostics ?? {}, "modelSource"), false, "an unprepared legacy run reports no source rather than a guess");
 });

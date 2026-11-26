@@ -1,7 +1,8 @@
 // .pi/agent-fleet/scripts/peer-launch.ts
 //
 // `just fleet peer <name>` — launch ONE coms peer (pi persona, personaless
-// Fleet Core pi, or Claude Code) without declaring it in a peers.yaml team.
+// Fleet Core pi, or Claude Code). Its settings are its flags; there is no
+// declarations file (PLAN-11-01, D16).
 //
 // Placement:
 //   • default, inside a herdr pane (HERDR_ENV=1) → split THIS pane, so the peer
@@ -11,16 +12,16 @@
 //   • --here → run in the CALLING terminal, which is what this command did
 //     before pane placement existed.
 //
-// Hard rules (same as team-up.ts, for the same reasons):
+// Hard rules:
 // - Entrypoint guard: importing this module must NOT spawn anything.
-// - peers.yaml + the repo root resolve relative to THIS file, not the caller's cwd.
+// - The repo root resolves relative to THIS file, not the caller's cwd.
 // - --dry-run prints the plan and exits WITHOUT touching herdr, and never reads
-//   env_file values — secrets stay out of terminals and logs.
+//   --env-file values — secrets stay out of terminals and logs.
 // - A split pane gets its argv TYPED at the shell prompt: herdr's pane.split
 //   takes no command and silently ignores one (see spawned-peers.js).
-// - --read-only (or `read_only: true` in peers.yaml) only selects the enforced
-//   read-only launch argv; the peer itself decides whether it may declare
-//   `read_only` in its registry entry, from evidence it checks at registration.
+// - --read-only only selects the enforced read-only launch argv; the peer
+//   itself decides whether it may declare `read_only` in its registry entry,
+//   from evidence it checks at registration.
 
 import { spawnSync } from "node:child_process";
 import {workspaceRoot,sessionRootsFromEnv} from "../../harnesses/lib/workspace-context.ts";
@@ -40,12 +41,11 @@ import { PERSONA_DIRS } from "./lib/persona-dirs.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = workspaceRoot(fs.realpathSync(path.resolve(SCRIPT_DIR, "..", "..", "..")));
-const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 
 const USAGE =
-	"usage: just fleet peer <name> [--runner pi|claude-code] [--persona <p>] [--model <m>] [--project <p>]\n" +
-	"                             [--extensions a,b] [--browser] [--all-extensions]\n" +
-	"                             [--direction right|down] [--read-only] [--here] [--dry-run] [-- PI_ARGS…]";
+	"usage: just fleet peer <name> [--runner pi|claude-code] [--persona <p>|--no-persona] [--model <m>]\n" +
+	"                             [--read-only] [--env-file <path>] [--project <p>] [--direction right|down]\n" +
+	"                             [--here] [--dry-run] [-- PI_ARGS…]";
 
 function die(msg: string): never {
 	console.error(msg);
@@ -56,19 +56,11 @@ function personaExists(persona: string): boolean {
 	return PERSONA_DIRS.some((dir) => fs.existsSync(path.join(REPO_ROOT, ...dir, `${persona}.md`)));
 }
 
-function readIfPresent(file: string): string {
-	try {
-		return fs.readFileSync(file, "utf-8");
-	} catch {
-		return "";
-	}
-}
-
-/** The pane's extra env: only the declaration's env_file, never on the dry-run path. */
+/** The pane's extra env: only the --env-file values, never on the dry-run path. */
 function paneEnv(plan: PeerLaunchPlan): Record<string, string> {
 	if (!plan.envFile) return {};
 	const abs = resolveEnvFilePath(plan.envFile, REPO_ROOT);
-	if (!fs.existsSync(abs)) die(`Peer "${plan.name}": env_file not found: ${plan.envFile} (resolved: ${abs})`);
+	if (!fs.existsSync(abs)) die(`Peer "${plan.name}": --env-file not found: ${plan.envFile} (resolved: ${abs})`);
 	return parseEnvFile(fs.readFileSync(abs, "utf-8"), plan.envFile);
 }
 
@@ -104,11 +96,10 @@ async function main(): Promise<void> {
 	}
 
 	const target=peerTarget(args.project??"default");
- if(target){if(args.allExtensions)die('Targeted peers refuse --all-extensions; select explicit workspace extensions');args.project=target.project;}
+	if(target)args.project=target.project;
 	let plan: PeerLaunchPlan;
 	try {
 		plan = buildPeerLaunchPlan(args, {
-			peersYaml: readIfPresent(args.peersYaml ?? PEERS_YAML),
 			personaExists,
 			worktreeTag: worktreeTag(target?.roots.executionRoot??REPO_ROOT),
 		});
@@ -128,8 +119,7 @@ async function main(): Promise<void> {
 					? `split of pane ${inPane} (${plan.direction})`
 					: `new workspace "${plan.workspaceLabel}"`;
 		const envNote = plan.envFile ? `  [env_file: ${plan.envFile} — values redacted]` : "";
-		const source = plan.declared ? "peers.yaml declaration + flags" : "flags only";
-		console.log(`# fleet peer (dry run) — "${plan.name}" [${plan.kind}], project "${plan.project}", ${source}`);
+		console.log(`# fleet peer (dry run) — "${plan.name}" [${plan.kind}], project "${plan.project}"`);
 		console.log(`# placement: ${placement}`);
 		console.log(`${plan.name}\t${plan.command.join(" ")}${envNote}`);
 		console.log(JSON.stringify({...plan,...(target?{targetId:target.roots.targetId,workspaceRoot:target.roots.workspaceRoot,executionRoot:target.roots.executionRoot,baseProject:target.baseProject}:{})}, null, 2));
@@ -222,7 +212,7 @@ async function main(): Promise<void> {
 		}
 		const created = await herdr.workspaceCreate({ label: plan.workspaceLabel, cwd: target?.roots.executionRoot??REPO_ROOT, focus: false });
 		const wsId = created.workspace.workspace_id;
-		const initialTab = created.workspace.active_tab_id ?? created.tab?.tab_id;
+		const initialTab = created.workspace.active_tab_id ?? (typeof created.tab?.tab_id === "string" ? created.tab.tab_id : undefined);
 		// layout.apply pane nodes DO carry an argv, so no prompt-typing here.
 		const root: LayoutNode = {
 			type: "pane",

@@ -26,8 +26,8 @@ import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS } from "../resear
 import type { InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, ToolExecutor, ToolUpdate } from "./context.ts";
 import { evaluateProcessObligations, processAllowsPersona, processPreEffectGate } from "../process-obligations.ts";
-import { dispatchAccess, isTrackedAccess, type DispatchAccess } from "../dispatch-access.ts";
-import { assignmentPracticeIds, formatAssignmentBlock, isResearcherRole, isReviewerRole, resolveAssignment, ROLE_NAMES, type ResolvedAssignment } from "../config/roles.ts";
+import { dispatchAccess, isInspectionAccess, isTrackedAccess, type DispatchAccess } from "../dispatch-access.ts";
+import { assignmentPracticeIds, formatAssignmentBlock, isResearcherRole, isReviewerRole, isRoleName, resolveAssignment, ROLE_NAMES, type ResolvedAssignment } from "../config/roles.ts";
 import { PRACTICE_IDS } from "../config/practices.ts";
 import { sessionRootsFromEnv, workspaceRoot } from "../../lib/workspace-context.ts";
 
@@ -100,7 +100,7 @@ function isResearchDispatchName(d: DispatchExecutorDeps, agent: string): boolean
 function unknownAgentMessage(agent: string, available: string[], researchHint: boolean): string {
 	const roster = available.length ? available.join(", ") : "(none)";
 	if (researchHint) return `"${agent}" is the research role. Call spawn_research (with practices when needed) instead of dispatch_agent. Do not invent a substitute dispatch.`;
-	return `The ${agent} role is not installed. Installed roles: ${roster}. Ask the human to install it (agent-fleet setup, or /af-agents-add ${agent} when its file is present); once installed, dispatching it adds it to the team. This does not change the tier or budget. Do not invent a substitute dispatch.`;
+	return `The ${agent} role is not installed. Installed roles: ${roster}. Ask the human to install it (agent-fleet setup); every installed role is always available to dispatch. This does not change the tier or budget. Do not invent a substitute dispatch.`;
 }
 
 export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string, ctx?: ExtensionContext, practices?: readonly string[]): ToolExecutionResult | null {
@@ -114,8 +114,8 @@ export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, ta
 		return refusal(d, agent, task, "research_persona_via_dispatch", unknownAgentMessage(agent, available, true), "research_persona_via_dispatch");
 	}
 	if (!onRoster) {
-		// Every installed agent is dispatchable. The first dispatch adds it to the
-		// active team, so backend policy and session reuse keep working per member.
+		// Every installed role is dispatchable. The first dispatch loads it into the
+		// Hub roster, so backend policy and session reuse keep working per role.
 		const added = d.state.addInstalledAgent?.(agent) ?? null;
 		if (added?.ok) {
 			onRoster = true;
@@ -297,7 +297,9 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
   // No parent ledger is the supported legacy task-text contract, not a bound minimal-only contract.
   boundAssertionIds: s.getAssertions().length ? Object.freeze(validateBoundAssertionIds(requirements.map(requirement => requirement.id))) : undefined,
 		deliverables: contract.files.map(file => file.path), artifacts: inputArtifacts.map(artifact => artifact.path),
-		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
+		// Practices in assignment order: the first with a practice-level model selects it (D9).
+		practices: Object.freeze(assignmentPracticeIds(assignment)),
+		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx, assignmentPracticeIds(assignment)) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: access.tools,
 	};
  return { assignment, access, privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.(), assignmentPracticeIds(assignment)) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision, revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
@@ -439,19 +441,34 @@ export function structuredResearchPrompt(params: SpawnResearchParams): string {
 }
 
 /**
- * A persona runs one dispatch at a time (one session, one executor). A second
- * `parallel: true` dispatch to a persona that is already writing gets its own
- * instance (builder--p2, builder--p3, ...) with a separate session and executor.
- * Claims are counted synchronously, so concurrent tool calls cannot pick the same
- * instance and a refused duplicate cannot free another call's claim. Nothing else
- * changes: the parallel writer gate still decides whether each one may run.
+ * Pure inspection by a read-only role (D12): a reviewer without an active-check
+ * mode. It takes no writer slot, so a busy base reader gets its own instance
+ * without `parallel: true`. Editors and active checks keep the explicit flag and
+ * the writer gate; a coms peer is one live process, so it is never cloned here.
+ */
+export function isIndependentReader(d: DispatchExecutorDeps, params: DispatchAgentParams): boolean {
+	const base = normalizeAgentInput(params.agent);
+	const def = d.state.getAgentStates().get(base)?.def;
+	if (!def || def.readOnly !== true || isResearcherRole(base) || params.backend === "coms") return false;
+	if (params.review_mode && params.review_mode !== "changes") return false;
+	return isInspectionAccess(dispatchAccess(def, params.review_mode));
+}
+
+/**
+ * A role runs one dispatch at a time (one session, one executor). A second
+ * `parallel: true` dispatch to a role that is already busy, or a second pure
+ * inspection by a read-only role (D12), gets its own instance (editor--p2,
+ * reviewer--p2, ...) with a separate session and executor. Claims are counted
+ * synchronously, so concurrent tool calls cannot pick the same instance and a
+ * refused duplicate cannot free another call's claim. Nothing else changes: the
+ * parallel writer gate still decides whether each writer may run.
  */
 export function routeParallelInstance(d: DispatchExecutorDeps, params: DispatchAgentParams, reserved: Map<string, number>): { params: DispatchAgentParams; release: () => void } {
 	const base = normalizeAgentInput(params.agent);
 	const busy = (name: string) => (reserved.get(name) ?? 0) > 0 || d.state.getAgentStates().get(name)?.status === "running"
 		|| (d.state.getActiveWriters?.() ?? []).some(writer => writer.agent.toLowerCase() === name);
 	let agent = base;
-	if (params.parallel === true && busy(base) && d.state.addAgentInstance) {
+	if ((params.parallel === true || isIndependentReader(d, params)) && busy(base) && d.state.addAgentInstance) {
 		for (let n = 2; n <= 16; n++) {
 			const candidate = parallelInstanceName(base, n);
 			if (busy(candidate)) continue;
@@ -469,13 +486,163 @@ export function routeParallelInstance(d: DispatchExecutorDeps, params: DispatchA
 	} };
 }
 
+/** The settled outcome of an instance's most recent run, bound to the task it ran in. */
+interface AssignmentOutcome { taskToken: object; state: "succeeded" | "failed" | "pending"; reason: string; dispatchId?: string }
+
+/**
+ * Classify a returned dispatch for `after` consumers (D13). A refusal never ran
+ * (busy, gate, duplicate, no-progress) and leaves the previous outcome in place.
+ * A run succeeded only when it executed to completion with exit 0 and neither the
+ * runtime (protocol error, failed checks, open user question) nor the specialist
+ * (partial, blocked) reported it unfinished. Acceptance may still wait for review.
+ */
+export function assignmentOutcome(result: ToolExecutionResult | undefined): Omit<AssignmentOutcome, "taskToken"> | null {
+	if (!result) return { state: "failed", reason: "the dispatch raised an error before returning a result" };
+	const details = (result.details ?? {}) as Record<string, unknown>;
+	const dispatchId = typeof details.dispatchId === "string" ? details.dispatchId : undefined;
+	if (details.status === "review_reused") return { state: "succeeded", reason: "review_reused", dispatchId };
+	if (details.started === false || details.notStarted === true || details.status === "busy" || details.status === "no_progress_refused") return null;
+	if (details.pending === true || details.executionStatus === "pending") return { state: "pending", reason: "its result is still pending", dispatchId };
+	const status = typeof details.status === "string" ? details.status : "unknown";
+	const completion = typeof details.specialistCompletion === "string" ? details.specialistCompletion : undefined;
+	const exitCode = typeof details.exitCode === "number" ? details.exitCode : null;
+	const reason = typeof details.reason === "string" && details.reason.length <= 160 ? `; ${details.reason}` : "";
+	if (exitCode !== 0) return { state: "failed", reason: `status ${status}, exit ${exitCode ?? "unknown"}${reason}`, dispatchId };
+	if (["tool_protocol_error", "blocked_on_user", "verification_failed"].includes(status)) return { state: "failed", reason: `status ${status}${reason}`, dispatchId };
+	if (details.executionStatus !== undefined && details.executionStatus !== "completed") return { state: "failed", reason: `execution ${String(details.executionStatus)}`, dispatchId };
+	if (completion === "partial" || completion === "blocked") return { state: "failed", reason: `the specialist reported ${completion}`, dispatchId };
+	return { state: "succeeded", reason: status, dispatchId };
+}
+
+const AFTER_POLL_MS = 250;
+
+function afterRefusal(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams, status: string, reason: string, message: string, recoveryCategory: string, extra: Record<string, unknown> = {}): ToolExecutionResult {
+	const refused = refusal(d, agent, params.task, status, `${message} Nothing started or charged.`, reason);
+	return { ...refused, details: { ...(refused.details as Record<string, unknown>), recoveryCategory, after: params.after, ...extra } };
+}
+
+/**
+ * Per-assignment availability, ownership and returns (plan task 4, D12/D13).
+ * Repeated role names stay independently addressable: each instance key records
+ * its own in-flight claim and the outcome of its last run in the current task, and
+ * a dispatch with `after` waits until each named instance is idle before any
+ * admission, accounting or no-progress bookkeeping happens.
+ */
+function createAssignmentTracker(d: DispatchExecutorDeps, reserved: Map<string, number>) {
+	const outcomes = new Map<string, AssignmentOutcome>();
+	const queued: Array<{ agent: string; after: string[] }> = [];
+	const waiters = new Set<() => void>();
+	const notify = () => { for (const wake of [...waiters]) wake(); };
+	const isRunning = (name: string) => (reserved.get(name) ?? 0) > 0 || d.state.getAgentStates().get(name)?.status === "running" || queued.some(entry => entry.agent === name);
+	const waitsOn = (from: string, target: string, seen = new Set<string>()): boolean => {
+		if (from === target) return true;
+		if (seen.has(from)) return false;
+		seen.add(from);
+		return queued.some(entry => entry.agent === from && entry.after.some(next => waitsOn(next, target, seen)));
+	};
+	const nextChange = (signal?: AbortSignal) => new Promise<void>(resolve => {
+		const done = () => { clearTimeout(timer); waiters.delete(done); signal?.removeEventListener("abort", done); resolve(); };
+		// Settlement inside this executor wakes waiters at once; the poll observes runs started elsewhere.
+		const timer = setTimeout(done, AFTER_POLL_MS);
+		waiters.add(done);
+		signal?.addEventListener("abort", done, { once: true });
+	});
+
+	/** Synchronous input validation: a bad name is refused before anything waits or starts. */
+	function dependencies(agent: string, params: DispatchAgentParams): string[] | ToolExecutionResult {
+		const after = params.after as unknown;
+		if (!Array.isArray(after) || after.some(entry => typeof entry !== "string" || !entry.trim())) {
+			return afterRefusal(d, agent, params, "invalid_input", "after_invalid", "after must be an array of agent keys, for example [\"editor\", \"editor--p2\"].", "invalid_input");
+		}
+		const names = [...new Set(after.map(entry => normalizeAgentInput(entry as string)))];
+		if (names.includes(agent)) return afterRefusal(d, agent, params, "invalid_input", "after_self", `after names ${agent}, the agent of this dispatch; an assignment cannot wait for itself.`, "invalid_input");
+		const states = d.state.getAgentStates();
+		for (const name of names) {
+			if (isResearcherRole(name)) return afterRefusal(d, agent, params, "invalid_input", "after_unknown", `after names ${name}: research runs through spawn_research handles, not dispatch_agent instances.`, "invalid_input");
+			if (!states.has(name) && !isRoleName(name)) {
+				const known = [...states.keys()].filter(key => !isResearcherRole(key)).sort().join(", ") || "(none)";
+				return afterRefusal(d, agent, params, "invalid_input", "after_unknown", `after names unknown instance ${name}. Known instances: ${known}.`, "invalid_input");
+			}
+		}
+		const cycle = names.find(name => waitsOn(name, agent));
+		if (cycle) return afterRefusal(d, agent, params, "invalid_input", "after_cycle", `after would deadlock: ${cycle} is already queued after ${agent}.`, "invalid_input");
+		return names;
+	}
+
+	/** Wait while any dependency runs, then require a successful settled run of each in this task. */
+	async function waitFor(agent: string, names: string[], params: DispatchAgentParams, signal: AbortSignal | undefined, onUpdate: ToolUpdate): Promise<{ leave: () => void } | ToolExecutionResult> {
+		const entry = { agent, after: names };
+		queued.push(entry);
+		let left = false;
+		const leave = () => { if (left) return; left = true; const index = queued.indexOf(entry); if (index >= 0) queued.splice(index, 1); notify(); };
+		try {
+			let shown = "";
+			for (;;) {
+				if (signal?.aborted) { leave(); return afterRefusal(d, agent, params, "cancelled", "cancelled_while_queued", `Operation cancelled before dispatch while queued after ${names.join(", ")}.`, "operator_cancelled"); }
+				const waiting = names.filter(isRunning);
+				if (!waiting.length) break;
+				const label = waiting.join(", ");
+				if (label !== shown) {
+					shown = label;
+					onUpdate?.({ content: [{ type: "text", text: `${agent} queued after ${label}; nothing started or charged yet.` }], details: { agent, task: params.task, status: "queued", after: names, waitingFor: waiting } });
+				}
+				await nextChange(signal);
+			}
+			const taskToken = d.noProgress.taskToken();
+			for (const name of names) {
+				const outcome = outcomes.get(name);
+				if (!outcome || outcome.taskToken !== taskToken) { leave(); return afterRefusal(d, agent, params, "dependency_unsettled", "dependency_no_result", `No settled result for ${name} in this task; dispatch it first, or drop it from after.`, "not_started", { dependency: name }); }
+				if (outcome.state === "pending") { leave(); return afterRefusal(d, agent, params, "dependency_unsettled", "dependency_pending", `Dependency ${name} has not settled: ${outcome.reason}${outcome.dispatchId ? ` (dispatch ${outcome.dispatchId})` : ""}. Wait for its result, or drop it from after.`, "not_started", { dependency: name }); }
+				if (outcome.state === "failed") { leave(); return afterRefusal(d, agent, params, "dependency_failed", "dependency_failed", `Dependency ${name} failed: ${outcome.reason}${outcome.dispatchId ? ` (dispatch ${outcome.dispatchId})` : ""}; re-dispatch it or drop it from after.`, "not_started", { dependency: name }); }
+			}
+			return { leave };
+		} catch (error) { leave(); throw error; }
+	}
+
+	function settle(agent: string, taskToken: object, result: ToolExecutionResult | undefined): void {
+		const outcome = assignmentOutcome(result);
+		if (outcome) outcomes.set(agent, { ...outcome, taskToken });
+	}
+
+	return { dependencies, waitFor, settle, notify };
+}
+
+/** Name the instance that ran when routing moved the assignment off its base role. */
+function attributeInstance(result: ToolExecutionResult, requested: string, instance: string): ToolExecutionResult {
+	if (requested === instance) return result;
+	const [first, ...rest] = result.content;
+	const note = `ℹ Ran as ${instance} (${requested} was busy). Name it in after to depend on this result.`;
+	return {
+		...result,
+		content: first?.type === "text" ? [{ ...first, text: `${note}\n${first.text}` }, ...rest] : [{ type: "text", text: note }, ...result.content],
+		details: { ...((result.details ?? {}) as Record<string, unknown>), instance, requestedAgent: requested },
+	};
+}
+
 export function createDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<DispatchAgentParams> {
 	const reserved = new Map<string, number>();
+	const assignments = createAssignmentTracker(d, reserved);
 	const guarded = createGuardedDispatchExecutor(d);
 	return async (id, params, signal, onUpdate, ctx) => {
+		const requested = normalizeAgentInput(params.agent);
+		let queue: { leave: () => void } | null = null;
+		if (params.after !== undefined) {
+			const names = assignments.dependencies(requested, params);
+			if (!Array.isArray(names)) return names;
+			if (names.length) {
+				const waited = await assignments.waitFor(requested, names, params, signal, onUpdate);
+				if ("content" in waited) return waited;
+				queue = waited;
+			}
+		}
+		// Routing claims the instance synchronously before the queue entry is released,
+		// so another consumer never observes this assignment as neither queued nor running.
+		const taskToken = d.noProgress.taskToken();
 		const routed = routeParallelInstance(d, params, reserved);
-		try { return await guarded(id, routed.params, signal, onUpdate, ctx); }
-		finally { routed.release(); }
+		queue?.leave();
+		let result: ToolExecutionResult | undefined;
+		try { result = await guarded(id, routed.params, signal, onUpdate, ctx); return attributeInstance(result, requested, routed.params.agent); }
+		finally { assignments.settle(routed.params.agent, taskToken, result); routed.release(); assignments.notify(); }
 	};
 }
 

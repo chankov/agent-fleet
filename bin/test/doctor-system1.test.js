@@ -183,7 +183,7 @@ test("runDoctor keeps task-triage advisory read-only and never prints credential
   writeConfig(ws, {...validConfig, consumers:{taskTriage:taskSection}});
   const personaDir = join(ws, ".pi/agents/personas");
   mkdirSync(personaDir, { recursive: true });
-  for (const role of ["planner", "code-reviewer"]) writeFileSync(join(personaDir, `${role}.md`), `---\nname: ${role}\nmodel: synthetic/offline\n---\n`);
+  for (const role of ["editor", "reviewer"]) writeFileSync(join(personaDir, `${role}.md`), `---\nname: ${role}\nmodel: synthetic/offline\n---\n`);
   const before = [triagePath, join(ws, ".ai/system1.json")].map(p => readFileSync(p, "utf8"));
   const env = { TYPESAFE_API_KEY: "private-test-value" };
   const findings = await runDoctor({ workspace: ws, sourceRoot: root, env, checkVisibility: () => ({ status: 0, stdout: "" }), checkDependencies: () => ({ status: 0, stdout: "" }) });

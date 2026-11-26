@@ -60,7 +60,7 @@ test('automatic actual parent inventory/find/ls/grep before model, all tiers and
  assert.equal(f.calls(),12);
  const next=await f.toolResult('find',originals[1][1],originals[1][2],'next');assert.equal(next.details.fileDiscovery.counts.cached,3);assert.equal(f.calls(),12);
  for(const tier of ['trivial','small','feature','project']){
- let active:string[]=[];const policy=createWorkModePolicy({getBaselineTools:()=>['read','find','ls','grep','bash','ask_system1_files'],getRosterSize:()=>1,getActiveTeamName:()=> 'default',getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>false,getFileDiscoveryEnabled:()=>discoveryHubEnabled(f.pi),getIdentityLabel:()=>null,getTaskTier:()=>tier,getPendingOperations:()=>[],getContextState:()=> 'normal',setActiveTools:tools=>active=tools,persist(){}});
+ let active:string[]=[];const policy=createWorkModePolicy({getBaselineTools:()=>['read','find','ls','grep','bash','ask_system1_files'],getRosterSize:()=>1,getComsReady:()=>false,getHerdrReady:()=>false,getAskUserAvailable:()=>false,getFileDiscoveryEnabled:()=>discoveryHubEnabled(f.pi),getIdentityLabel:()=>null,getTaskTier:()=>tier,getPendingOperations:()=>[],getContextState:()=> 'normal',setActiveTools:tools=>active=tools,persist(){}});
  policy.applyWorkModeTools();assert.ok(active.includes('ask_system1_files'));assert.ok(active.includes('bash'),'the operator keeps direct tools');
  }
 });

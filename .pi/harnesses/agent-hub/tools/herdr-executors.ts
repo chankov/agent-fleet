@@ -1,14 +1,13 @@
-import {workspaceRoot} from '../../lib/workspace-context.ts';
 import {peerTarget,targetPaneEnv,targetPeerCommand} from '../../lib/peer-target.ts';
 import { processPreEffectGate, type ProcessObligationState } from "../process-obligations.ts";
 import { PROFILE_ENV, profilePeerGate, profileSpawnPeerRefusal, readActiveProfile } from '../policy/profile-runtime.ts';
 import { PANE_PROMPT_TIMEOUT_MS, launchPeerInPane } from "../../lib/spawned-peers.js";
 import { herdrPaneId } from "../../lib/herdr-presence.ts";
 import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "../peer-spawn-plan.ts";
-import { paneTail, peerManifest, peerPersonaExists, spawnDelaySeconds, STAGGER_ENV_VAR, waitForPeerRegistration } from "./fleet-tools.ts";
-import { parseEnvFile, resolveEnvFilePath } from "../../../agent-fleet/scripts/lib/herdr-layout.ts";
+import type { HubPeerSpawnRequest } from "../peer-spawn-plan.ts";
+import { paneTail, peerPersonaExists, spawnDelaySeconds, STAGGER_ENV_VAR, waitForPeerRegistration } from "./fleet-tools.ts";
 import { worktreeTag } from "../../../agent-fleet/scripts/lib/team-project.ts";
-import type { HerdrClosePaneParams, HerdrNotifyParams, HerdrReadPaneParams, HerdrSpawnPaneParams, HerdrSpawnPeerParams, ToolExecutionResult, ToolExecutor } from "./context.ts";
+import type { HerdrClosePaneParams, HerdrNotifyParams, HerdrReadPaneParams, HerdrSpawnPaneParams, ToolExecutionResult, ToolExecutor } from "./context.ts";
 
 export interface HerdrExecutorDeps {
 	getProcessState?(): ProcessObligationState | null;
@@ -21,8 +20,6 @@ export interface HerdrExecutorDeps {
 	peersInScope(): Array<{ name: string }>;
 	getComsPeerNames(): string[];
 	herdr: any;
-	readEnvFile(path: string): string;
-	envFileExists(path: string): boolean;
 	getLastPiSpawnAt(): number | null;
 	setLastPiSpawnAt(value: number): void;
 	recordSpawnedPeer(name: string, paneId: string): void;
@@ -36,7 +33,9 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 		const gate = d.processBlock?.() ?? (d.getProcessState ? processPreEffectGate(d.getProcessState()!, "child", "") : null);
 		return gate ? { content: [{ type: "text", text: gate.message }], details: { status: "refused", reason: gate.reason } } : null;
 	};
-	const executeHerdrSpawnPeer: ToolExecutor<HerdrSpawnPeerParams> = async (_id, params) => {
+	// Typed by the flag-shaped request (peer-spawn-plan.ts), an alias of
+	// context.ts's HerdrSpawnPeerParams.
+	const executeHerdrSpawnPeer: ToolExecutor<HubPeerSpawnRequest> = async (_id, params) => {
 		const gate = effectGate(); if (gate) return gate;
 		const earlyProfile = profilePeerGate({ targetResolved: false }); if (earlyProfile) return earlyProfile;
 		const refusal = d.provisionalCapabilityRefusal("workspace"); if (refusal) return refusal;
@@ -46,13 +45,12 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 		if (!d.isComsReady() || !identity) return { content: [{ type: "text", text: "Cannot spawn an addressable peer while coms is unavailable. Start without --solo/--no-coms, or use herdr_spawn_pane for a non-peer command." }], details: { error: "no coms" } };
 		try {
 			const cwd = d.getCurrentContext()?.cwd ?? process.cwd();
-			let plan = buildHubPeerSpawnPlan(params, { project: identity.project, peersYaml: peerManifest(cwd), personaExists: persona => peerPersonaExists(cwd, persona), worktreeTag: worktreeTag(cwd) });
+			let plan = buildHubPeerSpawnPlan(params, { project: identity.project, personaExists: persona => peerPersonaExists(cwd, persona), worktreeTag: worktreeTag(cwd) });
 			const target=peerTarget(identity.project,identity.baseProject);
-   if(target){if(params.all_extensions)throw Error('Targeted peers refuse --all-extensions');plan={...plan,command:targetPeerCommand(plan.command,target.roots)};}
+			if(target)plan={...plan,command:targetPeerCommand(plan.command,target.roots)};
    const profileRefusal = profileSpawnPeerRefusal(plan); if (profileRefusal) return profileRefusal;
 			if (d.peersInScope().some(peer => peer.name.toLowerCase() === plan.name.toLowerCase())) throw new Error(`Peer "${plan.name}" is already visible in project "${identity.project}"; use coms_send instead of spawning a duplicate.`);
 			let env: Record<string, string> = {};
-			if (plan.envFile) { const envPath = resolveEnvFilePath(plan.envFile, workspaceRoot(cwd)); if (!d.envFileExists(envPath)) throw new Error(`env_file not found: ${plan.envFile} (resolved: ${envPath})`); Object.assign(env, parseEnvFile(d.readEnvFile(envPath), plan.envFile)); }
 			const active = readActiveProfile(); if (active) env[PROFILE_ENV] = JSON.stringify(active);
 			const delay = plan.runner === "pi" ? spawnDelaySeconds(d.getLastPiSpawnAt()) : 0; if (delay > 0) env[STAGGER_ENV_VAR] = String(delay);
 			if(target)env=targetPaneEnv(env,target.roots,target.baseProject,target.project);
@@ -63,7 +61,7 @@ export function createHerdrExecutors(d: HerdrExecutorDeps): Pick<import("./conte
 				onLaunched: paneId => { d.recordSpawnedPeer(plan.name, paneId); if (plan.runner === "pi") d.setLastPiSpawnAt(Date.now()); },
 			});
 			const promptNote = launched.promptSeen ? "" : `\n⚠ pane ${launched.paneId} showed no shell prompt within ${Math.round(PANE_PROMPT_TIMEOUT_MS / 1000)}s; the command was sent anyway.`;
-			return { content: [{ type: "text", text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }], details: { name: plan.name, kind: plan.kind, runner: plan.runner, project: plan.project, prompt_seen: launched.promptSeen, env_file: plan.envFile ?? null, ...launched.verdict } };
+			return { content: [{ type: "text", text: `spawned ${plan.kind} in pane ${launched.paneId} (${plan.name}): ${plan.command.join(" ")}${promptNote}\n\n${launched.verdict.message}` }], details: { name: plan.name, kind: plan.kind, runner: plan.runner, project: plan.project, ...(plan.readOnly ? { read_only: true } : {}), prompt_seen: launched.promptSeen, ...launched.verdict } };
 		} catch (err) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: "text", text: `herdr_spawn_peer failed before readiness: ${m}` }], details: { error: m } }; }
 	};
 	const executeHerdrSpawnPane: ToolExecutor<HerdrSpawnPaneParams> = async (_id, params) => {

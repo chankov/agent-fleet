@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { isPracticeId, PRACTICE_IDS } from './practices.ts';
 export interface ModelSelection {
     model: string;
     thinking?: string;
@@ -39,6 +40,13 @@ export interface ProfileAgentDef {
 }
 const thinkingLevels = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const namePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** An agents/flat key: a role, or `<role>.<practice>` for a per-practice selection (D9). */
+const agentKeyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
+/** `editor.planning` → { role: "editor", practice: "planning" }; null for a plain role key. */
+export function splitPracticeKey(name: string): { role: string; practice: string } | null {
+    const dot = name.indexOf('.');
+    return dot > 0 ? { role: name.slice(0, dot), practice: name.slice(dot + 1) } : null;
+}
 const modelPattern = /^[^\s/,]+\/[^\s,]+$/;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 export function isCompleteProfile(p: ModelProfile): p is CompleteModelProfile { return p.version === 2; }
@@ -58,12 +66,12 @@ function selection(value: unknown, label: string): ModelSelection {
         throw new Error(`${label}: invalid thinking level`);
     return { model: raw.model, ...(raw.thinking !== undefined ? { thinking: raw.thinking as string } : {}) };
 }
-function namedSelections(value: unknown, label: string): Record<string, ModelSelection> {
+function namedSelections(value: unknown, label: string, pattern = namePattern): Record<string, ModelSelection> {
     if (!object(value))
         throw new Error(`${label}: expected mapping`);
     const result: Record<string, ModelSelection> = {};
     for (const [name, v] of Object.entries(value)) {
-        if (!namePattern.test(name))
+        if (!pattern.test(name))
             throw new Error(`${label}: invalid name "${name}"`);
         result[name] = selection(v, `${label}.${name}`);
     }
@@ -90,7 +98,7 @@ export function parseCompleteProfile(raw: unknown): CompleteModelProfile {
         }
     }
     if (raw.agents !== undefined)
-        p.agents = namedSelections(raw.agents, 'agents');
+        p.agents = namedSelections(raw.agents, 'agents', agentKeyPattern);
     if (raw.subagents !== undefined) {
         if (!object(raw.subagents))
             throw new Error('subagents: expected mapping');
@@ -182,7 +190,7 @@ export function parseModelProfiles(text: string): {
             else {
                 const legacy: Record<string, string> = {};
                 for (const [persona, model] of Object.entries(value)) {
-                    if (!namePattern.test(persona) || typeof model !== 'string' || !modelPattern.test(model))
+                    if (!agentKeyPattern.test(persona) || typeof model !== 'string' || !modelPattern.test(model))
                         throw new Error(`invalid persona/model entry ${persona}`);
                     legacy[persona] = model;
                 }
@@ -196,6 +204,10 @@ export function parseModelProfiles(text: string): {
         }
     }
     return { profiles, errors };
+}
+/** The profile's own `<role>.<practice>` entry, without defaults; undefined when the profile names none. */
+export function practiceSelection(p: CompleteModelProfile, role: string, practice: string): ModelSelection | undefined {
+    return p.agents?.[`${role.toLowerCase()}.${practice}`];
 }
 export function agentSelection(p: CompleteModelProfile, name: string): ModelSelection {
     return { thinking: 'off', ...p.defaults, ...p.agents?.[name.toLowerCase()] };
@@ -220,11 +232,15 @@ export function validateProfile(p: ModelProfile, defs: readonly ProfileAgentDef[
         // The orchestrator catalog persona was retired with its work mode (2026-11-11).
         // An older profile that still maps it stays valid; the entry has nothing to apply to.
         if (name === "orchestrator") continue;
-        const def = defs.find(d => d.name.toLowerCase() === name);
+        const practiceKey = splitPracticeKey(name);
+        const roleName = practiceKey?.role ?? name;
+        const def = defs.find(d => d.name.toLowerCase() === roleName);
         if (!def)
-            errors.push(`unknown persona "${name}"`);
+            errors.push(practiceKey ? `unknown role "${roleName}" in "${name}"` : `unknown persona "${name}"`);
+        else if (practiceKey && !isPracticeId(practiceKey.practice))
+            errors.push(`unknown practice "${practiceKey.practice}" in "${name}" — known practices: ${PRACTICE_IDS.join(', ')}`);
         else if (!isCompleteProfile(p) && ![def.model, ...(def.models ?? [])].includes(model))
-            errors.push(`${name} does not declare ${model}`);
+            errors.push(`${name} does not declare ${model}${practiceKey ? ` (add it to the ${roleName} models: list)` : ''}`);
     }
     if (isCompleteProfile(p))
         for (const [parent, roles] of Object.entries(p.subagents ?? {})) {

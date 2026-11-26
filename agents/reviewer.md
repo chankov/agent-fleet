@@ -15,6 +15,11 @@ models:
   - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
   - xai/grok-4.7
 thinking: medium
+# Per-practice defaults kept from the retired personas (D9)
+practice_models:
+  security: { model: openai-codex/gpt-6.2-sol, thinking: high }
+  performance: { model: openai-codex/gpt-6-luna, thinking: high }
+  architecture: { model: openai-codex/gpt-6.2-sol, thinking: high }
 delegate_depth: 1
 subagents:
   preflight:

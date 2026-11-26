@@ -2,6 +2,7 @@ import { basePersonaName, isReviewPersona } from "./run-budget.js";
 import { privateProcessProofCurrent, type PrivateProcessProof, type PrivateProofUse } from './private-config-review.ts';
 import { normalizeRuntimeReceipts, type RuntimeReceiptState } from "./runtime-receipts.ts";
 import { normalizeReviewEvidence, type ReviewEvidence } from "./review-reuse.ts";
+import { isChangeAuthor } from "./review-closure.ts";
 import { consumeActionGrant, type ActionContract, type ActionGrant } from "./task-triage-authorization.ts";
 
 export const PROCESS_OBLIGATIONS_SCHEMA = "agent-fleet.process-obligations/v1" as const;
@@ -43,6 +44,8 @@ export interface ProcessObligationState {
  runtimeReceipts?: RuntimeReceiptState;
  reviews?: ReviewEvidence[];
  reviewHistory?: ReviewEvidence[];
+ /** Registered task file → who changed it (review-closure.ts identities), for review independence. Absent in older states. */
+ changeAuthors?: Record<string, string[]>;
 }
 export interface ProcessClassificationInput { risk?: string; scope?: string; reason?: string; newTask?: boolean; }
 export interface ProcessVerdict {
@@ -73,12 +76,31 @@ export function normalizeProcessState(value: unknown): ProcessObligationState {
  if (Array.isArray(row.additions) && (row.additions.length > 300 || Buffer.byteLength(JSON.stringify(row.additions)) > 64 * 1024)) throw new Error("Process additions exceed the persistence limit; dependent effects are blocked.");
  if(Array.isArray(row.reviews))state.reviews=normalizeReviewEvidence(row.reviews);
  if(Array.isArray(row.reviewHistory))state.reviewHistory=normalizeReviewEvidence(row.reviewHistory);
+ // Authorship decides who may approve a change; corrupt authorship fails closed like a corrupt work origin.
+ if(row.changeAuthors!==undefined){const authors=normalizeChangeAuthors(row.changeAuthors);if(!authors)throw new Error("Invalid change authorship; dependent effects are blocked.");if(Object.keys(authors).length)state.changeAuthors=authors;}
  state.additions = Array.isArray(row.additions) ? row.additions.map((a: any) => {
   if (!a || a.source !== "system1" || typeof a.id !== "string" || !a.id || !["taskId", "evaluationId", "inputRevision", "policyVersion", "questionVersion", "provider", "model"].every(k => typeof a[k] === "string" && a[k]) || !["security_change", "wide_change", "irreversible_execution"].includes(a.reason) || !["active", "waived"].includes(a.status) || a.status === "waived" && (typeof a.waiverReason !== "string" || !a.waiverReason)) throw new Error("Invalid process addition; dependent effects are blocked.");
   return { id: a.id, source: "system1" as const, taskId: a.taskId, evaluationId: a.evaluationId, inputRevision: a.inputRevision, policyVersion: a.policyVersion, questionVersion: a.questionVersion, provider: a.provider, model: a.model, reason: a.reason, status: a.status, waiverReason: a.status === "waived" ? a.waiverReason : null };
  }) : [];
  state.reassessments = Number.isSafeInteger(row.reassessments) && row.reassessments >= 0 ? row.reassessments : 0; state.lastReason = cleanReason(row.lastReason);
  state.appliedRuleIds = strings(row.appliedRuleIds).map(id => id === "scope-wide-plan-review" ? "scope-wide-independent-review" : id); state.changedFiles = strings(row.changedFiles); return state;
+}
+function normalizeChangeAuthors(value: unknown): Record<string, string[]> | null {
+ if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+ const entries: Array<[string, string[]]> = [];
+ for (const [path, ids] of Object.entries(value)) {
+  if (!path.trim() || path !== path.trim() || !Array.isArray(ids) || !ids.length || !ids.every(isChangeAuthor)) return null;
+  entries.push([path, [...new Set(ids as string[])].sort()]);
+ }
+ return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)));
+}
+/** Records who changed these registered task files. Earlier authors stay: every author of a file is ineligible to approve it. */
+export function recordChangeAuthors(state: ProcessObligationState, paths: readonly string[], author: string): ProcessObligationState {
+ if (!isChangeAuthor(author)) throw new Error(`Invalid change author ${JSON.stringify(author)}.`);
+ const changed = strings(paths); if (!changed.length) return state;
+ const authors = new Map(Object.entries(state.changeAuthors ?? {}));
+ for (const path of changed) authors.set(path, [...new Set([...(authors.get(path) ?? []), author])].sort());
+ return { ...state, changeAuthors: Object.fromEntries([...authors].sort(([a], [b]) => a.localeCompare(b))) };
 }
 function rules(risk: TaskRisk, scope: TaskScope): string[] { return [...new Set([risk === "unknown" ? "risk-unknown-fail-closed" : risk === "high" ? "risk-high-independent-review" : "risk-low-minimal-acceptance", scope === "wide" ? "scope-wide-independent-review" : scope === "read-only" ? "scope-read-only-lightweight" : "scope-changed-task", "budget-tier-spend-only"])]; }
 export function applyProcessClassification(current: ProcessObligationState, input: ProcessClassificationInput): { ok: true; state: ProcessObligationState; message: string } | { ok: false; state: ProcessObligationState; message: string } {
@@ -101,7 +123,7 @@ export function missingProcessRoleRecoveryHints(state: ProcessObligationState, r
  const open = processOpenObligations(state, currentRevision);
  const missingReview = open.includes("review") && ![...roster].some(name => isReviewPersona(name));
  return [
-  missingReview ? "Review requires the reviewer role: ask the human to install it (agent-fleet setup) or run /af-agents-add reviewer, or choose a roster with /af-agents-team." : "",
+  missingReview ? "Review requires the reviewer role: ask the human to install its definition (agent-fleet setup); the Hub dispatches it once installed." : "",
  ].filter(Boolean).join(" ");
 }
 
@@ -191,7 +213,7 @@ export function nestedRepositoriesInUse(state: Pick<ProcessObligationState, "acc
 /** The admissible way to close an open review, so the operator never has to guess one. */
 export function reviewRoute(state: Pick<ProcessObligationState, "changedFiles">): string {
  const raw = "A reply to a raw coms_send is a message, not a review record.";
- if (state.changedFiles.length) return `Close it with an independent dispatch_agent review that covers the task's changed files (${state.changedFiles.slice(0, 5).join(", ")}${state.changedFiles.length > 5 ? ", …" : ""}). ${raw}`;
+ if (state.changedFiles.length) return `Close it with an independent dispatch_agent review that covers the task's changed files (${state.changedFiles.slice(0, 5).join(", ")}${state.changedFiles.length > 5 ? ", …" : ""}), run by a reviewer that authored none of them. ${raw}`;
  return `No task change is registered, so no review can close it yet. For edits you made yourself, dispatch_agent reviewer (practices: ["independent-review"]) with backend: native, review_mode: operator-current-state and scope: the exact edited files (it runs the automated assertion checks in the write-denying sandbox); or delegate the edit to an editor and then review that change. If such a review already ran, its result names the refused qualifier in operatorStateVerification.reason with the permitted next step; passing automated checks alone do not register the change. ${raw}`;
 }
 export function evaluateProcessObligations(state: ProcessObligationState, input: { writable: boolean; budgetTier: string; t2Accepted?: boolean; currentRevision?: CurrentRevision; privateUse?: PrivateProofUse }): ProcessVerdict {

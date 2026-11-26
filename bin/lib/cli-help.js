@@ -63,11 +63,11 @@ Options:
     • recorded items that are missing, dangling, or linked outside the source
       root — repaired through the same apply() path \`install\` writes with, so
       a repaired file is byte-identical to a freshly installed one;
-    • broken symlinks and stale persona names the install record cannot own
-      (pre-engine workspaces, hand-edited .pi/agents/*.yaml).
+    • broken symlinks the install record cannot own (pre-engine workspaces).
 
-  Overrides problems and malformed peers.yaml entries are advisory: reported,
-  never auto-fixed, because the fix is always a hand edit.
+  Overrides problems and dispatch-policy routes keyed by something other than
+  a role are advisory: reported, never auto-fixed, because the fix is always a
+  hand edit.
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)

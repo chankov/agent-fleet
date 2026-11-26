@@ -9,12 +9,12 @@ import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../.
 //
 // Finding classes:
 //   1. Broken symlinks — links whose source has been moved, renamed, or deleted
-//   2. Stale persona refs — YAML configs (teams.yaml, peers.yaml) that
-//      still name a persona which no longer exists in the source tree
-//   3. Malformed peer entries — field lines in peers.yaml that sit under a
-//      team before any `- name: ...` list item. The team-up launcher's
-//      minimal parser silently drops such lines, so the peer vanishes with
-//      no error. Advisory only: the fix is a hand edit.
+//   2. Non-role dispatch routes — `.pi/agents/dispatch-policy.yaml` route keys
+//      that are not a runtime role (researcher, reviewer, editor). The Hub
+//      ignores such a route with a warning; a retired persona name gets its
+//      role-and-practice mapping. Advisory only: the fix is a hand edit.
+//   3. (retired) peers.yaml/teams.yaml scans — both files were removed with
+//      peer groups and native teams (PLAN-11-01, D7/D8/D16).
 //   4. Overrides-file problems — unknown sections/keys, invalid values, and
 //      unset declared env vars in .ai/agent-fleet-overrides.md. Advisory
 //      only: reported, never auto-fixed (the fix is always a hand edit).
@@ -39,7 +39,7 @@ import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../.
 // `agents/` or `skills/` tree (many breakages are stale names from the
 // pre-merge layout, e.g. `reviewer` → `code-reviewer`).
 
-import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
+import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep, delimiter } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
@@ -83,11 +83,8 @@ const TARGET_DIRS = [
   ".claude/hooks",
 ];
 
-// YAML configs that may reference persona names.
-const YAML_REFS = [
-  ".pi/agents/teams.yaml",
-  ".pi/agents/peers.yaml",
-];
+// The one YAML config whose keys name agents: routes are keyed by role.
+const DISPATCH_POLICY_REL = ".pi/agents/dispatch-policy.yaml";
 
 /**
  * Run the doctor scan.
@@ -143,36 +140,8 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
     }
   }
 
-  // 2. Stale persona refs in YAML configs.
-  for (const rel of YAML_REFS) {
-    const file = join(workspace, rel);
-    if (!existsSync(file)) continue;
-    const text = readFileSync(file, "utf8");
-    for (const [stale, canonical] of Object.entries(PERSONA_RENAMES)) {
-      // Match the persona name as a *standalone token* — bounded by
-      // start-of-line, whitespace, quotes, or a YAML separator (:, [, ], ,).
-      // Crucially, "-" must NOT count as a boundary, or we'd match
-      // "reviewer" inside "code-reviewer".
-      const re = new RegExp(
-        `(^|[\\s'"\\[\\],:])${escapeRe(stale)}(?=[\\s'"\\[\\],:]|$)`,
-        "gm",
-      );
-      if (re.test(text)) {
-        findings.push({
-          type: "stale-yaml-ref",
-          path: relative(workspace, file),
-          issue: `references "${stale}"`,
-          fix: `rename to "${canonical}"`,
-          stale,
-          canonical,
-          absPath: file,
-        });
-      }
-    }
-  }
-
-  // 3. Malformed peer entries in peers.yaml (advisory, never auto-fixed).
-  findings.push(...scanPeersYamlShape(workspace));
+  // 2./3. Dispatch routes keyed by something other than a role (advisory, never auto-fixed).
+  findings.push(...await scanDispatchPolicyRoutes(workspace));
 
   // 4. Advisory validation of the overrides file (never auto-fixed).
   findings.push(...validateOverrides({ workspace }));
@@ -215,14 +184,6 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
           unlinkSync(f.absPath);
           deleted++;
         }
-      } else if (f.type === "stale-yaml-ref") {
-        const text = readFileSync(f.absPath, "utf8");
-        const re = new RegExp(
-          `(^|[\\s'"\\[\\],:])${escapeRe(f.stale)}(?=[\\s'"\\[\\],:]|$)`,
-          "gm",
-        );
-        writeFileSync(f.absPath, text.replace(re, `$1${f.canonical}`));
-        repaired++;
       }
     } catch (err) {
       skipped++;
@@ -325,6 +286,10 @@ export function scanTaskTriageReadiness({ workspace, env = process.env }) {
     config.status === "active", producers)];
 }
 
+// The stage producers task triage needs: the editor writes the plan and the
+// change, the reviewer reviews them (PLAN-11-01 runtime roles).
+const TASK_TRIAGE_ROLES = ["editor", "reviewer"];
+
 function localStageProducers(workspace) {
   const found = new Set();
   let uncertain = false, count = 0;
@@ -342,11 +307,11 @@ function localStageProducers(workspace) {
         const header = buffer.toString("utf8", 0, size).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
         if (!header) { uncertain = true; continue; }
         const name = header[1].match(/^name:\s*([^\r\n]+)$/m)?.[1]?.trim().toLowerCase();
-        if (name === "planner" || name === "code-reviewer") found.add(name);
+        if (TASK_TRIAGE_ROLES.includes(name)) found.add(name);
       }
     } catch { uncertain = true; }
   }
-  const missing = ["planner", "code-reviewer"].filter(name => !found.has(name));
+  const missing = TASK_TRIAGE_ROLES.filter(name => !found.has(name));
   return { status: uncertain ? "unverified" : missing.length ? "missing" : "local_files_present_roster_unverified",
     missing: uncertain ? [] : missing };
 }
@@ -359,7 +324,7 @@ function taskTriageFinding(readiness, selected, configured = false, producers = 
     selected, configured, remoteApproved, readiness, apiValidity: "unverified",
     ...(producers ? { stageProducerStatus: producers.status, missingLocalProducers } : {}),
     issue: `Task triage: ${readiness}; API validity is unverified${missingLocalProducers.length ? `; locally missing ${missingLocalProducers.join(", ")}` : ""}`,
-    fix: missingLocalProducers.length ? `${missingLocalProducers.map(name => `/af-agents-add ${name}`).join(" or ")} or /af-agents-team; choose/enable roles explicitly, no automatic roster change`
+    fix: missingLocalProducers.length ? `install the ${missingLocalProducers.join(" and ")} role definition${missingLocalProducers.length > 1 ? "s" : ""} (agent-fleet setup --items ${missingLocalProducers.map(name => `persona:${name}`).join(",")}, or add agents/<role>.md); doctor never changes them`
       : readiness === "locally_ready" || readiness === "disabled_by_setup" || readiness === "disabled"
         ? "no automatic action" : "review the human-owned task triage configuration and local provider readiness; doctor never starts inference",
   };
@@ -369,57 +334,46 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Scan peers.yaml for field lines that sit under a team heading before any
-// `- name: ...` list item. .pi/agent-fleet/scripts/team-up.ts parses this file with a minimal
-// hand-rolled parser that only attaches `key: value` lines to the CURRENT list
-// item — an orphan field block (typically a peer whose leading `- name:` line
-// was lost in an edit) is dropped without an error and the peer silently
-// never spawns. One finding per team, pointing at the first orphan line.
-const PEERS_YAML_REL = ".pi/agents/peers.yaml";
-
-function scanPeersYamlShape(workspace) {
-  const file = join(workspace, PEERS_YAML_REL);
-  if (!existsSync(file)) return [];
+// Routes in dispatch-policy.yaml are keyed by runtime role (PLAN-11-01, D11):
+// the Hub warns about and ignores any other key, so a route written for a
+// retired persona or a peer name silently stops routing. Report each such key
+// with the role-and-practice mapping the Hub's own role table gives a retired
+// persona. Advisory ("yaml-shape"): the fix is a hand edit.
+async function scanDispatchPolicyRoutes(workspace) {
+  const file = join(workspace, DISPATCH_POLICY_REL);
   let text;
   try { text = readFileSync(file, "utf8"); } catch { return []; }
-
-  const findings = [];
-  let currentTeam = null;
-  let inItem = false;
-  let reportedTeam = null;
-
-  text.split("\n").forEach((rawLine, i) => {
-    const line = rawLine.replace(/\s+$/, "");
-    if (line.trim() === "" || /^\s*#/.test(line)) return;
-    const content = line.trim();
-
-    if (!/^\s/.test(line)) {
-      const m = content.match(/^([A-Za-z0-9_-]+):\s*$/);
-      if (m) {
-        currentTeam = m[1];
-        inItem = false;
-        reportedTeam = null;
-      }
-      return;
-    }
-    if (!currentTeam) return;
-
-    if (/^-\s/.test(content)) {
-      inItem = true;
-      return;
-    }
-    if (!inItem && /^[A-Za-z0-9_]+:\s*\S/.test(content) && reportedTeam !== currentTeam) {
-      reportedTeam = currentTeam;
-      findings.push({
+  let doc;
+  try { doc = parseYaml(text); } catch { return []; } // the Hub warns about unparseable lines itself
+  const routes = doc && typeof doc === "object" ? (doc.routes ?? doc.substitutions) : null;
+  if (!routes || typeof routes !== "object" || Array.isArray(routes)) return [];
+  const roles = await roleTable();
+  return Object.keys(routes)
+    .filter((key) => !roles.names.includes(key.toLowerCase()))
+    .map((key) => {
+      const retired = roles.retired(key);
+      const targets = [...new Set((roles.assignments(key) ?? []).map((entry) => entry.role))];
+      return {
         type: "yaml-shape",
-        path: PEERS_YAML_REL,
-        issue: `team "${currentTeam}": line ${i + 1} ("${content}") appears before any "- name: ..." item — the team-up launcher silently drops it`,
-        fix: `add the missing "- name: <peer>" line above it in ${PEERS_YAML_REL}`,
-      });
-    }
-  });
+        path: DISPATCH_POLICY_REL,
+        issue: `route "${key}" is not a role, so the Hub ignores it; ${retired ?? `routes are keyed by ${roles.names.join(", ")}`}`,
+        fix: targets.length === 1
+          ? `key the route by "${targets[0]}:" and keep the peer address as "peer: ${key}"`
+          : `key the route by its role (${roles.names.join(", ")}) and name the peer with "peer: ${key}"`,
+      };
+    });
+}
 
-  return findings;
+// The role names and retired-persona mapping live in the Hub
+// (.pi/harnesses/agent-hub/config/roles.ts). Importing TypeScript needs a Node
+// that strips types; on an older runtime the scan still names the roles but
+// leaves the retired-persona mapping out rather than restating it here.
+let roleTablePromise;
+function roleTable() {
+  roleTablePromise ??= import("../../.pi/harnesses/agent-hub/config/roles.ts")
+    .then((roles) => ({ names: [...roles.ROLE_NAMES], retired: roles.retiredPersonaDiagnostic, assignments: roles.retiredAssignments }))
+    .catch(() => ({ names: ["researcher", "reviewer", "editor"], retired: () => null, assignments: () => null }));
+  return roleTablePromise;
 }
 
 function inferKind(targetDir) {

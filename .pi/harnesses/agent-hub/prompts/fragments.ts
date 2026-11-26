@@ -17,7 +17,7 @@ export function dispatchFragment(fleetActive: boolean): string {
 	return `- Missing repository facts are not ambiguities: use \`spawn_research\` or listed \`filesystem\` stat/inventory/excerpt/readback. Use stat and bounded excerpts of large files with offset/max_bytes; the 64 KiB aggregate turn limit still applies. Choose a research helper when it adds value, not merely because the file is large. Never invent constraints. ${ORCHESTRATOR_CLARIFICATION}
 - Reuse completed independent review of unchanged scope and requirements. A new review focus needs an explicit review_reason; rewording alone is not a reason for another auditor. Older successful coordination results and inspection pages become references to exact originals. Recent working pages, questions and failures remain complete; retrieve originals when details matter. Requirements stay in the current task capsule.
 - Planner and plan review are optional at every task size and risk. Follow an existing plan directly and use Decision routing for unresolved material decisions. Never start a planning/review pipeline merely because the task is wide, high-risk or lacks a plan.
-- Trivial/small refuses architect, security-auditor and deep-researcher without charging. Use the working specialist, or raise tier with an honest reason first. Never repeat an unchanged refusal.
+- Trivial/small refuses architecture and security-review assignments without charging. Use the working assignment, or raise tier with an honest reason first. Never repeat an unchanged refusal.
 - Only use an assertion ledger/proven status when \`set_assertions\` is active; its absence means the tier has not opened verification, not acceptance.
 - Use \`dispatch_agent\` for one focused task; clarification/research and file-deliverable protocols are added automatically. Pass optional \`artifacts\` paths, never full plan/review/inventory bodies.
 - Returns: parsed \`details.structuredReturn\`/\`details.contractNotices\`, raw \`details.returnPath\`/\`details.fullOutput\`. Read via a helper only if digest/path is insufficient. Check every return for questions. specialistCompletion describes the worker report; taskAccepted is the independent runtime verdict. A submitted report alone never proves completion.`;
@@ -67,7 +67,7 @@ In spawn_research, task describes the investigation, goal its question, expected
 export function comsFragment(peerActive: boolean, comsReady: boolean, identity: { name: string; project: string } | null): string {
 	return peerActive && comsReady && identity ? `
 ## Peer agents (coms)
-You are peer "${identity.name}" in project "${identity.project}". Use \`coms_list\` for the human-scoped pool and status; the Hub cannot widen it. Send one self-contained prompt, then await/get the returned msg_id without resending. Match send/await deadlines. Prefer team dispatch unless the task needs a standing peer, and never duplicate a dispatch to its same-name peer.
+You are peer "${identity.name}" in project "${identity.project}". Use \`coms_list\` for the human-scoped pool and status; the Hub cannot widen it. Send one self-contained prompt, then await/get the returned msg_id without resending. Match send/await deadlines. Prefer \`dispatch_agent\` unless the task needs a standing peer, and never duplicate a dispatch to the peer on its role's route.
 ` : "";
 }
 

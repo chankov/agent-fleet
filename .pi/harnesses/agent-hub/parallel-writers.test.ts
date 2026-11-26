@@ -179,10 +179,9 @@ test("a parallel instance passes the real agent-key, session and roster paths; p
 	const factory = createAgentStateFactory(() => sessionDir);
 	const states = new Map<string, any>();
 	const roster = createRosterPolicy({
-		getTeams: () => ({}), getAllDefs: () => [{ name: "builder" }] as any, getStates: () => states,
-		getActiveTeamName: () => "default", setActiveTeamName() {}, clearBackendNotices() {},
+		getDispatchableDefs: () => [{ name: "builder" }] as any, getStates: () => states, clearBackendNotices() {},
 		createFreshState: (def: any, adoption: any) => factory.freshAgentState(def, adoption), adoptSession: (def: any) => factory.adoptableSessionFile(def),
-		quarantineSession: () => ({ usable: true, quarantined: null, reason: null }), persist() {}, recompute() {}, refreshUi() {}, displayName: (name: string) => name,
+		recompute() {}, refreshUi() {}, displayName: (name: string) => name,
 	} as any);
 	const added = roster.addInstance({ name: "builder--p2", tools: "read,write", file: "agents/builder.md" } as any);
 	assert.equal(added.ok, true, added.message);

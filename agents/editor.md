@@ -12,7 +12,16 @@ models:
   - ollama/glm-5.2:cloud
   - ollama/nemotron-3-ultra:cloud
   - omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
+  - openai-codex/gpt-6.2-astra
+  - xai/grok-4.7
 thinking: medium
+# Per-practice defaults kept from the retired personas (D9)
+practice_models:
+  planning: { model: openai-codex/gpt-6.2-astra, thinking: high }
+  architecture: { model: openai-codex/gpt-6.2-sol, thinking: high }
+  testing: { model: xai/grok-4.7, thinking: low }
+  documentation: { model: openai-codex/gpt-6.2-sol, thinking: minimal }
+  release: { model: openai-codex/gpt-6.2-sol, thinking: low }
 delegate_depth: 1
 subagents:
   recon:

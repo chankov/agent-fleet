@@ -4,8 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyProcessClassification, createProcessState, normalizeProcessState, noteProcessStage } from "./process-obligations.ts";
-import { reviewInput, retainReview, reusableReview } from "./review-reuse.ts";
+import { applyProcessClassification, createProcessState, normalizeProcessState, noteProcessStage, recordChangeAuthors } from "./process-obligations.ts";
+import { comsAuthor, nativeAuthor } from "./review-closure.ts";
+import { normalizeReviewEvidence, reviewInput, retainReview, reusableReview } from "./review-reuse.ts";
 import { revisionOf } from "./scope-gate.js";
 
 test("review coverage persists and invalidates on code, contract or report changes without a quota",t=>{
@@ -33,4 +34,25 @@ test("review coverage persists and invalidates on code, contract or report chang
  rmSync(join(cwd,"unrelated.txt"));
  writeFileSync(join(cwd,"a.ts"),"export const value=3;\n");assert.equal(reusableReview(state,reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[]),cwd),null);
  writeFileSync(join(cwd,"review.md"),"changed evidence");assert.equal(reusableReview(state,input,cwd),null);
+});
+
+test("retained review evidence names its reviewer, and an author's review is never reused",t=>{
+ const cwd=mkdtempSync(join(tmpdir(),"fleet-review-author-"));t.after(()=>rmSync(cwd,{recursive:true,force:true}));
+ execFileSync("git",["init"],{cwd,stdio:"ignore"});writeFileSync(join(cwd,"a.ts"),"export const value=1;\n");
+ execFileSync("git",["add","."],{cwd,stdio:"ignore"});execFileSync("git",["-c","user.name=Test","-c","user.email=test@example.com","commit","-m","fixture"],{cwd,stdio:"ignore"});
+ writeFileSync(join(cwd,"a.ts"),"export const value=2;\n");writeFileSync(join(cwd,"review.md"),"APPROVE");
+ const peer=comsAuthor({address:"peer-a",sessionId:"s1"});
+ let state=applyProcessClassification(createProcessState(),{risk:"high",scope:"small",reason:"review code"}).state;
+ state=recordChangeAuthors({...state,changedFiles:["a.ts"]},["a.ts"],nativeAuthor('["/w","editor"]'));
+ state=noteProcessStage(state,"review",{evidenceRef:"review.md",revision:revisionOf(cwd)});
+ const input=reviewInput(cwd,"task","reviewer",["a.ts"],state,[],[]);
+ state=normalizeProcessState(retainReview(state,input,"review.md",cwd,peer));
+ assert.equal(state.reviews?.[0]?.executor,peer);
+ assert.ok(reusableReview(state,input,cwd),"an independent reviewer's evidence is reusable");
+ // The same peer session later authored the reviewed file (same revision): no reuse.
+ assert.equal(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-a",sessionId:"s1"})),input,cwd),null);
+ assert.ok(reusableReview(recordChangeAuthors(state,["a.ts"],comsAuthor({address:"peer-a",sessionId:"s2"})),input,cwd),"another session is another executor");
+ const legacy={...state.reviews![0]!};delete legacy.executor;
+ assert.equal(normalizeReviewEvidence([legacy])[0]?.executor,undefined,"older evidence without a reviewer identity stays valid");
+ assert.deepEqual(normalizeReviewEvidence([{...legacy,executor:"somebody"}]),[],"an unreadable reviewer identity is dropped, never reused");
 });

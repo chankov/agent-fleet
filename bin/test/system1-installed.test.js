@@ -325,9 +325,10 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     });
     assert.equal(triageDoctorText.includes("synthetic-test-only-key"), false);
     const triageDoctor = JSON.parse(triageDoctorText).findings.find(f => f.type === "task-triage");
-    assert.equal(triageDoctor.readiness, "missing_local_producer", "installed Default lacks a planner even with a locally ready provider");
-    assert.ok(triageDoctor.missingLocalProducers.includes("planner"));
-    assert.match(triageDoctor.fix, /\/af-agents-add planner/);
+    assert.equal(triageDoctor.readiness, "missing_local_producer", "installed Default lacks the editor/reviewer role definitions even with a locally ready provider");
+    assert.ok(triageDoctor.missingLocalProducers.includes("editor"));
+    assert.match(triageDoctor.fix, /install the .*editor.* role definition.*agent-fleet setup --items persona:editor/);
+    assert.doesNotMatch(triageDoctor.fix, /\/af-agents-/);
     execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default", "--features", "none", "--yes"], { encoding: "utf8" });
     assert.equal(readFileSync(triageConfigPath, "utf8"), humanTriage, "disable preserves the human config");
     const disabled = runtimeStatus();

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { beginExecutionEvidence, finishExecutionEvidence } from "./execution-evidence.ts";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { TIMEOUT_MS } from "../lib/coms-core.ts";
-import { comsRequiredRefusal, explicitComsRefusal, resolveDispatchBackend } from "./backend-policy.js";
+import { comsRequiredRefusal, explicitComsRefusal, policyRoute, resolveDispatchBackend } from "./backend-policy.js";
 import { monitorKeyForAgent } from "./monitor-control.ts";
 import { normalizeAgentInput, safeAgentKey, safePathWithin } from "./helpers.ts";
 import { prepareNativeRun } from "./dispatch-native-prepare.ts";
@@ -176,11 +176,11 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		const peer = deps.peersInScope().find(entry => entry.name.toLowerCase() === String(route.peerName).toLowerCase());
 		const enforcedReadOnly = (peer as { read_only?: boolean } | undefined)?.read_only === true;
 		const readOnlyRefusal = readOnlyRole && !enforcedReadOnly
-			? `${deps.displayName(state.def.name)} is a read-only role; coms peer "${route.peerName}" does not declare enforced read-only tools (peers.yaml read_only: true), so it cannot take this assignment.`
+			? `${deps.displayName(state.def.name)} is a read-only role; coms peer "${route.peerName}" does not declare enforced read-only tools (start it with \`just fleet peer <name> --read-only\`), so it cannot take this assignment.`
 			: null;
 		const profileRefusal = readOnlyRefusal ? { content: [{ type: "text" as const, text: readOnlyRefusal }] } : run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
 		if (profileRefusal) {
-			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const allowNativeFallback = !route.explicit && (policyRoute(dispatchPolicy, personaKey)?.fallback ?? "native") !== "none";
 			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
 			if (!deps.wasComsMissNotified(personaKey)) {
 				deps.markComsMissNotified(personaKey);
@@ -188,7 +188,7 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 			}
 		} else {
 			void deps.registerMonitorWaitOnly(monitorKey, state);
-			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
+			const allowNativeFallback = !route.explicit && (policyRoute(dispatchPolicy, personaKey)?.fallback ?? "native") !== "none";
 			const timeoutMs = route.timeout_s ? route.timeout_s * 1000 : TIMEOUT_MS;
 			const comsResult = await deps.dispatchViaComs(state, task, route.peerName, timeoutMs, allowNativeFallback, ctx, inputArtifacts, scopeGlobs);
 			if (comsResult) {

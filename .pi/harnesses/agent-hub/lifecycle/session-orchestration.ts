@@ -52,6 +52,8 @@ export interface SessionOverridePorts<TDef extends AgentDef> {
 	setProjectRules(value: string[]): void;
 	setProjectDocs(value: string[]): void;
 	resetModelPolicy(): void;
+	/** `model.<role>.<practice>` / `thinking.<role>.<practice>` entries for the model policy (D9). */
+	setPracticeModelOverrides?(value: Record<string, { model?: string; thinking?: string }>): void;
 	getAgentDefs(): TDef[];
 	getModelProfiles(): ModelProfiles;
 	getModelProfileErrors?(): string[];
@@ -98,6 +100,17 @@ export function applySessionOverrides<TDef extends AgentDef>(ctx: ExtensionConte
 		}
 		if (overrides.personaDelegateDepth[lower] !== undefined) def.delegateDepth = overrides.personaDelegateDepth[lower];
 	}
+	// Practice entries stay in the model policy, not on the definition, so the
+	// trace can tell an overrides-file choice from the role file's default.
+	const practiceEntries: Record<string, { model?: string; thinking?: string }> = {};
+	const unknownRoles: string[] = [];
+	for (const [entry, selection] of Object.entries(overrides.practiceModels ?? {})) {
+		const role = entry.slice(0, entry.indexOf("."));
+		if (defs.some(def => def.name.toLowerCase() === role)) practiceEntries[entry] = selection;
+		else unknownRoles.push(entry);
+	}
+	if (unknownRoles.length) ctx.ui.notify(`agent-fleet-overrides: ignored practice model entr${unknownRoles.length === 1 ? "y" : "ies"} ${unknownRoles.map(entry => `"${entry}"`).join(", ")} — no role definition with that name (roles: ${defs.map(def => def.name).join(", ") || "none"})`, "warning");
+	ports.setPracticeModelOverrides?.(practiceEntries);
 
 	const parseErrors=ports.getModelProfileErrors?.()??[];
 	if(parseErrors.length) ctx.ui.notify(`model-profiles.yaml: ${parseErrors.join('\n')}`, 'error');

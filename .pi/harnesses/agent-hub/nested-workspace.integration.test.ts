@@ -97,7 +97,6 @@ function rankedin(t: any) {
 		currentTaskId: () => noProgress.taskId(),
 		currentRevision: c => { const cwd = c.cwd || process.cwd(); return revisionOf(cwd, revisionScopes(cwd, processState.changedFiles)); },
 		revisionOf: (c, scopes) => revisionOf(c.cwd || process.cwd(), [...scopes]),
-		getAgentStates: () => agents, rosterAdd: () => ({ ok: false, message: "" }), rosterDrop: () => ({ ok: false, message: "" }),
 		getIdentity: () => null, getComs: () => null, resolveTarget: () => null, appendMachineHandoffSections: brief => brief, markPeerAddressed() {},
 	});
 	return {

@@ -1,7 +1,7 @@
 // .pi/agent-fleet/scripts/claude-code-preflight.ts
 //
 // Fail-fast health check shared by the standalone Fleet peer launcher and the
-// `_claude-peer` recipe used by team layouts. Resolving `claude` on PATH is not
+// `_claude-peer` recipes it launches. Resolving `claude` on PATH is not
 // enough: a broken npm install can leave a valid symlink pointing at a
 // non-executable placeholder. Running the cheap, non-interactive version command
 // proves that the resolved CLI can actually start before Fleet creates a pane or

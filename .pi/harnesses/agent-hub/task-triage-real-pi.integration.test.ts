@@ -2,7 +2,7 @@
 // extension in a real Pi runtime with an injectable fake shared System 1
 // service with a guarded fake transport (AGENT_HUB_TASK_TRIAGE_FAKE — test-only
 // seam in index.ts, not a separate provider/service) and a network guard. Gathers actual registered-hook evidence for
-// operator task-triage paths, with and without a native roster.
+// operator task-triage paths, with and without installed role definitions.
 //
 // No real API/model credentials: the child environment uses a whitelisted
 // synthetic readiness key and NODE_OPTIONS preloads
@@ -159,7 +159,7 @@ function triageDocument(legacy: Record<string, unknown>) {
  const {version,provider,model,...section}=legacy;
  return {version:2,mode:"auto",provider:"typesafe",model:"jev-1.13.0",apiKeyEnv:"TYPESAFE_API_KEY",consumers:{taskTriage:section}};
 }
-function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; childProvider?: boolean; readOnlyEditor?: boolean } = {}): string {
+function setupWorkspace(t: any, opts: { personas?: string[]; childProvider?: boolean; readOnlyEditor?: boolean } = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "triage-real-pi-"));
   writeFileSync(join(dir, "package.json"), JSON.stringify({type:"module"}));
   const offlinePreloaded = process.execArgv.some(arg => arg.includes("system1-no-network.js")) ||
@@ -190,10 +190,10 @@ function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; chil
     writeFileSync(childProvider, CHILD_PROVIDER_SOURCE);
     writeFileSync(join(dir, "bin/pi"), `#!/bin/sh\n[ "$PI_OFFLINE" = "1" ] || exit 88\ncase "$NODE_OPTIONS" in *system1-no-network.js*) ;; *) exit 89;; esac\nexec ${JSON.stringify(piExecutable)} -e ${JSON.stringify(childProvider)} "$@"\n`, { mode: 0o700 });
   }
-  if (opts.team) {
-    const members = opts.personas ?? ["editor"];
+  // Installed role definitions are the roster: every dispatchable role is available from session start (D7).
+  if (opts.personas) {
+    const members = opts.personas;
     mkdirSync(join(dir, ".pi/agents/personas"), { recursive: true });
-    writeFileSync(join(dir, ".pi/agents/teams.yaml"), `${opts.team}:\n${members.map(m => `  - ${m}`).join("\n")}\n`);
     for (const member of members) {
       const desc = member === "editor" ? "Minimal fixture editor for real-Pi triage acceptance" : `Minimal fixture ${member} for real-Pi stage acceptance`;
       writeFileSync(join(dir, `.pi/agents/personas/${member}.md`),
@@ -647,7 +647,7 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   // Use the actual tool result rather than a 30KB prefix of the whole growing transcript.
   const rosterRefusal = toolResult(session, 10)?.text ?? "";
   assert.match(rosterRefusal, /The editor role is not installed\. Installed roles: \(none\)\./, "empty-roster refusal names the role");
-  assert.match(rosterRefusal, /\/af-agents-add/, "empty-roster refusal points at roster recovery");
+  assert.match(rosterRefusal, /agent-fleet setup/, "empty-roster refusal points at the installation step");
 
   // Input transition: a changed follow-up fences direct effects; its fleet lease permits binding.
   const followUp = session.contexts().slice(6);
@@ -698,7 +698,7 @@ test("real Pi T4 wide-small empty-roster operator: direct effects proceed withou
   assert.match(after(3), /inspection is allowed/, "read-only tool remained usable while plan was open");
   assert.match(after(4), /The editor role is not installed\..*Ask the human to install it \(agent-fleet setup/, "missing planning editor has an actionable human recovery path");
   assert.match(after(5), /The reviewer role is not installed\./, "missing reviewer is not silently added");
-  assert.match(after(5), /\/af-agents-add reviewer|\/af-agents-team/);
+  assert.match(after(5), /agent-fleet setup/);
   const secondWrite = toolResult(session, 6);
   assert.notEqual(secondWrite?.isError, true, "missing optional planning editor does not block later authoring");
   assert.equal(readFileSync(change, "utf8"), "still must not land", "the second authorized write executed");
@@ -766,13 +766,13 @@ test("real Pi refuses unsafe or oversized exact-action presentation before askin
 });
 
 test("real Pi populated-roster, recover command, session switch and shutdown", { timeout: 180_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "tiny" });
+  const dir = setupWorkspace(t, { personas: ["editor"] });
   const script: ScriptStep[] = [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator bind" } },
     { tool: "dispatch_agent", args: { agent: "reviewer", task: "Review the typo fix" } },
     { text: "done" },
   ];
-  const first = await startSession(t, dir, { fake: "plain", script, fleetArgs: ["--solo", "--agent-team", "tiny"] });
+  const first = await startSession(t, dir, { fake: "plain", script, fleetArgs: ["--solo"] });
   const r1 = await first.request("fix the typo in README");
   assert.equal(r1.success, true, `roster prompt failed: ${JSON.stringify(r1)}`);
   const calls = first.contexts();
@@ -782,7 +782,7 @@ test("real Pi populated-roster, recover command, session switch and shutdown", {
   const inbound = inboundText(first);
   assert.match(inbound, /The reviewer role is not installed\. Installed roles: editor\./, "populated roster without reviewer still refuses the missing role");
   // An installed role is added on first dispatch; one that is not installed names the human install step.
-  assert.match(inbound, /Ask the human to install it \(agent-fleet setup, or \/af-agents-add reviewer/, "missing required role retains actionable recovery");
+  assert.match(inbound, /Ask the human to install it \(agent-fleet setup/, "missing required role retains actionable recovery");
 
   // Persistence recovery command is live in the real session and reports checked state.
   const rr = await first.request("/af-task-triage-recover");
@@ -804,7 +804,7 @@ test("real Pi populated-roster, recover command, session switch and shutdown", {
 });
 
 test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budget approval while review stays open", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
+  const dir = setupWorkspace(t, { personas: ["editor", "reviewer"] });
   writeFileSync(join(dir, "README.md"), "synthetic security review scope\n");
   // Only roles dispatch now, so the three editor attempts are one actor. The no-progress
   // contract is actor + scope + inputs + deliverables (practices and prose are not part of
@@ -812,7 +812,7 @@ test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budg
   // separate fixture personas were before.
   for (const name of ["fixture-a.txt", "fixture-b.txt"]) writeFileSync(join(dir, name), `synthetic ${name}\n`);
   const session = await startSession(t, dir, { fake: "security", decisions: ["No — stop"],
-    fleetArgs: ["--solo", "--agent-team", "stage"], script: [
+    fleetArgs: ["--solo"], script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "retain the small spend cap" } },
       { tool: "set_assertions", args: { assertions: [{ id: "A1", tag: "test", text: "Security change is independently reviewed", source: "real-Pi fixture", test_command: "node --test fixture" }] } },
       { tool: "update_assertion", args: { id: "A1", status: "proven", evidence: "fixture evidence" } },
@@ -867,7 +867,7 @@ test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budg
 });
 
 test("real Pi roster G3.1 irreversible refuses fixture-producer dispatch as unsupported", { timeout: 180_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
+  const dir = setupWorkspace(t, { personas: ["editor", "reviewer"] });
   for (const backend of ["coms", "native"] as const) {
     // A prior refused attempt is no-progress history for this actor; it must not
     // stand in for an independent action-gate observation on the other backend.
@@ -875,7 +875,7 @@ test("real Pi roster G3.1 irreversible refuses fixture-producer dispatch as unsu
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator irreversible bind" } },
       { tool: "dispatch_agent", args: { agent: "editor", task: `Produce the fixture through ${backend}`, backend } },
       { text: "done" },
-    ], fleetArgs: ["--solo", "--agent-team", "stage"] });
+    ], fleetArgs: ["--solo"] });
     const r = await session.request("run the production database migration now");
     assert.equal(r.success, true, `roster ${backend} prompt failed: ${JSON.stringify(r)}`);
     const calls = session.contexts();
@@ -951,13 +951,13 @@ test("real Pi provider deadline preserves baseline tools without inventing S1 ob
 
 test("real Pi required wide plan closes through a runnable offline native planning editor", { timeout: 240_000 }, async t => {
   // The retired planner fixture declared read only; the planning editor keeps that inspection-only definition.
-  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"], childProvider: true, readOnlyEditor: true });
+  const dir = setupWorkspace(t, { personas: ["editor", "reviewer"], childProvider: true, readOnlyEditor: true });
   writeFileSync(join(dir, "README.md"), "The wdiget renders a greeting.\n");
   const session = await startSession(t, dir, { fake: "wide", childProvider: true, script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "synthetic wide task requires a plan" } },
     { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], backend: "native", task: "Read README.md and plan ONLY the wdiget to widget correction." } },
     { text: "plan stage observed" },
-  ], fleetArgs: ["--solo", "--agent-team", "stage"] });
+  ], fleetArgs: ["--solo"] });
   assert.equal((await session.request("change the synthetic README fixture across the declared wide scope")).success, true);
   const planned = toolResult(session, 2);
   assert.equal(planned?.details?.exitCode, 0, `a real native Pi planning editor must run: ${planned?.text}`);
@@ -969,7 +969,7 @@ test("real Pi required wide plan closes through a runnable offline native planni
 });
 
 test("real Pi offline native planning editor, verified editor and read-only reviewer close required stages", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"], childProvider: true });
+  const dir = setupWorkspace(t, { personas: ["editor", "reviewer"], childProvider: true });
   const readme = join(dir, "README.md"), initial = "The wdiget renders a greeting.\n";
   writeFileSync(readme, initial);
   // Pi 1.1 enables Node's compile cache under TMPDIR, which these sessions point here.
@@ -979,7 +979,7 @@ test("real Pi offline native planning editor, verified editor and read-only revi
   execFileSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "synthetic baseline"], { cwd: dir });
   const assertion = { id: "A1", tag: "test", text: "Synthetic README has exactly the widget typo correction", source: "isolated C2 fixture", test_command: README_CHECK };
   const session = await startSession(t, dir, { fake: "wide", childProvider: true,
-    fleetArgs: ["--solo", "--agent-team", "stage"], script: [
+    fleetArgs: ["--solo"], script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "synthetic wide task requires a plan and review" } },
       { text: "initial classification complete" },
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "bind clarified verification to same task" } },
@@ -1024,7 +1024,7 @@ test("real Pi offline native planning editor, verified editor and read-only revi
 });
 
 test("real Pi roster G3.2 wide work admits fixture without planning and preserves optional producer failures", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
+  const dir = setupWorkspace(t, { personas: ["editor", "reviewer"] });
   // The planning dispatch is the same editor actor as the implementation attempts; its own
   // existing scope keeps it a distinct no-progress contract (practices are not part of it).
   writeFileSync(join(dir, "README.md"), "synthetic wide fixture\n");
@@ -1034,7 +1034,7 @@ test("real Pi roster G3.2 wide work admits fixture without planning and preserve
     { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], scope: ["README.md"], task: "Plan the wide fixture change" } },
     { tool: "dispatch_agent", args: { agent: "editor", task: "Produce the fixture after a failed plan" } },
     { text: "done" },
-  ], fleetArgs: ["--solo", "--agent-team", "stage"] });
+  ], fleetArgs: ["--solo"] });
   const r = await session.request("rework the fleet workspace layout across components");
   assert.equal(r.success, true, `roster prompt failed: ${JSON.stringify(r)}`);
   const calls = session.contexts();

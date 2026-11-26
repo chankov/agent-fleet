@@ -7,86 +7,56 @@ import {
 	type HubPeerSpawnContext,
 } from "./peer-spawn-plan.ts";
 
-const PEERS_YAML = `
-review:
-  - name: code-reviewer
-    runner: claude-code
-web:
-  - name: web-debugger
-    persona: web-debugger
-    model: openai-codex/gpt-6-luna
-    extensions: chrome-devtools-mcp
-    env_file: .env.peer
-`;
-
 function context(overrides: Partial<HubPeerSpawnContext> = {}): HubPeerSpawnContext {
 	return {
 		project: "af",
-		peersYaml: PEERS_YAML,
-		personaExists: (name) => ["builder", "web-debugger"].includes(name),
+		personaExists: (name) => ["editor", "web-debugger"].includes(name),
 		worktreeTag: "wt2",
 		...overrides,
 	};
 }
 
-test("name-only Hub spawn has CLI parity for declared Claude and Pi peers", () => {
-	const claude = buildHubPeerSpawnPlan({ name: "code-reviewer" }, context());
+test("Hub spawn takes the same flags as `just fleet peer` and forces its project", () => {
+	const claude = buildHubPeerSpawnPlan({ name: "claude-reviewer", runner: "claude-code", read_only: true }, context());
 	assert.equal(claude.kind, "claude-peer");
 	assert.equal(claude.project, "af");
-	assert.deepEqual(claude.command, ["just", "_claude-peer", "code-reviewer", "", "", "af"]);
+	assert.equal(claude.readOnly, true);
+	assert.deepEqual(claude.command, ["just", "_claude-peer-read-only", "claude-reviewer", "", "af"]);
 
-	const pi = buildHubPeerSpawnPlan({ name: "web-debugger" }, context());
+	// A same-named persona file still makes a name-only spawn a persona peer.
+	const pi = buildHubPeerSpawnPlan({ name: "web-debugger", model: "openai-codex/gpt-6-luna" }, context());
 	assert.equal(pi.kind, "persona-peer");
-	assert.equal(pi.envFile, ".env.peer");
-	assert.equal(pi.extensions, "chrome-devtools-mcp");
-	assert.deepEqual(pi.command, [
-		"just", "_peer-plus", "chrome-devtools-mcp", "web-debugger", "web-debugger",
-		"openai-codex/gpt-6-luna", "", "af",
-	]);
-});
+	assert.deepEqual(pi.command, ["just", "_peer", "web-debugger", "web-debugger", "openai-codex/gpt-6-luna", "af"]);
 
-test("Hub spawn supports explicit persona, core, and Claude shapes while forcing its project", () => {
-	const persona = buildHubPeerSpawnPlan(
-		{ name: "build-1", runner: "pi", persona: "builder", model: "openai-codex/gpt-6-luna", extensions: "btw" },
-		context(),
-	);
-	assert.equal(persona.kind, "persona-peer");
-	assert.deepEqual(persona.command, [
-		"just", "_peer-plus", "btw", "builder", "build-1", "openai-codex/gpt-6-luna", "", "af",
-	]);
+	const persona = buildHubPeerSpawnPlan({ name: "edit-1", runner: "pi", persona: "editor", read_only: true }, context());
+	assert.deepEqual(persona.command, ["just", "_peer-read-only", "editor", "edit-1", "", "af"]);
 
-	const core = buildHubPeerSpawnPlan(
-		{ name: "scratch", runner: "pi", no_persona: true, model: "openai-codex/gpt-6-luna", browser: true, all_extensions: true },
-		context(),
-	);
+	const core = buildHubPeerSpawnPlan({ name: "scratch", runner: "pi", no_persona: true, model: "openai-codex/gpt-6-luna" }, context());
 	assert.equal(core.kind, "core-peer");
-	assert.deepEqual(core.command, [
-		"just", "_fleet-peer", "scratch", "true", "true", "--model", "openai-codex/gpt-6-luna", "--project", "af",
-	]);
+	assert.deepEqual(core.command, ["just", "_fleet-peer", "scratch", "--model", "openai-codex/gpt-6-luna", "--project", "af"]);
 
-	const claude = buildHubPeerSpawnPlan(
+	const forced = buildHubPeerSpawnPlan(
 		{ name: "claude-1", runner: "claude-code", model: "opus", project: "other" } as never,
 		context(),
 	);
-	assert.equal(claude.project, "af");
-	assert.deepEqual(claude.command, ["just", "_claude-peer", "claude-1", "opus", "", "af"]);
+	assert.equal(forced.project, "af");
+	assert.deepEqual(forced.command, ["just", "_claude-peer", "claude-1", "opus", "af"]);
 });
 
-test("Hub wrapper exposes no env path and rejects incompatible peer fields before pane creation", () => {
+test("Hub wrapper exposes no env file, extension choice or raw argv, and rejects incompatible fields before pane creation", () => {
 	const injected = buildHubPeerSpawnPlan(
-		{ name: "builder", persona: "builder", env_file: "../../secrets" } as never,
-		context({ peersYaml: "" }),
+		{ name: "editor", persona: "editor", env_file: "../../secrets", extensions: "btw", browser: true, all_extensions: true, piArgs: ["--x"] } as never,
+		context(),
 	);
 	assert.equal(injected.envFile, undefined);
+	assert.equal("extensions" in injected, false);
+	assert.deepEqual(injected.command, ["just", "_peer", "editor", "editor", "", "af"]);
 
 	assert.throws(
-		() => buildHubPeerSpawnPlan({ name: "x", runner: "claude-code", persona: "builder" }, context()),
+		() => buildHubPeerSpawnPlan({ name: "x", runner: "claude-code", persona: "editor" }, context()),
 		/pi-only/,
 	);
-	assert.throws(
-		() => buildHubPeerSpawnPlan({ name: "x", runner: "claude-code", extensions: "btw" }, context()),
-		/pi-only/,
-	);
+	assert.throws(() => buildHubPeerSpawnPlan({ name: "x", read_only: true }, context()), /read-only launches exist for persona peers/);
 });
 
 test("fake Herdr launch splits the Hub pane, applies cwd/env, types argv, renames, and returns failed tail", async () => {
@@ -107,7 +77,7 @@ test("fake Herdr launch splits the Hub pane, applies cwd/env, types argv, rename
 		paneSendText: async (paneId: string, text: string) => { calls.push(["text", paneId, text]); },
 		paneSendKeys: async (paneId: string, keys: string[]) => { calls.push(["keys", paneId, keys]); },
 	};
-	const plan = buildHubPeerSpawnPlan({ name: "code-reviewer", direction: "down" }, context());
+	const plan = buildHubPeerSpawnPlan({ name: "claude-reviewer", runner: "claude-code", direction: "down" }, context());
 	const result = await launchHubPeerInPane(plan, {
 		client,
 		targetPaneId: "w1:p1",
@@ -125,11 +95,11 @@ test("fake Herdr launch splits the Hub pane, applies cwd/env, types argv, rename
 
 	assert.deepEqual(calls, [
 		["split", { target_pane_id: "w1:p1", direction: "down", cwd: "/repo", env: { PEER_TOKEN: "secret", AGENT_FLEET_AGENTIC_CHILD: '1' }, focus: false }],
-		["rename", "w1:p2", "code-reviewer"],
+		["rename", "w1:p2", "claude-reviewer"],
 		["read", "w1:p2", 5],
-		["text", "w1:p2", "just _claude-peer code-reviewer '' '' af"],
+		["text", "w1:p2", "just _claude-peer claude-reviewer '' af"],
 		["keys", "w1:p2", ["enter"]],
-		["wait", "code-reviewer"],
+		["wait", "claude-reviewer"],
 		["tail", "w1:p2"],
 	]);
 	assert.equal(result.paneId, "w1:p2");

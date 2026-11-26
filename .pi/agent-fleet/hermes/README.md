@@ -40,7 +40,7 @@ without it rows read `unknown` instead of a live state.
 .pi/agent-fleet/scripts/install-hermes-plugin.sh agent-fleet-herdr   # --profile / --copy / --dry-run / --uninstall
 # then restart the Hermes DESKTOP APP (its gateway is the one that mounts the routes),
 # start a fleet, and open the "Agent Fleet" tab:
-just fleet team default
+just fleet --herdr
 ```
 
 ![The Agent Fleet panel in Hermes Desktop, listing seven live sessions in one project beside the chat that started them](../../../docs/assets/hermes-desktop-agent-fleet-panel.png)
@@ -60,7 +60,7 @@ deliberate limits: [docs/hermes-desktop-plugins.md](../../../docs/hermes-desktop
 ## Skills
 
 - `skills/hub-liaison/` — gateway-side Telegram liaison. It writes `~/.pi/coms/hermes-bridge/questions/<qid>.answer.json` answer files for `[HUB-Q:<qid>]` questions consumed by `.pi/agent-fleet/scripts/coms-hermes-bridge.ts`.
-- `skills/hub-conductor/` — dev-profile conductor. It uses `.pi/agent-fleet/scripts/coms-cli.ts list` and `.pi/agent-fleet/scripts/coms-cli.ts send --await --timeout` to delegate to live pi hub-team peers, while preserving the no-herdr damage-control boundary.
+- `skills/hub-conductor/` — dev-profile conductor. It uses `.pi/agent-fleet/scripts/coms-cli.ts list` and `.pi/agent-fleet/scripts/coms-cli.ts send --await --timeout` to delegate to live pi peers (the Hub from `just fleet --herdr` and peers started with `just fleet peer <name>`), while preserving the no-herdr damage-control boundary.
 
 ## Install
 
@@ -115,10 +115,10 @@ transport described below.
 ### Start a monitored hub
 
 Nothing to set up. A Herdr-backed hub is required because the stable hub identity includes
-`HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`, so use a team recipe:
+`HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`, so start it in its own herdr pane:
 
 ```bash
-just fleet team default
+just fleet --herdr
 ```
 
 [.pi/agent-fleet/scripts/lib/monitor-env.ts](../scripts/lib/monitor-env.ts) picks the profile ID (`dev`) and the
@@ -130,8 +130,8 @@ To point a hub at a different profile, or to turn the monitor off, set the varia
 an existing value is never overwritten:
 
 ```bash
-AGENT_FLEET_PROFILE_ID=prod just fleet team default   # a different Hermes profile
-AGENT_FLEET_MONITOR=0 just fleet team default         # unmonitored
+AGENT_FLEET_PROFILE_ID=prod just fleet --herdr   # a different Hermes profile
+AGENT_FLEET_MONITOR=0 just fleet --herdr         # unmonitored
 ```
 
 If either monitor variable is invalid, if the runtime directory cannot be made mode 0700, or if

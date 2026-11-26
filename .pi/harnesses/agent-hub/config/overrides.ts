@@ -7,6 +7,7 @@ import { DEFAULT_RUN_HISTORY_KEEP, normalizeRunHistoryKeep } from "../run-namesp
 import { DEFAULT_WATCHDOG_SETTING, WATCHDOG_SETTINGS, normalizeWatchdogSetting } from "../drift-watchdog.js";
 import { DEFAULT_WATCHDOG_SYSTEM1_MODE, type WatchdogSystem1Mode } from "../system1-runtime.ts";
 import type { SubagentRole } from "../types.ts";
+import { isPracticeId, PRACTICE_IDS } from "./practices.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const VALID_THINKING_LEVELS = new Set<string>(THINKING_LEVELS);
@@ -24,6 +25,8 @@ export interface AgentTeamOverrides {
 	personaModelLists: Record<string, string[]>;
 	personaThinking: Record<string, string>;
 	personaSubagents: Record<string, Record<string, SubagentRole>>;
+	/** `model.<role>.<practice>` / `thinking.<role>.<practice>`, keyed `<role>.<practice>` (D9). */
+	practiceModels: Record<string, { model?: string; thinking?: string }>;
 	personaDelegateDepth: Record<string, number>;
 	rulesDirs: string[];
 	docsPaths: string[];
@@ -39,13 +42,13 @@ export interface AgentTeamOverrides {
 }
 
 export const DEFAULT_OVERRIDES: AgentTeamOverrides = {
-	language: "English", personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {},
+	language: "English", personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, practiceModels: {}, personaDelegateDepth: {},
 	rulesDirs: [], docsPaths: [], reconSearchTimeoutMs: 120_000, budgetOverrides: {},
 	watchdogSetting: DEFAULT_WATCHDOG_SETTING, watchdogSystem1Mode: DEFAULT_WATCHDOG_SYSTEM1_MODE, watchdogJudgeModel: null, runHistoryKeep: DEFAULT_RUN_HISTORY_KEEP, pollPanel: null, warnings: [],
 };
 
 function freshOverrides(): AgentTeamOverrides {
-	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, personaDelegateDepth: {}, rulesDirs: [], docsPaths: [], budgetOverrides: {}, pollPanel: null, warnings: [] };
+	return { ...DEFAULT_OVERRIDES, personaModels: {}, personaModelLists: {}, personaThinking: {}, personaSubagents: {}, practiceModels: {}, personaDelegateDepth: {}, rulesDirs: [], docsPaths: [], budgetOverrides: {}, pollPanel: null, warnings: [] };
 }
 
 function parseSubagentOverride(value: string): { model: string; tools?: string; thinking?: string } | null {
@@ -135,6 +138,17 @@ export function parseAgentTeamOverrides(cwd: string): AgentTeamOverrides {
 			const level = value.toLowerCase();
 			if (VALID_THINKING_LEVELS.has(level)) result.personaThinking[thinking[1]] = level;
 			else result.warnings.push(`thinking.${thinking[1]} "${value}" is not a valid level (off|minimal|low|medium|high|xhigh) — ignored`);
+		}
+		const practiceModel = key.match(new RegExp(`^(model|thinking)\\.(${slug})\\.(${slug})$`));
+		if (practiceModel && value) {
+			const [, field, role, practice] = practiceModel;
+			if (!isPracticeId(practice)) result.warnings.push(`${key}: "${practice}" is not a known practice (${PRACTICE_IDS.join(", ")}) — ignored`);
+			else if (field === "model") (result.practiceModels[`${role}.${practice}`] ||= {}).model = value;
+			else {
+				const level = value.toLowerCase();
+				if (VALID_THINKING_LEVELS.has(level)) (result.practiceModels[`${role}.${practice}`] ||= {}).thinking = level;
+				else result.warnings.push(`${key} "${value}" is not a valid level (off|minimal|low|medium|high|xhigh) — ignored`);
+			}
 		}
 		const subagent = key.match(new RegExp(`^subagents\\.(${slug})\\.(${slug})$`));
 		if (subagent && value) {

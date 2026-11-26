@@ -1,6 +1,16 @@
 // Test-only Pi tool_call gate for the isolated user-run stage-closure fixture.
 // No Hub registration or production policy change: the harness alone advances the stage.
-export const STAGE_ROLE = Object.freeze({ plan: "planner", build: "builder", review: "code-reviewer" });
+// Each stage is one role assignment: the role plus its exact practices (PLAN-11-01).
+// The editor's planning practice is what makes the Hub treat a dispatch as the plan stage.
+const assignment = (agent, practices) => Object.freeze({ agent, practices: Object.freeze(practices) });
+export const STAGE_ASSIGNMENT = Object.freeze({
+  plan: assignment("editor", ["planning"]),
+  build: assignment("editor", ["implementation"]),
+  review: assignment("reviewer", ["independent-review"]),
+});
+const describe = expected => expected ? `${expected.agent} with practices ${JSON.stringify(expected.practices)}` : "no role";
+const samePractices = (actual, expected) => Array.isArray(actual) && actual.length === expected.length &&
+  actual.every((id, index) => id === expected[index]);
 
 export function createStageBoundary({ stage, record, planDeliverable }) {
   let current = null;
@@ -19,6 +29,8 @@ export function createStageBoundary({ stage, record, planDeliverable }) {
       else { current = selected; used = false; denials = 0; }
     }
     const role = event.input?.agent;
+    const practices = event.input?.practices;
+    const expected = STAGE_ASSIGNMENT[current];
     let requiredPlan;
     if (current === "plan") {
       try { requiredPlan = planDeliverable(); } catch { /* missing authorization fails closed */ }
@@ -28,11 +40,12 @@ export function createStageBoundary({ stage, record, planDeliverable }) {
         Array.isArray(event.input?.deliverables) && event.input.deliverables.length === 1 &&
         event.input.deliverables[0] === requiredPlan);
     const allowed = typeof event.toolCallId === "string" && !!event.toolCallId &&
-      typeof role === "string" && role === STAGE_ROLE[current] && !used && exactPlan;
+      typeof role === "string" && !!expected && role === expected.agent && samePractices(practices, expected.practices) && !used && exactPlan;
     if (allowed) used = true; // reserve synchronously BEFORE dispatch execution
     else denials++;
     try {
       record({ stage: current, role: typeof role === "string" ? role.slice(0, 80) : null,
+        practices: Array.isArray(practices) ? practices.slice(0, 12).map(id => String(id).slice(0, 40)) : null,
         toolCallId: typeof event.toolCallId === "string" ? event.toolCallId.slice(0, 100) : null,
         decision: allowed ? "allowed" : "denied" });
     } catch {
@@ -44,6 +57,6 @@ export function createStageBoundary({ stage, record, planDeliverable }) {
     // A second refusal aborts this parent turn (never another child), bounding
     // repeated speculative tool calls without granting a budget continuation.
     if (denials >= 2) ctx.abort();
-    return { block: true, reason: `Isolated live fixture: dispatch denied at stage ${current ?? "unavailable"}; expected ${STAGE_ROLE[current] ?? "no role"}, at most one child${current === "plan" ? ", with the exact authorized absolute plan deliverable" : ""}. Stop dispatching, finish this turn and wait for the harness evidence gate and next prompt.` };
+    return { block: true, reason: `Isolated live fixture: dispatch denied at stage ${current ?? "unavailable"}; expected ${describe(expected)}, at most one child${current === "plan" ? ", with the exact authorized absolute plan deliverable" : ""}. Stop dispatching, finish this turn and wait for the harness evidence gate and next prompt.` };
   };
 }

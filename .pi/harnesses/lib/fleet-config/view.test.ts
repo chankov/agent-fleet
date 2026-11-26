@@ -22,7 +22,7 @@ function fixture(): { root: string; snapshot: FleetConfigSnapshot } {
 	writeFileSync(join(root, ".ai", "agent-fleet.json"), JSON.stringify({ schemaVersion: 1, preset: "default", features: { system1: true, voice: false } }));
 	writeFileSync(join(root, ".ai", "agent-fleet-state.json"), JSON.stringify({ schemaVersion: 2, agent: "pi", method: "copy", packageVersion: "2.0.14", items: { "skill:a": { kind: "skill", version: "2.0.14", method: "copy", files: [{ path: "skills/a/SKILL.md", sha256: "0".repeat(64) }] } } }));
 	writeFileSync(join(root, ".ai", "agent-fleet-overrides.md"), `## agent-hub\nlanguage: Bulgarian\nmodel.builder: \u001b[31mhostile\u001b[0m value\n`);
-	writeFileSync(join(root, ".pi", "agents", "teams.yaml"), "default:\n  - builder\n");
+	writeFileSync(join(root, ".pi", "agents", "dispatch-policy.yaml"), "default: native\nroutes:\n  reviewer:\n    peer: claude-reviewer\n");
 	const hub = { language: "Bulgarian", personaModels: { builder: "hostile value" }, personaModelLists: {}, personaThinking: {}, personaDelegateDepth: {}, rulesDirs: [], docsPaths: [], reconSearchTimeoutMs: 120_000, budgetOverrides: {}, watchdogSetting: "auto", watchdogJudgeModel: null, runHistoryKeep: 5, pollPanel: null, warnings: ["mode is ignored"] };
 	const snapshot = collectFleetConfigSnapshot({ cwd: root, env, readHubOverrides: () => hub, runtimeRows: () => [{ label: "Work mode", detail: "operator" }], latestKnownVersion: "2.1.0" });
 	return { root, snapshot };
@@ -60,6 +60,9 @@ test("rows carry origin and level; overrides expand to keys with file:line and t
 		const stateRows = fleetConfigRows(snapshot, "state", new Set(["state/kind/skill", "state/item/skill:a"]));
 		assert.deepEqual(stateRows.filter(row => row.key.startsWith("state/item/")).map(row => [row.depth, row.level]), [[1, "warn"], [2, "warn"]]);
 		assert.equal(fleetConfigRows(snapshot, "runtime")[0].detail, "operator");
+		const fleet = fleetConfigRows(snapshot, "fleet", new Set(["fleet/dispatch"]));
+		assert.ok(!fleet.some(row => row.key.startsWith("fleet/team")), "no Teams row (D7)");
+		assert.match(fleet.find(row => row.key === "fleet/dispatch/reviewer")?.detail ?? "", /^peer claude-reviewer · prefer coms/);
 		assert.ok(fleetConfigRows(snapshot, "setup").some(row => row.key === "setup/feature/system1" && row.detail === "on" && row.path === ".ai/agent-fleet.json"));
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });

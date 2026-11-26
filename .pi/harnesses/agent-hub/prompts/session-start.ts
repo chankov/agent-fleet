@@ -1,13 +1,12 @@
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 
 export const SESSION_START_COMMANDS = [
-	"/af-agents-team          Select a team",
 	"/af-agents-list          Open Fleet Dashboard",
 	"/af-agents-history       Timeline of agent runs — durations, parallel markers, grand total",
 	"/af-context              Read-only full-screen context budget diagnostic",
 	"/af-agent-model <persona>[.<role>] Switch a persona's or sub-role's model",
 	"/af-agent-model-thinking <persona> Switch a persona's thinking level",
-	"/af-models [profile]     Apply a named model profile to the team",
+	"/af-models [profile]     Apply a named model profile to the roles",
 	"/af-agent-models-substitute [src tgt] Pick/save a session-wide source → target model substitution",
 	"/af-dispatch-policy      Show which members route to coms peers (dispatch-policy.yaml)",
 	"/af-agents-kill <name|rN|all> Kill a frozen specialist or remove research helper(s)",
@@ -22,9 +21,11 @@ export const SESSION_START_COMMANDS = [
 
 export interface SessionStartNoticeData {
 	workMode: string;
-	activeTeamName: string;
-	agentCount: number;
-	members: string;
+	/** Dispatchable role definitions on the roster (reviewer, editor). */
+	roles: string;
+	/** Role definitions that were not found; their dispatches are refused. */
+	missingRoles: string;
+	practiceCount: number;
 	dispatchLabel: string;
 	userLanguage: string;
 	askUserLabel: string;
@@ -35,8 +36,7 @@ export interface SessionStartNoticeData {
 export function buildSessionStartNotice(data: SessionStartNoticeData): string {
 	return [
 		`Work Mode: ${data.workMode} (direct tools and delegation)`,
-		`Native roster: ${data.activeTeamName || "(none)"} (${data.agentCount}${data.members ? `: ${data.members}` : ""})`,
-		"Native roster sets loaded from: .pi/agents/teams.yaml",
+		`Roles: researcher via spawn_research${data.roles ? `; ${data.roles} via dispatch_agent` : ""}${data.missingRoles ? ` (not installed: ${data.missingRoles})` : ""} · ${data.practiceCount} practices`,
 		`Dispatch backends: ${data.dispatchLabel}`,
 		`User-facing language: ${data.userLanguage} (override in .ai/agent-fleet-overrides.md)`,
 		`ask_user: ${data.askUserLabel}; specialist questions go to operator triage via ASK_USER:`,

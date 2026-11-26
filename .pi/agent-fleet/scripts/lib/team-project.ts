@@ -1,8 +1,11 @@
 // .pi/agent-fleet/scripts/lib/team-project.ts
 //
-// Shared project scoping helpers for herdr team commands. The coms harness
-// already isolates peers by --project; this file only keeps team workspace
-// labels, snapshot files, and generated launch argv in sync with that scope.
+// Shared project scoping helpers for the Herdr launchers (`just fleet --herdr`,
+// `just fleet conductor hermes`, `just fleet peer <name>`). The coms harness
+// already isolates peers by --project; this file only keeps workspace labels
+// and generated launch argv in sync with that scope. (The file name predates
+// the removal of peer groups; it is kept because installed workspaces and the
+// package tests reference it.)
 
 import * as path from "node:path";
 
@@ -12,12 +15,15 @@ export const DEFAULT_PROJECT = "default";
 // whitespace, shell metacharacters, or glob stars. Dots are allowed for names
 // like "acme.prod", but ".." is not allowed anywhere.
 export const PROJECT_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-export const TEAM_SAFE = /^[A-Za-z0-9_-]+$/;
+
+/** Charset of the name segment of a workspace label (a peer or conductor name). */
+const LABEL_NAME_SAFE = /^[A-Za-z0-9_-]+$/;
 
 export type ConductorBackend = "hermes";
-// "peer" is the `just fleet peer <name>` workspace: a single pane for
-// a single peer, labelled by the PEER name where the others use a team name.
-export type WorkspaceMode = "peers" | "peer" | "hub" | "conductor-hermes";
+// "peer" is the `just fleet peer <name>` workspace (labelled by the peer name),
+// "hub" the `just fleet --herdr` workspace, "conductor-hermes" the
+// `just fleet conductor hermes [name]` workspace. Each holds a single pane.
+export type WorkspaceMode = "peer" | "hub" | "conductor-hermes";
 
 export interface ConductorSpec {
 	backend: ConductorBackend;
@@ -26,11 +32,7 @@ export interface ConductorSpec {
 	command: string[];
 	cwd: string;
 	env: Record<string, string>;
-	ratio: number;
 	displayText: string;
-	expectedServiceScope: "none";
-	conductorName: string;
-	team: string;
 }
 
 function validateAbsoluteRepoRoot(repoRoot: string): string {
@@ -56,15 +58,10 @@ export function validateProject(project: string): string {
 	return project;
 }
 
-export function validateTeamName(team: string): string {
-	if (!TEAM_SAFE.test(team)) throw new Error(`Invalid team name: ${JSON.stringify(team)}`);
-	return team;
-}
-
-// The worktree/repo identity that scopes a workspace label so the same team
-// launched from different checkouts never collides. It is the LAST dot-segment
-// of the checkout directory's basename — the convention the fleet uses for
-// git worktrees: `main.wt2` → `wt2`, `ringithub.end2` → `end2`, a plain
+// The worktree/repo identity that scopes a workspace label so the same launch
+// from different checkouts never collides. It is the LAST dot-segment of the
+// checkout directory's basename — the convention the fleet uses for git
+// worktrees: `main.wt2` → `wt2`, `ringithub.end2` → `end2`, a plain
 // `agent-fleet` checkout → `agent-fleet`. Sanitized to the label-safe charset;
 // falls back to "repo" when nothing usable remains.
 export function worktreeTag(repoRoot: string): string {
@@ -90,49 +87,41 @@ export function parseProjectFlag(argv: string[]): string {
 	return validateProject(project);
 }
 
-// Workspace label = <worktree-tag>-<mode>-<team>, with a `--project.<name>`
+// Workspace label = <worktree-tag>-<mode>-<name>, with a `--project.<name>`
 // suffix when the coms project is non-default. The worktree tag keys the label
-// to the checkout, so `just fleet team <team>` from two repos/worktrees yields
-// distinct labels (e.g. `wt2-hub-plan` vs `end2-hub-plan`) instead of colliding
-// on a shared `pi-hub-<team>`. Pass `tag` from worktreeTag(REPO_ROOT); it
-// defaults to "repo" only for callers that have no checkout in hand.
+// to the checkout, so the same launch from two repos/worktrees yields distinct
+// labels (e.g. `wt2-hub-base` vs `end2-hub-base`) instead of colliding. Pass
+// `tag` from worktreeTag(REPO_ROOT); it defaults to "repo" only for callers
+// that have no checkout in hand. The label is display and collision scope only.
 export function teamWorkspaceLabel(
 	kind: WorkspaceMode,
-	team: string,
+	name: string,
 	project = DEFAULT_PROJECT,
 	tag = "repo",
 ): string {
-	validateTeamName(team);
+	if (!LABEL_NAME_SAFE.test(name)) throw new Error(`Invalid workspace name: ${JSON.stringify(name)}`);
 	validateProject(project);
-	const base = `${tag}-${kind}-${team}`;
+	const base = `${tag}-${kind}-${name}`;
 	return project === DEFAULT_PROJECT ? base : `${base}--project.${project}`;
 }
 
 export interface HubCommandOptions {
-	agentTeam?: string;
 	noComs?: boolean;
 	browser?: boolean;
+	voice?: boolean;
 	allExtensions?: boolean;
 }
 
-export function resolveLegacyAgentRoster(teams: Record<string, string[]>, requested: string): string {
-	validateTeamName(requested);
-	const wanted = requested.toLowerCase();
-	return Object.keys(teams).find(name => name.toLowerCase() === wanted)
-		?? Object.keys(teams).find(name => name.toLowerCase() === "default")
-		?? "default";
-}
-
+/** The Hub pane's argv: the ordinary `just fleet` launch with the Hub's own flags. */
 export function hubCommand(
 	project = DEFAULT_PROJECT,
 	options: HubCommandOptions = {},
 ): string[] {
 	validateProject(project);
-	if (options.agentTeam) validateTeamName(options.agentTeam);
 	const command = ["just", "fleet"];
-	if (options.agentTeam) command.push("--agents", options.agentTeam);
 	if (options.noComs) command.push("--no-coms");
 	if (options.browser) command.push("--browser");
+	if (options.voice) command.push("--voice");
 	if (options.allExtensions) command.push("--all-extensions");
 	if (project !== DEFAULT_PROJECT) command.push("--project", project);
 	return command;
@@ -144,10 +133,9 @@ export function conductorCommand(): string[] {
 
 export function conductorSpec(
 	backend: ConductorBackend,
-	input: { repoRoot: string; team: string; project?: string },
+	input: { repoRoot: string; project?: string },
 ): ConductorSpec {
 	const repoRoot = validateAbsoluteRepoRoot(input.repoRoot);
-	const team = validateTeamName(input.team);
 	validateProject(input.project ?? DEFAULT_PROJECT);
 	if (backend !== "hermes") {
 		throw new Error(`Unknown conductor backend: ${JSON.stringify(backend)} (expected hermes)`);
@@ -159,18 +147,6 @@ export function conductorSpec(
 		command: conductorCommand(),
 		cwd: repoRoot,
 		env: {},
-		ratio: 0.35,
 		displayText: "Hermes conductor; no herdr control",
-		expectedServiceScope: "none",
-		conductorName: `${backend}-${team}-conductor`,
-		team,
 	};
-}
-
-export function teamSnapshotPath(snapshotDir: string, team: string, project = DEFAULT_PROJECT): string {
-	validateTeamName(team);
-	validateProject(project);
-	return project === DEFAULT_PROJECT
-		? path.join(snapshotDir, `${team}.json`)
-		: path.join(snapshotDir, "projects", project, `${team}.json`);
 }

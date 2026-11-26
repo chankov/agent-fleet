@@ -41,7 +41,7 @@ export interface DispatchExecutionState {
 	getAgentStates(): Map<string, AgentState>;
 	getAssertions(): Array<{ id: string; tag: string; text: string; source: string; reference?: string; criticalConditions?: string[]; testCommand?: string; compilerCommand?: string; status: string; evidence?: string; evidenceTaskId?: string; evidenceRevision?: string }>;
 	getResearchPersonas(): ResearchAgentDef[];
-	/** Adds an installed, dispatchable persona to the active team; null when none is installed under that name. */
+	/** Loads an installed, dispatchable role into the Hub roster; null when none is installed under that name. */
 	addInstalledAgent?(agent: string): { ok: boolean; message: string } | null;
 	/** Installed personas dispatch_agent may target (research and catalog-only personas excluded). */
 	getInstalledAgentNames?(): string[];
@@ -50,7 +50,7 @@ export interface DispatchExecutionState {
 	mayRouteToComs?(agent: string): boolean;
 	/** Registers a writable dispatch; an isolated one makes its native launch sandboxed. Returns its release. */
 	beginWriter?(entry: WriterEntry): () => void;
-	/** Creates (or reuses) a parallel instance of an installed writable persona, e.g. builder-2. */
+	/** Creates (or reuses) a parallel instance of an installed role: a parallel writer or an independent reader (D12), e.g. editor--p2. */
 	addAgentInstance?(base: string, instance: string): boolean;
 	/** Records an admitted delegation in the current task brief. */
 	recordDelegation?(entry: { agent: string; kind: "specialist" | "research"; task: string; scope: string[]; researchId?: number }): void;
@@ -83,7 +83,7 @@ export interface DispatchExecutorDeps {
 	contextPressure(percent: number): boolean;
 	displayName(name: string): string;
 	getToolCatalogVersion?(): string;
-	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext): string | undefined;
+	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext, practices?: readonly string[]): string | undefined;
 	diagnoseChangedTypeScript?: typeof diagnoseChangedTypeScript;
 }
 

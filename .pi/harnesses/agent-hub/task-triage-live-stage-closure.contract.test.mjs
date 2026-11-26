@@ -6,14 +6,14 @@ import { strict as assert } from "node:assert";
 const source = readFileSync(new URL("./task-triage-live-stage-closure.user-run.mjs", import.meta.url), "utf8");
 
 test("live review prompts and closure require the same standalone canonical verdict", () => {
-  assert.match(source, /name === "code-reviewer" \? "Start your final return with exactly one standalone line: VERDICT: APPROVE or VERDICT: REJECT/);
+  assert.match(source, /name === "reviewer" \? "Start your final return with exactly one standalone line: VERDICT: APPROVE or VERDICT: REJECT/);
   assert.match(source, /Start your final return with exactly one standalone line, VERDICT: APPROVE only if/);
   assert.match(source, /review\.result\.output\.split\(\/\\r\?\\n\/, 1\)\[0\]/);
   assert.match(source, /reviewClosureUnmet\(\{ process: review\.acceptance\.process, verdict: reviewVerdict,/);
   assert.doesNotMatch(source, /\/VERDICT:\\s\*APPROVE\\b\/i\.test\(review\.result\.output\)/);
 });
 
-test("planner readback and pre-builder byte/status gates prevent false stage closure", () => {
+test("planning-editor readback and pre-implementation byte/status gates prevent false stage closure", () => {
   assert.match(source, /plan\.acceptance\.readback\?\.length !== 1/);
   assert.match(source, /plan\.acceptance\.readback\[0\]\.status !== "read"/);
   assert.match(source, /plan\.acceptance\.readback\[0\]\.changed !== true/);
@@ -22,14 +22,15 @@ test("planner readback and pre-builder byte/status gates prevent false stage clo
   assert.match(source, /planNonRuntimeStatus = nonRuntimeStatus\(planStatus\.stdout/);
   assert.match(source, /readmeUnchanged: readFileSync\(readme, "utf8"\) === initial/);
   assert.match(source, /planNonRuntimeStatus !== "" \|\| !outcome\.afterPlan\.readmeUnchanged \|\| !planUnchangedFixture/);
-  assert.ok(source.indexOf('throw new Error("planner changed README') < source.indexOf("const two = await request(p2)"));
+  assert.ok(source.indexOf('throw new Error("planning editor changed README') > 0);
+  assert.ok(source.indexOf('throw new Error("planning editor changed README') < source.indexOf("const two = await request(p2)"));
 });
 
 test("explicit absolute session plan is the single declared deliverable, distinct from generic auto-handoff", () => {
   assert.match(source, /const planArtifact = join\(sessionsRoot, planSessions\[0\], "artifacts\/plans\/synthetic-readme-fix\.md"\)/);
   assert.match(source, /writeFileSync\(planPath, planArtifact\)/);
   assert.match(source, /planDeliverable: \(\) => readFileSync\(process\.env\.T4_LIVE_PLAN!/);
-  assert.match(source, /name === "planner" \? "For this synthetic task, write the plan to the absolute path declared in dispatch deliverables/);
+  assert.match(source, /name === "editor" \? "For this synthetic task, when the assignment includes the planning practice, write the plan to the absolute path declared in dispatch deliverables/);
   assert.match(source, /deliverables \["\$\{planArtifact\}"\]/);
   assert.match(source, /explicit absolute deliverable \$\{planArtifact\}/);
   assert.match(source, /plan\.acceptance\.readback\[0\]\.path !== planArtifact/);
@@ -60,4 +61,18 @@ test("review consumes retained dispatch evidence and existing absolute inputs", 
   assert.match(source, /const reviewInputs = \[plan\.returnPath, readme, before, after, beforeDiff, afterDiff,[\s\S]*?build\.acceptancePath, checkEvidence\.evidenceRef, build\.resultPath\];/);
   assert.match(source, /if \(typeof path !== "string" \|\| !existsSync\(path\)\) throw new Error\(`Reviewer input unavailable before dispatch:/);
   assert.match(source, /const p3 = `[\s\S]*?absolute canonical dispatch evidence path \$\{build\.resultPath\}/);
+});
+
+test("stages are role dispatches with practices; no retired persona is written or dispatched", () => {
+  assert.match(source, /\["editor", "read,write,edit,bash,grep,find,ls"\], \["reviewer", "read,grep,find,ls"\]/);
+  assert.match(source, /\.\.\.\["editor", "reviewer"\]\.map\(name => `\.pi\/agents\/personas\/\$\{name\}\.md`\)/);
+  assert.match(source, /Dispatch exactly one native editor with practices \["planning"\]/);
+  assert.match(source, /Dispatch exactly one native editor with practices \["implementation"\]/);
+  assert.match(source, /Dispatch exactly one native reviewer with practices \["independent-review"\]/);
+  assert.match(source, /snapshot\("plan", "editor", \["planning"\]\)/);
+  assert.match(source, /snapshot\("build", "editor", \["implementation"\]\)/);
+  assert.match(source, /snapshot\("review", "reviewer", \["independent-review"\]\)/);
+  // Both editor stages share the artifact key, so a recorded stage never matches again.
+  assert.match(source, /!outcome\.stages\.some\(s => s\.id === id\)/);
+  assert.doesNotMatch(source, /\b(planner|builder|code-reviewer)\b/);
 });

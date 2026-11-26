@@ -43,7 +43,8 @@ import { registerFilesystemTool, FILESYSTEM_POLICY_ROOTS_ENV } from './filesyste
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
 import { DEFAULT_OVERRIDES, parseAgentTeamOverrides, type AgentTeamOverrides } from "./config/overrides.ts";
 import { loadAgentConfiguration } from "./config/agents.ts";
-import { isResearcherRole, roleDefinitionNotice, type IgnoredDefinition, type RoleName } from "./config/roles.ts";
+import { isResearcherRole, roleDefinitionNotice, ROLE_NAMES, type IgnoredDefinition, type RoleName } from "./config/roles.ts";
+import { PRACTICE_IDS } from "./config/practices.ts";
 import { abbrevThinking, displayName, extractAskUserQuestions, extractNeedsResearch, resolveDelegateExtension, resolveThinkingLevel } from "./presentation.ts";
 import { MAX_LIVE_ENTRY_CHARS, appendTimelineEvent, appendTimelineText, flushTimelineStore } from "./timeline.ts";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -65,7 +66,7 @@ import {
 	AGENT_ID_ENV, ASK_ENDPOINT_ENV, EXEMPTIONS_FILE_ENV,
 	exemptionsFilePath, type AccessRequest,
 } from "../lib/damage-control-shared.ts";
-import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, parseTeamsYaml, safeAgentKey, safePathWithin, taskFingerprint, upsertTeamInYaml } from "./helpers.ts";
+import { applyModelOverride, clampDelegateDepth, fallbackModelFor, isReadOnlyToolList, MAX_DELEGATE_DEPTH, normalizeAgentInput, safeAgentKey, safePathWithin, taskFingerprint } from "./helpers.ts";
 import { DEFAULT_TASK_TIER, addTaskClockWait, applyTierChange, basePersonaName, blockingFindingCap, checkTierPersonaGate, createTaskClock, isReviewPersona, openTaskClock, reviewBudgetClause } from "./run-budget.js";
 import { countReviewFindings, findingBudgetNotice } from "./review-findings.js";
 import { checkDocsLane, docsLaneNotice } from "./docs-lane.js";
@@ -88,14 +89,10 @@ import { shouldExtractReturn } from "./return-extract.js";
 import { crossCheck, deliveryDisposition, extractAssertionIds, parseDeliveredReturn } from "./return-contract.js";
 import { checkScope, diffAgainst, revisionOf, revisionScopes, snapshotWorktree, worktreeRevision } from "./scope-gate.js";
 import { validateEvidence } from "./evidence-rules.js";
-import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, resolveDispatchBackend } from "./backend-policy.js";
-import { NATIVE_ROSTER_ENTRY_TYPE, RETIRED_WORK_MODE_NOTICE, WORK_MODE_ENTRY_TYPE, persistedNativeRosterState, resolveSessionRoster, sessionSavedInRetiredWorkMode, type WorkMode } from "./work-mode.ts";
-import { registerAgentsTeam } from "./commands/agents-team.ts";
+import { comsRequiredRefusal, explicitComsRefusal, parseDispatchPolicy, policyRoute, resolveDispatchBackend } from "./backend-policy.js";
+import { RETIRED_WORK_MODE_NOTICE, WORK_MODE_ENTRY_TYPE, sessionSavedInRetiredWorkMode, type WorkMode } from "./work-mode.ts";
 import { registerAgentsList } from "./commands/agents-list.ts";
 import { registerAgentsHistory } from "./commands/agents-history.ts";
-import { registerAgentsAdd } from "./commands/agents-add.ts";
-import { registerAgentsDrop } from "./commands/agents-drop.ts";
-import { registerAgentsSave } from "./commands/agents-save.ts";
 import { registerAgentsKill } from "./commands/agents-kill.ts";
 import { registerAgentsRestart } from "./commands/agents-restart.ts";
 import { registerContextCommand } from "./commands/context-command.ts";
@@ -130,10 +127,9 @@ import { registerRunFlow } from "./tools/run-flow.ts";
 import { resolvePersona as resolveFlowPersona } from "../../agent-fleet/scripts/workflows/lib/personas.ts";
 import { assertProfileModel as assertFlowProfileModel } from "../../agent-fleet/scripts/workflows/lib/model-profile.ts";
 import { registerSetTaskTier } from "./tools/set-task-tier.ts";
-import { registerTeamAdjust } from "./tools/team-adjust.ts";
 import { registerVerificationContract } from "./tools/verification-contract.ts";
 import { registerComsTools } from "./tools/coms-tools.ts";
-import { paneTail, peerManifest, peerPersonaExists, registerFleetTools, spawnDelaySeconds, STAGGER_ENV_VAR, waitForPeerRegistration } from "./tools/fleet-tools.ts";
+import { registerFleetTools } from "./tools/fleet-tools.ts";
 import type { ToolContext } from "./tools/context.ts";
 import { createToolExecutionOrchestration } from "./tools/execution-orchestration.ts";
 import { latestPersistedCapabilityState, type ContextState, type PendingOperation } from "./capability-packs.ts";
@@ -150,7 +146,7 @@ import { buildHubPeerSpawnPlan, launchHubPeerInPane } from "./peer-spawn-plan.ts
 import { RESEARCH_TOOLS, createResearchRuntime, parseResearchHandle } from "./research/runtime.ts";
 import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts";
 import { createAccessApprovalRouter } from "./access-approval.ts";
-import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, rmSync } from "fs";
+import { readdirSync, readFileSync, existsSync, unlinkSync, rmSync } from "fs";
 import { herdrPaneId } from "../lib/herdr-presence.ts";
 import { herdr as herdrApi, herdrAvailable } from "../lib/herdr-client.ts";
 import {
@@ -209,8 +205,6 @@ import { catalogSnapshot, latestPersistedToolCatalog, toolCatalogNotice, TOOL_CA
 import { createToolCatalogRuntime } from "./tool-catalog-runtime.ts";
 import { createUnknownToolCounter, latestPersistedUnknownToolCounter, observeUnknownToolCalls, restoreUnknownToolCounter, unknownToolNotice, UNKNOWN_TOOL_COUNTER_ENTRY_TYPE } from "./unknown-tool-counter.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol, nativeResearchSystemPrompt } from "../lib/context-budget-child-prompt.ts";
-import { parseEnvFile, resolveEnvFilePath } from "../../agent-fleet/scripts/lib/herdr-layout.ts";
-import { worktreeTag } from "../../agent-fleet/scripts/lib/team-project.ts";
 import { join, resolve } from "path";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -276,7 +270,6 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("explicit", { description: "Coms: hide from auto-discovery; addressable only by exact name", type: "boolean", default: false });
 	pi.registerFlag("solo", { description: "Run without the coms layer (fixed specialists + research only — `just fleet hub --solo`)", type: "boolean", default: false });
 	pi.registerFlag("work-mode", { description: "Deprecated and ignored: the Hub has one operator work mode", type: "string", default: undefined });
-	pi.registerFlag("agent-team", { description: "Internal: activate a named native roster from .pi/agents/teams.yaml", type: "string", default: undefined });
 
 	// ── Embedded coms: shared peer state ──
 	let currentCtx: ExtensionContext | null = null;
@@ -365,7 +358,6 @@ export default function (pi: ExtensionAPI) {
 	/** Installed personas dispatch_agent may target: research personas use spawn_research, and
 	 *  `kind: orchestrator` only documents the Hub role. */
 	const dispatchableAgentDefs = (): AgentDef[] => allAgentDefs.filter(def => !["research", "orchestrator"].includes((def.kind || "").toLowerCase()));
-	let teams: Record<string, string[]> = {};
 	// Named model profiles from .pi/agents/model-profiles.yaml (validated at
 	// session start) and the session-lifetime per-persona model overrides set by
 	// /af-agent-model and /af-models (lowercase persona name → pi model spec). Overrides
@@ -373,18 +365,19 @@ export default function (pi: ExtensionAPI) {
 	let modelProfiles: ModelProfiles = {};
 	let modelProfileErrors: string[] = [];
 	// Backend routing policy (.pi/agents/dispatch-policy.yaml): per dispatch, a
-	// member preferring coms is served by a live same-name pool peer instead of a
-	// native subagent spawn. Missing file → everything native (status quo).
+	// role whose route prefers coms is served by the live pool peer at the route's
+	// `peer:` address instead of a native subagent spawn. Routes are keyed by role
+	// (D11); read them through policyRoute(), which maps a parallel instance to its
+	// role. Missing file → everything native (status quo).
 	let dispatchPolicy: {
 		default: string;
 		grace_s: number;
-		substitutions: Record<string, { prefer: string; fallback: string; timeout_s?: number }>;
+		substitutions: Record<string, { peer?: string; prefer: string; fallback: string; timeout_s?: number }>;
 	} = { default: "native", grace_s: 30, substitutions: {} };
 	let dispatchPolicyWarnings: string[] = [];
-	// One "coms peer missing → native" notice per member per team activation.
+	// One "coms peer missing → native" notice per role or instance per session.
 	const comsMissNotified = new Set<string>();
 
-	let activeTeamName = "";
 	let gridCols = 2;
 	let widgetCtx: any;
 	let sessionDir = "";
@@ -769,7 +762,7 @@ export default function (pi: ExtensionAPI) {
 		loadAgentConfiguration(cwd, {
 			setSessionDir: hubStateCtx.setSessionDir, getSessionDir: hubStateCtx.getSessionDir,
 			archivePreviousRun, ensureArtifactsLayout, resetAssertions: () => { assertions = []; },
-			setAgentDefs: value => { allAgentDefs = value; }, setTeams: value => { teams = value; },
+			setAgentDefs: value => { allAgentDefs = value; },
 			setModelProfiles: value => { modelProfiles = value; }, setModelProfileErrors: errors => { modelProfileErrors=errors; }, setDispatchPolicy: value => { dispatchPolicy = value; },
 			setDispatchPolicyWarnings: value => { dispatchPolicyWarnings = value; },
 			setIgnoredDefinitions: (ignored, missing) => { ignoredAgentDefinitions = ignored; missingRoleDefinitions = missing; },
@@ -780,21 +773,24 @@ export default function (pi: ExtensionAPI) {
 	const agentStateFactory = createAgentStateFactory(() => sessionDir);
 	const { sessionHealthIo, adoptableSessionFile, freshAgentState } = agentStateFactory;
 
-	// Auto-size grid columns based on team size
+	// Auto-size grid columns based on roster size
 	function recomputeGrid() {
 		gridCols = gridColumnsForSize(agentStates.size);
 	}
 
+	// The roster is every installed dispatchable role (researcher runs through
+	// spawn_research) plus parallel instances; there are no teams (PLAN-11-01, D7).
 	const rosterPolicy = createRosterPolicy<AgentDef, AgentState>({
-		getTeams: () => teams, getAllDefs: () => allAgentDefs, getStates: () => agentStates,
-		getActiveTeamName: () => activeTeamName, setActiveTeamName: value => { activeTeamName = value; },
+		getDispatchableDefs: dispatchableAgentDefs, getStates: () => agentStates,
 		clearBackendNotices: () => comsMissNotified.clear(), createFreshState: freshAgentState,
 		adoptSession: adoptableSessionFile,
-		quarantineSession: agentStateFactory.quarantine,
-		persist: team => pi.appendEntry(NATIVE_ROSTER_ENTRY_TYPE, persistedNativeRosterState(team)),
 		recompute: recomputeGrid, refreshUi: () => updateWidget(), displayName,
 	});
-	const { activateTeam, persistActiveRoster, add: rosterAdd, drop: rosterDrop } = rosterPolicy;
+	/** Dispatchable roles on the roster ("reviewer, editor") and role definitions that are not installed. */
+	function rosterRoles(): { roles: string; missing: string } {
+		const dispatchable = new Set(dispatchableAgentDefs().map(def => def.name.toLowerCase()));
+		return { roles: ROLE_NAMES.filter(name => dispatchable.has(name)).join(", "), missing: missingRoleDefinitions.join(", ") };
+	}
 
 	// ── Shared model presentation ─────────────────
 	// These formatters serve the extracted grid and the remaining composition-root
@@ -871,15 +867,21 @@ export default function (pi: ExtensionAPI) {
 	// ── Dispatch Agent (returns Promise) ─────────
 
 	// ── Extracted coms dispatch, drift judge, and return extraction ──
+	/** True when the role's route prefers coms, or the policy default does (D11: a parallel instance uses its role's route). */
+	function prefersComsRoute(agent: string): boolean {
+		return (policyRoute(dispatchPolicy, agent)?.prefer ?? dispatchPolicy.default) === "coms";
+	}
 	function mayRouteToComs(agent: string): boolean {
-		const substitution = dispatchPolicy.substitutions[agent];
-		if ((substitution?.prefer ?? dispatchPolicy.default) !== "coms") return false;
+		if (!prefersComsRoute(agent)) return false;
+		const configured = policyRoute(dispatchPolicy, agent);
 		const profile = readActiveProfile();
 		if (profile && (profileForcesNativePeers(profile) || resolveAssist(profile.profile.assist)['write-isolation'])) return false;
 		const peers = comsReady && identity ? peersInScope() : [];
 		const route = resolveDispatchBackend({ agentName: agent, policy: dispatchPolicy, livePeerNames: peers.map(peer => peer.name) });
-		if (route.backend === "coms" && profile && substitution?.fallback !== "none") {
-			const peer = peers.find(candidate => candidate.name.toLowerCase() === agent);
+		if (route.backend === "coms" && profile && configured?.fallback !== "none") {
+			// The peer address is distinct from the role (D11): gate the peer the route resolved to.
+			const peerName = String((route as { peerName?: string }).peerName ?? "").toLowerCase();
+			const peer = peers.find(candidate => candidate.name.toLowerCase() === peerName);
 			if (profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, profile)) return false;
 		}
 		return route.backend === "coms" || route.backend === "await-coms";
@@ -970,6 +972,7 @@ export default function (pi: ExtensionAPI) {
 		shortModel: model => shortModel(model),
 		resolvedModel,
 		resolvedThinking,
+		modelSelectionSource: (def, practices) => modelPolicy.resolvedSelection(def as AgentDef, practices).source,
 		resolveThinkingLevel,
 		resolvedSubagentModel,
 		substitutedModel,
@@ -1088,7 +1091,7 @@ export default function (pi: ExtensionAPI) {
    getFileDiscoveryEnabled: () => discoveryHubEnabled(pi),
 		getDispatchTriageEnabled: () => triageRuntime?.available === true,
   getRecoveryAvailable: () => noProgress.hasRecoverableOperations(),
-		getActiveTeamName: () => activeTeamName, getComsReady: () => comsReady,
+		getComsReady: () => comsReady,
 		getHerdrReady: () => herdrFleetReady, getAskUserAvailable: () => askUserAvailable,
 		getIdentityLabel: () => identity ? `${identity.name}@${identity.project}` : null,
 		getTaskTier: () => taskTier, getPendingOperations: pendingCapabilityOperations,
@@ -1154,7 +1157,7 @@ export default function (pi: ExtensionAPI) {
 				},
 				addInstalledAgent: name => {
 					const def = dispatchableAgentDefs().find(candidate => candidate.name.toLowerCase() === String(name).trim().toLowerCase());
-					return def ? rosterAdd(def.name) : null;
+					return def ? rosterPolicy.add(def.name) : null;
 				},
 				getActiveWritableDispatches: () => activeWritableDispatches, setActiveWritableDispatches: value => { activeWritableDispatches = value; },
 				getWriterGeneration: () => writerSequence,
@@ -1174,7 +1177,7 @@ export default function (pi: ExtensionAPI) {
    runReturnExtraction,
 			returnExtractionAssist: () => resolveAssist(readActiveProfile()?.profile.assist)['return-extraction'],
 			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
-			resolvedAgentModel: (def, ctx) => resolvedModel(def as AgentDef) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
+			resolvedAgentModel: (def, ctx, practices) => resolvedModel(def as AgentDef, practices) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 			getToolCatalogVersion: () => toolCatalogRuntime.catalogForMessage().catalogVersion,
 		},
 		actions: {
@@ -1207,7 +1210,6 @@ export default function (pi: ExtensionAPI) {
    privateProofUse: ctx => privateProofUse(ctx.cwd || process.cwd()),
 			adoptReservedTaskId: (id, resetTaskWindow) => { taskIdentityReset.run(id, resetTaskWindow); bindSemanticScope(id, hubTaskText ? createHash("sha256").update(hubTaskText).digest("hex") : ""); },
 			confirmTaskSupersession: (input, ctx, signal) => confirmTaskSupersession(input, ctx, { language: () => userLanguage, currentTaskId: () => noProgress.taskId(), ask: (id, params, askCtx, askSignal) => requestRuntimeAsk(pi.events, id, params, askCtx, askSignal), startWait: id => executionHistory.startAskUser(id), endWait: (id, sameTask) => { const wait = executionHistory.endAskUser(id, Date.now()); if (sameTask && wait > 0) taskClock = addTaskClockWait(taskClock, wait); } }, signal),
-			getAgentStates: () => agentStates, rosterAdd, rosterDrop,
 			getIdentity: () => identity, getComs: () => coms, resolveTarget,
 			appendMachineHandoffSections, markPeerAddressed,
 		},
@@ -1216,7 +1218,6 @@ export default function (pi: ExtensionAPI) {
 			provisionalCapabilityRefusal, isFleetReady: () => herdrFleetReady, isComsReady: () => comsReady,
 			getIdentity: () => identity, getCurrentContext: () => currentCtx, peersInScope,
 			getComsPeerNames: () => peersInScope().map(peer => peer.name), herdr: herdrApi,
-			readEnvFile: file => fs.readFileSync(file, "utf-8"), envFileExists: file => fs.existsSync(file),
 			getLastPiSpawnAt: () => lastHubPiSpawnAt, setLastPiSpawnAt: value => { lastHubPiSpawnAt = value; },
 			recordSpawnedPeer: (name, paneId) => { hubSpawnedPeers.set(name.toLowerCase(), { name, paneId, addressed: false }); },
 		},
@@ -1308,7 +1309,6 @@ export default function (pi: ExtensionAPI) {
 		run: (params, ctx, onProgress) => withProfileWork(() => runAfPoll({ ...params, ...hubPollPorts(ctx, "poll_panel"), selectHint: POLL_PANEL_SELECT, onProgress })),
 	});
 	registerSetTaskTier(pi, toolCtx);
-	registerTeamAdjust(pi, toolCtx);
 	registerVerificationContract(pi, toolCtx);
 	registerComsTools(pi, toolCtx);
 	registerFleetTools(pi, toolCtx);
@@ -1380,10 +1380,10 @@ export default function (pi: ExtensionAPI) {
 		livePeerNames: () => identity ? readAllRegistryEntries(identity.project).map(entry => entry.name) : [],
 		runtimeRows: () => [
 			{ label: "Work mode", detail: workModeStatusText(), origin: "runtime" },
-			{ label: "Active roster", detail: activeTeamName ? `${activeTeamName} (${agentStates.size} specialists)` : "(none)", origin: ".pi/agents/teams.yaml" },
+			{ label: "Roles", detail: (({ roles, missing }) => `researcher via spawn_research${roles ? `; ${roles}` : ""}${missing ? ` · not installed: ${missing}` : ""} · ${agentStates.size} on the roster · ${PRACTICE_IDS.length} practices`)(rosterRoles()), origin: "config/roles.ts" },
 			{ label: "Coms identity", detail: identity ? `${identity.name}@${identity.project}${comsReady ? "" : " · not ready"}` : "not connected", origin: "runtime" },
 			{ label: "Node", detail: process.version, origin: "runtime" },
-			{ label: "Related screens", detail: "/af-agents-team · /af-dispatch-policy · /af-context · /af-allowed · /af-coms", origin: "runtime" },
+			{ label: "Related screens", detail: "/af-agents-list · /af-dispatch-policy · /af-context · /af-allowed · /af-coms", origin: "runtime" },
 		],
 	});
 	const openFleetConfig = (ctx: ExtensionContext, args = "") => gridUI.withSuspended(() => fleetConfigUi.open(ctx, args));
@@ -1395,7 +1395,7 @@ export default function (pi: ExtensionAPI) {
 			activeAgents: agentStates,
 			getResearchPersonas: () => researchPersonas,
 			getProfiles: () => modelProfiles,
-			prefersComs: name => (dispatchPolicy.substitutions[name]?.prefer ?? dispatchPolicy.default) === "coms",
+			prefersComs: name => prefersComsRoute(name),
 			updateWidget,
 			shortModel,
 			activateProfile: (name, profile, ctx) => {
@@ -1468,105 +1468,13 @@ export default function (pi: ExtensionAPI) {
             });
         },
 
-		handleAgentsTeam: async (_args, ctx) => {
-			widgetCtx = ctx;
-			const teamNames = Object.keys(teams);
-			if (teamNames.length === 0) {
-				ctx.ui.notify("No teams defined in .pi/agents/teams.yaml", "warning");
-				return;
-			}
-
-			const options = teamNames.map(name => {
-				const members = teams[name].map(m => displayName(m));
-				return `${name} — ${members.join(", ")}`;
-			});
-
-			const choice = await ctx.ui.select("Select Team", options);
-			if (choice === undefined) return;
-
-			const idx = options.indexOf(choice);
-			const name = teamNames[idx];
-			const selected = resolveSessionRoster({
-				teams,
-				entries: [],
-				explicitRoster: name,
-				availablePersonas: allAgentDefs.map(def => def.name),
-			});
-			if (!selected.roster) {
-				ctx.ui.notify(`${selected.diagnostic} Fix .pi/agents/teams.yaml or select another team.`, "error");
-				return;
-			}
-			activateTeam(selected.roster.name);
-			persistActiveRoster();
-			resolveIncomingCapabilities("");
-			applyWorkModeTools();
-			setTimeout(replayDeferredRecoveryInputs, 0);
-			updateWidget();
-			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
-		},
 		handleAgentsList: async (_args, _ctx) => {
 			widgetCtx = _ctx;
 			await openFleetDashboard(_ctx);
 		},
 		handleAgentsHistory: async (_args, ctx) => {
 			widgetCtx = ctx;
-			await openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub"));
-		},
-		handleAgentsAdd: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (names.length === 0) {
-				const available = allAgentDefs
-					.filter(d => !agentStates.has(d.name.toLowerCase()))
-					.map(d => d.name).sort().join(", ") || "(all personas are already in the team)";
-				ctx.ui.notify(`Usage: /af-agents-add <persona> [<persona>…]\nNot in the team yet: ${available}`, "info");
-				return;
-			}
-			const results = names.map(n => rosterAdd(n));
-			const level = results.some(r => r.ok) ? "info" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level);
-			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
-		},
-		handleAgentsDrop: async (args, ctx) => {
-			widgetCtx = ctx;
-			const names = (args || "").trim().split(/\s+/).filter(Boolean);
-			if (names.length === 0) {
-				ctx.ui.notify(`Usage: /af-agents-drop <persona> [<persona>…]\nActive team: ${Array.from(agentStates.values()).map(s => s.def.name).join(", ")}`, "info");
-				return;
-			}
-			const results = names.map(n => rosterDrop(n));
-			const level = results.some(r => r.ok) ? "info" : "error";
-			ctx.ui.notify(results.map(r => r.message).join("\n"), level);
-			ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"}* (${agentStates.size})`);
-		},
-		handleAgentsSave: async (args, ctx) => {
-			widgetCtx = ctx;
-			const name = (args || "").trim();
-			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
-				ctx.ui.notify("Usage: /af-agents-save <team-name> (letters, digits, hyphens, underscores)", "error");
-				return;
-			}
-			const members = Array.from(agentStates.values()).map(s => s.def.name);
-			if (members.length === 0) {
-				ctx.ui.notify("The active team is empty — nothing to save.", "error");
-				return;
-			}
-			const teamsPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "teams.yaml");
-			let raw = "";
-			try { raw = existsSync(teamsPath) ? readFileSync(teamsPath, "utf-8") : ""; } catch {}
-			try {
-				mkdirSync(join(ctx.cwd || process.cwd(), ".pi", "agents"), { recursive: true });
-				writeFileSync(teamsPath, upsertTeamInYaml(raw, name, members), "utf-8");
-			} catch (err) {
-				ctx.ui.notify(`Could not write ${teamsPath}: ${err instanceof Error ? err.message : String(err)}`, "error");
-				return;
-			}
-			teams[name] = members;
-			activeTeamName = name;
-			persistActiveRoster();
-			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team "${name}" saved to .pi/agents/teams.yaml — ${members.join(", ")}`, "info");
+			await openHistory(ctx, executionHistory, () => "Agent Hub");
 		},
 		handleAgentsKill: async (args, ctx) => { widgetCtx = ctx; await researchControls.handleKill(args, ctx); },
 		handleAgentsRestart: async (args, ctx) => { widgetCtx = ctx; await researchControls.handleRestart(args, ctx); },
@@ -1619,11 +1527,11 @@ export default function (pi: ExtensionAPI) {
 					? agentStates.get(arg.toLowerCase()) ?? findDelegationChild(arg)?.child
 					: undefined;
 			if (!target) {
-				const teamKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+				const rosterKnown = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 				const researchKnown = Array.from(researchStates.values()).map(s => `r${s.id}`).join(", ");
 				const childKnown = Array.from(agentStates.values())
 					.flatMap(s => Array.from(s.delegations?.keys() || [])).join(", ");
-				const known = [teamKnown, researchKnown, childKnown].filter(Boolean).join(", ");
+				const known = [rosterKnown, researchKnown, childKnown].filter(Boolean).join(", ");
 				ctx.ui.notify(`Usage: /af-zoom <name|rN|child-id>. Known: ${known || "none"}`, "error");
 				return;
 			}
@@ -1635,18 +1543,19 @@ export default function (pi: ExtensionAPI) {
 		handleDispatchPolicy: async (_args, ctx) => {
 			widgetCtx = ctx;
 			const live = new Set(comsReady && identity ? peersInScope().map(e => e.name.toLowerCase()) : []);
+			// Routes are keyed by role (D11); a parallel instance uses its role's route and peer address.
 			const lines = Array.from(agentStates.values()).map(s => {
 				const key = s.def.name.toLowerCase();
-				const sub = dispatchPolicy.substitutions[key];
-				const prefer = sub ? sub.prefer : dispatchPolicy.default === "coms" ? "coms" : "native";
-				if (prefer !== "coms") return `${displayName(s.def.name)}: native`;
-				const fb = sub?.fallback === "none" ? "coms-required" : "coms, fallback native";
-				return `${displayName(s.def.name)}: ${fb} — peer ${live.has(key) ? "LIVE" : "not in pool"}`;
+				const route = policyRoute(dispatchPolicy, key);
+				if (!prefersComsRoute(key)) return `${displayName(s.def.name)}: native`;
+				const peer = String(route?.peer || basePersonaName(key)).toLowerCase();
+				const fb = route?.fallback === "none" ? "coms-required" : "coms, fallback native";
+				return `${displayName(s.def.name)}: ${fb} — peer ${peer} ${live.has(peer) ? "LIVE" : "not in pool"}`;
 			});
 			const policyPath = join(ctx.cwd || process.cwd(), ".pi", "agents", "dispatch-policy.yaml");
 			const src = existsSync(policyPath) ? ".pi/agents/dispatch-policy.yaml" : "(no dispatch-policy.yaml — all native)";
 			ctx.ui.notify(
-				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no active team)"}\n` +
+				`Dispatch backends — ${src}, default: ${dispatchPolicy.default}\n${lines.join("\n") || "(no dispatchable role installed)"}\n` +
 				`Routing is decided per dispatch against the live coms pool (/af-coms to refresh).`,
 				"info",
 			);
@@ -1680,7 +1589,7 @@ export default function (pi: ExtensionAPI) {
 			const agentKey = normalizeAgentInput(parts[0]);
 			const value = parts[1].toLowerCase();
 			if (!agentStates.has(agentKey)) {
-				ctx.ui.notify(`"${parts[0]}" is not in the active team (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
+				ctx.ui.notify(`"${parts[0]}" is not a dispatchable role or instance (${Array.from(agentStates.values()).map(s => s.def.name).join(", ")})`, "error");
 				return;
 			}
 			if (value === "clear") {
@@ -1728,9 +1637,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Handoff to ${peer.name}: asking the dispatcher to compose a brief…`, "info");
 		},
 		handleCompound: async (args, ctx) => {
-			if (!agentStates.has("documenter")) {
+			// Compound learning is an editor assignment with the documentation practice (PLAN-11-01).
+			if (!agentStates.has("editor")) {
 				ctx.ui.notify(
-					"compound: the documenter persona is not in the active team — switch with /af-agents-team (e.g. default or release), then re-run /af-compound.",
+					"compound: the editor role is not installed — run agent-fleet setup, then re-run /af-compound.",
 					"warning",
 				);
 				return;
@@ -1738,7 +1648,7 @@ export default function (pi: ExtensionAPI) {
 			const focus = (args ?? "").trim();
 			const rulesLine = projectRulesDirs.length > 0
 				? projectRulesDirs.join(", ")
-				: "(none declared in .ai/agent-fleet-overrides.md — the documenter must locate an existing rules tree or, failing that, propose lessons without writing)";
+				: "(none declared in .ai/agent-fleet-overrides.md — the editor must locate an existing rules tree or, failing that, propose lessons without writing)";
 			const docsLine = projectDocsPaths.length > 0
 				? projectDocsPaths.join(", ")
 				: "(none declared)";
@@ -1752,13 +1662,13 @@ export default function (pi: ExtensionAPI) {
 					`${focus ? `Focus especially on: ${focus}. ` : ""}` +
 					`If nothing rises to a lesson, tell the user there is nothing worth compounding and stop.\n` +
 					`2. Follow Decision routing to confirm the list with the user in ${userLanguage}. Wait for explicit approval of the final wording before dispatch.\n` +
-					`3. Dispatch the documenter with a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
+					`3. Dispatch agent "editor" with practices ["documentation"] and a SELF-CONTAINED task (it shares none of your context) containing: the approved lessons verbatim ` +
 					`(with Why + Evidence); the project rule folders: ${rulesLine}; the docs entry points: ${docsLine}; the assertion ledger path ` +
 					`.pi/agent-sessions/assertions.json (when it exists); and the instruction to read skills/compound-learning/SKILL.md and follow it exactly — ` +
 					`dedupe index-first against the existing rule tree, minimal diffs on existing files, caps of 5 lessons / 1 new file. State that the user ` +
 					`already approved this lesson list, so it may apply without a second gate. Pass the relevant review/return/evidence artifact paths via the ` +
 					`dispatch's artifacts array — paths only, never pasted bodies.\n` +
-					`4. Relay the documenter's file-by-file result to me in ${userLanguage}.`,
+					`4. Relay the editor's file-by-file result to me in ${userLanguage}.`,
 				display: true,
 			}, { deliverAs: "followUp", triggerTurn: true });
 			ctx.ui.notify("Compound: asking the dispatcher to compose the candidate-lessons brief…", "info");
@@ -1875,16 +1785,12 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// Keep the complete command surface flat and greppable in this composition root.
-	registerAgentsTeam(pi, commandCtx);
 	registerAgentsList(pi, commandCtx);
 	registerAgentsHistory(pi, commandCtx);
 	registerContextCommand(pi, commandCtx);
 	registerAudit(pi, commandCtx);
 	registerConfig(pi, commandCtx);
 	registerWatchdog(pi, commandCtx);
-	registerAgentsAdd(pi, commandCtx);
-	registerAgentsDrop(pi, commandCtx);
-	registerAgentsSave(pi, commandCtx);
 	registerHubReport(pi, commandCtx);
 	registerZoom(pi, commandCtx);
 	registerAgentModel(pi, commandCtx);
@@ -1913,7 +1819,7 @@ export default function (pi: ExtensionAPI) {
 		displayName,
 		shortModel,
 		refreshUi: updateWidget,
-		getDispatchPreference: name => (dispatchPolicy.substitutions[name.toLowerCase()]?.prefer ?? dispatchPolicy.default) === "coms" ? "coms" : "native",
+		getDispatchPreference: name => prefersComsRoute(name.toLowerCase()) ? "coms" : "native",
 		maxLiveEntryChars: MAX_LIVE_ENTRY_CHARS,
 		getProactive: () => fleetSource.snapshot(Date.now()).proactive,
 		readProactiveEvidence: (finding) => proactiveRuntime?.findings.readback(finding.snapshotHandle, finding.snapshotHash, finding.snapshotId, finding.unitId, finding.excerptHash) ?? null,
@@ -1961,7 +1867,7 @@ export default function (pi: ExtensionAPI) {
 		modelPolicy,
 		loadAvailableModels: loadAvailableModelChoices,
 		openDetail: openFleetDetail,
-		openHistory: ctx => openHistory(ctx, executionHistory, () => (activeTeamName ? `Team: ${activeTeamName}` : "Agent Hub")),
+		openHistory: ctx => openHistory(ctx, executionHistory, () => "Agent Hub"),
 		openConfig: ctx => fleetConfigUi.open(ctx as ExtensionContext),
 		modelWorkBlocked: () => false,
 		restartSpecialist: researchControls.restartSpecialist,
@@ -2000,7 +1906,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	const { openContextBudget } = contextBudgetUi;
 
-	// A delegate child anywhere in the team, by its id (e.g. "quality-1").
+	// A delegate child anywhere on the roster, by its id (e.g. "quality-1").
 	function findDelegationChild(arg: string): { child: DelegationChild; owner: AgentState } | null {
 		const lower = arg.toLowerCase();
 		for (const state of agentStates.values()) {
@@ -2039,7 +1945,7 @@ export default function (pi: ExtensionAPI) {
 	// /af-compound [focus] — end-of-session compound-learning pass. Mirrors /af-handoff's
 	// shape: the dispatcher LLM (which saw the whole session) composes the
 	// candidate-lessons brief itself, gates it on the user, then dispatches the
-	// documenter to land the approved lessons per skills/compound-learning/SKILL.md.
+	// editor (documentation practice) to land the approved lessons per skills/compound-learning/SKILL.md.
 	// The rules/docs targets come from the overrides file; artifacts travel as
 	// paths through the dispatch's `artifacts` array, never as pasted bodies.
 	// ── ask_user wait tracking (for /af-agents-history real-work) ──
@@ -2128,9 +2034,7 @@ export default function (pi: ExtensionAPI) {
 			tools: def.tools,
 			readOnly: def.readOnly,
 			model: resolvedModel(def),
-			inTeam: agentStates.has(def.name.toLowerCase()),
 		})),
-		getTeamMembers: () => Array.from(agentStates.values(), state => displayName(state.def.name)),
 		getProviderLimits: () => providerSemaphore.snapshot(),
 		getResearchPersonas: () => researchPersonas.map(def => ({
 			name: def.name,
@@ -2162,7 +2066,6 @@ export default function (pi: ExtensionAPI) {
 				})),
 		}),
 		getWorkMode,
-		getActiveTeamName: () => activeTeamName,
 		getUserLanguage: () => userLanguage,
 		getRulesProtocol: buildRulesProtocol,
 		getDocsProtocol: buildDocsProtocol,
@@ -2205,7 +2108,7 @@ export default function (pi: ExtensionAPI) {
 		if (taskTriageTestTransportActive && process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD) {
 			try { fs.appendFileSync(process.env.AGENT_HUB_TASK_TRIAGE_FAKE_STATE_RECORD, JSON.stringify({ pid: process.pid, phase: "before_agent_start", consumerPresent: !!taskTriage, consumerStatus: taskTriage?.status.status ?? null, consumerDetail: taskTriage?.status.detail ?? null, calls: taskTriage?.calls ?? null, processPersistenceBlocked, rosterBlocked: false, pendingTaskTransition }) + "\n"); } catch { /* diagnostic only */ }
 		}
-		// Pressure/roster recovery gates run first; assessment runs before this model input.
+		// Pressure recovery gates run first; assessment runs before this model input.
 		if (taskTriage && !processPersistenceBlocked) {
 			// Persist the first task identity before binding a pre-model assessment:
 			// compaction/resume must not mint a new ID for the same cached input.
@@ -2258,7 +2161,6 @@ export default function (pi: ExtensionAPI) {
 			taskTriage?.input(text, "interactive");
 		},
 	});
-	function replayDeferredRecoveryInputs(): void { pressureLifecycle.replayDeferred(); }
 	pi.on("message_end", async (event, ctx) => {
 		const diagnostics = observeUnknownToolCalls({ message: event.message, catalog: toolCatalogRuntime.catalogForMessage(), taskId: unknownToolCounter.snapshot().activeTaskId || noProgress.taskId(), counter: unknownToolCounter, seenCallIds: seenUnknownToolCalls });
 		for (const diagnostic of diagnostics) {
@@ -2448,7 +2350,8 @@ export default function (pi: ExtensionAPI) {
 				// A persisted reset here would append a new task event after the old one.
 				resetTaskWindow: () => resetTaskWindow(null, Date.now(), false), updateModeStatus,
 				setProjectRules: value => { projectRulesDirs = value; }, setProjectDocs: value => { projectDocsPaths = value; },
-				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();applyWorkModeTools();}, getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
+				resetModelPolicy: () => {modelPolicy.reset();profileActivation.reset();applyWorkModeTools();},
+				setPracticeModelOverrides: value => modelPolicy.setConfiguredPracticeSelections(value), getModelProfileErrors: () => modelProfileErrors, getAgentDefs: () => allAgentDefs, getModelProfiles: () => modelProfiles,
 				deleteModelProfile: name => { delete modelProfiles[name]; }, allowedModels,
 				getDispatchPolicyWarnings: () => dispatchPolicyWarnings, setResearchPersonas: value => { researchPersonas = value; },
 			});
@@ -2459,14 +2362,10 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 		restoreRoster: async (_ctx) => {
-			// Explicit CLI selection wins; otherwise restore only the canonical team name
-			// and re-resolve it against current teams.yaml/persona files. An explicit
-			// Operator work mode suppresses an ambient persisted roster unless --agent-team
-			// was also supplied.
-			agentStates.clear();
-			activeTeamName = "";
-			comsMissNotified.clear();
-			recomputeGrid();
+			// Every installed dispatchable role is on the roster from session start; there
+			// are no teams to restore (D7). Parallel instances join on demand. The rest of
+			// this phase restores process state, recovery, the ledger and the tool catalog.
+			rosterPolicy.populate();
 			const sessionEntries = _ctx.sessionManager.getEntries();
 			// Resume restores the persisted fence. A missing entry is the legacy clear state.
 			const restoredTransition = latestPendingTaskTransition(sessionEntries);
@@ -2504,18 +2403,6 @@ export default function (pi: ExtensionAPI) {
 			const persistedUnknownTools = latestPersistedUnknownToolCounter(sessionEntries);
 			if (persistedUnknownTools) unknownToolCounter = restoreUnknownToolCounter(persistedUnknownTools, { limit: 3 });
 			const legacyWorkModeFlag = pi.getFlag("work-mode");
-			const explicitRoster = pi.getFlag("agent-team");
-			const startupRoster = resolveSessionRoster({
-				teams,
-				entries: sessionEntries,
-				explicitRoster,
-				availablePersonas: allAgentDefs.map(def => def.name),
-			});
-			if (startupRoster.roster) {
-				activateTeam(startupRoster.roster.name);
-				persistActiveRoster();
-			}
-			if (startupRoster.diagnostic) _ctx.ui.notify(`${startupRoster.diagnostic} Continuing without that roster.`, "warning");
 			// The orchestrator mode was removed (2026-11-11). Tell the human once, then
 			// record the operator so a resumed session does not repeat the notice.
 			const legacyFlag = typeof legacyWorkModeFlag === "string" ? legacyWorkModeFlag.trim() : "";
@@ -2543,8 +2430,8 @@ export default function (pi: ExtensionAPI) {
 			workModePolicy.updateStatus(_ctx);
 		},
 		notifyStartup: (_ctx) => {
-			_ctx.ui.setStatus("agent-team", `Native roster: ${activeTeamName || "(none)"} (${agentStates.size})`);
-			const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+			const roster = rosterRoles();
+			_ctx.ui.setStatus("hub-roles", `Roles: ${roster.roles || "(none installed)"}`);
 			const askUserLabel = pi.getActiveTools().includes("ask_user")
 				? "available (via pi-ask-user)"
 				: "unavailable (questions in chat)";
@@ -2556,19 +2443,19 @@ export default function (pi: ExtensionAPI) {
 			const fleetLabel = herdrFleetReady
 				? "herdr — spawn/read/close panes + notify (herdr_* tools active)"
 				: "off (not inside a herdr pane, or no herdr server)";
-			const comsPreferred = Object.entries(dispatchPolicy.substitutions)
-				.filter(([, s]) => s.prefer === "coms")
-				.map(([n]) => n);
-			const dispatchLabel = dispatchPolicy.default === "coms"
-				? "coms default — any member with a live same-name pool peer is served by it (/af-dispatch-policy)"
-				: comsPreferred.length > 0
-					? `coms-preferred: ${comsPreferred.join(", ")} (live peer wins, /af-dispatch-policy for status)`
-					: "all native (no substitutions in .pi/agents/dispatch-policy.yaml)";
+			// Role-keyed routes (D11): each route shows the coms address that serves the role.
+			const routes = ROLE_NAMES.flatMap(role => {
+				const route = policyRoute(dispatchPolicy, role);
+				return route ? [`${role} → ${route.peer || role} (${route.prefer}${route.fallback === "none" ? ", required" : ""})`] : [];
+			});
+			const dispatchLabel = routes.length > 0 || dispatchPolicy.default === "coms"
+				? `default ${dispatchPolicy.default}${routes.length ? `; ${routes.join(", ")}` : ""} — a live peer on a coms route wins (/af-dispatch-policy for status)`
+				: "all native (no routes in .pi/agents/dispatch-policy.yaml)";
 			_ctx.ui.notify(buildSessionStartNotice({
 				workMode: getWorkMode(),
-				activeTeamName,
-				agentCount: agentStates.size,
-				members,
+				roles: roster.roles,
+				missingRoles: roster.missing,
+				practiceCount: PRACTICE_IDS.length,
 				dispatchLabel,
 				userLanguage,
 				askUserLabel,

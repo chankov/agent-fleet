@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyProcessClassification, createProcessState, evaluateProcessObligations, nestedRepositoriesInUse, normalizeProcessState, noteProcessStage, processAuditRecord, processPreEffectGate } from './process-obligations.ts';
+import { applyProcessClassification, createProcessState, evaluateProcessObligations, nestedRepositoriesInUse, normalizeProcessState, noteProcessStage, processAuditRecord, processPreEffectGate, recordChangeAuthors } from './process-obligations.ts';
+import { comsAuthor, nativeAuthor, OPERATOR_AUTHOR } from './review-closure.ts';
 
 for (const only of ['plan', 'acceptance', 'review'] as const) test(`${only} alone cannot close independent stages even at lower spend tier`, () => {
  const base = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'wide work' }).state;
@@ -143,4 +144,25 @@ test('runtime receipt journal anchors survive roundtrip; missing anchors, foreig
  const link=join(sessionDir,'artifacts/evidence/link.md'); symlinkSync(evidenceRef,link);
  assert.throws(()=>anchorRuntimeReceipt(first.capture,{...check,evidenceRef:link},'origin','runtime bytes'));
  writeFileSync(evidenceRef,'tampered bytes'); assert.deepEqual(reusableRuntimeChecks(second.state,second.capture,'a'.repeat(64)),[]);
+});
+
+test('change authorship accumulates per registered file, persists, and fails closed when corrupt', () => {
+ const editor = nativeAuthor('["/w","editor"]'), peer = comsAuthor({ address: 'peer-a', sessionId: 's1' });
+ let state = recordChangeAuthors(createProcessState(), ['b.ts', 'a.ts'], editor);
+ state = recordChangeAuthors(state, ['a.ts', 'a.ts'], peer);
+ state = recordChangeAuthors(state, ['a.ts'], editor);
+ assert.deepEqual(state.changeAuthors, { 'a.ts': [peer, editor].sort(), 'b.ts': [editor] });
+ assert.equal(recordChangeAuthors(state, [], OPERATOR_AUTHOR), state, 'no paths, no change');
+ assert.throws(() => recordChangeAuthors(state, ['a.ts'], 'reviewer'), /Invalid change author/);
+ const saved = JSON.parse(JSON.stringify(processAuditRecord(state, evaluateProcessObligations(state, { writable: true, budgetTier: 'small' })))).state;
+ assert.deepEqual(normalizeProcessState(saved).changeAuthors, state.changeAuthors);
+ // Acceptance that replaces the registered files (operator current state) keeps who authored them.
+ assert.deepEqual(noteProcessStage(state, 'acceptance', { evidenceRef: 'proof', revision: 'r', changedFiles: ['a.ts'] }).changeAuthors, state.changeAuthors);
+ assert.equal(normalizeProcessState({ ...saved, changeAuthors: {} }).changeAuthors, undefined);
+ assert.equal(createProcessState().changeAuthors, undefined, 'a new task starts without authors');
+ assert.throws(() => normalizeProcessState({ ...saved, changeAuthors: { 'a.ts': ['native:'] } }), /Invalid change authorship/);
+ assert.throws(() => normalizeProcessState({ ...saved, changeAuthors: { ' a.ts': [editor] } }), /Invalid change authorship/);
+ const odd = recordChangeAuthors(createProcessState(), ['__proto__'], editor);
+ assert.deepEqual(Object.keys(odd.changeAuthors!), ['__proto__'], 'a path is data, never a prototype');
+ assert.equal(Object.getPrototypeOf(odd.changeAuthors), Object.prototype);
 });

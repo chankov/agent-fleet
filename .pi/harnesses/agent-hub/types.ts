@@ -23,6 +23,8 @@ export interface AgentDef extends ResearchAgentDef {
 	fallbackModel?: string;
 	models?: string[];
 	subagents?: Record<string, SubagentRole>;
+	/** Role-file defaults per practice id (`practice_models:`); the first overridden practice of an assignment wins (D9). */
+	practiceModels?: Record<string, { model: string; thinking?: string }>;
 	delegateDepth?: number;
 	warnings?: string[];
 	kind?: string;

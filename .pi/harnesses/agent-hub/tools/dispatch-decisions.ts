@@ -5,7 +5,9 @@ import { operatorReviewState, operatorStateChecksDiagnostic, operatorStateNextSt
 import { reviewMayClose } from "../orchestration-activation.ts";
 import { authorizePlanStatusUpdate } from "../orchestration-route.ts";
 import { finishPrivateConfigReview, privateClassification, privateDeclarationHash, type PrivateProofUse } from "../private-config-review.ts";
-import { evaluateProcessObligations, noteProcessStage, type ProcessVerdict } from "../process-obligations.ts";
+import { evaluateProcessObligations, noteProcessStage, recordChangeAuthors, type ProcessVerdict } from "../process-obligations.ts";
+import { comsAuthor, nativeAuthor, OPERATOR_AUTHOR, selfAuthoredPaths } from "../review-closure.ts";
+import { comsRouteIdentity } from "../dispatch-coms.ts";
 import { retainReviewHistory } from "../review-continuity.ts";
 import { countReviewFindings } from "../review-findings.js";
 import { retainReview, reviewInput } from "../review-reuse.ts";
@@ -19,6 +21,8 @@ import type { DispatchEvidence, DispatchReceipts } from "./dispatch-evidence.ts"
 import type { DispatchExecutorDeps, DispatchResult, PreparedDispatch, ReviewRunEvidence, Tracking } from "./dispatch-execution-types.ts";
 
 type RuntimeResult = ReturnType<typeof buildRuntimeResult> & { process?: ProcessVerdict };
+/** A refused self-review names the reviewer identity and the in-scope files it authored. */
+type ReviewStageEvidence = ReviewRunEvidence & { selfAuthored?: { reviewer: string; paths: string[] } };
 
 interface OperatorStateVerification {
 	status: "unproven" | "accepted";
@@ -67,26 +71,32 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
   sourceObligations: !!s.getProcessState?.().changedFiles.length || !!s.getProcessState?.().workOrigin || !!s.getProcessState?.().acceptance.evidenceRef || !!s.getProcessState?.().review.evidenceRef || !!s.getProcessState?.().additions?.some(a => a.status === 'active' && a.reason !== 'irreversible_execution'), returnPath: runPath, writer: d.artifacts.writeRunArtifact, runCount: state?.runCount ?? 0,
  }) : undefined;
  let processVerdict: ProcessVerdict | null = null;
- let reviewEvidence: ReviewRunEvidence | undefined;
+ let reviewEvidence: ReviewStageEvidence | undefined;
+ // Who ran this assignment (plan task 5): a native instance bound to its workspace,
+ // or the coms peer address and registry session; an unknown coms identity fails closed.
+ const executor = backendUsed === "coms" ? comsAuthor(comsRouteIdentity(state)) : nativeAuthor(canonicalExecutor(cwd, p.agent));
  let operatorStateVerification: OperatorStateVerification | undefined = p.operatorCandidate ? {status:'unproven',origin:p.operatorCandidate.origin,historicalAttribution:'not_claimed',scope:p.operatorCandidate.paths,revision:afterRevision} : undefined;
 	if (s.getProcessState) {
 		let processState = s.getProcessState();
 		// Keep earlier task changes in the final review scope, including observed edits from runs that failed verification.
 		if (sameTask && tracking.writable && !p.privateConfig && !p.operatorCandidate && observation && !observation.skipped) {
 			const paths = reviewableChangedPaths(observation.paths, cwd, p.sessionDir, p.scopeGlobs, p.contract.files.map(file => file.path));
-			processState = { ...processState, changedFiles: [...new Set([...processState.changedFiles, ...paths])].sort() };
+			processState = recordChangeAuthors({ ...processState, changedFiles: [...new Set([...processState.changedFiles, ...paths])].sort() }, paths, executor);
 		}
 		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
 			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: processState.changedFiles });
 		}
 		const stage = p.privateConfig ? null : isEditorRole(p.agent) && !!p.assignment && assignmentPracticeIds(p.assignment).includes("planning") ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = affirmativeReviewVerdict(result.output);
+		// The author of reviewed work cannot approve it, including after changing role.
+		const selfAuthored = stage === "review" ? selfAuthoredPaths(processState.changeAuthors, executor, p.scopeGlobs) : [];
 		// Candidate registration happens only after independent review and actual
         // same-revision runtime checks, never from reported past edits.
         const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.(),p.assignment?assignmentPracticeIds(p.assignment):[]):null;
         // Named, ordered qualifiers: the same conjunction as before, so a refusal can
         // say which one failed. Diagnostics never relax or reorder a gate.
         const reviewQualifiers: Array<[string, boolean]> = [
+            ["review_self_authored", selfAuthored.length === 0],
             ["tool_protocol_error", !protocolDiagnostic],
             ["deliverable_failed", runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"],
             ["submission_incomplete", !submission || submission.status === "completed"],
@@ -115,7 +125,7 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
         if(candidateReady&&p.operatorCandidate){
           try {
             const evidenceRef=persistOperatorStateProof({writer:d.artifacts.writeRunArtifact,sessionDir:p.sessionDir,runCount:state?.runCount??0,dispatchId:result.dispatchId||randomUUID(),record:{schema:'agent-fleet.operator-state-verification/v1',...p.operatorCandidate,taskId:p.taskId,checks:runtimeResult.verification.checks,manualAssertions:'not_automatically_proven'}});
-            processState=noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,revisionScopes:p.revisionScopes,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'});
+            processState=recordChangeAuthors(noteProcessStage(processState,'acceptance',{evidenceRef,revision:afterRevision,revisionScopes:p.revisionScopes,changedFiles:p.operatorCandidate.paths,workOrigin:'operator-current-state'}),p.operatorCandidate.paths,OPERATOR_AUTHOR);
             operatorStateVerification={...operatorStateVerification!,status:'accepted',evidenceRef};
           } catch { operatorStateVerification={...operatorStateVerification!,reason:'evidence_readback_failed',failedQualifiers:['evidence_readback_failed'],nextStep:operatorStateNextStep('evidence_readback_failed')}; }
         }
@@ -143,7 +153,7 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 				&& !!p.reviewInput && !reasons.includes("review_input_changed");
 			const scopeDiagnostic = reasons.includes("incomplete_scope")
 				? reviewScopeDiagnostic(comparableScope ? reviewScope.outOfScope.length : undefined) : undefined;
-			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons, ...(scopeDiagnostic ? { scopeDiagnostic } : {}) };
+			reviewEvidence = { status: reasons.length ? "preliminary" : "final", scope: p.scopeGlobs, beforeRevision: p.beforeRevision, afterRevision, revisionScopes: p.revisionScopes, evidenceRef: runPath, reasons, ...(scopeDiagnostic ? { scopeDiagnostic } : {}), ...(selfAuthored.length ? { selfAuthored: { reviewer: executor, paths: selfAuthored } } : {}) };
 		}
 		// A declared plan must read back successfully; a refusal or unresolved
 		// decision is not plan evidence. No declaration still permits a retained
@@ -154,14 +164,15 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 			&& d.extractNeedsResearch(result.output).length === 0 && d.extractAskUserQuestions(result.output).length === 0);
 		if (stage && planProduced && (stage !== "review" || reviewEvidence?.status === "final") && disposition.delivered && result.exitCode === 0 && sameTask && runPath) {
 			processState = noteProcessStage(processState, stage, { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
-            if(stage === "review" && !tracking.writable) processState=retainReview(processState,candidateReviewInput,runPath,cwd);
+            if(stage === "review" && !tracking.writable) processState=retainReview(processState,candidateReviewInput,runPath,cwd,executor);
 		}
+        // An ineligible (self-authored) review is not review history either.
         if(stage === "review" && disposition.delivered && sameTask && runPath && p.reviewInput && p.reviewBaseline
-            && !tracking.writable && !reviewOverlapped && reviewRevisionStable
+            && !tracking.writable && !reviewOverlapped && reviewRevisionStable && !selfAuthored.length
             && JSON.stringify(p.reviewInput) === JSON.stringify(candidateReviewInput)){
             try {
              const baselineRef=d.artifacts.writeRunArtifact(key+"-review-baseline",state?.runCount??0,JSON.stringify(p.reviewBaseline),"returns",result.dispatchId,p.sessionDir);
-             if(baselineRef)processState=retainReviewHistory(processState,p.reviewInput,runPath,baselineRef,cwd);
+             if(baselineRef)processState=retainReviewHistory(processState,p.reviewInput,runPath,baselineRef,cwd,executor);
             } catch { /* Missing optional baseline forces a full review next time. */ }
         }
 		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));

@@ -161,3 +161,50 @@ export async function operatorStateFixture(t:any,scenario='pass',layout:'single'
  };
  return {cwd,d,state:()=>state,run:createDispatchExecutor(d as any)};
 }
+
+/**
+ * Per-assignment fixture (plan task 4): a git workspace with two disjoint source
+ * directories, the editor and a read-only reviewer, the Hub's writer registry and
+ * instance cloning, and a gated stub run per dispatch that marks its agent running
+ * the way the native backend does. Each run settles only when the test releases it.
+ */
+export function assignmentFixture(t: any) {
+ const cwd = mkdtempSync(join(tmpdir(), "parallel-assignments-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+ for (const dir of ["src/api", "src/client", "docs"]) mkdirSync(join(cwd, dir), { recursive: true });
+ writeFileSync(join(cwd, "src", "api", "index.ts"), "export const api = 1;\n");
+ writeFileSync(join(cwd, "src", "client", "index.ts"), "export const client = 1;\n");
+ execFileSync("git", ["init", "-q"], { cwd }); execFileSync("git", ["add", "."], { cwd });
+ execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], { cwd });
+ const sessionDir = join(cwd, ".pi", "agent-sessions", "sessions", "test"); mkdirSync(sessionDir, { recursive: true });
+ const d = prepareDeps({ agents: ["editor", "reviewer"] }); d.state.getSessionDir = () => sessionDir;
+ const agents = d._agents as Map<string, any>;
+ Object.assign(agents.get("editor")!, { status: "idle", lastBackend: "native" }); agents.get("editor")!.def.tools = "read,write,edit,bash";
+ Object.assign(agents.get("reviewer")!, { status: "idle", lastBackend: "native" }); Object.assign(agents.get("reviewer")!.def, { tools: "read,grep,find,ls,bash", readOnly: true });
+ const writers = new Map<number, { agent: string; scope: string[]; isolated: boolean }>(); let sequence = 0;
+ const created: string[] = [];
+ Object.assign(d.state, {
+  getActiveWriters: () => [...writers.values()],
+  getWriterGeneration: () => sequence,
+  beginWriter: (entry: { agent: string; scope: string[]; isolated: boolean }) => { const id = ++sequence; writers.set(id, entry); return () => { writers.delete(id); }; },
+  addAgentInstance: (base: string, instance: string) => {
+   const state = agents.get(base); if (!state) return false;
+   if (!agents.has(instance)) { agents.set(instance, { ...state, def: { ...state.def, name: instance }, status: "idle", runCount: 0 }); created.push(instance); }
+   return true;
+  },
+ });
+ const runs: Array<{ agent: string; task: string; scope: string[]; access: any; settle(exitCode?: number, edit?: string): void }> = [];
+ d.dispatchAgent = (async (agent: string, task: string, _ctx: unknown, _artifacts: unknown, scope: string[], _watchdog: unknown, _backend: unknown, _resume: unknown, _contract: unknown, _revision: unknown, access: unknown) => {
+  const state = agents.get(agent); state.status = "running";
+  let settle!: (value: { exitCode: number; edit?: string }) => void;
+  const gate = new Promise<{ exitCode: number; edit?: string }>(resolve => { settle = resolve; });
+  const index = runs.push({ agent, task, scope, access, settle: (exitCode = 0, edit) => settle({ exitCode, edit }) });
+  const { exitCode, edit } = await gate;
+  if (edit) writeFileSync(join(cwd, edit), `// changed by ${agent}\n`);
+  state.status = exitCode === 0 ? "done" : "error";
+  return { output: exitCode === 0 ? "**Verdict:** APPROVE\ndone" : "failed", exitCode, elapsed: 1, dispatchId: `${agent}-run-${index}`, lifecycle: nativeCleanLifecycle };
+ }) as any;
+ return { cwd, d, agents, created, runs, writers: () => [...writers.values()], ctx: { cwd } as any };
+}
+
+/** Let queued microtasks and immediate callbacks run. */
+export const settleTicks = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(resolve => setImmediate(resolve)); };

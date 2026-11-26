@@ -50,14 +50,6 @@ export async function paneTail(paneId: string, lines = 12): Promise<string> {
 	}
 }
 
-export function peerManifest(cwd: string): string {
-	try {
-		return fs.readFileSync(path.join(workspaceRoot(cwd), ".pi", "agents", "peers.yaml"), "utf-8");
-	} catch {
-		return "";
-	}
-}
-
 export function peerPersonaExists(cwd: string, persona: string): boolean {
 	return PERSONA_DIRS.some((dir) => fs.existsSync(path.join(workspaceRoot(cwd), ...dir, `${persona}.md`)));
 }
@@ -83,16 +75,14 @@ export function registerFleetTools(pi: ExtensionAPI, toolCtx: ToolContext): void
 	pi.registerTool({
 		name: "herdr_spawn_peer",
 		label: "Herdr Spawn Peer",
-		description: "Spawn a reusable sibling coms peer from its declared or compatible override settings; wait for peer_ready.",
+		description: "Spawn a reusable sibling coms peer (pi peers load Chrome DevTools MCP; read-only peers load no extension); wait for peer_ready.",
 		parameters: Type.Object({
-			name: Type.String({ description: "Peer and pane name." }),
-			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Runner override." })),
-			persona: Type.Optional(Type.String({ description: "Pi persona override." })),
+			name: Type.String({ description: "Peer and pane name; also its persona when a same-named persona exists." }),
+			runner: Type.Optional(Type.Union([Type.Literal("pi"), Type.Literal("claude-code")], { description: "Runner (default pi)." })),
+			persona: Type.Optional(Type.String({ description: "Pi persona." })),
 			no_persona: Type.Optional(Type.Boolean({ description: "Use persona-less Fleet Core." })),
-			model: Type.Optional(Type.String({ description: "Model override." })),
-			extensions: Type.Optional(Type.String({ description: "Pi extensions." })),
-			browser: Type.Optional(Type.Boolean({ description: "Enable browser." })),
-			all_extensions: Type.Optional(Type.Boolean({ description: "All extensions (Fleet Core only)." })),
+			model: Type.Optional(Type.String({ description: "Model." })),
+			read_only: Type.Optional(Type.Boolean({ description: "Enforced inspection-only tools; the peer may declare read_only." })),
 			direction: Type.Optional(Type.Union([Type.Literal("right"), Type.Literal("down")], { description: "Split direction." })),
 		}),
 		execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -101,7 +91,7 @@ export function registerFleetTools(pi: ExtensionAPI, toolCtx: ToolContext): void
 		renderCall(args, theme) {
 			const a = args as any;
 			return new Text(
-				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.runner ? ` (${a.runner})` : ""),
+				theme.fg("toolTitle", theme.bold("herdr_spawn_peer ")) + theme.fg("accent", a.name ?? "?") + theme.fg("dim", a.runner ? ` (${a.runner})` : "") + theme.fg("dim", a.read_only ? " read-only" : ""),
 				0, 0,
 			);
 		},

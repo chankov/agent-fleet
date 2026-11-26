@@ -22,6 +22,7 @@ export async function completeNativeRun(run: PreparedNativeRun, outcome: NativeS
 		processExitCode: res.exitCode,
 		assistantError: res.assistantError ?? null, stderr: res.stderr, spawnError: res.spawnError ?? null,
 		modelUsed: res.modelUsed ?? null,
+		...(run.modelSource ? { modelSource: run.modelSource } : {}),
 		effectiveTools: run.effectiveTools.split(",").map(tool => tool.trim()).filter(Boolean),
 		toolCallsStarted: res.toolCallsStarted ?? null,
 		termination: res.termination ?? null, modelFallback: res.modelFallback ?? null,

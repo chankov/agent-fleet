@@ -231,6 +231,8 @@ test("the reviewer role launches with inspection tools, runs checks only in the 
 	// An explicit coms request to an unenforced peer is refused before any launch.
 	const refused = await native.dispatchAgent(def.name, "review remotely", ctx, [], [], undefined, "coms");
 	assert.match(refused.output, /read-only role; coms peer "reviewer" does not declare enforced read-only tools/);
+	assert.match(refused.output, /`just fleet peer <name> --read-only`/, "the refusal names the working launch flag");
+	assert.doesNotMatch(refused.output, /peers\.yaml/, "the refusal does not point at the removed peers.yaml");
 	assert.equal(launches.length, 1);
 	// Active checks keep the shell, inside the sandbox with an empty repository write allowlist.
 	const verification = await native.dispatchAgent(def.name, "verify", ctx, [], ["src"], undefined, "auto", false, undefined, [], dispatchAccess(def, "run-checks"));
@@ -568,6 +570,45 @@ test('local-full serializes every declared child locally without project overrid
   }
   assert.equal(roles,8,'editor (recon, verifier) and reviewer (six inspection children)');
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
+});
+
+test("a native launch takes the first assignment practice with a model choice and records which on its resume contract (D9)", async t => {
+	const { mkdtempSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const { createModelPolicy } = await import("./policy/models.ts");
+	const { resolveThinkingLevel } = await import("./presentation.ts");
+	const root = mkdtempSync(join(tmpdir(), "hub-native-practice-model-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const def = applyRoleCeiling(parseAgentFile("agents/editor.md")!);
+	const policy = createModelPolicy({ getAllDefs: () => [def], getActiveDef: () => def, getResearchDefs: () => [], refreshUi() {} });
+	const state = { ...nativeState(), def };
+	const launches: Array<{ model: string; thinking: string; fallback: string | undefined }> = [];
+	const native = createDispatchNative(nativeDeps(state, {
+		getSessionDir: () => root,
+		resolvedModel: policy.resolvedModel, resolvedThinking: policy.resolvedThinking, resolveThinkingLevel,
+		modelSelectionSource: (agent: any, practices?: readonly string[]) => policy.resolvedSelection(agent, practices).source,
+		spawnPiAgentWithModelFallback: async (opts: any, fallback: string | undefined) => { launches.push({ model: opts.model, thinking: opts.thinking, fallback }); return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 }; },
+	}));
+	const ctx = { ...extensionContext, cwd: root };
+	const contract = (practices: string[]) => ({ taskId: "plan", instructions: `plan ${practices.join(",")}`, scope: [], permissions: def.tools, practices });
+	// implementation has no practice model, so planning (second in order) selects the retired planner's model.
+	const planned = await native.dispatchAgent(def.name, "plan", ctx, [], [], undefined, "native", false, contract(["implementation", "planning"]));
+	assert.equal(planned.exitCode, 0, planned.output);
+	assert.deepEqual(launches[0], { model: "openai-codex/gpt-6.2-astra", thinking: "high", fallback: "openai-codex/gpt-6.2-sol" }, "the role model stays the pre-work fallback");
+	assert.equal(state.resumeContract?.modelSource, "practice:planning:role-file");
+	assert.deepEqual(state.resumeContract?.practices, ["implementation", "planning"]);
+	assert.equal(state.resumeContract?.model, "openai-codex/gpt-6.2-astra");
+	// A session choice for the first practice outranks the role file; no practice choice falls back to the role.
+	policy.setPracticeOverride("editor", "implementation", "anthropic/claude-opus-5-5");
+	await native.dispatchAgent(def.name, "build", ctx, [], [], undefined, "native", false, contract(["implementation", "planning"]));
+	assert.deepEqual(launches[1], { model: "anthropic/claude-opus-5-5", thinking: "medium", fallback: "openai-codex/gpt-6.2-sol" });
+	assert.equal(state.resumeContract?.modelSource, "practice:implementation:session");
+	policy.setPracticeOverride("editor", "implementation", undefined);
+	await native.dispatchAgent(def.name, "build", ctx, [], [], undefined, "native", false, contract(["implementation"]));
+	assert.deepEqual(launches[2], { model: "openai-codex/gpt-6.2-sol", thinking: "medium", fallback: undefined });
+	assert.equal(state.resumeContract?.modelSource, "role");
+	assert.equal(bindResume({ ...contract(["planning"]), instructions: "same" }).identity, bindResume({ ...contract(["testing"]), instructions: "same" }).identity, "practices are not part of the bound identity");
 });
 
 for (const sample of [

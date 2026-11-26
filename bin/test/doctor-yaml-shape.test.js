@@ -1,6 +1,8 @@
-// Tests for the doctor's peers.yaml shape scan. The team-up launcher's
-// minimal parser silently drops field lines that sit under a team before any
-// `- name: ...` list item, so the doctor flags them as advisory findings.
+// Tests for the doctor's dispatch-policy route scan. Routes are keyed by
+// runtime role (PLAN-11-01, D11); the Hub ignores any other key with a
+// warning, so the doctor reports such keys as advisory "yaml-shape" findings,
+// with the role-and-practice mapping for a retired persona name. The old
+// peers.yaml/teams.yaml scans went with those files (D7/D8/D16).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -12,19 +14,19 @@ import { fileURLToPath } from "node:url";
 import { runDoctor } from "../lib/doctor.js";
 
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PEERS_REL = ".pi/agents/peers.yaml";
+const POLICY_REL = ".pi/agents/dispatch-policy.yaml";
 
-function workspaceWithPeers(yamlText) {
-  const ws = mkdtempSync(join(tmpdir(), "agent-fleet-peers-"));
-  if (yamlText !== null) {
-    mkdirSync(join(ws, ".pi", "agents"), { recursive: true });
-    writeFileSync(join(ws, PEERS_REL), yamlText);
+function workspaceWith(files) {
+  const ws = mkdtempSync(join(tmpdir(), "agent-fleet-routes-"));
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(ws, rel)), { recursive: true });
+    writeFileSync(join(ws, rel), text);
   }
   return ws;
 }
 
-async function shapeFindingsFor(yamlText) {
-  const ws = workspaceWithPeers(yamlText);
+async function shapeFindingsFor(files) {
+  const ws = workspaceWith(files);
   try {
     const findings = await runDoctor({ workspace: ws, sourceRoot });
     return findings.filter((f) => f.type === "yaml-shape");
@@ -33,101 +35,47 @@ async function shapeFindingsFor(yamlText) {
   }
 }
 
-const WELL_FORMED = `# comment
-full:
-  - name: web-debugger
-    persona: web-debugger
-    model: openai-codex/gpt-5.5
-  - name: documenter
-    persona: documenter
-
-web:
-  - name: web-debugger
-    persona: web-debugger
-`;
-
-test("well-formed peers.yaml yields no yaml-shape findings", async () => {
-  assert.deepEqual(await shapeFindingsFor(WELL_FORMED), []);
+test("role-keyed routes and an absent policy yield no findings", async () => {
+  assert.deepEqual(await shapeFindingsFor({}), []);
+  assert.deepEqual(await shapeFindingsFor({
+    [POLICY_REL]: "default: native\nroutes:\n  reviewer:\n    peer: claude-reviewer\n    prefer: coms\n  researcher:\n    fallback: none\n",
+  }), []);
+  // The shipped policy is role-keyed.
+  assert.deepEqual(await shapeFindingsFor({ [POLICY_REL]: readFileSync(join(sourceRoot, POLICY_REL), "utf8") }), []);
 });
 
-test("absent peers.yaml yields no yaml-shape findings", async () => {
-  assert.deepEqual(await shapeFindingsFor(null), []);
-});
-
-test("an orphan field block before the first list item is flagged once per team", async () => {
-  const broken = `full:
-    persona: web-debugger
-    model: openai-codex/gpt-5.5
-    extensions: chrome-devtools-mcp
-  - name: documenter
-    persona: documenter
-
-web:
-  - name: web-debugger
-    persona: web-debugger
-`;
-  const findings = await shapeFindingsFor(broken);
-  assert.equal(findings.length, 1);
-  assert.equal(findings[0].path, PEERS_REL);
-  assert.match(findings[0].issue, /team "full"/);
-  assert.match(findings[0].issue, /persona: web-debugger/);
-  assert.match(findings[0].issue, /line 2/);
-  assert.match(findings[0].fix, /- name: <peer>/);
-});
-
-test("two broken teams produce two findings", async () => {
-  const broken = `full:
-    persona: web-debugger
-  - name: documenter
-    persona: documenter
-
-docs:
-    persona: documenter
-`;
-  const findings = await shapeFindingsFor(broken);
+test("a retired persona route key is reported with its role-and-practice mapping", async () => {
+  const findings = await shapeFindingsFor({
+    [POLICY_REL]: "routes:\n  code-reviewer:\n    prefer: coms\n  planner:\n    prefer: coms\n",
+  });
   assert.equal(findings.length, 2);
-  assert.match(findings[0].issue, /team "full"/);
-  assert.match(findings[1].issue, /team "docs"/);
+  const [codeReviewer, planner] = findings;
+  assert.equal(codeReviewer.path, POLICY_REL);
+  assert.match(codeReviewer.issue, /route "code-reviewer" is not a role, so the Hub ignores it/);
+  assert.match(codeReviewer.issue, /"code-reviewer" is a retired persona.*agent "reviewer" with practices \["independent-review"\]/);
+  assert.match(codeReviewer.fix, /key the route by "reviewer:" and keep the peer address as "peer: code-reviewer"/);
+  // A persona that maps to two roles names both, and the fix leaves the choice to the human.
+  assert.match(planner.issue, /agent "editor" with practices \["planning"\].*agent "researcher" with practices \["planning"\]/);
+  assert.match(planner.fix, /key the route by its role \(researcher, reviewer, editor\) and name the peer with "peer: planner"/);
 });
 
-test("comments and blank lines under a team do not trip the scan", async () => {
-  const text = `full:
-  # leading comment before the first peer
-
-  - name: documenter
-    persona: documenter
-`;
-  assert.deepEqual(await shapeFindingsFor(text), []);
+test("a peer-name route key that is not a persona still gets the role hint, and the legacy substitutions spelling is scanned", async () => {
+  const [finding] = await shapeFindingsFor({ [POLICY_REL]: "substitutions:\n  claude-main:\n    prefer: coms\n" });
+  assert.match(finding.issue, /route "claude-main" is not a role, so the Hub ignores it; routes are keyed by researcher, reviewer, editor/);
 });
 
-test("fields after a list item are fine even across comments", async () => {
-  const text = `full:
-  - name: web-debugger
-    # the extension this peer needs
-    persona: web-debugger
-    extensions: chrome-devtools-mcp
-`;
-  assert.deepEqual(await shapeFindingsFor(text), []);
-});
-
-test("apply leaves the malformed file untouched (advisory only)", async () => {
-  const broken = `full:
-    persona: web-debugger
-  - name: documenter
-    persona: documenter
-`;
-  const ws = workspaceWithPeers(broken);
+test("the advisory scan never edits the policy, and peers.yaml/teams.yaml are no longer read", async () => {
+  const text = "routes:\n  code-reviewer:\n    prefer: coms\n";
+  const ws = workspaceWith({
+    [POLICY_REL]: text,
+    ".pi/agents/peers.yaml": "full:\n    persona: web-debugger\n",
+    ".pi/agents/teams.yaml": "default:\n  - code-reviewer\n",
+  });
   try {
-    const result = await runDoctor({ workspace: ws, sourceRoot, apply: true });
-    assert.equal(result.repaired, 0);
-    assert.equal(result.deleted, 0);
-    assert.equal(readFileSync(join(ws, PEERS_REL), "utf8"), broken);
+    const result = await runDoctor({ workspace: ws, sourceRoot, apply: false });
+    assert.equal(result.filter((f) => f.path === ".pi/agents/peers.yaml" || f.path === ".pi/agents/teams.yaml").length, 0);
+    assert.equal(readFileSync(join(ws, POLICY_REL), "utf8"), text);
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
-});
-
-test("the repo's own peers.yaml is well-formed", async () => {
-  const real = readFileSync(join(sourceRoot, PEERS_REL), "utf8");
-  assert.deepEqual(await shapeFindingsFor(real), []);
 });

@@ -9,8 +9,8 @@ export interface WorkModeUiPort {
 export interface PersistedCapabilityRestore { taskPacks: CapabilityPack[]; provisional: CapabilityPack[]; confirmation: CapabilityConfirmationState }
 export interface WorkModePolicyPorts {
 	getBaselineTools(): readonly string[];
+	/** Dispatchable roles plus running parallel instances. */
 	getRosterSize(): number;
-	getActiveTeamName(): string;
 	getComsReady(): boolean;
 	getHerdrReady(): boolean;
 	getAskUserAvailable(): boolean;
@@ -90,7 +90,7 @@ export function createWorkModePolicy(ports: WorkModePolicyPorts): WorkModePolicy
 		ports.recordToolCatalog?.({ fromMode, toMode: workMode, previous, next: [...(ports.getActiveTools?.() ?? requested)], reason });
 	}
 	function statusText(): string {
-		return [`Work Mode: ${workMode}`, "Direct tools: enabled", `Native roster: ${ports.getActiveTeamName() || "(none)"} (${ports.getRosterSize()})`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
+		return [`Work Mode: ${workMode}`, "Direct tools: enabled", `Specialists: ${ports.getRosterSize()} (editor, reviewer and parallel instances; researcher via spawn_research)`, `Coms: ${ports.getComsReady() ? `ready${ports.getIdentityLabel() ? ` (${ports.getIdentityLabel()})` : ""}` : "unavailable"}`, `Herdr: ${ports.getHerdrReady() ? "ready" : "unavailable"}`].join("\n");
 	}
 	return {
 		getWorkMode: () => workMode,

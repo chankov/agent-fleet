@@ -26,7 +26,7 @@ export default function (pi) {
     }
     if (event.toolName === "dispatch_agent") {
       const input = event.input;
-      const allowed = !used && input?.agent === "code-reviewer" && input?.backend === "native" &&
+      const allowed = !used && input?.agent === "reviewer" && JSON.stringify(input?.practices) === '["independent-review"]' && input?.backend === "native" &&
         JSON.stringify(input?.scope) === '["README-SYNTH.md"]' &&
         (input?.artifacts === undefined || (Array.isArray(input.artifacts) && input.artifacts.length === 0));
       if (allowed) { used = true; return; }
@@ -58,7 +58,8 @@ export function reviewFixture(from) {
   const result = json(resultPath);
   must(result.fixture === from && result.worktree === join(from, "worktree") && result.model === "openai-codex/gpt-6-luna", "result fixture/model mismatch");
   must(Array.isArray(result.stages) && result.stages.length === 3 &&
-    result.stages.map(s => s.role).join(",") === "planner,builder,code-reviewer" &&
+    result.stages.map(s => s.role).join(",") === "editor,editor,reviewer" &&
+    result.stages.map(s => JSON.stringify(s.practices)).join(",") === '["planning"],["implementation"],["independent-review"]' &&
     result.stages.map(s => s.stage).join(",") === "plan,build,review", "not the retained three-stage fixture");
   must(result.stages.every(s => s.modelEvidence?.fallback === null && s.modelEvidence?.status === "observed" &&
     s.modelEvidence.identities?.length && s.modelEvidence.identities.every(m => `${m.provider}/${m.model}` === result.model)), "original stage model evidence incomplete");
@@ -72,7 +73,7 @@ export function reviewFixture(from) {
     result.stages[2].process?.obligations?.review?.status === "satisfied", "original process or README scope not complete");
   const [plan, build, review] = result.stages;
   const session = join(from, "worktree/.pi/agent-sessions/sessions");
-  // Derive the original session from the retained planner result path, then constrain every stage to it.
+  // Derive the original session from the retained planning-editor result path, then constrain every stage to it.
   const base = join(plan.resultPath, "../../..");
   must(relative(session, base) && !relative(session, base).includes("/") && !relative(session, base).startsWith(".."), "invalid original session");
   const expectedStage = (s, role) => {
@@ -81,7 +82,7 @@ export function reviewFixture(from) {
       s.acceptancePath === join(base, "artifacts/evidence", `${role}-acceptance-${s.id}.md`), `invalid ${role} stage paths`);
     return [s.resultPath, s.returnPath, s.acceptancePath];
   };
-  const paths = [resultPath, ...expectedStage(plan, "planner"), ...expectedStage(build, "builder"), ...expectedStage(review, "code-reviewer")];
+  const paths = [resultPath, ...expectedStage(plan, "editor"), ...expectedStage(build, "editor"), ...expectedStage(review, "reviewer")];
   const before = join(from, "evidence/README-before.md"), after = join(from, "evidence/README-after.md");
   const afterDiff = join(from, "evidence/README-before-after.git-diff.patch");
   const manifest = result.baseline?.manifest, baselineBytes = result.baseline?.filesPath;
@@ -94,8 +95,8 @@ export function reviewFixture(from) {
     check?.taskId === acceptance.task.id && check?.exitCode === 0 && check?.command?.length === 1 &&
     check.command[0] === result.declaredCheck && acceptance.execution?.dispatchId === build.id &&
     acceptance.process?.obligations?.acceptance?.status === "satisfied" &&
-    ["A1", "AF-MIN-CHANGE"].every(id => acceptance.verification.requirements.some(r => r.id === id && r.status === "passed" && r.taskId === acceptance.task.id && r.revision === check.inspectedRevision)), "builder task/revision/check evidence mismatch");
-  must(typeof check.evidenceRef === "string" && check.evidenceRef.startsWith(join(base, "artifacts/evidence/builder-test-check-")), "check path outside original session");
+    ["A1", "AF-MIN-CHANGE"].every(id => acceptance.verification.requirements.some(r => r.id === id && r.status === "passed" && r.taskId === acceptance.task.id && r.revision === check.inspectedRevision)), "implementation editor task/revision/check evidence mismatch");
+  must(typeof check.evidenceRef === "string" && check.evidenceRef.startsWith(join(base, "artifacts/evidence/editor-test-check-")), "check path outside original session");
   paths.push(check.evidenceRef);
   const checkRecord = json(check.evidenceRef), buildResult = json(build.resultPath);
   const priorReview = json(review.acceptancePath), priorResult = json(review.resultPath);
@@ -106,9 +107,9 @@ export function reviewFixture(from) {
   must(checkRecord.declaration?.taskId === acceptance.task.id && checkRecord.declaration?.dispatchId === build.id &&
     checkRecord.observation?.command === result.declaredCheck && checkRecord.observation?.exitCode === 0 &&
     checkRecord.observation?.afterRevision === check.inspectedRevision &&
-    buildResult.evidencePath === build.resultPath && buildResult.exitCode === 0, "builder check/result inconsistency");
+    buildResult.evidencePath === build.resultPath && buildResult.exitCode === 0, "implementation editor check/result inconsistency");
   const hashes = json(manifest), originals = json(baselineBytes);
-  const expectedKeys = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md", ".pi/agents/teams.yaml", ".pi/agents/personas/planner.md", ".pi/agents/personas/builder.md", ".pi/agents/personas/code-reviewer.md"];
+  const expectedKeys = ["README-SYNTH.md", "probe-hooks.ts", "stage-boundary.mjs", "skills/orchestration-verification/SKILL.md", ".pi/agents/personas/editor.md", ".pi/agents/personas/reviewer.md"];
   must(Object.keys(hashes).sort().join() === expectedKeys.sort().join() && Object.keys(originals).sort().join() === expectedKeys.join(), "baseline fixture manifest coverage mismatch");
   for (const key of expectedKeys) {
     must(typeof hashes[key] === "string" && sha(Buffer.from(originals[key])) === hashes[key], `recorded baseline bytes mismatch: ${key}`);
@@ -125,7 +126,7 @@ export function reviewFixture(from) {
     readback.bytes === expected.length && acceptance.scopeRoots?.length === 1 &&
     acceptance.scopeRoots[0].scope === "README-SYNTH.md" && acceptance.scopeRoots[0].exists === true &&
     readback.retainedPath === join(base, "dispatches", build.id, "deliverables/0") &&
-    readFileSync(file(readback.retainedPath)).equals(expected), "builder README scope/readback mismatch");
+    readFileSync(file(readback.retainedPath)).equals(expected), "implementation editor README scope/readback mismatch");
   paths.push(readback.retainedPath);
   must(readFileSync(file(afterDiff), "utf8").includes("-The wdiget renders a greeting.\n+The widget renders a greeting."), "before/after diff missing typo");
   must(readFileSync(file(result.baseline.statusPath), "utf8") === "" &&
@@ -141,7 +142,7 @@ export function reviewFixture(from) {
     result.after.nonRuntimeStatus === " M README-SYNTH.md" &&
     result.afterReview.nonRuntimeStatus === " M README-SYNTH.md", "unrelated source or session changes in recorded status");
   const unique = [...new Set(paths)];
-  // Only the eight fixture-file hashes above were recorded at creation; all other hashes are a first-time snapshot NOW.
+  // Only the fixture-file hashes above were recorded at creation; all other hashes are a first-time snapshot NOW.
   const snapshot = Object.fromEntries(unique.map(path => [file(path), sha(readFileSync(path))]));
   const verify = () => { for (const [path, hash] of Object.entries(snapshot)) must(sha(readFileSync(file(path))) === hash, `fixture evidence changed since first-time snapshot: ${path}`); };
   return { result, plan, build, review, before, after, afterDiff, acceptancePath: build.acceptancePath,
