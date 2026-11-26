@@ -15,3 +15,4 @@ Run through the complete pre-launch checklist:
 
 Report any failing checks and help resolve them before deployment.
 Define the rollback plan before proceeding.
+Preparing is not publishing: pushing, pushing tags, `npm publish` and creating a hosted release each need separate explicit permission.

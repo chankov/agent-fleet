@@ -43,8 +43,9 @@ and environment files. See [npm-install.md](npm-install.md) for `--migrate`,
 
 `just fleet` is the guarded Fleet Core launcher. It explicitly loads
 `damage-control-continue` (which runs the shared package update check once per
-session), `ask-user-remote`, compact-and-continue, and BTW. Voice is not a Default Core dependency. `just fleet hub`
-adds agent-hub; `just fleet peer` adds coms; `just fleet team` uses Herdr.
+session), `ask-user-remote`, compact-and-continue, and BTW. Voice is not a Default Core dependency. `just fleet`
+also loads agent-hub with the three roles (`just fleet hub` is a compatibility alias);
+`just fleet peer` adds coms; `just fleet --herdr` and a peer pane use Herdr.
 
 ```bash
 just fleet help

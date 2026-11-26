@@ -24,7 +24,7 @@
     },
     {
       "id": "personas",
-      "title": "Agent personas",
+      "title": "Agent roles",
       "order": 2,
       "agents": [
         "pi"
@@ -32,8 +32,7 @@
       "subcategoryLabel": "access",
       "subcategories": [
         "rw",
-        "ro",
-        "pi-only"
+        "ro"
       ]
     },
     {
@@ -200,9 +199,9 @@
     "skill:orchestration-verification",
     "skill:compound-learning",
     "skill:using-agent-skills",
-    "persona:builder",
-    "persona:test-engineer",
-    "persona:code-reviewer",
+    "persona:editor",
+    "persona:researcher",
+    "persona:reviewer",
     "command:spec",
     "command:plan",
     "command:build",
@@ -238,20 +237,9 @@
     "skill:compound-learning": "learn",
     "skill:using-agent-skills": "meta",
     "skill:designing-agents": "meta",
-    "persona:builder": "rw",
-    "persona:test-engineer": "rw",
-    "persona:documenter": "rw",
-    "persona:planner": "rw",
-    "persona:architect": "rw",
-    "persona:releaser": "rw",
-    "persona:code-reviewer": "ro",
-    "persona:security-auditor": "ro",
-    "persona:plan-reviewer": "ro",
+    "persona:editor": "rw",
     "persona:researcher": "ro",
-    "persona:deep-researcher": "ro",
-    "persona:web-performance-auditor": "ro",
-    "persona:bowser": "pi-only",
-    "persona:web-debugger": "pi-only",
+    "persona:reviewer": "ro",
     "pi-extension:mcp-bridge": "extension",
     "pi-extension:chrome-devtools-mcp": "extension",
     "pi-extension:compact-and-continue": "extension",
@@ -354,11 +342,6 @@
         "reference:security-checklist"
       ]
     },
-    "persona:web-performance-auditor": {
-      "companions": [
-        "reference:performance-checklist"
-      ]
-    },
     "_coms_bridge_comment": "Claude Code is not an install target — it joins the fleet only as a coms peer, driven by .pi/agent-fleet/scripts/coms-claude-bridge.ts. Both halves of that bridge live in one group: the skill the bridged pane reads, and the Stop hook it writes its turn output through. See docs/claude-code-coms-bridge.md.",
     "skill:peer-coms": {
       "group": "coms-bridge",
@@ -371,30 +354,19 @@
         "reference:fleet-coordination-patterns"
       ],
       "recommendsWith": [
-        "persona:builder",
-        "persona:test-engineer",
-        "persona:code-reviewer"
+        "persona:editor",
+        "persona:reviewer"
       ]
     },
     "skill:compound-learning": {
       "recommendsWith": [
         "command:compound",
-        "persona:documenter"
+        "persona:editor"
       ]
     },
     "command:compound": {
       "recommendsWith": [
         "skill:compound-learning"
-      ]
-    },
-    "persona:bowser": {
-      "requires": [
-        "pi-runtime-skill:bowser"
-      ]
-    },
-    "persona:web-debugger": {
-      "requires": [
-        "pi-extension:chrome-devtools-mcp"
       ]
     },
     "pi-runtime-skill:bowser": {
@@ -458,10 +430,29 @@
         "companion:pi-agent-configs"
       ],
       "requires": [
+        "persona:editor",
+        "persona:researcher",
+        "persona:reviewer",
         "pi-harness:damage-control-continue",
         "pi-harness:ask-user-remote"
       ],
       "pinnedBy": []
+    },
+    "_roles_comment": "The Hub dispatches exactly three runtime roles and refuses a dispatch whose role definition is missing (PLAN-11-01, D7). The wiring is the Fleet Core shape: `requires` on the Hub, so selecting it installs all three roles, and `pinnedBy` on each role, so uninstall refuses to take one out from under an installed Hub.",
+    "persona:editor": {
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
+    },
+    "persona:researcher": {
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
+    },
+    "persona:reviewer": {
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
     },
     "pi-harness:damage-control-continue": {
       "companions": [
@@ -991,9 +982,9 @@
         "command:review",
         "command:spec",
         "command:test",
-        "persona:builder",
-        "persona:code-reviewer",
-        "persona:test-engineer",
+        "persona:editor",
+        "persona:researcher",
+        "persona:reviewer",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:agent-hub",

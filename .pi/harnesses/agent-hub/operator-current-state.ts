@@ -110,7 +110,7 @@ export function operatorStateNextStep(reason:string):string {
   needs_research:'The reviewer requested research; run it and re-run the review with the findings.',
   requires_user_decision:'The reviewer returned a decision that belongs to the human; obtain it explicitly before re-running. It is never ignored automatically.',
   review_input_missing:'The review input could not be recorded at dispatch; re-run the review.',
-  not_review_stage:'Only a review persona can register a current-state candidate; dispatch code-reviewer.',
+  not_review_stage:'Only a reviewer can register a current-state candidate; dispatch the reviewer role.',
   review_input_changed:'The review input changed during the review; re-run it.',
   not_delivered:'The review did not complete and deliver; re-run it.',
   submission_incomplete:'The reviewer did not submit a completed structured result; re-run it.',

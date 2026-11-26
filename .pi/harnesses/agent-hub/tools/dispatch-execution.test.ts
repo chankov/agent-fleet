@@ -273,7 +273,7 @@ for (const task of [
  assert.equal(d.state.getProcessState().review.evidenceRef, null);
  assert.equal(d.state.getProcessState().acceptance.evidenceRef, null);
  const handoff = activeOrchestrationHandoff({ agent: "editor", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk: "low", scopeBreadth: "narrow", sharedCode: false });
- assert.deepEqual(handoff.route.stages, ["builder", "reviewer"]);
+ assert.deepEqual(handoff.route.stages, ["editor", "reviewer"]);
 });
 
 test("post-plan-admission: sensitive wording and missing plans do not require Planner", () => {
@@ -377,9 +377,9 @@ test("planning-gate: missing plan does not add a pre-effect obligation", () => {
 
 test("planning-gate: handoff shares conservative signals without weakening general route policy", () => {
  const handoff = (task: string, risk: "low" | "high" = "low", scopeBreadth: "narrow" | "wide" = "narrow") => activeOrchestrationHandoff({ agent: "editor", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk, scopeBreadth, sharedCode: false });
- assert.deepEqual(handoff("Do not read secrets or credentials; no cloud or AWS operations").route.stages, ["builder", "reviewer"]);
- for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "builder");
- assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "builder");
+ assert.deepEqual(handoff("Do not read secrets or credentials; no cloud or AWS operations").route.stages, ["editor", "reviewer"]);
+ for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "editor");
+ assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "editor");
 });
 
 test("planning-gate: real planner readback binds only a delivered plan before builder", async t => {

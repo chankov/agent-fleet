@@ -1,6 +1,6 @@
 # Specification: Agent Forge (Evolutionary Tooling)
 
-> Historical note: this original design spec predates consolidation into `agent-hub`. The standalone `agent-team` harness is retired; current supported orchestration lives in `.pi/harnesses/agent-hub/`.
+> Historical note: this original design spec predates consolidation into `agent-hub`. The standalone `agent-team` harness is retired; current supported orchestration lives in `.pi/harnesses/agent-hub/`. Since 2.3.0 the Hub dispatches three runtime roles (`researcher`, `reviewer`, `editor`) with practices instead of personas and teams; see [the role and practice catalogue](../agents.md).
 
 ## 1. Overview
 **Agent Forge** is an evolutionary extension for the Pi Coding Agent. It enables the agent to expand its own capabilities by dynamically generating, validating, and loading new TypeScript tools on demand. Instead of a static set of capabilities, Agent Forge turns the agent into a meta-developer that builds its own infrastructure.

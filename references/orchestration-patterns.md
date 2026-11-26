@@ -1,126 +1,141 @@
 # Orchestration Patterns
 
-Reference catalog of agent orchestration patterns this repo endorses, plus anti-patterns to avoid. Read this before adding a new slash command that coordinates multiple personas, or before introducing a new persona that "wraps" existing ones. This is the **composition layer** (which personas run and how they're wired); the runtime coordination protocols between already-running agents — sentinels, push events, barriers, fan-in digests, racing — are catalogued in [fleet-coordination-patterns.md](fleet-coordination-patterns.md).
+Reference catalog of agent orchestration patterns this repo endorses, plus anti-patterns to avoid. Read this before adding a slash command or flow that coordinates several agents, or before proposing a new kind of assignment. This is the **composition layer**: which roles run, with which practices, and how they are wired. The runtime coordination protocols between already-running agents — sentinels, push events, barriers, fan-in digests, racing — are catalogued in [fleet-coordination-patterns.md](fleet-coordination-patterns.md).
 
-The governing rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** Skills are mandatory hops inside a persona's workflow.
+In the Agent Hub, every delegated assignment is one of three roles — `researcher`, `reviewer`, `editor` — with practices that add method and expected evidence, never authority. The catalogue is [docs/agents.md](../docs/agents.md).
+
+The governing rule: **the Hub operator, a deterministic flow or the user composes the work. Roles do not dispatch other roles** (the older wording of this rule: personas do not invoke other personas). Skills are mandatory hops inside an assignment, loaded through its practices.
 
 ---
 
 ## Endorsed patterns
 
-### 1. Direct invocation (no orchestration)
+### 1. Direct work or one assignment (no orchestration)
 
-Single persona, single perspective, single artifact. The default and the cheapest option.
+One perspective, one artifact. The operator does a small change itself, or sends one assignment. The default and the cheapest option.
 
 ```
-user → code-reviewer → report → user
+operator → reviewer [independent-review] → report → operator
 ```
 
 **Use when:** the work is one perspective on one artifact and you can describe it in one sentence.
 
 **Examples:**
-- "Review this PR" → `code-reviewer`
-- "Find security issues in `auth.ts`" → `security-auditor`
-- "What tests are missing for the checkout flow?" → `test-engineer`
+- "Review this PR" → `reviewer` with `independent-review`
+- "Find security issues in `auth.ts`" → `reviewer` with `independent-review`, `security`
+- "What tests are missing for the checkout flow?" → `reviewer` with `testing`, `independent-review`
+- "Plan, build and test the export limit" → one `editor` with `planning`, `implementation`, `testing`
 
 **Cost:** one round trip. The baseline you should always compare orchestrated patterns against.
 
 ---
 
-### 2. Single-persona slash command
+### 2. Single-skill slash command
 
-A slash command that wraps one persona with the project's skills. Saves the user from re-explaining the workflow every time.
+A slash command that loads one skill with the project's setup. Saves the user from re-explaining the workflow every time.
 
 ```
-/review → code-reviewer (with code-review-and-quality skill) → report
+/af-review → code-review-and-quality skill → report
 ```
 
-**Use when:** the same single-persona invocation happens repeatedly with the same setup.
+**Use when:** the same single-perspective request happens repeatedly with the same setup.
 
-**Examples in this repo:** `/review`, `/test`, `/code-simplify`.
+**Examples in this repo:** `/af-review`, `/af-test`, `/af-code-simplify`.
 
-**Cost:** same as direct invocation. The slash command is just a saved prompt.
+**Cost:** same as direct work. The slash command is just a saved prompt.
 
-**Anti-signal:** if the slash command's body is mostly "decide which persona to call," delete it and let the user call the persona directly.
+**Anti-signal:** if the slash command's body is mostly "decide which agent to call," delete it and let the user or the operator choose.
 
 ---
 
 ### 3. Parallel fan-out with merge
 
-Multiple personas operate on the same input concurrently, each producing an independent report. A merge step (in the main agent's context) synthesizes them into a single decision.
+Several readers work on the same input concurrently, each producing an independent report. A merge step in the operator's context synthesizes them into a single decision.
 
 ```
-                    ┌─→ code-reviewer    ─┐
-/ship → fan out  ───┼─→ security-auditor ─┤→ merge → go/no-go + rollback
-                    └─→ test-engineer    ─┘
+                       ┌─→ reviewer      [independent-review]           ─┐
+operator → fan out  ───┼─→ reviewer--p2  [independent-review, security] ─┤→ merge → decision
+                       └─→ reviewer--p3  [testing, independent-review]  ─┘
 ```
 
 **Use when:**
 - The sub-tasks are genuinely independent (no shared mutable state, no ordering dependency)
 - Each sub-agent benefits from its own context window
-- The merge step is small enough to stay in the main context
+- The merge step is small enough to stay in the operator's context
 - Wall-clock latency matters
 
-**Examples in this repo:** `/ship`.
+**Examples in this repo:** the Hub operator dispatching reviewers by concern in one turn (a busy reviewer gets the next instance automatically), and distinct `spawn_research` questions, which run in parallel.
 
-**Cost:** N parallel sub-agent contexts + one merge turn. Higher than direct invocation, but faster wall-clock and produces better reports because each sub-agent stays focused on its single perspective.
+**Cost:** N parallel sub-agent contexts + one merge turn. Higher than one assignment, but faster wall-clock and produces better reports because each sub-agent stays focused on its single perspective.
 
 **Validation checklist before adopting this pattern:**
 - [ ] Can I run all sub-agents at the same time without ordering issues?
-- [ ] Does each persona produce a different *kind* of finding, not just the same finding from a different angle?
-- [ ] Will the merge step fit in the main agent's remaining context?
+- [ ] Does each assignment produce a different *kind* of finding, not just the same finding from a different angle?
+- [ ] Will the merge step fit in the operator's remaining context?
 - [ ] Is the user's wait time long enough that parallelism is actually noticeable?
 
-If any answer is "no," fall back to direct invocation or a single-persona command.
+If any answer is "no," fall back to one assignment or a single-skill command.
 
 ---
 
-### 4. Sequential pipeline as user-driven slash commands
+### 4. Parallel editors with an agreed interface
+
+Several editors change disjoint parts of one feature at the same time, then the operator integrates and one independent review covers the whole change.
+
+```
+agree contract → editor [scope A] ─┐
+               → editor--p2 [scope B] ─┤→ operator integrates + full checks → reviewer (whole change)
+               → reviewer after: [editor] (audit area A)
+```
+
+**Use when:** the parts touch disjoint paths, the shared interface (signatures, formats, acceptance checks) can be settled first, and the runtime can isolate each writer's scope.
+
+**Rules:** each writer sets `parallel: true` with a disjoint scope of exact existing paths, otherwise writes stay sequential; a shared file has one owner; a dependent assignment waits with `after: [...]`; closure needs a fresh verdict on the integrated revision, and a follow-up review gets the previous findings and the delta. The worked calls are in [docs/agents.md](../docs/agents.md#parallel-editors-with-a-shared-interface).
+
+**Cost:** one context per editor, the integration turn and one final review. Worth it only when the parts are large enough that serial work is the bottleneck.
+
+---
+
+### 5. Sequential pipeline as user-driven slash commands
 
 The user runs slash commands in a defined order, carrying context (or commit history) between them. There is no orchestrator agent — the user IS the orchestrator.
 
 ```
-user runs:  /spec  →  /plan  →  /build  →  /test  →  /review  →  /ship
+user runs:  /af-spec  →  /af-plan  →  /af-build  →  /af-test  →  /af-review  →  /af-ship
 ```
 
 **Use when:** the workflow has dependencies (each step needs the previous step's output) and human judgment between steps adds value.
 
 **Examples in this repo:** the entire DEFINE → PLAN → BUILD → VERIFY → REVIEW → SHIP lifecycle.
 
-**Cost:** one sub-agent context per step. Free for the orchestration layer because there is no orchestrator agent.
+**Cost:** one context per step. Free for the orchestration layer because there is no orchestrator agent.
 
-**Why not automate it:** an LLM "lifecycle orchestrator" would (a) lose nuance between steps because it has to summarize for hand-off, (b) skip the human checkpoints that catch wrong-direction work early, and (c) double the token cost via paraphrasing turns.
+**Why not automate it:** an LLM "lifecycle orchestrator" would (a) lose nuance between steps because it has to summarize for hand-off, (b) skip the human checkpoints that catch wrong-direction work early, and (c) double the token cost via paraphrasing turns. Deterministic `just flow` graphs are the code-owned alternative when the steps are mechanical.
 
 ---
 
-### 5. Research isolation (context preservation)
+### 6. Research isolation (context preservation)
 
-When a task requires reading large amounts of material that shouldn't pollute the main context, spawn a research sub-agent that returns only a digest.
+When a task requires reading large amounts of material that shouldn't pollute the operator's context, send it to the `researcher` role, which returns only a digest.
 
 ```
-main agent → research sub-agent (reads 50 files) → digest → main agent continues
+operator → spawn_research (reads 50 files) → findings on disk → operator continues
 ```
 
 **Use when:**
-- The main session needs to stay focused on a downstream task
+- The operator needs to stay focused on a downstream task
 - The investigation result is much smaller than the input it consumes
-- The decision quality benefits from the main agent having room to think after
+- The decision quality benefits from the operator having room to think after
 
-**Examples:** "Find every call site of this deprecated API across the monorepo," "Summarize what these 30 ADRs say about caching."
+**Examples:** "Find every call site of this deprecated API across the monorepo," "Summarize what these 30 ADRs say about caching." A delegated editor or reviewer that lacks a fact pauses with `NEEDS_RESEARCH:` and resumes with the findings paths.
 
 **Cost:** one isolated sub-agent context. Worth it any time the alternative is loading hundreds of files into the main context.
 
-**On Claude Code, use the built-in `Explore` subagent** rather than defining a custom research persona. `Explore` runs on Haiku, is denied write/edit tools, and is purpose-built for this pattern. Define a custom research subagent only when `Explore` doesn't fit (e.g. you need a domain-specific system prompt the model wouldn't infer).
-
 ---
 
-## Claude Code compatibility
+## On Claude Code
 
-This catalog is harness-agnostic, but most readers will run it on Claude Code. Here's how each pattern maps onto Claude Code's primitives — and where the platform enforces our rules for us.
-
-### Where personas live
-
-Plugin subagents go in `agents/` at the plugin root. This repo is a plugin (`.claude-plugin/plugin.json`), so `agents/code-reviewer.md`, `agents/security-auditor.md`, and `agents/test-engineer.md` are auto-discovered when the plugin is enabled. No path configuration needed.
+Agent Fleet runs on pi; Claude Code joins a fleet only as a coms peer ([claude-code-coms-bridge.md](../docs/claude-code-coms-bridge.md)). The patterns above still map onto Claude Code's own primitives when you work in a Claude Code session, and the platform enforces some of the rules for you. The Agent Fleet role files are Hub definitions, not Claude Code subagents.
 
 ### Subagents vs. Agent Teams
 
@@ -134,46 +149,32 @@ Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with mer
 | Status | Stable | Experimental — requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` |
 | Cost | Lower | Higher — each teammate is a separate Claude instance |
 
-**The personas in this repo work in both modes.** When spawned as subagents (e.g. by `/ship`), they report findings to the main session. When spawned as teammates (`Spawn a teammate using the security-auditor agent type…`), they can challenge each other's findings directly. The persona definition is the same; only the spawning context changes.
-
-One subtlety: the `skills` and `mcpServers` frontmatter fields in a persona are honored when it runs as a subagent but **ignored when it runs as a teammate** — teammates load skills and MCP servers from your project and user settings, the same as a regular session. If a persona depends on a specific skill or MCP server being loaded, configure it at the session level so it's available in both modes.
-
 ### Platform-enforced rules
 
 Two rules in this catalog aren't just convention — Claude Code enforces them:
 
-- **"Subagents cannot spawn other subagents"** (verbatim from the docs). Anti-pattern B (persona-calls-persona) and Anti-pattern D (deep persona trees) cannot exist on Claude Code by construction.
+- **"Subagents cannot spawn other subagents"** (verbatim from the docs). Anti-pattern B (role-calls-role) and Anti-pattern D (deep trees) cannot exist on Claude Code by construction.
 - **"No nested teams"** — teammates cannot spawn their own teams. Same anti-patterns blocked at the team level.
-
-This means you can adopt the patterns in this catalog without worrying about contributors accidentally building the anti-patterns. They'll just fail to load.
 
 ### Built-in subagents to know about
 
-Before defining a custom subagent, check whether one of these covers the role:
+Before defining a custom subagent in a Claude Code session, check whether one of these covers the work:
 
 | Built-in | Purpose |
 |----------|---------|
-| `Explore` | Read-only codebase search and analysis. Use this for Pattern 5 (research isolation). |
+| `Explore` | Read-only codebase search and analysis. Use this for Pattern 6 (research isolation). |
 | `Plan` | Read-only research during plan mode. |
 | `general-purpose` | Multi-step tasks needing both exploration and modification. |
 
-Don't redefine these. Layer your specialist personas (code-reviewer, security-auditor, test-engineer) on top of them.
-
-### Frontmatter restrictions for plugin agents
-
-Plugin subagents do **not** support the `hooks`, `mcpServers`, or `permissionMode` frontmatter fields — these are silently ignored. If a future persona needs any of those, the user must copy the file into `.claude/agents/` or `~/.claude/agents/` instead.
-
-The fields that DO work in plugin agents are: `name`, `description`, `tools`, `disallowedTools`, `model`, `maxTurns`, `skills`, `memory`, `background`, `effort`, `isolation`, `color`, `initialPrompt`. Use `model` per-persona if you want to optimize cost (e.g. Haiku for `test-engineer` coverage scans, Sonnet for `code-reviewer`, Opus for `security-auditor`).
-
 ### Spawning multiple subagents in parallel
 
-In Claude Code, parallel fan-out (Pattern 3) requires issuing **multiple Agent tool calls in a single assistant turn**. Sequential turns serialize execution. `/ship` calls this out explicitly. Any new orchestrator command should do the same.
+In Claude Code, parallel fan-out (Pattern 3) requires issuing **multiple Agent tool calls in a single assistant turn**. Sequential turns serialize execution. The same holds for the Hub: issue the `dispatch_agent` or `spawn_research` calls of one fan-out in one turn.
 
 ---
 
 ## Worked example: Agent Teams for competing-hypothesis debugging
 
-This example shows when to reach for **Agent Teams** instead of `/ship`'s subagent fan-out. The two patterns look similar from a distance — both spawn the same three personas — but the value comes from a different place.
+This example shows when to reach for Claude Code **Agent Teams** instead of a subagent fan-out (Pattern 3). The two look similar from a distance — both spawn three investigators — but the value comes from a different place.
 
 ### The scenario
 
@@ -186,19 +187,19 @@ Plausible root causes (mutually exclusive, all fit the symptoms):
 3. A missing index on a query that scales with cart size
 4. A flaky third-party API where the SDK retries silently before timing out
 
-A single agent will pick the first plausible theory and stop investigating. A `/ship`-style subagent fan-out would have each persona report independently — but their reports never meet, so nothing rules out the wrong theories.
+A single agent will pick the first plausible theory and stop investigating. A subagent fan-out would have each investigator report independently — but their reports never meet, so nothing rules out the wrong theories.
 
 This is exactly the case the Agent Teams docs describe: *"With multiple independent investigators actively trying to disprove each other, the theory that survives is much more likely to be the actual root cause."*
 
-### Why this is *not* a `/ship` job
+### Why this is *not* a review fan-out
 
-| | `/ship` (subagents) | Agent Teams |
+| | Review fan-out (subagents) | Agent Teams |
 |--|--------------------|-------------|
 | Sub-agents see | The same diff, different lenses | A shared task list, each other's messages |
 | Output | Three independent reports → one merge | Adversarial debate → consensus root cause |
 | Right when | You want a verdict on a known artifact | You want to *find* the artifact among hypotheses |
 
-`/ship` is a verdict; Agent Teams is an investigation.
+A review fan-out is a verdict; Agent Teams is an investigation.
 
 ### Setup (one-time, per-environment)
 
@@ -212,7 +213,7 @@ Agent Teams is experimental. In `~/.claude/settings.json`:
 }
 ```
 
-Requires Claude Code v2.1.32 or later. The personas in this repo are picked up automatically — no team-config files to author by hand.
+Requires Claude Code v2.1.32 or later.
 
 ### The trigger prompt
 
@@ -223,29 +224,27 @@ Users report checkout hangs for ~30 seconds intermittently after last
 week's release. No errors in logs.
 
 Create an agent team to debug this with competing hypotheses. Spawn
-three teammates using the existing agent types:
+three teammates:
 
-  - code-reviewer  — investigate race conditions and blocking calls
-                     in the checkout code path
-  - security-auditor — investigate auth checks, session handling,
-                       and any synchronous network calls added recently
-  - test-engineer  — propose tests that would distinguish between the
-                     hypotheses and check coverage gaps in checkout
+  - a concurrency investigator — race conditions and blocking calls
+    in the checkout code path
+  - an auth investigator — auth checks, session handling, and any
+    synchronous network calls added recently
+  - a test investigator — tests that would distinguish between the
+    hypotheses, and coverage gaps in checkout
 
 Have them message each other directly to challenge each other's
 theories. Update findings as consensus emerges. Only converge when
 two teammates agree they can disprove the others'.
 ```
 
-The lead spawns three teammates referencing the existing persona names. The persona body is **appended** to each teammate's system prompt as additional instructions (on top of the team-coordination instructions the lead installs); the trigger prompt above becomes their task.
-
 ### What happens
 
 1. Each teammate runs in its own context window, exploring the codebase from its own lens.
 2. Teammates use `message` to send findings to each other directly. The lead doesn't have to relay.
 3. The shared task list shows who's investigating what — visible at any time with `Ctrl+T` (in-process mode) or in a tmux pane (split mode; tmux here is Claude Code Agent Teams' own split-mode mechanism, not this repo's fleet tooling — our fleet layer runs on herdr).
-4. When `code-reviewer` finds a `Promise.all` that should be sequential, it messages `security-auditor` to confirm the auth call isn't part of the race. `security-auditor` checks and replies — either confirming the race is the real issue or producing counter-evidence.
-5. `test-engineer` proposes a focused integration test for whichever theory is winning, which the team uses to verify before declaring consensus.
+4. When the concurrency investigator finds a `Promise.all` that should be sequential, it messages the auth investigator to confirm the auth call isn't part of the race. The auth investigator checks and replies — either confirming the race is the real issue or producing counter-evidence.
+5. The test investigator proposes a focused integration test for whichever theory is winning, which the team uses to verify before declaring consensus.
 6. The lead synthesizes the converged finding and presents it to you.
 
 You can interrupt at any teammate by cycling with `Shift+Down` and typing — useful for redirecting an investigator who's gone down a wrong path.
@@ -262,7 +261,7 @@ Always cleanup through the lead, not a teammate (per the docs: teammates lack fu
 
 ### Cost expectation
 
-Three Sonnet teammates running for ~10–15 minutes of investigation costs noticeably more than the same three personas spawned as subagents by `/ship`. The justification is *quality of conclusion* — for production debugging where the wrong fix is expensive, the extra tokens are a bargain. For a routine PR review, stick with `/ship`.
+Three Sonnet teammates running for ~10–15 minutes of investigation costs noticeably more than three subagents reporting once. The justification is *quality of conclusion* — for production debugging where the wrong fix is expensive, the extra tokens are a bargain. For a routine PR review, stick with a review fan-out.
 
 ### Anti-pattern in this scenario
 
@@ -270,10 +269,10 @@ Do **not** rebuild this as a `/debug` slash command that fans out subagents. Sub
 
 ### When *not* to use Agent Teams
 
-- Production-bound verdict on a known diff → use `/ship` (subagents).
-- One specialist perspective on one artifact → direct persona invocation.
-- Sequential lifecycle (spec → plan → build) → user-driven slash commands (Pattern 4).
-- Read-heavy research with a small digest → built-in `Explore` subagent.
+- Production-bound verdict on a known diff → a review fan-out (Pattern 3).
+- One specialist perspective on one artifact → one assignment (Pattern 1).
+- Sequential lifecycle (spec → plan → build) → user-driven slash commands (Pattern 5).
+- Read-heavy research with a small digest → research isolation (Pattern 6).
 
 Reach for Agent Teams only when teammates **need** to challenge each other to produce the right answer.
 
@@ -281,41 +280,41 @@ Reach for Agent Teams only when teammates **need** to challenge each other to pr
 
 ## Anti-patterns
 
-### A. Router persona ("meta-orchestrator")
+### A. Router agent ("meta-orchestrator")
 
-A persona whose job is to decide which other persona to call.
+An agent whose job is to decide which other agent to call.
 
 ```
-/work → router-persona → "this needs a review" → code-reviewer → router (paraphrases) → user
+/work → router → "this needs a review" → reviewer → router (paraphrases) → user
 ```
 
 **Why it fails:**
 - Pure routing layer with no domain value
 - Adds two paraphrasing hops → information loss + roughly 2× token cost
-- The user already knew they wanted a review; they could have called `/review` directly
-- Replicates the work that slash commands and intent mapping in `AGENTS.md` already do
+- The user already knew they wanted a review; they could have called `/af-review` directly
+- Replicates the work that slash commands, intent mapping in `AGENTS.md` and the Hub operator already do
 
 **What to do instead:** add or refine slash commands. Document intent → command mapping in `AGENTS.md`.
 
 ---
 
-### B. Persona that calls another persona
+### B. A role that dispatches another role
 
-A `code-reviewer` that internally invokes `security-auditor` when it sees auth code.
+A reviewer that internally starts a security review when it sees auth code.
 
 **Why it fails:**
-- Personas were designed to produce a single perspective; chaining them defeats that
-- The summary the calling persona passes loses context the called persona needs
-- Failure modes multiply (which persona's output format wins? whose rules apply?)
+- An assignment is scoped to one perspective and one set of practices; chaining them defeats that
+- The summary the calling agent passes loses context the called agent needs
+- Failure modes multiply (whose output format wins? whose rules apply?)
 - Hides cost from the user
 
-**What to do instead:** have the calling persona *recommend* a follow-up audit in its report. The user or a slash command runs the second pass.
+**What to do instead:** have the reviewer *recommend* a follow-up assignment (role, practices, scope) in its report. The operator, a flow or the user runs the second pass. When one agent needs both perspectives, give that one assignment both practices.
 
 ---
 
 ### C. Sequential orchestrator that paraphrases
 
-An agent that calls `/spec`, then `/plan`, then `/build`, etc. on the user's behalf.
+An agent that calls `/af-spec`, then `/af-plan`, then `/af-build`, etc. on the user's behalf.
 
 **Why it fails:**
 - Loses the human checkpoints that catch wrong-direction work
@@ -327,16 +326,16 @@ An agent that calls `/spec`, then `/plan`, then `/build`, etc. on the user's beh
 
 ---
 
-### D. Deep persona trees
+### D. Deep trees
 
-`/ship` calls a `pre-ship-coordinator` that calls a `quality-coordinator` that calls `code-reviewer`.
+A command that calls a `pre-ship-coordinator` that calls a `quality-coordinator` that calls a reviewer.
 
 **Why it fails:**
 - Each layer adds latency and tokens with no decision value
 - Debugging becomes a multi-level investigation
-- The leaf personas lose context to multiple summarization steps
+- The leaf agents lose context to multiple summarization steps
 
-**What to do instead:** keep the orchestration depth at most 1 (slash command → personas). The merge happens in the main agent.
+**What to do instead:** keep the orchestration depth at most 1 (operator or command → roles). The merge happens in the operator's context. A role's own `subagents:` helpers (for example the editor's `recon` and `verifier`) are bounded by `delegate_depth: 1` and report back to it; they are not further roles.
 
 ---
 
@@ -346,14 +345,15 @@ When considering a new orchestrated workflow, walk this flow:
 
 ```
 Is the work one perspective on one artifact?
-├── Yes → Direct invocation. Stop.
+├── Yes → Direct work or one assignment. Stop.
 └── No  → Will the same composition repeat?
-         ├── No  → Direct invocation, ad hoc. Stop.
+         ├── No  → Assignments chosen ad hoc by the operator. Stop.
          └── Yes → Are sub-tasks independent?
-                  ├── No  → Sequential slash commands run by user (Pattern 4).
-                  └── Yes → Parallel fan-out with merge (Pattern 3).
-                           Validate against the checklist above.
-                           If any check fails → fall back to single-persona command (Pattern 2).
+                  ├── No  → Sequential slash commands run by user (Pattern 5).
+                  └── Yes → Readers: parallel fan-out with merge (Pattern 3).
+                           Writers: parallel editors with an agreed interface (Pattern 4).
+                           Validate against the checklists above.
+                           If any check fails → fall back to a single-skill command (Pattern 2).
 ```
 
 ---

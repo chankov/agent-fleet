@@ -444,7 +444,7 @@ export default function (pi: ExtensionAPI) {
 	// (WHAT/WHY — orientation). Rules discovery is index-first so a curated rule
 	// tree (README manifest + session bundles) is honored instead of bulk-read;
 	// the blind recursive find is only the no-index fallback. The validation duty
-	// itself is written into the planner/code-reviewer personas.
+	// itself is written into the planning and independent-review practices.
 	function buildRulesProtocol(): string {
 		return buildProjectRulesProtocol(projectRulesDirs);
 	}

@@ -18,9 +18,9 @@ install-manifest.json → GENERATED catalogue of every installable artifact — 
 manifest-meta.json    → the hand-edited half: groups, profiles, recommendations, consent classes, companion/requires/pinnedBy wiring, operator steps
 skills/       → Agent Fleet-native + customized skills (SKILL.md per directory); shadows same-named vendored skills
 vendor/agent-skills-upstream/ → Pristine upstream skill import at a pinned SHA — NEVER edit in place; policy + update procedure in docs/UPSTREAM-SKILLS.md
-agents/       → 14 reusable agent personas, canonical pi frontmatter; installed as verbatim copies into a workspace's `.pi/agents/personas/` (no per-agent translation — pi is the only install target)
+agents/       → the three runtime role definitions (researcher, reviewer, editor), canonical pi frontmatter; installed as verbatim copies into a workspace's `.pi/agents/personas/` (no per-agent translation — pi is the only install target). The role ceilings and the eleven practices are code in `.pi/harnesses/agent-hub/config/{roles,practices}.ts`; catalogue in docs/agents.md
 .pi/agent-fleet/ → THE FLEET RUNTIME, mirrored verbatim into a workspace. Source layout == installed layout, which is what lets the installer copy it with `preserveLayout`. Sub-trees:
-.pi/agent-fleet/scripts/      → Standalone scripts (team-up herdr launcher for reusable coms peers; peer-launch single-peer `just fleet peer` launcher; .pi/agent-fleet/scripts/lib/ pure fleet modules under node --test)
+.pi/agent-fleet/scripts/      → Standalone scripts (herdr-hub one-pane launcher for `just fleet --herdr` and the Hermes conductor; peer-launch single-peer `just fleet peer` launcher; .pi/agent-fleet/scripts/lib/ pure fleet modules under node --test)
 .pi/agent-fleet/scripts/workflows/ → Headless `just flow` graphs and their code-owned phase, envelope, gate, permission, quality, change-capture, trace, and scoped TypeScript runtime
 .pi/agent-fleet/hermes/       → Hermes-facing skills (hub-conductor, hub-liaison) for remote conduction — see docs/coms-hermes-bridge.md
 .pi/agent-fleet/hooks/        → Session lifecycle hooks (the Claude Code bridge Stop hook; registering it in `.claude/settings.json` stays the user's step)
@@ -32,7 +32,7 @@ justfile      → Recipes to launch pi with each harness plus the single public 
 .pi/prompts/  → pi-native lifecycle prompt templates
 .pi/extensions/ → always-on pi utility extensions, auto-discovered by pi (mcp-bridge, chrome-devtools-mcp, compact-and-continue, btw, pi-voice-stt). pi-voice-stt is gated/optional — it binds its Alt+S hotkey only when an STT provider is configured, otherwise it is a no-op. The package update check is a Fleet Core helper (`.pi/harnesses/lib/update-check.ts`) scheduled by damage-control-continue, not an auto-discovered extension.
 .pi/harnesses/ → selectable pi session harnesses — NOT auto-discovered; loaded explicitly via the justfile or `pi -e` (`just fleet hub` loads Fleet Core before agent-hub; every native child gets damage-control-continue)
-.pi/agents/   → pi YAML configs (teams, chains, peers, dispatch-policy) used by the orchestration harnesses, plus `personas/` where the installer writes the 14 personas; dispatch-policy.yaml routes dispatch_agent calls to same-name coms peers (e.g. the `runner: claude-code` reviewers) with native fallback
+.pi/agents/   → pi YAML configs (dispatch-policy, model-profiles, voices) used by the orchestration harnesses, plus `personas/` where the installer writes the three role files; dispatch-policy.yaml routes a role to a coms peer address (e.g. `reviewer: { peer: claude-reviewer }`, a read-only `runner: claude-code` peer) with native fallback
 .pi/skills/   → pi-runtime skills (e.g. bowser browser automation)
 .pi/damage-control-rules.yaml → rule set for the damage-control harness
 references/   → Supplementary checklists (testing, performance, security, accessibility, observability); each installs as a companion of the skills that cite it
@@ -48,7 +48,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
 **Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
-**Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching `documenter`)
+**Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching an `editor` with the `documentation` practice)
 **Meta:** drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
 
 ## Conventions
@@ -82,7 +82,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 ## Boundaries
 
 - Always: Follow the skill-anatomy.md format for new skills
-- Always: Treat pi as the only coding agent. Claude Code is a **coms peer**, never an install target — it joins a fleet through `.pi/agent-fleet/scripts/coms-claude-bridge.ts` (`runner: claude-code` in `.pi/agents/peers.yaml`), reads `skills/peer-coms`, and reports turns through `.pi/agent-fleet/hooks/coms-stop-hook.mjs`. Adding a `.claude/` install path for anything else re-opens a runtime we deliberately closed — see `docs/claude-code-coms-bridge.md`
+- Always: Treat pi as the only coding agent. Claude Code is a **coms peer**, never an install target — it joins a fleet through `.pi/agent-fleet/scripts/coms-claude-bridge.ts` (`just fleet peer <name> --runner claude-code`), reads `skills/peer-coms`, and reports turns through `.pi/agent-fleet/hooks/coms-stop-hook.mjs`. Adding a `.claude/` install path for anything else re-opens a runtime we deliberately closed — see `docs/claude-code-coms-bridge.md`
 - Never: Add skills that are vague advice instead of actionable processes
 - Never: Duplicate content between skills — reference other skills instead
 - Never: Restate an installer rule (paths, item states, merge/ownership rules, the Fleet Core closure) in a skill or slash command — it lives in `bin/lib/` and `manifest-meta.json`, and a second copy always drifts. The deterministic CLI owns `.ai/agent-fleet-overrides.md` and `.ai/stt.json`. Ordinary `setup` preserves a non-empty overrides file byte-for-byte; only explicit `agent-fleet configure --rules/--docs` may append requested roots through the CLI transaction. The setup-rules skill must never write overrides directly.

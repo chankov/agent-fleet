@@ -13,8 +13,8 @@ import { createDriftMonitor, hubOwnedScopeGlobs, resolveWatchdogActive } from ".
 import { forceQuarantineSession, isCorruptSessionExit } from "./session-health.js";
 import type { NativeSpawnOutcome, PiRunControl, PreparedNativeRun, SpawnPiAgentCallbacks, SpawnPiAgentOptions } from "./dispatch-native-types.ts";
 import { bumpMessageCount } from "./ui/activity-dots.ts";
+import { isResearcherRole } from "./config/roles.ts";
 
-const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
 
 function startDriftRuntime(run: PreparedNativeRun): DriftRuntime {
 	const { deps, state, ctx, watchdogParam, key, scopeGlobs, task, agentKey } = run;
@@ -202,7 +202,7 @@ export async function runPreparedNative(run: PreparedNativeRun): Promise<NativeS
   },
 		...(delegateEnv?.AGENT_FLEET_BOUNDED_OUTPUT_DIR ? { boundedOutputDir: delegateEnv.AGENT_FLEET_BOUNDED_OUTPUT_DIR } : {}),
 		detached: true,
-		...(RESEARCHER_PERSONAS.has(personaKey) ? { toolWatchdog: { timeoutMs: deps.getReconSearchTimeoutMs() } } : {}),
+		...(isResearcherRole(personaKey) ? { toolWatchdog: { timeoutMs: deps.getReconSearchTimeoutMs() } } : {}),
 		turnDeadlineMs: turnBudget.agentTurnMs,
 	};
 	const usageTotals = { billed: 0, out: 0 };

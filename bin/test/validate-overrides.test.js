@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,7 @@ function workspaceWith(overridesText, { extraFiles = {} } = {}) {
 function findingsFor(text, opts = {}) {
   const ws = workspaceWith(text, opts);
   try {
-    return validateOverrides({ workspace: ws, env: opts.env ?? {} });
+    return validateOverrides({ workspace: ws, env: opts.env ?? {}, retiredPersonas: opts.retiredPersonas });
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
@@ -81,11 +81,11 @@ branching: never
 
 ## agent-hub
 language: Bulgarian
-model.builder: anthropic/claude-sonnet-5-5
-models.builder: anthropic/claude-sonnet-5-5, anthropic/claude-haiku-5-5
-thinking.code-reviewer: xhigh
-subagents.code-reviewer.docs: anthropic/claude-sonnet-5-5, tools=read,grep
-delegate-depth.code-reviewer: 1
+model.editor: anthropic/claude-sonnet-5-5
+models.editor: anthropic/claude-sonnet-5-5, anthropic/claude-haiku-5-5
+thinking.reviewer: xhigh
+subagents.reviewer.docs: anthropic/claude-sonnet-5-5, tools=read,grep
+delegate-depth.reviewer: 1
 recon-search-timeout-s: 120
 rules: docs/rules
 docs: Docs/AGENTS.md
@@ -166,8 +166,8 @@ branching: sometimes
 
 ## agent-hub
 persona-gate: maybe
-thinking.builder: ultra
-delegate-depth.builder: -1
+thinking.editor: ultra
+delegate-depth.editor: -1
 recon-search-timeout-s: 0
 `);
   const issues = findings.map((f) => f.issue);
@@ -175,8 +175,8 @@ recon-search-timeout-s: 0
   assert.match(issues[0], /todo .* "inline" is not one of: embedded\|separate/);
   assert.match(issues[1], /branching .* "sometimes"/);
   assert.match(issues[2], /persona-gate in ## agent-hub: ignored — dispatcher persona selection was removed/);
-  assert.match(issues[3], /thinking\.builder .* "ultra" is not one of: off\|minimal/);
-  assert.match(issues[4], /delegate-depth\.builder .* not a non-negative integer/);
+  assert.match(issues[3], /thinking\.editor .* "ultra" is not one of: off\|minimal/);
+  assert.match(issues[4], /delegate-depth\.editor .* not a non-negative integer/);
   assert.match(issues[5], /recon-search-timeout-s .* not an integer from 1 to 3600 or "off"/);
 });
 
@@ -214,6 +214,113 @@ test("the mirrored role and practice ids match the Hub's own tables", async () =
   const { ROLE_NAMES } = await import("../../.pi/harnesses/agent-hub/config/roles.ts");
   assert.deepEqual([...OVERRIDE_PRACTICES], [...PRACTICE_IDS]);
   assert.deepEqual([...OVERRIDE_ROLES], [...ROLE_NAMES]);
+});
+
+// ── retired persona keys (PLAN-11-01, D22) ───────────────────────────────────
+// The mapping is the Hub's own (roles.ts), passed in the way the doctor does;
+// validate-overrides.js keeps no copy of it.
+
+const { retiredAssignments } = await import("../../.pi/harnesses/agent-hub/config/roles.ts");
+const retiredFindingsFor = (text) => findingsFor(text, { retiredPersonas: retiredAssignments });
+
+test("an unambiguous retired persona key names its file, line and exact replacement", () => {
+  const findings = retiredFindingsFor(`# overrides
+
+## agent-hub
+language: English
+model.builder: m/x
+thinking.deep-researcher: high
+models.documenter: m/x, m/y
+subagents.builder.recon: m/x, tools=read
+delegate-depth.releaser: 1
+`);
+  assert.deepEqual(findings.map((f) => [f.path, f.line, f.key, f.replacement]), [
+    [`${OVERRIDES_REL_PATH}:5`, 5, "model.builder", "model.editor.implementation"],
+    [`${OVERRIDES_REL_PATH}:6`, 6, "thinking.deep-researcher", "thinking.researcher.research"],
+    [`${OVERRIDES_REL_PATH}:7`, 7, "models.documenter", "models.editor"],
+    [`${OVERRIDES_REL_PATH}:8`, 8, "subagents.builder.recon", "subagents.editor.recon"],
+    [`${OVERRIDES_REL_PATH}:9`, 9, "delegate-depth.releaser", "delegate-depth.editor"],
+  ]);
+  for (const f of findings) assert.equal(f.type, "overrides");
+  assert.match(findings[0].issue, /model\.builder in ## agent-hub names the retired persona "builder", so the Hub never reads it/);
+  assert.match(findings[0].fix, /^rename to model\.editor\.implementation \(editor with practices \[implementation\] for implementation; add testing as needed\); doctor never edits this file$/);
+});
+
+test("an ambiguous retired persona key shows the full role-and-practice mapping instead of a key", () => {
+  const findings = retiredFindingsFor(`## agent-hub
+thinking.planner: high
+subagents.test-engineer.recon: m/x
+model.architect: m/x
+`);
+  assert.equal(findings.length, 3);
+  for (const f of findings) assert.equal(f.replacement, undefined, f.key);
+  assert.equal(findings[0].path, `${OVERRIDES_REL_PATH}:2`);
+  assert.match(findings[0].fix, /"planner" maps to more than one assignment — pick the one you meant and rename by hand to thinking\.<role>\.<practice>: editor with practices \[planning\] for a saved plan; or researcher with practices \[planning\] for advice/);
+  assert.match(findings[1].fix, /rename by hand to subagents\.<role>\.recon: editor with practices \[testing\] for test changes; or reviewer with practices \[testing, independent-review\] for coverage assessment/);
+  assert.match(findings[2].fix, /researcher with practices \[architecture\] for analysis; or editor with practices \[architecture, documentation\] for an ADR/);
+});
+
+test("every retired persona is reported, and each proposed key is one the Hub reads", async () => {
+  const { RETIRED_PERSONAS } = await import("../../.pi/harnesses/agent-hub/config/roles.ts");
+  const { parseAgentTeamOverrides } = await import("../../.pi/harnesses/agent-hub/config/overrides.ts");
+  const names = Object.keys(RETIRED_PERSONAS);
+  const findings = retiredFindingsFor(`## agent-hub\n${names.map((name) => `model.${name}: m/x`).join("\n")}\n`);
+  assert.deepEqual(findings.map((f) => f.key), names.map((name) => `model.${name}`));
+  const unambiguous = findings.filter((f) => f.replacement);
+  assert.deepEqual(unambiguous.map((f) => f.key).sort(),
+    ["model.builder", "model.code-reviewer", "model.deep-researcher", "model.documenter", "model.plan-reviewer", "model.releaser"]);
+  const ws = workspaceWith(`## agent-hub\n${[...new Set(unambiguous.map((f) => f.replacement))].map((key) => `${key}: m/x`).join("\n")}\n`);
+  try {
+    const parsed = parseAgentTeamOverrides(ws);
+    assert.deepEqual(parsed.warnings, []);
+    for (const f of unambiguous) assert.equal(parsed.practiceModels[f.replacement.slice("model.".length)]?.model, "m/x", f.replacement);
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("retired keys that collide on one replacement, or whose replacement is already set, say so", () => {
+  const findings = retiredFindingsFor(`## agent-hub
+model.code-reviewer: m/x
+model.plan-reviewer: m/y
+thinking.builder: high
+thinking.editor.implementation: low
+`);
+  assert.equal(findings.length, 3);
+  assert.match(findings[0].fix, /rename to model\.reviewer\.independent-review .* — model\.plan-reviewer \(line 3\) also maps to model\.reviewer\.independent-review; keep one value/);
+  assert.match(findings[1].fix, /model\.code-reviewer \(line 2\) also maps to model\.reviewer\.independent-review; keep one value/);
+  assert.match(findings[2].fix, /^thinking\.editor\.implementation is already set on line 5 — keep that value and remove this key/);
+});
+
+test("without the Hub's table a retired key is still reported, as a name that is not a role", () => {
+  // The doctor passes the lookup only when it can import roles.ts; on an older
+  // Node the same key is still dead config and still reported.
+  const findings = findingsFor(`## agent-team
+model.builder: m/x
+thinking.my-agent: high
+`);
+  assert.equal(findings.length, 3);
+  assert.match(findings[0].issue, /legacy section name/);
+  assert.equal(findings[1].path, `${OVERRIDES_REL_PATH}:2`);
+  assert.match(findings[1].issue, /^model\.builder in ## agent-team: "builder" is not a role \(researcher, reviewer, editor\) — the Hub never reads this key$/);
+  assert.match(findings[2].issue, /"my-agent" is not a role/);
+  // With the table, a name that is not retired gets the same generic finding.
+  assert.match(retiredFindingsFor("## agent-hub\nmodels.my-agent: m/x\n")[0].issue, /"my-agent" is not a role/);
+});
+
+test("retired persona keys are advisory: runDoctor reports them with the mapping and never edits the file", async () => {
+  const text = "## agent-hub\nmodel.builder: x/y\nthinking.planner: high\n";
+  const ws = workspaceWith(text);
+  try {
+    const findings = (await runDoctor({ workspace: ws, sourceRoot })).filter((f) => f.type === "overrides");
+    assert.deepEqual(findings.map((f) => [f.path, f.replacement ?? null]), [
+      [`${OVERRIDES_REL_PATH}:2`, "model.editor.implementation"],
+      [`${OVERRIDES_REL_PATH}:3`, null],
+    ]);
+    assert.match(findings[1].fix, /editor with practices \[planning\] for a saved plan; or researcher with practices \[planning\] for advice/);
+    await runDoctor({ workspace: ws, sourceRoot, apply: true });
+    assert.equal(readFileSync(join(ws, OVERRIDES_REL_PATH), "utf8"), text);
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
 });
 
 test("retired continuation quota keys are flagged for removal", () => {
@@ -361,7 +468,7 @@ required: FROM_ENV, FROM_DOTENV, MISSING_ONE, not a name
 
 test("runDoctor surfaces overrides findings and apply leaves the file alone", async () => {
   const ws = workspaceWith(`## agent-hub
-thinking.builder: warp
+thinking.editor: warp
 `);
   try {
     const findings = await runDoctor({ workspace: ws, sourceRoot });

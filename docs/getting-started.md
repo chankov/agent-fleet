@@ -48,11 +48,15 @@ misleading unknown command-line option.
 ## First session
 
 ```bash
-just fleet                                      # Hub/operator; empty native roster
-just fleet --agents default --project af        # Hub/orchestrator + native roster
-just fleet --agents default --peers docs --project af
-                                                # Hub + standing Herdr peers
+just fleet                                      # Hub/operator with the editor, researcher and reviewer roles
+just fleet --herdr --project af                 # the Hub alone in a one-pane Herdr workspace
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+                                                # one addressable peer in a pane of its own
 ```
+
+The operator works directly and dispatches a role with practices when that
+helps, for example an editor with `planning`, `implementation` and `testing`.
+See the [role and practice catalogue](agents.md#roles).
 
 ## Run and maintain deterministic flows
 

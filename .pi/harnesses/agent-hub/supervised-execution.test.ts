@@ -17,9 +17,9 @@ test("supervised execution: usage stays visible without count, elapsed-time or r
 test("supervised execution: size risk missing plan and sensitive signals never mandate Planner", () => {
  for (const risk of ["low", "high", "secret", "cloud"] as const) for (const approvedPlan of [false, true]) {
   const input = { scopeBreadth: "wide" as const, risk, approvedPlan, reversible: false, unresolvedForks: ["requires research and user decision"] };
-  assert.equal(classifyOrchestrationRoute(input).route, "builder-reviewer");
+  assert.equal(classifyOrchestrationRoute(input).route, "editor-reviewer");
   const route = selectSpecialists(input, { secret: true, cloud: true, contradiction: true });
-  assert.deepEqual(route.stages, ["builder", "reviewer"]);
+  assert.deepEqual(route.stages, ["editor", "reviewer"]);
   assert.match(route.reason, /research.*ask_user/i);
  }
 });

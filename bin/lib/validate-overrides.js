@@ -31,8 +31,68 @@ export const OVERRIDE_PRACTICES = Object.freeze([
   "testing", "security", "performance", "browser-debugging", "documentation", "release",
 ]);
 
+// The agent-hub key families that name the agent they configure. The Hub applies
+// them to role definitions only (D2), so any other name is dead config. A
+// retired persona name (D22) is reported with its replacement; the mapping is
+// not restated here — the caller passes the Hub's own lookup (roles.ts
+// retiredAssignments) as `retiredPersonas`, which the doctor imports lazily.
+const AGENT_KEY_RE = new RegExp(`^(model|models|thinking|delegate-depth)\\.(${SLUG})$|^(subagents)\\.(${SLUG})\\.(${SLUG})$`);
+
+function agentKey(key) {
+  const m = key.match(AGENT_KEY_RE);
+  if (!m) return null;
+  return m[1] ? { family: m[1], name: m[2], child: null } : { family: m[3], name: m[4], child: m[5] };
+}
+
+// `model`/`thinking` have a per-practice form (D9) and move to it; the other
+// families exist only per role and keep their child segment.
+function replacementKeys({ family, child }, assignments) {
+  const keys = family === "model" || family === "thinking"
+    ? assignments.flatMap((entry) => entry.practices.map((practice) => `${family}.${entry.role}.${practice}`))
+    : assignments.map((entry) => `${family}.${entry.role}${child ? `.${child}` : ""}`);
+  return [...new Set(keys)];
+}
+
+function keyTemplate({ family, child }) {
+  return family === "model" || family === "thinking"
+    ? `${family}.<role>.<practice>`
+    : `${family}.<role>${child ? `.${child}` : ""}`;
+}
+
+export function formatRetiredAssignments(assignments) {
+  return assignments
+    .map((entry) => `${entry.role} with practices [${entry.practices.join(", ")}] for ${entry.outcome}`)
+    .join("; or ");
+}
+
+/** A finding for an agent-hub key whose agent is not a role; null when it is one. */
+function nonRoleAgentKey(key, heading, retiredPersonas) {
+  const parsed = agentKey(key);
+  if (!parsed || OVERRIDE_ROLES.includes(parsed.name)) return null;
+  const assignments = retiredPersonas(parsed.name);
+  if (!assignments?.length) {
+    return {
+      issue: `${key} in ## ${heading}: "${parsed.name}" is not a role (${OVERRIDE_ROLES.join(", ")}) — the Hub never reads this key`,
+      fix: `rename it to the role it should configure, or remove it; doctor never edits this file`,
+    };
+  }
+  const replacements = replacementKeys(parsed, assignments);
+  const issue = `${key} in ## ${heading} names the retired persona "${parsed.name}", so the Hub never reads it`;
+  if (replacements.length === 1) {
+    return {
+      issue,
+      replacement: replacements[0],
+      fix: `rename to ${replacements[0]} (${formatRetiredAssignments(assignments)}); doctor never edits this file`,
+    };
+  }
+  return {
+    issue,
+    fix: `"${parsed.name}" maps to more than one assignment — pick the one you meant and rename by hand to ${keyTemplate(parsed)}: ${formatRetiredAssignments(assignments)}`,
+  };
+}
+
 // One entry per known `## section`. `keys` maps exact key names to an optional
-// value check; `patterns` covers the agent-hub `<key>.<persona>` families.
+// value check; `patterns` covers the agent-hub `<key>.<role>` families.
 // A value check returns a problem string, or null when the value is fine.
 const KNOWN_SECTIONS = {
   "spec-driven-development": {
@@ -73,10 +133,10 @@ const KNOWN_SECTIONS = {
       "append-prompt": checkPaths("append-prompt file"),
     },
     patterns: [
-      { re: new RegExp(`^model\\.${SLUG}$`), example: "model.<persona>" },
-      { re: new RegExp(`^models\\.${SLUG}$`), example: "models.<persona>" },
+      { re: new RegExp(`^model\\.${SLUG}$`), example: "model.<role>" },
+      { re: new RegExp(`^models\\.${SLUG}$`), example: "models.<role>" },
       {
-        re: new RegExp(`^thinking\\.${SLUG}$`), example: "thinking.<persona>",
+        re: new RegExp(`^thinking\\.${SLUG}$`), example: "thinking.<role>",
         check: oneOf(THINKING_LEVELS),
       },
       // `model.<role>.<practice>` / `thinking.<role>.<practice>`: the per-practice
@@ -89,9 +149,9 @@ const KNOWN_SECTIONS = {
         re: new RegExp(`^thinking\\.${SLUG}\\.${SLUG}$`), example: "thinking.<role>.<practice>",
         check: (value, ctx, key) => checkRolePractice(key) ?? oneOf(THINKING_LEVELS)(value),
       },
-      { re: new RegExp(`^subagents\\.${SLUG}\\.${SLUG}$`), example: "subagents.<persona>.<role>" },
+      { re: new RegExp(`^subagents\\.${SLUG}\\.${SLUG}$`), example: "subagents.<role>.<child>" },
       {
-        re: new RegExp(`^delegate-depth\\.${SLUG}$`), example: "delegate-depth.<persona>",
+        re: new RegExp(`^delegate-depth\\.${SLUG}$`), example: "delegate-depth.<role>",
         check: (value) =>
           /^\d+$/.test(value) ? null : `"${value}" is not a non-negative integer`,
       },
@@ -244,11 +304,15 @@ function readDotEnvNames(workspace) {
  * @param {object} opts
  * @param {string} opts.workspace Workspace root (absolute path)
  * @param {object} [opts.env]     Environment map for the `## env` check
+ * @param {(name: string) => ReadonlyArray<{role: string, practices: readonly string[], outcome: string}> | null} [opts.retiredPersonas]
+ *        The Hub's retired-persona lookup (roles.ts `retiredAssignments`). Without
+ *        it a retired name is still reported, as a name that is not a role.
  * @returns {Array} Advisory findings shaped like the doctor's
  *                  ({type: "overrides", path, issue, fix}); [] when the file
- *                  is absent or clean.
+ *                  is absent or clean. A key that names something other than
+ *                  a role carries `path: "<file>:<line>"` and `line`.
  */
-export function validateOverrides({ workspace, env = process.env }) {
+export function validateOverrides({ workspace, env = process.env, retiredPersonas = () => null }) {
   const path = join(workspace, OVERRIDES_REL_PATH);
   if (!existsSync(path)) return [];
   let text;
@@ -261,9 +325,12 @@ export function validateOverrides({ workspace, env = process.env }) {
 
   let section = null;        // canonical section name, or null outside/unknown
   let sectionHeading = null; // heading as written, for messages
+  const hubKeys = new Map(); // agent-hub key → first line, to spot a replacement already set
+  const agentKeyFindings = [];
 
-  for (const rawLine of text.split("\n")) {
+  for (const [index, rawLine] of text.split("\n").entries()) {
     const line = rawLine.replace(/\r$/, "");
+    const lineNo = index + 1;
 
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
@@ -299,6 +366,7 @@ export function validateOverrides({ workspace, env = process.env }) {
     const key = kv[1].toLowerCase();
     const value = kv[2].trim();
     const schema = KNOWN_SECTIONS[section];
+    if (section === "agent-hub" && !hubKeys.has(key)) hubKeys.set(key, lineNo);
 
     if (key in schema.keys) {
       const check = schema.keys[key];
@@ -312,6 +380,14 @@ export function validateOverrides({ workspace, env = process.env }) {
 
     const pattern = (schema.patterns ?? []).find((p) => p.re.test(key));
     if (pattern) {
+      const dead = section === "agent-hub" ? nonRoleAgentKey(key, sectionHeading, retiredPersonas) : null;
+      if (dead) {
+        const entry = { type: "overrides", path: `${OVERRIDES_REL_PATH}:${lineNo}`, line: lineNo, key, issue: dead.issue, fix: dead.fix };
+        if (dead.replacement) entry.replacement = dead.replacement;
+        findings.push(entry);
+        agentKeyFindings.push(entry);
+        continue;
+      }
       if (pattern.check && value && value !== "|") {
         const problem = pattern.check(value, ctx, key);
         if (problem) finding(`${key} in ## ${sectionHeading}: ${problem}`, "fix the value");
@@ -327,6 +403,20 @@ export function validateOverrides({ workspace, env = process.env }) {
       `unknown key "${key}" in ## ${sectionHeading} — the reader will silently ignore it`,
       `known keys: ${known.join(", ")}`,
     );
+  }
+
+  // Two retired names can share one replacement (code-reviewer and plan-reviewer
+  // both become reviewer.independent-review), and the replacement may already be
+  // set. Say so on the finding rather than suggest a rename that collides.
+  for (const entry of agentKeyFindings) {
+    if (!entry.replacement) continue;
+    const existing = hubKeys.get(entry.replacement);
+    const siblings = agentKeyFindings.filter((other) => other !== entry && other.replacement === entry.replacement);
+    if (existing !== undefined) {
+      entry.fix = `${entry.replacement} is already set on line ${existing} — keep that value and remove this key; doctor never edits this file`;
+    } else if (siblings.length) {
+      entry.fix += ` — ${siblings.map((other) => `${other.key} (line ${other.line})`).join(", ")} also map${siblings.length > 1 ? "" : "s"} to ${entry.replacement}; keep one value`;
+    }
   }
 
   // Project AI provenance is advisory here: a corrupt sidecar blocks every

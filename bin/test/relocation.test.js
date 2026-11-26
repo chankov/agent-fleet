@@ -70,11 +70,11 @@ test("a full setup retires the pre-2.1 tree and keeps what the operator edited",
   assert.equal(applyPlan({ plan, manifest }).summary.failed, 0);
 
   pretendPreRelocation(ws, {
-    "persona:builder": (p) => p.replace(".pi/agents/personas/", "agents/"),
-    "persona:code-reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
+    "persona:editor": (p) => p.replace(".pi/agents/personas/", "agents/"),
+    "persona:reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
   });
   // One of the two is edited: it is the operator's now and must survive.
-  appendFileSync(join(ws, "agents/builder.md"), "\n# local edit\n");
+  appendFileSync(join(ws, "agents/editor.md"), "\n# local edit\n");
 
   const before = await runVerify({ ...common(ws), includeDoctor: false });
   const relocation = before.findings.find((f) => f.type === "relocated-artifacts");
@@ -87,17 +87,19 @@ test("a full setup retires the pre-2.1 tree and keeps what the operator edited",
   const second = buildPlan({ ...common(ws), profiles: ["recommended"] });
   assert.equal(applyPlan({ plan: second, manifest }).summary.failed, 0);
 
-  assert.equal(existsSync(join(ws, "agents/code-reviewer.md")), false, "an untouched old copy is retired");
-  assert.ok(existsSync(join(ws, "agents/builder.md")), "an edited old copy is kept");
-  assert.ok(existsSync(join(ws, ".pi/agents/personas/code-reviewer.md")));
+  assert.equal(existsSync(join(ws, "agents/reviewer.md")), false, "an untouched old copy is retired");
+  assert.ok(existsSync(join(ws, "agents/editor.md")), "an edited old copy is kept");
+  assert.ok(existsSync(join(ws, ".pi/agents/personas/reviewer.md")));
   assert.equal(readState(ws).schemaVersion, STATE_SCHEMA_VERSION, "the pass re-stamps the schema version");
 
   const after = await runVerify({ ...common(ws), includeDoctor: false });
   assert.equal(after.findings.some((f) => f.type === "relocated-artifacts"), false, "nothing left to relocate");
-  assert.ok(
-    after.findings.some((f) => f.type === "legacy-target" && f.path === "agents/builder.md"),
-    "the surviving copy is reported — scanAgentDirs reads agents/ first and would shadow the installed persona",
-  );
+  const survivor = after.findings.find((f) => f.type === "legacy-target" && f.path === "agents/editor.md");
+  assert.ok(survivor, "the surviving copy is reported — scanAgentDirs reads agents/ first and would shadow the installed role");
+  assert.match(survivor.issue, /agents\/editor\.md replaces the installed editor role's prompt and model \(the role ceiling still applies\)/,
+    "a file named like a role is also how a project customizes it (D2), so the finding says what it does");
+  assert.match(survivor.fix, /keep it if you customize the editor role on purpose/);
+  assert.equal(survivor.severity, "advisory");
 });
 
 test("a narrowed install reconciles the moved items it did not select", async () => {
@@ -112,20 +114,20 @@ test("a narrowed install reconciles the moved items it did not select", async ()
   assert.equal(applyPlan({ plan, manifest }).summary.failed, 0);
 
   pretendPreRelocation(ws, {
-    "persona:builder": (p) => p.replace(".pi/agents/personas/", "agents/"),
-    "persona:code-reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
+    "persona:editor": (p) => p.replace(".pi/agents/personas/", "agents/"),
+    "persona:reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
   });
 
-  const narrow = buildPlan({ ...common(ws), items: ["persona:builder"] });
-  assert.deepEqual(narrow.selection.resolved, ["persona:builder"], "the selection really is one item");
+  const narrow = buildPlan({ ...common(ws), items: ["persona:editor"] });
+  assert.deepEqual(narrow.selection.resolved, ["persona:editor"], "the selection really is one item");
   assert.ok(
-    narrow.actions.some((a) => a.kind === "repair" && a.id === "persona:code-reviewer"),
+    narrow.actions.some((a) => a.kind === "repair" && a.id === "persona:reviewer"),
     "an unselected item on a stale path is still planned as a repair",
   );
 
   assert.equal(applyPlan({ plan: narrow, manifest }).summary.failed, 0);
-  assert.equal(existsSync(join(ws, "agents/builder.md")), false);
-  assert.equal(existsSync(join(ws, "agents/code-reviewer.md")), false, "the unselected item is reconciled too");
+  assert.equal(existsSync(join(ws, "agents/editor.md")), false);
+  assert.equal(existsSync(join(ws, "agents/reviewer.md")), false, "the unselected item is reconciled too");
 
   const report = await runVerify({ ...common(ws), includeDoctor: false });
   assert.equal(report.findings.some((f) => f.type === "relocated-artifacts"), false,
@@ -141,14 +143,14 @@ test("verify reports an orphan it cannot reach, rather than staying silent", asy
   assert.equal(applyPlan({ plan, manifest }).summary.failed, 0);
 
   pretendPreRelocation(ws, {
-    "persona:code-reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
+    "persona:reviewer": (p) => p.replace(".pi/agents/personas/", "agents/"),
   });
 
   const report = await runVerify({ ...common(ws), includeDoctor: false });
   const relocation = report.findings.find((f) => f.type === "relocated-artifacts");
   assert.ok(relocation, "an orphaned path must be reported");
-  assert.match(relocation.issue, /persona:code-reviewer/);
+  assert.match(relocation.issue, /persona:reviewer/);
   assert.match(relocation.fix, /items\[\]\.obsoleteFiles/);
-  const entry = report.items.find((i) => i.id === "persona:code-reviewer");
-  assert.deepEqual(entry.obsoleteFiles, [{ path: "agents/code-reviewer.md", retained: false }]);
+  const entry = report.items.find((i) => i.id === "persona:reviewer");
+  assert.deepEqual(entry.obsoleteFiles, [{ path: "agents/reviewer.md", retained: false }]);
 });

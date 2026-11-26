@@ -17,18 +17,18 @@ import {
 
 test("specialist manifest composes only selected references and protocols", () => {
 	const manifest = buildSpecialistContextManifest({
-		personaName: "Builder", personaPath: "agents/builder.md",
+		personaName: "Editor", personaPath: "agents/editor.md",
 		personaPrompt: "Read skills/incremental-implementation/SKILL.md first.",
 		task: "Use skills/test-driven-development/SKILL.md and input artifact.",
 		rulesPaths: ["AGENTS.md", "rules"], docsPaths: ["docs/ARCHITECTURE.md"],
 		hasAssertions: true, hasScope: true, hasArtifacts: true, delegateRoles: ["coverage-scout"],
 	});
-	const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 2 });
+	const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "editor", runNumber: 2 });
 	const parts = specialistStandingParts({ replacementPrompt: prompt, toolChars: 12 });
 	assert.deepEqual(manifest.persona.primarySkillPaths, ["skills/incremental-implementation/SKILL.md"]);
 	assert.deepEqual(manifest.taskSkillPaths, ["skills/test-driven-development/SKILL.md"]);
 	assert.deepEqual(manifest.protocolIds, ["clarification", "external-blocker", "research", "deliverable", "rules", "docs", "verification", "delegation"]);
-	assert.match(prompt, /agents\/builder\.md/);
+	assert.match(prompt, /agents\/editor\.md/);
 	assert.match(prompt, /skills\/incremental-implementation\/SKILL\.md/);
 	assert.match(prompt, /skills\/test-driven-development\/SKILL\.md/);
 	assert.match(prompt, /Applicable project rules: AGENTS\.md, rules/);
@@ -43,11 +43,13 @@ test("specialist manifest composes only selected references and protocols", () =
 });
 
 test("managed specialist fixtures retain each role's primary skill and conditional policy manifest", () => {
+	// The shipped role definitions (PLAN-11-01). Practice skills reach the worker
+	// through the assignment block in the task; the role prompt itself cites only
+	// the structured-return contract.
 	const fixtures = [
-		{ name: "Builder", file: "builder.md", skill: "skills/incremental-implementation/SKILL.md" },
-		{ name: "Code Reviewer", file: "code-reviewer.md", skill: "skills/code-review-and-quality/SKILL.md" },
-		{ name: "Test Engineer", file: "test-engineer.md", skill: "skills/test-driven-development/SKILL.md" },
-		{ name: "Web Debugger", file: "web-debugger.md", skill: "skills/browser-testing-with-devtools/SKILL.md" },
+		{ name: "Editor", file: "editor.md", skills: ["skills/orchestration-verification/SKILL.md"] },
+		{ name: "Reviewer", file: "reviewer.md", skills: ["skills/orchestration-verification/SKILL.md"] },
+		{ name: "Researcher", file: "researcher.md", skills: [] as string[] },
 	];
 	for (const fixture of fixtures) {
 		const personaPath = `agents/${fixture.file}`;
@@ -58,9 +60,10 @@ test("managed specialist fixtures retain each role's primary skill and condition
 			hasAssertions: true, hasScope: true, hasArtifacts: true, delegateRoles: [],
 		});
 		const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: fixture.file.replace(/\.md$/, ""), runNumber: 1 });
-		assert.ok(manifest.persona.primarySkillPaths.includes(fixture.skill), `${fixture.name} primary skill`);
+		assert.deepEqual(manifest.persona.primarySkillPaths, fixture.skills, `${fixture.name} primary skills`);
 		assert.deepEqual(manifest.protocolIds, ["clarification", "external-blocker", "research", "deliverable", "rules", "docs", "verification"]);
-		assert.match(prompt, new RegExp(fixture.skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		for (const skill of fixture.skills) assert.match(prompt, new RegExp(skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		assert.match(prompt, new RegExp(`source: agents/${fixture.file.replace(".", "\\.")}`));
 		assert.match(prompt, /Applicable project rules: AGENTS\.md/);
 		assert.match(prompt, /Applicable project docs: docs\/ARCHITECTURE\.md/);
 	}
@@ -68,13 +71,13 @@ test("managed specialist fixtures retain each role's primary skill and condition
 
 test("specialist resume reuses manifest while only the run artifact destination changes", () => {
 	const manifest = buildSpecialistContextManifest({
-		personaName: "Builder", personaPath: "agents/builder.md", personaPrompt: "", task: "initial task",
+		personaName: "Editor", personaPath: "agents/editor.md", personaPrompt: "", task: "initial task",
 		rulesPaths: [], docsPaths: [], hasAssertions: true, hasScope: true, hasArtifacts: true, delegateRoles: [],
 	});
-	const first = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 1 });
-	const resumed = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 2 });
-	assert.equal(first.replace(/builder-run1/g, "builder-runN"), resumed.replace(/builder-run2/g, "builder-runN"));
-	assert.match(resumed, /builder-run2/);
+	const first = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "editor", runNumber: 1 });
+	const resumed = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "editor", runNumber: 2 });
+	assert.equal(first.replace(/editor-run1/g, "editor-runN"), resumed.replace(/editor-run2/g, "editor-runN"));
+	assert.match(resumed, /editor-run2/);
 });
 
 test("rendered child consumes rules protocolIds with index-first policy guidance", () => {
@@ -84,11 +87,11 @@ test("rendered child consumes rules protocolIds with index-first policy guidance
 		assert.equal(project.task.includes(FIXTURE_POLICY_MARKER), false, "fixture policy is absent from the user task");
 		assert.match(rule, /planning\nacceptance criteria, edit verification notes, and review findings/);
 		const manifest = buildSpecialistContextManifest({
-			personaName: "Builder", personaPath: "agents/builder.md", personaPrompt: "", task: project.task,
+			personaName: "Editor", personaPath: "agents/editor.md", personaPrompt: "", task: project.task,
 			rulesPaths: project.rulesPaths, docsPaths: [], hasAssertions: false, hasScope: false, hasArtifacts: false, delegateRoles: [],
 		});
 		assert.ok(manifest.protocolIds.includes("rules"), "fixture reaches the production manifest");
-		const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 1 });
+		const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "editor", runNumber: 1 });
 		assert.match(prompt, /Resolve them index-first/);
 		assert.match(prompt, /README\.md or index\.md/);
 		assert.doesNotMatch(prompt, /reference-only|UNRELATED_ARCHIVE_SENTINEL/);
@@ -97,10 +100,10 @@ test("rendered child consumes rules protocolIds with index-first policy guidance
 
 test("specialist omission paths do not emit verification, policy, or delegation prose", () => {
 	const manifest = buildSpecialistContextManifest({
-		personaName: "Builder", personaPath: "agents/builder.md", personaPrompt: "", task: "plain task",
+		personaName: "Editor", personaPath: "agents/editor.md", personaPrompt: "", task: "plain task",
 		rulesPaths: [], docsPaths: [], hasAssertions: false, hasScope: false, hasArtifacts: false, delegateRoles: [],
 	});
-	const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "builder", runNumber: 0 });
+	const prompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: "English", agentKey: "editor", runNumber: 0 });
 	assert.deepEqual(manifest.protocolIds, ["clarification", "external-blocker", "research", "deliverable"]);
 	assert.doesNotMatch(prompt, /Applicable project rules|Applicable project docs|## Verification|## Delegation/);
 });

@@ -11,7 +11,7 @@ import {nativeFixture} from './native-fixture.test-support.ts';
 
 function chain(t:any,mode='normal',count=3,semantic=false) {
  const f=nativeFixture(t,count,count>255?12000:32768,count>255?{maxEvaluationsPerJob:1}:{},{semantic}),delegate=resolve('.pi/harnesses/agent-hub/delegate.ts');
- const state:any={def:{name:'builder',description:'builder',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY',file:'agents/builder.md',subagents:{recon:{model:'fake/primary',fallbackModel:'fake/model',tools:'read,find'},finder:{model:'fake/model',tools:'find'}},delegateDepth:1},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
+ const state:any={def:{name:'editor',description:'editor',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY',file:'agents/editor.md',subagents:{recon:{model:'fake/primary',fallbackModel:'fake/model',tools:'read,find'},finder:{model:'fake/model',tools:'find'}},delegateDepth:1},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
  const deps:any={getAgentState:()=>state,listAgentStates:()=>[state],getSessionDir:()=>f.session,getDispatchPolicy:()=>({default:'native',grace_s:0,substitutions:{}}),isComsReady:()=>false,getIdentity:()=>null,peersInScope:()=>[],wasComsMissNotified:()=>false,markComsMissNotified(){},startMonitorChild(){},finalizeMonitorChild(){},registerMonitorWaitOnly(){},registerMonitorProcess(){},appendMonitorOutput(){},getContextWindow:()=>100000,currentBudget:()=>({delegation:true,agentTurnMs:20000}),bumpRecycle(){},bumpDriftStop(){},getSessionHealthIo:()=>({existsSync,readFileSync,renameSync}),getSafetyHarnessPath:()=> 'safety',getDelegateExtensionPath:()=>delegate,getReconSearchTimeoutMs:()=>1000,getProjectDocsPaths:()=>['docs/ARCHITECTURE.md'],getUserLanguage:()=> 'English',getWatchdogSetting:()=> 'off',getWatchdogAgentOverride(){},getWorkMode:()=> 'operator',providerSemaphore:{run:async(_m:string,fn:any)=>fn()},executionHistory:{start:()=>({}),end(){}},displayName:(s:string)=>s,shortModel:(s:string)=>s,resolvedModel:()=> 'fake/model',resolvedThinking:()=> 'off',resolveThinkingLevel:()=> 'off',resolvedSubagentModel:(_d:any,_r:any,c:any)=>c.model,substitutedModel:(m:any)=>m,modelWindowLookup:()=>()=>undefined,specialistProjectPolicyPaths:()=>['AGENTS.md'],guardrailEnv:()=>({...f.env,CHAIN_MODE:mode}),appendInputArtifacts:(p:string)=>p+'\nORIGINAL EVIDENCE',appendDeclaredScope:(p:string,s:string[])=>p+'\nDECLARED_SCOPE '+s.join(','),flushTimelineStore(){},appendTimelineText(){},appendTimelineEvent(){},createTranscriptStore:()=>({append(){}}),updateWidget(){},startDelegationWatch(){},dispatchViaComs:async()=>null,runDriftJudge:async()=>null,notifyProviderQueue(){},spawnPiAgentWithModelFallback,prepareDiscovery:f.prepare};
  const guard=pathToFileURL(resolve('bin/test/helpers/system1-no-network.js')).href;
  writeFileSync(join(f.root,'pi'),`#!/usr/bin/env node
@@ -48,7 +48,7 @@ function chain(t:any,mode='normal',count=3,semantic=false) {
 }
 
 test('T10 actual parent Hub → native worker → delegate production extensions: own query/attempts, initial FULL manifest, automatic current discovery before model, shared cache/budget, no keys and narrower caps',async t=>{
- const f=chain(t),result=await f.native.dispatchAgent('builder','parent worker task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
+ const f=chain(t),result=await f.native.dispatchAgent('editor','parent worker task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
  const rows=f.rows(),worker=rows.find((r:any)=>r.worker),children=rows.filter((r:any)=>r.worker===false),recon=children.filter((r:any)=>r.tools==='read,find'),finder=children.find((r:any)=>r.tools==='find');
  assert.equal(children.length,3);assert.equal(recon.length,2);assert.equal(new Set([worker,...recon].map((r:any)=>r.attempt)).size,3);assert.equal(new Set([worker,...recon].map((r:any)=>r.owner)).size,3);assert.equal(new Set([worker,...recon].map((r:any)=>r.capHash)).size,3);
  for(const child of recon){assert.ok(child.keyAbsent&&child.registered&&child.extensionBeforeModel);assert.deepEqual(child.original,{type:'text',text:'file-0.ts\nfile-1.ts\nfile-2.ts'});assert.equal(child.advice.rows.length,3);assert.equal(child.advice.taskHash,sourceHash('descendant own rounding'));assert.equal(child.advice.queryHash,sourceHash(JSON.stringify(['descendant own rounding','child-specific evidence'])));assert.match(child.prompt,/child-specific evidence/);assert.match(child.prompt,/File discovery context \(advisory, separate/);const initial=JSON.parse(child.prompt.split('## File discovery context (advisory, separate from task/policy/scope/evidence)\n')[1]);assert.equal(initial.rows.length,3);assert.equal(initial.taskHash,sourceHash('descendant own rounding'));assert.equal(initial.queryHash,child.advice.queryHash);assert.match(child.appendPrompt,/AGENTS.md/);assert.match(child.appendPrompt,/docs\/ARCHITECTURE.md/);assert.match(child.appendPrompt,/remaining depth is 0/);assert.ok(child.advice.rows.every((r:any)=>r.status==='cached'));}
@@ -59,7 +59,7 @@ test('T10 production chain forged/expired parent denies registration BEFORE sour
  for(const mode of ['forged','expired','unavailable']){
   const f=chain(t,mode);
   if(mode==='expired'){const owners=f.channel()!.owners,register=owners.register.bind(owners);owners.register=(o:any)=>register(o,1);}
-  const result=await f.native.dispatchAgent('builder','parent task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
+  const result=await f.native.dispatchAgent('editor','parent task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
   const rows=f.rows(),worker=rows.find((r:any)=>r.worker),children=rows.filter((r:any)=>r.worker===false);
   // A 1ms lease may expire BEFORE assignment, not just before descendant registration.
   // In that case C3N3 reports unavailable on the worker and launches ordinary children
@@ -94,7 +94,7 @@ test('T10 real broker bounds registration to allowed tree and tools; forged iden
 });
 
 test('T10 production task/tree cancellation cascades descendant leases and terminates physical children; no late model advice/fallback',async t=>{
- const f=chain(t,'hold'),running=f.native.dispatchAgent('builder','parent task',f.ctx,[],f.paths,false,'native');
+ const f=chain(t,'hold'),running=f.native.dispatchAgent('editor','parent task',f.ctx,[],f.paths,false,'native');
  // File report is emitted only AFTER the child extension has delivered advice.
  await new Promise<void>((done,fail)=>{const until=Date.now()+15000;const timer=setInterval(()=>{try{if(f.rows().some((r:any)=>r.worker===false)){clearInterval(timer);done();return;}}catch{}if(Date.now()>until){clearInterval(timer);fail(Error('child did not launch'));}},10);});
  assert.equal(f.channel()!.owners.size,2);f.switchTask();f.channel()!.owners.syncTask();
@@ -105,7 +105,7 @@ test('T10 production child manifest await cancellation fences startup and late i
  const f=chain(t);let started!:()=>void,complete!:(value:any)=>void,request:any;
  const childInference=new Promise<void>(resolve=>started=resolve),evaluate=f.service.evaluate;
  f.service.evaluate=async(r:any)=>{if(r.state.task==='descendant own rounding'){request=r;started();return new Promise(resolve=>complete=resolve);}return evaluate(r);};
- const running=f.native.dispatchAgent('builder','parent task',f.ctx,[],f.paths,false,'native');await childInference;
+ const running=f.native.dispatchAgent('editor','parent task',f.ctx,[],f.paths,false,'native');await childInference;
  assert.equal(f.channel()!.owners.size,2);f.switchTask();f.channel()!.owners.syncTask();
  const result=await running;assert.notEqual(result.exitCode,0);assert.equal(f.channel()!.owners.size,0);assert.equal(f.rows().filter((r:any)=>r.worker===false).length,0);
  complete(await evaluate(request));await new Promise(resolve=>setImmediate(resolve));assert.equal(f.rows().filter((r:any)=>r.worker===false).length,0);
@@ -123,14 +123,14 @@ test('T10 real UDS oversized registration reply revokes undeliverable child; exp
 });
 
 test('T12 >255 automatic actual worker and nested delegate lifecycle keeps full-list pages and partial evaluation without shortlist',async t=>{
- const f=chain(t,'normal',300),result=await f.native.dispatchAgent('builder','parent worker task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
+ const f=chain(t,'normal',300),result=await f.native.dispatchAgent('editor','parent worker task',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
  const ranked=f.rows().filter((r:any)=>r.worker||r.tools==='read,find');assert.equal(ranked.length,3);
  for(const row of ranked){assert.ok(row.registered&&row.extensionBeforeModel&&row.keyAbsent);assert.equal(row.advice.total,300);assert.equal(row.pageRows,300);assert.ok(row.readPages>2);assert.equal(row.advice.status,'partial');assert.equal(row.advice.counts.unscored,299);assert.equal(row.advice.discoveryComplete,true);}
  assert.equal(f.calls(),2);assert.equal(f.channel()!.owners.size,0);
 });
 test('D8 allowed native descendant singleton and multi orientation arrive before model without credentials or broader tools',async t=>{
  for(const count of [1,3]){
-  const f=chain(t,'normal',count,true);const result=await f.native.dispatchAgent('builder','own worker query',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
+  const f=chain(t,'normal',count,true);const result=await f.native.dispatchAgent('editor','own worker query',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0,result.output);
   const children=f.rows().filter((r:any)=>r.worker===false&&r.tools==='read,find');assert.equal(children.length,2);
   for(const row of children){assert.ok(row.keyAbsent&&row.extensionBeforeModel);assert.equal(row.advice.rows.length,count);assert.ok(row.advice.rows.every((v:any)=>v.answers.length===5));assert.match(row.prompt,/d8_orientation_runtime_v1/);}
   assert.equal(f.channel()!.owners.size,0);

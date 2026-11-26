@@ -66,7 +66,7 @@ The recommendation is injected only when this consumer is in `recommended` mode 
 
 - **A — failure triage:** a completed failing-test output ref plus selected code and task context. The evaluation is not test execution evidence.
 - **B — diff risk:** an explicitly selected recorded diff ref. Low predicted risk does not waive review.
-- **C — request clarity:** a BG/EN request plus code. A clear-request answer does not waive planner obligations.
+- **C — request clarity:** a BG/EN request plus code. A clear-request answer does not waive process obligations.
 
 For A/B, explicitly opt into `allowToolOutputs: true`. Only new completed normal Hub `bash` results are captured; there is no transcript scan, command repetition, internal shell or automatic evaluation. The tool result adds an opaque `ask1:…` ref. Pass it in `evidenceRefs` on a later call. Reliable exit/error/completeness metadata is preserved when provided; missing exit code is unknown. Partial outputs and errors without reliable completeness metadata are retained only as incomplete evidence and refused for inference. A normal bash result may already have reached the main model; this feature does not claim to intercept it before context.
 

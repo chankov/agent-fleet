@@ -2,10 +2,12 @@
 
 The unified Agent Fleet runtime for pi, with [`coms`](../coms/README.md) **embedded**. Bare
 `just fleet` loads Fleet Core and starts `agent-hub` with its one **operator**: direct coding tools
-plus delegation to every installed agent, under the Verification Contract, with no standing native
-roster. The former delegate-only orchestrator work mode was removed (2026-11-11). Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
+plus delegation to three runtime roles — `researcher`, `reviewer` and `editor` — under the
+Verification Contract. Each assignment attaches practices from an eleven-entry catalog that add
+method and expected evidence, never authority ([roles and practices](../../../docs/agents.md)).
+The former delegate-only orchestrator work mode was removed (2026-11-11). Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
 [`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the update
-checker. The operator can adjust the native roster, run research, collaborate with Pi/Claude
+checker. The operator can dispatch roles, run research, collaborate with Pi/Claude
 peers, and hand the session to a visible coms peer.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
@@ -14,7 +16,7 @@ peers, and hand the session to a visible coms peer.
 > [extension catalog](../../../docs/pi-extensions.md) and the
 > [architecture guide](../../../docs/ARCHITECTURE.md).
 
-**Optional ChatGPT client:** `just fleet --agents <roster> --peers <preset> --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
+**Optional ChatGPT client:** `just fleet --herdr --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
 
 ## System 1 task triage (active experimental; off by default)
 
@@ -52,8 +54,8 @@ For a status-only follow-up, `get_assertions` reads the ledger without binding. 
 If classification commits but a process block remains, `set_task_tier` reports
 the block rather than success.
 
-Missing review roles require the human `/af-agents-add code-reviewer` (or a
-permitted reviewer), or `/af-agents-team` path. Planner and plan review are optional;
+A missing `reviewer` role definition requires the human to install it (`agent-fleet setup`);
+the Hub dispatches it once installed. Planning and plan review are optional;
 wide/high-risk tasks can start without them. Gaps use focused research and
 additional decisions use `ask_user` grilling. Usage does not require renewal.
 `/af-task-triage-waive <addition-id> <reason>` uses a correlated human answer for
@@ -139,7 +141,7 @@ remote request is authorized by this README. Roll back with the complete
 `{"version":1,"mode":"off"}` config and restart; cancel current work if
 immediate stopping is necessary, without destructive artifact cleanup.
 
-## Work Mode, roster, and topology
+## Work Mode, roles, and topology
 
 These are independent runtime axes:
 
@@ -147,15 +149,16 @@ These are independent runtime axes:
   delegation tools; `dispatch_triage` is listed only when that consumer can evaluate, and the
   `filesystem` inspection tool stays profile-gated (`assist.deterministic-tools`). Raw Herdr panes are
   for auxiliary processes such as watchers or servers. `--work-mode` is deprecated and ignored.
-- **Native roster** — local headless Pi specialists from `.pi/agents/teams.yaml`. Bare Fleet starts
-  empty; select one with `--agents frontend` or add one live with `/af-agents-add code-reviewer`.
-- **Peer topology** — separate long-lived Pi or Claude Code processes from `peers.yaml`, connected
-  by coms and optionally placed in sibling Herdr panes. `--peers frontend` selects a standing
-  preset; `--herdr` creates a Hub-only workspace through the empty `base` preset.
-Switching from Operator to Orchestrator with no active agents automatically loads the first valid
-team in configuration order (`default` in the shipped configuration), skipping empty teams and teams
-with missing personas. Existing agents are kept. If no valid team is available, the switch is refused
-with a warning. The selected team is saved in the session just like a manual team selection.
+- **Three runtime roles** — local headless Pi subagents for `researcher`, `reviewer` and `editor`.
+  The Hub always has all three and every practice; there is no team to select. A busy role gets an
+  extra instance (`reviewer--p2`, `editor--p2`) as described under [Parallel writers](#parallel-writers).
+  Native teams (`teams.yaml`, `/af-agents-team`, `/af-agents-add`, `/af-agents-drop`,
+  `/af-agents-save`, `team_adjust`, `--agent-team`) were removed in 2.3.0.
+- **Peer topology** — separate long-lived Pi or Claude Code processes, each started on its own with
+  `just fleet peer <name>` or `herdr_spawn_peer`, connected by coms and optionally placed in sibling
+  Herdr panes. `--herdr` opens the Hub alone in a one-pane workspace. Peer groups (`peers.yaml`,
+  `just fleet team …`, snapshots and resume) were removed in 2.3.0.
+
 Child deadlines, nested delegation, and Verification Contract rigor follow the **task tier**, not
 Work Mode. Dispatch and research counts are usage, never a per-turn allowance.
 
@@ -167,8 +170,8 @@ disables only embedded coms; direct operator work and native dispatch remain ava
 
 Capability packs load **automatically** from the current request, task tier, pending work,
 and runtime state; there is no activation command. `core` is always present, and so is `fleet`:
-the operator always holds `dispatch_agent`, `spawn_research`, `poll_panel`, `set_task_tier` and
-`team_adjust`, because whether to delegate is its judgment rather than a keyword match on the
+the operator always holds `dispatch_agent`, `spawn_research`, `poll_panel` and `set_task_tier`,
+because whether to delegate is its judgment rather than a keyword match on the
 request (reason `operator-default`, or a more specific one such as `explicit-fleet`). Acceptance
 work, an existing coms peer, a Herdr pane/watcher request, and explicit or imminent compaction
 respectively add `verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr
@@ -176,11 +179,31 @@ runtime is only **readiness**, not intent: its tools and policy remain model-ina
 
 ### Operator delegation
 
-The operator prompt lists **every installed agent** (research and catalog-only personas excluded),
-marks those outside the active team, and gives each one's model. Dispatching an installed agent
-that is not in the active team adds it automatically and notifies the human, so backend policy and
-session reuse keep working per member; an agent that is not installed is refused with the installed
-list and, for a required process role, the human install step. A `## When to delegate` section
+The operator prompt lists the three roles with their authority, default practice and model, and the
+practice catalog with each practice's expected result (restricted practices name their roles).
+`spawn_research` runs the `researcher`; `dispatch_agent` runs `reviewer` or `editor` and takes
+`practices`:
+
+```js
+dispatch_agent({ agent: "editor", practices: ["planning", "implementation", "testing"],
+  task: "Plan, implement and test the retry limit", scope: ["src/retry.ts", "test/retry.test.ts"] })
+```
+
+A practice supplies method, expected evidence and native-first skill paths; it never widens the
+role. An empty `practices` list uses the role default (`research`, `independent-review`,
+`implementation`). A retired persona name (`builder`, `code-reviewer`, `planner`, …), an unknown
+role or practice, and a practice the role cannot use (`implementation`, `documentation` and
+`release` are editor-only, `independent-review` is reviewer-only) are refused before anything
+starts; a retired name's diagnostic gives the role-and-practice mapping. The first dispatch of a
+role loads it into the Hub roster and notifies the human; a role whose definition is not installed
+is refused with the install step. The `release` practice prepares a release but never publishes:
+`git push`, `npm publish` (and the pnpm/yarn/bun forms), `changeset publish` and
+`gh release create|upload|edit` each need a separate one-call approval from
+`.pi/damage-control-rules.yaml`. A former persona name maps to a role and practices
+as listed under [retired personas](../../../docs/agents.md#retired-personas) and in the
+[migration guide](../../../docs/MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
+See [roles](../../../docs/agents.md#roles), [practices](../../../docs/agents.md#practices) and
+[dispatch examples](../../../docs/agents.md#dispatch-examples). A `## When to delegate` section
 tells the operator to delegate research by default and in parallel, to make small changes itself,
 to get non-trivial changes reviewed by a separate agent, and to poll the panel for decisions.
 Capped model providers (by default `omlx/` and `custom/`, overridable with
@@ -188,14 +211,17 @@ Capped model providers (by default `omlx/` and `custom/`, overridable with
 
 ### Parallel writers
 
-Read-only audits and `spawn_research` can run alongside an active builder within the provider's
-concurrency limits. The Hub runs read-only dispatches natively with inspection tools and
-`submit_result`. A persona can declare `writes: []` to use this path for ordinary dispatches.
-In native inspection the reviewer reads the scoped files directly and submits its own report.
+Read-only audits and `spawn_research` can run alongside an active editor within the provider's
+concurrency limits. Distinct research questions run in parallel; each is its own attempt, keyed by
+its normalized task, goal and expected result, so the same question already in flight is refused as
+busy. The Hub runs read-only roles natively with inspection tools and `submit_result`; the
+read-only ceiling is code-owned, not a frontmatter choice. In native inspection the reviewer reads the scoped files directly and submits its own report.
 The child receives neither the delegation extension nor the optional `filesystem` tool, including
-its UTF-8 and Base64 paging operations. A reviewer routed to a coms peer occupies a writer slot.
-Code and security reviewers also support `review_mode: "run-checks"` to run their configured
-shell checks. That mode and the current-state verification modes follow the writer rules.
+its UTF-8 and Base64 paging operations. A reviewer routed to a coms peer takes no writer slot: it reaches only a peer launched with enforced read-only tools.
+A reviewer also supports `review_mode: "run-checks"` to run its configured shell checks. That mode
+and the current-state verification modes follow the writer rules and run only inside the
+write-denying sandbox with an empty write allowlist; without the sandbox the dispatch is refused and
+directed to an editor.
 
 While a write-capable dispatch runs, another writer can start only when **both** were dispatched
 with `parallel: true`:
@@ -210,10 +236,14 @@ with `parallel: true`:
   isolated (`writer_active_unisolated`), when the new one is not parallel (`writer_active`), or when
   the scopes overlap (`scope_overlap`). Overlap is conservative: a glob anchor or a containing
   directory counts as overlap.
-- A persona runs one dispatch at a time. A second `parallel: true` dispatch to a persona that is
-  already writing runs as its own instance, `builder--p2` (up to `--p16`), with a separate session
-  and executor. The instance keeps the base persona's prompt, tools, current model and thinking, its
-  review meaning and its tier gates.
+- A role runs one dispatch at a time. A second `parallel: true` dispatch to a role that is already
+  busy runs as its own instance, `editor--p2` (up to `--p16`), with a separate session and executor.
+  A pure inspection by a busy `reviewer` gets its instance (`reviewer--p2`) without the flag; a coms
+  route is never cloned. The instance keeps the base role's prompt, tools, current model and
+  thinking, its review meaning and its tier gates. The result names the instance that ran.
+- `after: ["editor", "editor--p2"]` queues a dependent assignment until the named instances settle:
+  it shows "queued after …" with nothing started or charged, is refused when a dependency failed or
+  has no settled result in this task, and honors cancellation. Research handles are not instances.
 - Real Pi takes `<file>.lock` directories beside `trust.json`, `auth.json` and `settings.json` in its
   agent directory and beside the project `.pi/settings.json`. The sandbox therefore lets a child
   create new entries in those two directories, keeps every existing entry there read-only (code,
@@ -226,16 +256,23 @@ with `parallel: true`:
 Shared files outside every scope (package.json, lock files, generated manifests, shared indexes) are
 the operator's to edit after the writers finish. Writers never commit.
 
-**Area and final review.** A read-only area review can run beside active builders. Use
-`parallel: true` to run another instance of the same reviewer while it is busy. Hub keeps the report
+For a shared interface, agree the contract first (signatures, formats, acceptance checks), give each
+editor its own exact scope, and queue the consumer with `after`; see
+[parallel editors with a shared interface](../../../docs/agents.md#parallel-editors-with-a-shared-interface).
+
+**Area and final review.** A read-only area review can run beside active editors; a busy reviewer
+gets another instance automatically. Hub keeps the report
 and records its declared scope, starting and ending revisions, and any reason the result is
 preliminary in `details.reviewEvidence` and the saved assessment. A writer that starts and exits
 during the review still counts as overlap.
 
 Final approval requires the same repository revision at launch and completion, no overlapping
-writer, and coverage of every task file observed across builder runs. Approval reuse requires
-the same repository revision and matching scope, requirements, and report. A later revision change
-reopens the review. After builders finish, run one review of the whole task change. Include any
+writer, and coverage of every task file observed across editor runs, by a reviewer that authored
+none of them. Review closure records who authored each changed file; a coms peer is the same author
+under its address whatever its session, so a restarted peer cannot review its own change. Approval
+reuse requires the same repository revision and matching scope, requirements, practices and report.
+A later revision change reopens the review, and a follow-up review receives the previous findings and
+the delta. After editors finish, run one review of the whole integrated change. Include any
 preliminary reports as input artifacts when their findings are relevant.
 
 For `incomplete_scope`, `details.reviewEvidence.scopeDiagnostic` reports a declared-scope
@@ -315,14 +352,12 @@ fallback, or switch to a model with a larger context window:
 /compact Preserve the current goal, decisions, assertions, pending operations, blockers, and next step.
 ```
 
-The Hub persists only the selected team name and resolves it again against the current
-`.pi/agents/teams.yaml` and persona files. A missing, renamed, empty, or stale team is reported and
-the session continues without it; select a current team with `/af-agents-team` or restart with
-`just fleet --agents <name>` (`--agent-team <name>` for a direct Pi launch). A session saved in the
-removed orchestrator work mode continues as the operator with a one-time notice.
+On restore the roster is every installed role again; parallel instances join on demand, and there
+is no team to resolve. A session saved in the removed orchestrator work mode continues as the
+operator with a one-time notice.
 
 The Pi session JSONL under `~/.pi/agent/sessions/` is the authoritative append-only conversation and
-recovery record. Context overflow or a stale roster does **not** by itself mean that file is corrupt.
+recovery record. Context overflow does **not** by itself mean that file is corrupt.
 Inspect it through `/session`, resume it through `/resume` or Pi's session flags, and recover through
 compaction or the commands above. Never edit, truncate, reorder, or synthesize JSONL entries to
 recover a session.
@@ -336,7 +371,7 @@ sequenceDiagram
     autonumber
     actor U as You
     participant H as Hub (dispatcher)
-    participant S as Specialist (e.g. builder)
+    participant S as Role (e.g. editor)
     participant R as Research helper
     participant D as Disk (.pi/agent-sessions/)
 
@@ -344,7 +379,7 @@ sequenceDiagram
     H->>D: set_assertions — Verification Contract persisted
     H->>S: dispatch_agent (task + advisory scope)
     S-->>H: NEEDS_RESEARCH: how does X work?
-    H->>R: spawn_research (researcher / deep-researcher)
+    H->>R: spawn_research (researcher)
     R->>D: write findings file
     R-->>H: one-line notice + path
     H->>S: resume with file paths — never raw findings
@@ -362,8 +397,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   session boundaries and cannot be populated by a late answer from an older task.
   Runtime effects still require and consume their own one-use authorization.
 - `dispatch_agent` reuses successful review evidence only for the same reviewer,
-  task, requirements, covered scope, input artifacts and exact repository revision.
-  This includes `security-auditor`. The reply reports `review_reused`, retains the
+  task, requirements, practices, covered scope, input artifacts and exact repository revision,
+  so a security review never reuses a plain review. The reply reports `review_reused`, retains the
   original evidence path and starts no child. Use `review_reason` for a fresh focus;
   changed accepted input, repository revision or requirements, missing evidence, blocking findings or unresolved decisions
   require fresh review. Test and acceptance evidence remain separate.
@@ -382,18 +417,20 @@ Every borrowed idea from another harness passes one test before it lands: *does 
 
 `agent-hub` is the supported home for the former standalone dispatcher features:
 
-- **Dispatcher grid** — a live dashboard of the active, dynamically adjustable native roster from `.pi/agents/teams.yaml`.
+- **Dispatcher grid** — a live dashboard of the installed roles and any parallel instances.
 - **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
-- **Fleet config screen** — `/af-config [tab]` or **`Alt+,`** opens a read-only full-screen view of what is configured and what is active: desired state (`.ai/agent-fleet.json`), the install record with recorded-hash vs on-disk checks, overrides sections and the values the Hub parsed at start, AI-state provenance, System 1, STT, fleet YAML (teams, peers with LIVE marks, dispatch policy, voices), damage-control rules, and the session runtime. It reads files and compares hashes only; installer evaluation (item states, feature availability, conflicts) stays with `agent-fleet verify`/`setup`, and the screen writes nothing. See [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session).
-- **Specialist delegation** — `dispatch_agent` sends writable tasks to configured specialists.
+- **Fleet config screen** — `/af-config [tab]` or **`Alt+,`** opens a read-only full-screen view of what is configured and what is active: desired state (`.ai/agent-fleet.json`), the install record with recorded-hash vs on-disk checks, overrides sections and the values the Hub parsed at start, AI-state provenance, System 1, STT, fleet YAML (dispatch policy, model profiles, voices) with live peers, damage-control rules, and the session runtime. It reads files and compares hashes only; installer evaluation (item states, feature availability, conflicts) stays with `agent-fleet verify`/`setup`, and the screen writes nothing. See [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session).
+- **Role delegation** — `dispatch_agent` sends a `reviewer` or `editor` assignment with its
+  practices; `spawn_research` runs the `researcher`.
 - **Research helpers** — the dispatcher invokes `spawn_research` automatically for read-only
   investigation; specialists can trigger the separate automatic `NEEDS_RESEARCH:` pipe described
   below. Managed research children use a replacement read-only prompt with `--no-skills` and
-  `--no-context-files`; managed specialists receive a selected context manifest (persona, applicable
-  policy paths, and named skill paths) rather than inherited global skill/context loading. Two
-  `kind: research` personas ship by default: `researcher` (`gpt-6-luna`, low thinking) for simple
-  reads and `deep-researcher` (`grok-4.7`, medium thinking) for hard, cross-cutting investigation.
-  The dispatcher routes by persona; each persona's model + thinking level is shown in its catalog.
+  `--no-context-files`; managed specialists receive a selected context manifest (role file,
+  applicable policy paths, and the skill paths of the assignment's practices) rather than inherited
+  global skill/context loading. One `kind: research` role ships: `researcher` (`grok-4.7`, medium
+  thinking), which starts with the smallest search that can answer the question and deepens it when
+  sources disagree or evidence is missing; there is no depth parameter. Distinct questions run in
+  parallel. Its model + thinking level is shown in the role catalog.
   Live helpers appear in the Fleet Dashboard (`Alt+A`) and bounded fleet widget while they are
   running. On every terminal outcome (success, error, timeout, spawn/preflight failure, or operator
   kill) the live `rN` handle is removed immediately.
@@ -410,7 +447,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   resumes the specialist's session with the file paths. The dispatcher LLM sees only a one-line
   notice — raw findings never enter its context. Findings files are wiped at session start.
 - **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
-  acceptance assertions built from the request *before* any builder runs, so a clearly stated
+  acceptance assertions built from the request *before* any editor runs, so a clearly stated
   requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions
   (`test` | `runtime-ui` | `code-grep` | `manual`, one pass condition each, plus a required
   `source` naming where the requirement comes from) and rebuilds the whole
@@ -425,7 +462,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `.pi/agent-sessions/assertions.json` (a write mirror, never a restore source) and renders a
   one-line status (`Assertions: 2✓ 1○ 1✗ · open: A4`) so the contract survives compaction without
   re-flooding the dispatcher LLM context — after a compaction the dispatcher calls `get_assertions`
-  to recover the full text the status line omits. The operator drives it — a deep-researcher
+  to recover the full text the status line omits. The operator drives it — a researcher
   parity inventory for "behave like" requests, runtime proof for UI/visibility assertions, the
   regression reset on a re-ask — per
   [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). The hub also
@@ -452,7 +489,7 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   so a later session can never overwrite an earlier one's returns. `failures/` is separate on purpose: a run
   that errored or timed out produced no specialist result, so its output goes there and the dispatch
   result names it a **delivery failure** carrying no assertion evidence. Filing a 142-byte coms error
-  stub as `returns/code-reviewer-run4.md` once cost a 103-second dispatch investigating a review that
+  stub as `returns/reviewer-run4.md` once cost a 103-second dispatch investigating a review that
   had in fact succeeded — only its reply was lost. `dispatch_agent` and `spawn_research` accept optional
   `artifacts: string[]` paths (repo-relative or session-artifact-relative); the hub validates that
   they stay inside the repo/session roots and injects only the path plus first heading/one-line
@@ -461,10 +498,10 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `.pi/agent-sessions/artifacts/<kind>/<agentKey>-run<N>.md` when their tools allow it, then report/pass
   the artifact-relative handoff path `artifacts/<kind>/<agentKey>-run<N>.md`, finish with that path plus
   a ≤10-line digest, and still include structured returns when assertions are carried. Repo-root
-  `./artifacts/...` files are not session artifacts. Planner's existing PLAN_FILE behavior is preserved;
-  the artifact path is an additional handoff channel.
+  `./artifacts/...` files are not session artifacts. An editor with the `planning` practice still ends
+  with `PLAN_FILE: <path>`; the artifact path is an additional handoff channel.
 - **Dispatch scope advisory** — `dispatch_agent` accepts optional `scope: string[]` for writable
-  builder-style runs. The operator should derive these globs from the plan task's file list,
+  editor runs. The operator should derive these globs from the plan task's file list,
   and skip scope for exploratory/reconnaissance work where the right files are not known yet. The
   hub snapshots git status before the writable dispatch, diffs after the whole tool call (including
   auto-research resumes), and reports out-of-scope paths in `details.scopeViolations` plus a ⚠ text
@@ -473,35 +510,41 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   approximately, so overlapping runs are flagged in the notice.
 - **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
   timeline (operator turns, dispatches, research helpers) with per-agent durations, parallel-run
-  markers, and a grand total; kill/restart controls manage running child agents; per-agent `model:`
-  fields select models from team config. `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping
+  markers, and a grand total; kill/restart controls manage running child agents; each role file's
+  `model:` and `practice_models:` select its models. `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping
   its standing card) or kills a currently running research helper (`all` clears every live helper).
   `/af-agents-restart <name>` re-runs a specialist's last task fresh; research helpers cannot be
   restarted. `/af-zoom <name|rN>` opens a running helper through the Fleet data model. Research spawning
   and follow-up reconnaissance are automated through `spawn_research` and `NEEDS_RESEARCH:`; there are
   no dedicated research lifecycle slash commands.
-  Restartable team specialists at or above 70% context render
+  Restartable role instances at or above 70% context render
   their context percentage with a warning marker/color in the Fleet Dashboard, and their next
-  `dispatch_agent` result adds a `/af-agents-restart <persona>` hint. Research helpers are not warned,
+  `dispatch_agent` result adds a `/af-agents-restart <role>` hint. Research helpers are not warned,
   and the hub never restarts specialists automatically.
-- **Model switching** — a persona's frontmatter `models:` list declares the models it may switch to
-  (the default `model:` is implicitly a candidate). `/af-agent-model <persona>` picks from that list;
-  the choice lasts for the session and takes effect on the persona's next dispatch
-  (`/af-agents-restart <persona>` applies it immediately). The dot form
-  `/af-agent-model <persona>.<role>` switches a delegate sub-role's model instead — its candidates are
-  the role's declared default plus the parent persona's own candidate list; the switch is applied
+- **Model switching** — a role file's frontmatter `models:` list declares the models it may switch to
+  (the default `model:` is implicitly a candidate). `/af-agent-model <role>` picks from that list;
+  the choice lasts for the session and takes effect on the role's next dispatch
+  (`/af-agents-restart <role>` applies it immediately). `/af-agent-model <role>.<practice>`
+  (for example `editor.planning`) switches the model for assignments whose first practice with a
+  model choice is that practice. A practice choice comes, highest first, from the session command,
+  the active model profile (`editor.planning:`), `model.<role>.<practice>:` in the overrides file,
+  then the role file's `practice_models:`; the first practice in assignment order with any choice
+  wins, otherwise the role model applies, and the run records the source
+  ([models per role and practice](../../../docs/agents.md#models-per-role-and-practice)). Any other
+  dot form, `/af-agent-model <role>.<sub-role>`, switches a delegate sub-role's model instead — its
+  candidates are the sub-role's declared default plus the parent role's own candidate list; the switch is applied
   when the parent is next dispatched (it lands in the serialized delegate config, so nested
   children inherit it). `/af-models [profile]` applies a named profile
   from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
-  session start (a profile with any entry outside a persona's candidates is dropped whole, with an
+  session start (a profile with any entry outside a role's candidates is dropped whole, with an
   error). This is the legacy flat format. Version 2 profiles also set all child roles, thinking,
   dispatcher, watchdog/extraction, poll/debate and routing from one selection; they declare their
   own models without project candidate overrides. See [complete model profiles](../../../docs/agent-fleet-setup.md#complete-model-profiles). Those
   declared-candidate commands stay within their lists; Fleet Detail and the session-wide
   substitution target picker intentionally use Pi's currently available registry. When an effective project or session override
   fails with a model/provider error or aborted request before work begins (including local-model
-  memory-limit failures), the hub retries once with the model originally declared in the persona
-  frontmatter. For **write-capable** runs this is pre-work only: no fallback occurs after text
+  memory-limit failures), the hub retries once with the model originally declared in the role
+  file. For **write-capable** runs this is pre-work only: no fallback occurs after text
   output, a tool call, cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding
   duplicate writes. **Read-only children and research helpers** (tools limited to
   `read,grep,find,ls`) also retry once when the provider fails *mid-run* — re-running a reader
@@ -509,74 +552,64 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   so losing one to a local-endpoint OOM halfway through discards work for no safety gain. A
   terminated run (watchdog, deadline, cancellation) never retries either way: that is a verdict on
   the work, not a provider outage. The failed attempt is removed from the child session before retry. Per project,
-  `model.<persona>:` / `models.<persona>:` keys under `## agent-hub` in
-  `.ai/agent-fleet-overrides.md` replace a persona's default model / candidate list.
-  Research personas (`researcher` / `deep-researcher`, `kind: research`) are switchable the same
-  way — `/af-agent-model <persona>` and `/af-agent-model-thinking <persona>` accept them alongside team
-  members. Since research helpers are spawned fresh through `spawn_research`, the switch lands on
-  their next spawn (there is no running instance to `/af-agents-restart`).
+  `model.<role>:` / `models.<role>:` keys under `## agent-hub` in
+  `.ai/agent-fleet-overrides.md` replace a role's default model / candidate list, and
+  `model.<role>.<practice>:` / `thinking.<role>.<practice>:` set a practice's choice. Retired persona
+  keys (`model.builder`, …) no longer select anything; `agent-fleet doctor` reports them with the
+  replacement. The `researcher` (`kind: research`) is switchable the same way —
+  `/af-agent-model researcher` and `/af-agent-model-thinking researcher` accept it. Since research
+  helpers are spawned fresh through `spawn_research`, the switch lands on their next spawn (there is
+  no running instance to `/af-agents-restart`).
   `/af-agent-models-substitute [<source> <target>]` saves a runtime source → target mapping for
   the current session. With no arguments it opens the same two-step visual picker as `m` in Fleet
-  Dashboard: first choose a source from every model configured across persona defaults, candidates,
+  Dashboard: first choose a source from every model configured across role defaults, candidates,
   fallbacks, and delegate sub-roles; then choose a target from Pi's currently available models. The
   two-argument form performs the same operation directly. The mapping is resolved when work is
-  spawned rather than eagerly copied into today's roster, so team members, research personas, and
-  delegate sub-roles activated or created later in the session inherit it automatically. Existing
+  spawned rather than eagerly copied into today's roster, so roles, parallel instances, research
+  helpers, and delegate sub-roles activated or created later in the session inherit it automatically. Existing
   runs are not interrupted, and all mappings reset at the next `session_start`.
-- **Thinking levels** — each persona's frontmatter `thinking:` sets its pi `--thinking`
+- **Thinking levels** — each role file's frontmatter `thinking:` sets its pi `--thinking`
   reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/af-agent-model-thinking
-  <persona>` switches it among those six levels for the session; like a model switch it takes effect
-  on the persona's next dispatch (`/af-agents-restart <persona>` applies it now), and selecting the
+  <role>[.<practice>]` switches it among those six levels for the session; like a model switch it takes effect
+  on the role's next dispatch (`/af-agents-restart <role>` applies it now), and selecting the
   frontmatter default clears the override. The level shows as a short badge after the model
-  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<persona>:` key
-  under `## agent-hub` in `.ai/agent-fleet-overrides.md` replaces a persona's default level.
-- **Mid-turn delegation (`delegate` tool)** — a persona that declares a `subagents:` map in its
+  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<role>:` key
+  under `## agent-hub` in `.ai/agent-fleet-overrides.md` replaces a role's default level.
+- **Mid-turn delegation (`delegate` tool)** — a role file that declares a `subagents:` map in its
   frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
   gets a real mid-turn `delegate(role, instruction, context?, allow_write?)` tool, injected as an
   extra `-e delegate.ts` extension into its spawned process (the `delegate` tool name is appended to
   its `--tools` allowlist — pi filters extension tools too). Only declared roles are spawnable, on
   their declared models — model choice is configuration, never the child LLM's. Budgets are readable
-  refusals: at most 4 delegate children per dispatch, tree-wide, and a per-persona `delegate_depth:`
+  refusals: at most 4 delegate children per dispatch, tree-wide, and a per-role `delegate_depth:`
   budget capped at 1 (the default). Children spawned with remaining depth 0 do not receive the
   `delegate` extension/tool. Write safety: children run read-only (`read,grep,find,ls`) unless a
   SINGLE live child gets `allow_write: true`, which inherits the parent's tools intersected with the
   role's `tools:` cap; if a declared role cap leaves no available tools, delegation is refused.
   Concurrent children are always forced read-only. Children stream timeline events through
-  `.pi/agent-sessions/delegations/<persona>/events.jsonl`; the hub tails it and renders nested rows
+  `.pi/agent-sessions/delegations/<agent>/events.jsonl`; the hub tails it and renders nested rows
   under the parent's card (child id, model, tokens, status),
   each openable with `/af-zoom <child-id>`. Each child also writes its full final output to
-  `.pi/agent-sessions/delegations/<persona>/results/<childId>.md`; the parent receives only status,
+  `.pi/agent-sessions/delegations/<agent>/results/<childId>.md`; the parent receives only status,
   a required final `DIGEST:` section (≤30 lines with path:line citations), and the result-file path.
   If a child omits `DIGEST:`, the parent gets the first ~30 lines plus a no-DIGEST warning and the
   result path. Spend rolls up: every child row and the parent's subtree
   total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
   `/af-agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
   it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
-  `subagents.<persona>.<role>:` and `delegate-depth.<persona>:` keys under `## agent-hub` in
+  `subagents.<role>.<sub-role>:` and `delegate-depth.<role>:` keys under `## agent-hub` in
   `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. An overridden
   role retains its frontmatter model as a one-shot fallback under the same pre-work-only safety
-  rule; delegate cards and results show the model that ultimately ran. Six personas ship with
-  declared sub-roles, on a three-tier OpenAI model ladder — `gpt-6-luna` for
-  recon/grep sweeps, `gpt-5.4` for analysis sweeps, the `gpt-5.5` (or opus) parent reserved for
-  synthesis and verdicts:
-  - `code-reviewer` — `preflight`+`docs` (gpt-6-luna), `quality`+`perf` (gpt-5.4); its first delegate
-    call is always `preflight`, which studies the project rules and the files under review and
-    returns a summary that drives the rest of the fan-out. Deep security review is not a
-    sub-role — it belongs to the separate `security-auditor` persona, which the reviewer
-    recommends dispatching when it spots deeper risk.
-  - `planner` — `scout`+`rules` (gpt-6-luna) fan out before the plan is drafted; `risk` (gpt-5.4)
-    optionally challenges the draft breakdown.
-  - `plan-reviewer` — `feasibility` (gpt-5.4) checks plan claims against the actual codebase;
-    `deps` (gpt-6-luna) verifies dependency ordering and file overlap. No preflight — the plan is
-    the map.
-  - `security-auditor` — solo `recon` (gpt-6-luna) maps the attack surface first, then
-    `input-sweep` (gpt-5.4) and `secrets-sweep` (gpt-6-luna) fan out; exploit reasoning stays with
-    the parent.
-  - `builder` — `recon` (gpt-6-luna) maps call sites before edits; `verifier` (gpt-6-luna, the one
+  rule; delegate cards and results show the model that ultimately ran. Two roles ship with
+  declared sub-roles on cheap `gpt-6-luna` helpers, with the parent reserved for synthesis and
+  verdicts:
+  - `reviewer` — `preflight` (rules and hotspot map), `quality`, `perf` and `docs` for code and
+    documentation; `feasibility` and `deps` for plans (no preflight — the plan is the map). In native
+    read-only inspection the reviewer skips delegation and reviews directly.
+  - `editor` — `recon` maps call sites and existing patterns before edits; `verifier` (the one
     `allow_write: true` child) runs the test suite after them. Implementation is never
     delegated.
-  - `test-engineer` — `coverage-scout`+`conventions` (gpt-6-luna) inventory gaps and test patterns;
-    test writing is never delegated.
+  The `researcher` declares none.
 - **Default damage-control guardrails** — `just fleet` and `just fleet --no-coms` load the
   `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
   `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
@@ -664,7 +697,7 @@ passed; a desired file the installer rejects is shown as the CLI's repair previe
 `agent-fleet configure --dry-run` as a line diff and applies with `--yes --expect-hash`, so a file
 edited in between is refused by the CLI. Headless sessions have no write flows. Each row names its
 origin (`file:line` or `runtime`). Files edited after session start are flagged, because the Hub reads
-overrides, teams and System 1 configuration once at start. Environment variables appear as names with
+overrides, role definitions and System 1 configuration once at start. Environment variables appear as names with
 present/absent only; values are never read or shown. Headless children get the Overview as a notice.
 The same command and shortcut exist in coms peers (without the Runtime tab and the Hub's effective
 override values). The screen never writes a configuration file; changes go through the CLI
@@ -714,7 +747,7 @@ and display**. This is pattern-based protection, so operators should still avoid
 unknown secret formats.
 
 “Thinking” means only text explicitly emitted by the provider/runtime; hidden model reasoning is not
-available, and personas with thinking disabled have no thinking rows. Model switching works for local
+available, and roles with thinking disabled have no thinking rows. Model switching works for local
 specialists, a currently running research helper, and nested delegate roles. It applies on the next dispatch or
 continuation and never interrupts a running child. A coms-backed specialist stores the choice for native
 fallback runs; external coms peers control their own model, have no picker, and have no local transcript.
@@ -723,7 +756,7 @@ fallback runs; external coms peers control their own model, have no picker, and 
 ### Version footer
 
 `agent-hub` renders its local harness version first in its custom footer:
-`agent fleet v<version> · <model><thinking> · <team>`. It replaces pi's default footer, so it does **not**
+`agent fleet v<version> · <model><thinking>`. It replaces pi's default footer, so it does **not**
 consume or render the shared version status; it reads its own adjacent stamped manifest directly.
 The three persistent-UI harnesses (`agent-hub`, `coms`, and
 `damage-control-continue`) still register that one shared key, which gives default footers one
@@ -767,7 +800,7 @@ Omit the section to keep the default `English`. `language` applies to dispatcher
 `ask_user` questions and `context` fields, handoff summaries, and user-facing status text;
 specialist task strings stay in English.
 
-The same section can point the team at the project's own rule files and documentation
+The same section can point the roles at the project's own rule files and documentation
 entry points:
 
 ```markdown
@@ -778,20 +811,19 @@ docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 
 `rules:` lists repo-relative folders of HOW rules — implementation patterns the work must
 comply with. Resolution is **index-first**: a folder with a top-level `README.md`/`index.md`
-is treated as curated — personas read the index first and follow its loading manifest
+is treated as curated — roles read the index first and follow its loading manifest
 (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without
 an index is searched **recursively** through all subfolders. When set, every dispatched
 specialist's system prompt gains a "Project rules" block naming the folders and the
-resolution order; the planner and code-reviewer personas additionally validate their subject
-against the relevant rules and pass them on (cited in plan acceptance criteria / handed to
-delegate sub-reviewers).
+resolution order; a planning assignment cites the relevant rules in its acceptance criteria and the
+reviewer validates its subject against them and hands them to its delegate sub-reviewers.
 
 `docs:` lists repo-relative WHAT/WHY documentation entry points — canonical files (e.g. an
-`AGENTS.md`, an architecture overview) or doc folders (personas start from the folder's
+`AGENTS.md`, an architecture overview) or doc folders (roles start from the folder's
 README/index). Docs orient rather than bind: every dispatched specialist **and every research
 helper** gains a "Project docs" block telling it to read the entry points relevant to its
-task and follow their links instead of bulk-reading doc trees. The code-reviewer flags
-changes that alter documented behavior without a doc update; the documenter treats the entry
+task and follow their links instead of bulk-reading doc trees. The reviewer flags
+changes that alter documented behavior without a doc update; an editor treats the entry
 points and the trees they link as the documentation it maintains.
 
 `research-keep:` is **removed**. An existing key warns at session start and has no effect; delete it.
@@ -851,7 +883,7 @@ carry the state, which the deliverable-to-file protocol already ensures.
 Context is measured against **that agent's own** model window, resolved from pi's model
 registry (`ctx.modelRegistry.find`) with the source recorded on every resolution. Dividing a
 49k local model's usage by the dispatcher's window is what produced unactionable readings
-like `⚠ Planner context at 315%`; a reading above 100% now emits a one-time diagnostic that
+like `⚠ editor context at 315%`; a reading above 100% now emits a one-time diagnostic that
 names the window and where the number came from, so a mis-resolved window is distinguishable
 from a genuine overflow. Two recycle rules follow from it: a session at or past a **full**
 window is recycled unconditionally (no threshold override keeps it alive), and a resumed
@@ -891,7 +923,7 @@ delegation policy. The tier shows in the `hub-tier` status chip
 
 Skipping classification assumes **small**. This retains conservative delegation,
 role and child-deadline defaults, without limiting task duration or invocation counts.
-Planner and plan-reviewer remain available on request at every tier.
+Planning and plan review remain available on request at every tier.
 
 The tier is **task-scoped and ratcheted**. It survives the user's next message, and it
 moves in one direction cheaply: **lowering it is always free, raising it requires a
@@ -904,12 +936,12 @@ The remaining policy separates admission, review and usage:
 
 - **Duplicate-dispatch guard** — refuses re-dispatching the same agent with a
   near-identical task inside one turn.
-- **Tier persona gate** — at trivial/small, architect, security-auditor and
-  deep-researcher still require an appropriate classification. Planner/plan-reviewer
-  are optional and are never required to admit implementation.
+- **Tier practice gate** — at trivial/small, an assignment with the `architecture` practice, or a
+  `reviewer` with `security`, is refused without charging; raise the tier with a reason first.
+  Planning and plan review are optional and are never required to admit implementation.
 - **Review rounds** — counted without a hard quota. Review quality and current
   changed-scope evidence remain required where the process calls for them.
-- **Review finding budget** — a review persona's dispatch carries a blocking-finding cap
+- **Review finding budget** — a `reviewer` dispatch carries a blocking-finding cap
   tied to the tier (trivial 1, small 2, feature 5, project uncapped) plus the rule that a
   blocking finding may only enforce an invariant the task/plan/rules already state. The hub
   **counts** what came back (`review-findings.js`) and appends a visible notice when the
@@ -925,10 +957,9 @@ Every budget/gate refusal is counted in `/af-hub-report`.
 A dispatch whose declared `scope` is documentation only — `Docs/**`, `**/*.md`,
 `artifacts/evidence/*.png`, `.changeset/**` — runs in the single-worker docs lane:
 
-- dispatching a review persona (`code-reviewer`, `plan-reviewer`, `security-auditor`,
-  `test-engineer`) on it is **refused** and costs no budget slot;
-- any other persona's result carries a note telling the dispatcher not to open a review
-  gate for it.
+- dispatching a `reviewer` on it is **refused** and costs no budget slot;
+- an editor's result carries a note telling the dispatcher not to open a review
+  gate for it (unless required process review remains open).
 
 An absent or empty `scope` is never the lighter lane — unknown is not docs. The refusal is
 overridable per dispatch with `review_reason: "<why>"` for the cases that do warrant a gate
@@ -958,8 +989,8 @@ assertion still ended UNPROVEN.
 ### Immutable per-run artifact namespaces (`run-namespace.js`)
 
 Session start used to `rm -rf` `.pi/agent-sessions/artifacts/`, and specialist returns were
-named by a per-session counter (`returns/builder-run1.md`). Both halves of that failed at
-once: the next session's `builder-run1.md` claimed the same path as the previous one's, and
+named by a per-session counter (`returns/builder-run1.md`, from the retired `builder` persona). Both
+halves of that failed at once: the next session's `builder-run1.md` claimed the same path as the previous one's, and
 the wipe deleted the originals first — a post-mortem had to record eleven implementation
 returns and two review artifacts as NOT RECOVERABLE.
 
@@ -989,7 +1020,7 @@ drives the cards — not post-hoc:
   outside the dispatch's declared `scope` globs, the identical tool call repeated 4×,
   5 consecutive failed tool calls, or 200 total tool calls in one run.
 - **Layer 2 — LLM judge, escalation only**: when a rule fires (single-flight, 90 s
-  success cooldown), a one-shot cheap run (default model: the researcher persona's; override with
+  success cooldown), a one-shot cheap run (default model: the researcher role's; override with
   `watchdog-judge-model`) reads the original task + declared scope + recent tool trail and
   answers `VERDICT: ON_TRACK|DRIFTING|STUCK`. An unavailable judge has no verdict:
   it is recorded as `judge_unavailable` and, if the attempt and signal remain live,
@@ -1000,7 +1031,7 @@ drives the cards — not post-hoc:
   corrected, narrowed task — never the same task unchanged.
 
 Enablement is dynamic. Precedence is the `watchdog: true|false`
-param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog builder
+param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog editor
 on|off|clear`) → the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project
 default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
 `off`. Read-only research helpers are not monitored — they already run under the per-tool
@@ -1048,18 +1079,13 @@ before any shadow pilot. G2 separately requires human-labelled held-out
 session evidence and explicit maintainer approval for a production policy
 profile. Offline tests and demo/doctor readiness do not grant either gate.
 
-### Dynamic teams
+### The roster
 
-Rosters start from `.pi/agents/teams.yaml` but are not frozen there:
-
-- `/af-agents-add <persona>…` / `/af-agents-drop <persona>…` — restructure the ACTIVE team
-  live (drop refuses running or last members; session files are kept for re-adding).
-- `/af-agents-save <name>` — persist the current roster as a named team back into
-  `teams.yaml` (targeted block upsert; comments and other teams untouched).
-- `team_adjust` — the dispatcher itself may add/drop a persona **with a stated reason**; every
-  change is notified to the human. It is rarely needed: `dispatch_agent` to an installed agent adds
-  it automatically, and added agents are kept. It is not tier-gated or capped. The system prompt is
-  rebuilt each turn, so changes take effect immediately.
+The roster is every installed role plus parallel instances; there are no teams to restructure.
+`dispatch_agent` loads a role on its first dispatch, a busy role gets an instance (`reviewer--p2`,
+`editor--p2`) and the result names it. The system prompt is rebuilt each turn, so a newly installed
+role definition appears without a new command. Native teams and their commands (`/af-agents-team`,
+`/af-agents-add`, `/af-agents-drop`, `/af-agents-save`, `team_adjust`) were removed in 2.3.0.
 
 ### `/af-hub-report`
 
@@ -1070,7 +1096,7 @@ input + cacheRead + cacheWrite, the same measure the recycler uses. System 1
 usage is reported separately; unavailable metadata remains unknown.
 
 Paths that don't exist produce a session-start warning, never an error. The full key list for
-`## agent-hub` (models, sub-roles, depth budgets, persona gate, research retention, watchdog,
+`## agent-hub` (models, practice models, sub-roles, depth budgets, research retention, watchdog,
 mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
 
 ## The coms layer
@@ -1085,12 +1111,14 @@ Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's to
 surface additionally gets (absent otherwise, like coms):
 
 - `herdr_spawn_peer` — stand up a constrained Fleet peer through the shared peer-launch resolver.
-  The peer joins **this session's `--project` pool** (the model cannot override it), and a name
-  declared in `.pi/agents/peers.yaml` keeps its declared `runner:`/`extensions:`/`env_file:`,
-  including `runner: claude-code`; undeclared explicit shapes may select a Pi persona, identity-only
-  Fleet Core peer, or Claude Code. Manifest-declared env is the only env admitted. The peer gets a
-  sibling pane in the current workspace/tab, not a second process in the Hub pane. A spawn by name
-  therefore produces the same declared agent as a preset launch. A persona peer **boots idle**
+  The peer joins **this session's `--project` pool** (the model cannot override it). Its settings
+  are the `just fleet peer <name>` flags the model may choose — `runner` (`pi` or `claude-code`),
+  `persona` / `no_persona`, `model`, `read_only` and `direction`; there is no peer declaration file.
+  A same-named role or persona file starts a guarded Pi persona peer, otherwise a Fleet Core peer.
+  Every Pi peer loads Chrome DevTools MCP, and a `read_only: true` peer gets inspection tools only
+  and no extension. `--env-file`, the project and raw Pi argv stay out of the model's reach. The
+  peer gets a sibling pane in the current workspace/tab, not a second process in the Hub pane. A
+  persona peer **boots idle**
   and does nothing until a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to
   register and returns `peer_ready` plus its coms name instead of a bare pane id; on failure it
   returns the pane's last output, which means the peer did not start rather than that it is slow.
@@ -1099,7 +1127,7 @@ surface additionally gets (absent otherwise, like coms):
   Mechanism: herdr's `pane.split` takes **no command** — it opens a shell — so the spawn splits,
   waits for the pane's prompt, and types the argv (text and Enter sent separately, because bash
   bracketed paste would swallow a newline). Only `layout.apply` pane nodes carry an argv, which is
-  why declarative preset layouts were never affected by this.
+  why the one-pane `just fleet --herdr` layout is not affected by this.
 - `herdr_spawn_pane` — create an arbitrary command pane when a constrained/addressable Fleet peer
   is not the desired shape; raw commands are intentionally excluded from `herdr_spawn_peer`.
   Orchestrators may use this for auxiliary processes such as watchers or servers, never to bypass
@@ -1133,8 +1161,8 @@ Each session registers a coms identity at start-up, resolved in this precedence 
 2. **Defaults** — auto-generated name `hub-<id>`, purpose `agent-hub dispatcher`, project
    `default`, a deterministic color derived from the session id
 
-Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `architect`
-become `architect` and `architect-2`. `--explicit` marks a **private** peer — kept out of every
+Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `hub-main`
+become `hub-main` and `hub-main-2`. `--explicit` marks a **private** peer — kept out of every
 pool by default, so it is neither listed nor reachable until a human opts in with `/af-coms --all`
 (see [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)). The registry lives
 under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
@@ -1149,9 +1177,10 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
 - `/af-debate [--panel NAME] [--persona NAME] [--rounds N] <question>` — same panel, 2–5 harness-mediated rounds (default 3). Each surviving voice sees the labeled positions of the others from the previous round. There is no judge and no hidden merge. Counts as **one** turn-budget dispatch. Per-round files land under `.pi/agent-sessions/artifacts/polls/<runId>/debate/round-<n>/`.
 - `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
   candidate-lessons brief from the session (corrections, recurring findings, root causes),
-  confirms it with the user, then dispatches the `documenter` to land the approved lessons as
-  minimal diffs on the project's `rules:`/`docs:` targets per `skills/compound-learning/SKILL.md`.
-  Requires the `documenter` persona in the active team; run it before `/af-handoff` or session end.
+  confirms it with the user, then dispatches an `editor` with the `documentation` practice to land
+  the approved lessons as minimal diffs on the project's `rules:`/`docs:` targets per
+  `skills/compound-learning/SKILL.md`. Requires the installed `editor` role; run it before
+  `/af-handoff` or session end.
 - `coms_list` — discover the peers in your pool: names, models, live context usage, purpose,
   `pane_id`, waiting-only `queue_depth`, and `status` (`idle` | `queued` | `working` | `booting`).
   Check status before sending: `working` means the peer has an active turn, `queued` means accepted
@@ -1188,65 +1217,75 @@ context to a peer the human has not approved.
 
 The dispatcher uses a peer as a subagent by pairing the tools: `coms_send(target, prompt)` to
 issue the task, then `coms_await(msg_id)` to block for the reply (or `coms_get` to poll). This sits
-alongside `dispatch_agent` — local persona specialists are dispatched as subprocesses; remote peers
+alongside `dispatch_agent` — local role subagents are dispatched as subprocesses; remote peers
 are reached over coms. The two paths stay explicit for the LLM, but
 [coms-backed dispatch](#coms-backed-dispatch-dispatch-policyyaml) can route a `dispatch_agent` call
-to a same-name peer under the hood. (The specialist-level `delegate` tool is a third,
+to the peer its role's route names under the hood. (The specialist-level `delegate` tool is a third,
 nested path: a dispatched specialist spawning its own declared sub-agents — it does not auto-route
 between local and remote either.) Multi-hop is inherited from coms: a peer handling a dispatched task can `coms_send`
 onward, hops accumulating up to `MAX_HOPS` (5).
 
 ### Coms-backed dispatch (dispatch-policy.yaml)
 
-`just fleet --agents <roster> --peers <preset>` boots the Hub next to standing peers from
-`.pi/agents/peers.yaml` — and some
-of them (e.g. `code-reviewer`, `plan-reviewer` with `runner: claude-code`) intentionally share a name
-with a team member. `.pi/agents/dispatch-policy.yaml` tells the dispatcher to serve such members
-**through the peer** instead of spawning a native subagent:
+A role can be served by a live coms peer instead of a fresh native subagent — for example a Claude
+Code reviewer started with `just fleet peer claude-reviewer --runner claude-code --read-only`.
+`.pi/agents/dispatch-policy.yaml` routes **by role**, and `peer:` names the coms address, which is
+distinct from the role ([peers serving a role](../../../docs/agents.md#peers-serving-a-role)):
 
 ```yaml
-default: native            # coms = substitute ANY member with a live same-name pool peer
-grace_s: 30                # poll window for coms-required members
-substitutions:
-  code-reviewer:
+default: native            # coms = send ANY role to a live peer named like the role
+grace_s: 30                # poll window for coms-required routes
+routes:
+  reviewer:                # researcher | reviewer | editor; reviewer--p2 uses this route
+    peer: claude-reviewer  # coms address; default: the role name
     prefer: coms
     fallback: native       # none = coms-required: refuse with guidance instead of spawning
-    # timeout_s: 3600      # per-member reply timeout (default PI_COMS_TIMEOUT_MS, 30 min)
+    # timeout_s: 3600      # per-route reply timeout (default PI_COMS_TIMEOUT_MS, 30 min)
 ```
 
 Semantics:
 
 - **One API with an explicit override.** `dispatch_agent(..., backend: "auto"|"native"|"coms")`
-  defaults to `auto`, which follows this policy. `native` always starts the local Pi specialist even
-  when a same-name peer is live. `coms` requires that live same-name peer and never falls back to
-  native. The whole downstream pipeline — structured return contract,
+  defaults to `auto`, which follows this policy. `native` always starts the local Pi subagent even
+  when the routed peer is live. `coms` requires the live peer the role's route names and never falls
+  back to native. The whole downstream pipeline — structured return contract,
   `ASK_USER:` extraction, the NEEDS_RESEARCH auto-research pipe, assertions, history, the grid —
   consumes a coms reply exactly like a subagent's final output (the dispatch protocols ride in the
   message body, since a standing peer only receives a user prompt).
 - **Decided per dispatch, against the live pool.** Hub and peers boot in parallel, so the first
-  dispatch may land before the peer registers: with `fallback: native` it runs natively (one notice
-  per member per team activation), and later dispatches pick up the peer once it is live. With
-  `fallback: none` the dispatch polls the pool for `grace_s` seconds, then refuses with remediation
-  steps. The name match is scoped to the coms pool — the same security boundary as `coms_send`.
+  dispatch may land before the peer registers: with `fallback: native` it runs natively with a
+  notice, and later dispatches pick up the peer once it is live. With `fallback: none` the dispatch
+  polls the pool for `grace_s` seconds, then refuses with remediation steps. The address match is
+  scoped to the coms pool — the same security boundary as `coms_send`.
+- **Read-only roles need a read-only peer.** A `researcher` or `reviewer` reaches only a peer
+  launched with enforced read-only tools that declares `read_only` at registration
+  (`just fleet peer <name> --read-only`, or `read_only: true` on `herdr_spawn_peer`); otherwise it
+  runs native, or is refused under `fallback: none`. A coms peer is one live process, so a busy
+  peer is never cloned into an instance.
+- **No self-review by address.** A reviewer route never reaches a peer address that changed a file
+  in the review's scope, even after a restart: an `auto` route runs a native reviewer instead, with
+  a notice, while an explicit `backend: "coms"` or `fallback: none` is refused before anything
+  starts. A deliberately fresh reviewer needs another peer name.
 - **Standing context is the point.** Re-dispatches (ASK_USER answers, research resumes) go back to
   the same peer session, so a Claude Code reviewer keeps its review context across rounds.
-- **Visibility.** The member's grid card shows a `⇄coms <peer-model>` badge, history entries are
-  annotated `(coms)`, and `/af-dispatch-policy` prints the resolved routing per member with live-peer
+- **Visibility.** The role's grid card shows a `⇄coms <peer-model>` badge, history entries are
+  annotated `(coms)`, and `/af-dispatch-policy` prints the resolved routing per role with live-peer
   status.
 - **Limitations.** `/af-agents-kill` on a coms-backed run only abandons the wait — the peer keeps
   running in its own pane and cannot be killed from the hub (`/af-agents-restart` abandons, then
   re-dispatches). `/af-zoom` shows only the final reply (there is no stream), tool counts stay 0, and
   context% is a registry snapshot. `/af-agent-model` overrides apply only to native(-fallback) runs —
-  the peer's model is set in `peers.yaml`.
+  the peer's model is its `--model` launch flag.
 
-Missing file = everything native. HOW a peer runs (persona, model, `runner: claude-code`, env) stays
-in `peers.yaml`; this file only decides WHEN the hub prefers a peer over a native spawn.
+Missing file = everything native. HOW a peer runs (runner, model, read-only, env file) is set by the
+flags of `just fleet peer <name>`; this file only decides WHEN the hub prefers a peer over a native
+spawn.
 
-### Planner recovery and completion evidence
+### Plan recovery and completion evidence
 
 No plan occurrence is an admission prerequisite. Existing saved plan requirements
 normalize to optional while preserving their artifacts and source history. A direct
-operator, native builder or coms peer can execute authorized work without a Planner.
+operator, native editor or coms peer can execute authorized work without a plan.
 Independent review, task-transition fencing and exact-action authorization remain.
 Resolve factual gaps with focused research and additional decisions with `ask_user`.
 
@@ -1324,7 +1363,8 @@ export AGENT_FLEET_MONITOR_RUNTIME_DIR="/absolute/owner-only/runtime-root"
 Both are required for monitor startup; the runtime root must be absolute and owner-only, and the
 profile ID must be a safe identifier. The monitor also starts only for a Herdr-backed hub with
 `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`; retain those values and `HERDR_SOCKET_PATH` in the
-standard `just fleet --agents <roster> --peers <preset>` flow. Workspace labels are display metadata, not monitor identity.
+standard `just fleet --herdr` flow, which passes the monitor variables to the Hub pane as pane env.
+Workspace labels are display metadata, not monitor identity.
 
 The live contract exposes three authenticated newline-delimited JSON requests: `snapshot`, cursor-
 based `output`, and exact-generation `cancel`. The monitor is local-only and fails closed when its
@@ -1339,7 +1379,7 @@ monitor_runtime="${XDG_RUNTIME_DIR:?}/agent-fleet-monitor"
 install -d -m 700 "$monitor_runtime"
 AGENT_FLEET_PROFILE_ID=dev \
 AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime" \
-just fleet --agents default --peers default
+just fleet --herdr --project af
 ```
 
 No Desktop/backend plugin installation is required or provided. Consumers must re-discover after
@@ -1347,8 +1387,10 @@ lease or socket loss and must never persist or log the token.
 
 ## Requires
 
-- `.pi/agents/teams.yaml` for fixed specialist teams, the referenced persona `.md` files, and
-  (strongly recommended) [`pi-ask-user`](https://github.com/edlsh/pi-ask-user).
+- The three role definitions (`researcher.md`, `reviewer.md`, `editor.md`, installed in
+  `.pi/agents/personas/`; a project file with a role's name may replace one) and (strongly recommended)
+  [`pi-ask-user`](https://github.com/edlsh/pi-ask-user). A missing role is reported at session start
+  and its dispatches are refused; any other definition file is listed as not dispatched.
 - `.pi/damage-control-rules.yaml` for every guarded `just fleet` Pi mode.
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
   runtime.
@@ -1358,12 +1400,12 @@ lease or socket loss and must never persist or log the token.
 ```bash
 # Unified Fleet interface (Fleet Core + Agent Hub are loaded together)
 just fleet
-just fleet --agents frontend --project myrepo
-just fleet --agents frontend --peers frontend --project myrepo
+just fleet --project myrepo
+just fleet --herdr --project myrepo
 
 # equivalent direct guarded launch
 pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts
-pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts --name releaser --explicit
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts --name hub-private --explicit
 
 # direct unguarded launch, only when you intentionally want to skip damage-control
 pi -e .pi/harnesses/agent-hub/index.ts
@@ -1394,24 +1436,22 @@ additionally read-only by construction. Guided setup enforces `agent-hub` ⇒
 # Operator/native work without coms
 just fleet --no-coms
 
-# Hub-only Herdr workspace and a combined topology
+# Hub-only Herdr workspace, then one peer at a time beside it
 just fleet --herdr --project af
-just fleet --agents default --peers docs --project af
-just fleet --agents default --peers docs --project af --dry-run
+just fleet --herdr --project af --dry-run
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+just fleet peer scout --persona researcher --read-only --project af
 
 # Compatibility aliases (accepted with migration warnings)
 just fleet hub --solo
-just fleet team docs
-
-# Snapshot refs / close cleanly / restore conversations
-just fleet snapshot docs
-just fleet down docs
-just fleet resume docs
+just fleet team base          # use: just fleet --herdr
 ```
 
-`peers.yaml` groups reusable peers into named teams; each entry is `name` / `persona`
-(+ optional `model`). The persona's frontmatter `description`/`color` become the peer's
-coms purpose/color.
+Each peer starts on its own; its settings are the flags of `just fleet peer <name>` (`--runner`,
+`--persona`/`--no-persona`, `--model`, `--read-only`, `--env-file`). A Pi peer whose name (or
+`--persona`) matches a role or persona file loads it, and that file's frontmatter
+`description`/`color` become the peer's coms purpose/color. Peer groups, `peers.yaml`,
+`just fleet team <name>`, team snapshots, `down` and `resume` were removed in 2.3.0.
 
 ## How it differs from its sources
 
@@ -1422,8 +1462,8 @@ coms purpose/color.
   guarded by `if (!comsReady)`, so `/new` reuses the same peer identity (no leaked socket).
 - **Dispatcher is also a peer.** `setActiveTools` lists `coms_*` alongside `dispatch_agent` +
   `spawn_research` (+ `ask_user`); the system prompt gains a "Peer agents (coms)" section when coms
-  is ready. The persona's `description` drives the coms `purpose` (decision 6 / Phase 6 peer
-  mapping) instead of a static `--purpose`.
+  is ready. Its coms `purpose` is `--purpose` when set, else `agent-hub dispatcher` (see
+  [Purpose](#purpose)).
 - **`/af-handoff` uses an LLM-composed brief**, not a compaction-summary extraction (decision G1).
 - **Clean shutdown** SIGTERMs any running specialist/research children, clears the coms pool
   widget, and removes the registry entry on `session_shutdown` / SIGINT / SIGTERM.

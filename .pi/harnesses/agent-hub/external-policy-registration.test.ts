@@ -50,8 +50,8 @@ test("specialist, research and shared delegate/coms protocols retain canonical r
  const {cwd,docs}=fixture(t);mkdirSync(join(docs,"rules"));mkdirSync(join(cwd,"nested"));
  const table=resolvePolicyRoots(cwd,{rulesDirs:["../docs/rules"],docsPaths:["../docs/README.md"]});
  const policy={rulesPaths:resolvePolicyReferences(table,["../docs/rules"],"rules"),docsPaths:resolvePolicyReferences(table,["../docs/README.md"],"docs")};
- const manifest=buildSpecialistContextManifest({personaName:"builder",personaPath:"agents/builder.md",personaPrompt:"",task:"task",...policy,hasAssertions:false,hasScope:false,hasArtifacts:false,delegateRoles:["recon"]});
- const rendered=[nativeSpecialistSystemPrompt({manifest,userLanguage:"Bulgarian",agentKey:"builder",runNumber:1}),nativeResearchSystemPrompt({cwd:join(cwd,"nested"),...policy}),buildProjectRulesProtocol(policy.rulesPaths)+buildProjectDocsProtocol(policy.docsPaths)];
+ const manifest=buildSpecialistContextManifest({personaName:"editor",personaPath:"agents/editor.md",personaPrompt:"",task:"task",...policy,hasAssertions:false,hasScope:false,hasArtifacts:false,delegateRoles:["recon"]});
+ const rendered=[nativeSpecialistSystemPrompt({manifest,userLanguage:"Bulgarian",agentKey:"editor",runNumber:1}),nativeResearchSystemPrompt({cwd:join(cwd,"nested"),...policy}),buildProjectRulesProtocol(policy.rulesPaths)+buildProjectDocsProtocol(policy.docsPaths)];
  for(const prompt of rendered){assert.ok(prompt.includes(join(docs,"rules")));assert.ok(prompt.includes(join(docs,"README.md")));assert.ok(!prompt.includes("../docs"));}
 });
 

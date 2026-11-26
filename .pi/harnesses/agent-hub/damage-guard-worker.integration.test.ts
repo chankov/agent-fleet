@@ -33,13 +33,13 @@ else if(process.env.MODE==='fallback'&&model==='fake/primary'){console.log(JSON.
  env:{PATH:root+':'+process.env.PATH,NODE_OPTIONS:process.env.NODE_OPTIONS??'',REPORT:join(root,'report'),TYPESAFE_API_KEY:'synthetic',AF_D6_ASSIGNMENT:'forged'},rows:()=>existsSync(join(root,'report'))?readFileSync(join(root,'report'),'utf8').trim().split('\n').map(s=>JSON.parse(s)):[]};
 }
 function worker(f:any,overrides:any={}) {
- const state:any={def:{name:'builder',description:'builder',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY\nUse skills/incremental-implementation/SKILL.md',file:'agents/builder.md',fallbackModel:'fake/model'},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
+ const state:any={def:{name:'editor',description:'editor',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY\nUse skills/incremental-implementation/SKILL.md',file:'agents/editor.md',fallbackModel:'fake/model'},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
  const deps:any={getAgentState:()=>state,listAgentStates:()=>[state],getSessionDir:()=>f.session,getDispatchPolicy:()=>({default:'native',grace_s:0,substitutions:{}}),isComsReady:()=>false,getIdentity:()=>null,peersInScope:()=>[],wasComsMissNotified:()=>false,markComsMissNotified(){},startMonitorChild(){},finalizeMonitorChild(){},registerMonitorWaitOnly(){},registerMonitorProcess(){},appendMonitorOutput(){},getContextWindow:()=>100000,currentBudget:()=>({delegation:false,agentTurnMs:20000}),bumpRecycle(){},bumpDriftStop(){},getSessionHealthIo:()=>({existsSync,readFileSync,renameSync}),getSafetyHarnessPath:()=> 'safety',getDelegateExtensionPath:()=>null,getReconSearchTimeoutMs:()=>1000,getProjectDocsPaths:()=>['docs/PHILOSOPHY.md'],getUserLanguage:()=> 'English',getWatchdogSetting:()=> 'off',getWatchdogAgentOverride(){},getWorkMode:()=> 'operator',providerSemaphore:{run:async(_m:string,fn:any)=>fn()},executionHistory:{start:()=>({}),end(){}},displayName:(s:string)=>s,shortModel:(s:string)=>s,resolvedModel:()=> 'fake/primary',resolvedThinking:()=> 'off',resolveThinkingLevel:()=> 'off',resolvedSubagentModel:()=> 'fake/model',substitutedModel:(m:any)=>m,modelWindowLookup:()=>()=>undefined,specialistProjectPolicyPaths:()=>['AGENTS.md'],guardrailEnv:()=>f.env,appendInputArtifacts:(p:string)=>p+'\nINPUT_ARTIFACT original failure evidence',appendDeclaredScope:(p:string,s:string[])=>p+'\nDECLARED_SCOPE '+s.join(','),flushTimelineStore(){},appendTimelineText(){},appendTimelineEvent(){},createTranscriptStore:()=>({append(){}}),updateWidget(){},startDelegationWatch(){},dispatchViaComs:async()=>null,runDriftJudge:async()=>null,notifyProviderQueue(){},spawnPiAgentWithModelFallback,...overrides};
  return {state,deps,native:createDispatchNative(deps)};
 }
 
 const contract=()=>({taskId:'task',instructions:'bounded task',scope:['docs/a'],deliverables:['docs/out'],artifacts:['docs/input'],permissions:['read','bash'],model:'fake/primary'});
-async function dispatch(w:any,f:any,c=contract()){return w.native.dispatchAgent('builder','bounded task',f.ctx??{cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(){}}},[],c.scope,false,'native',false,c);}
+async function dispatch(w:any,f:any,c=contract()){return w.native.dispatchAgent('editor','bounded task',f.ctx??{cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(){}}},[],c.scope,false,'native',false,c);}
 test('F5 independent D9 absent/off/on and D6 absent/off/on reach production seam without inference',async t=>{
  for(const d9 of ['absent','off','on'])for(const d6 of ['absent','off','on']){
   const f=await fixture(t);const discovery=createDiscoveryOwners('s',()=> 'task');t.after(()=>discovery.dispose());
@@ -54,7 +54,7 @@ test('F5 preparation and queue recheck all preserved admission predicates and im
   const f=await fixture(t),c=contract();let w:any,registered=true,allowed=true,session=f.session,launch='launch';const ctx:any={cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(){}}};
   const mutate=()=>{if(change==='kill')w.state.killedByOperator=true;if(change==='restart')w.state.restarting=true;if(change==='state')registered=false;if(change==='dispatch')w.state.dispatchId='other';if(change==='session')session+='other';if(change==='launch')launch='other';if(change==='admission')allowed=false;if(change==='throws')allowed=false;if(change==='tools')w.state.def.tools='read';if(change==='cwd')ctx.cwd+='other';if(change==='task')c.instructions='other';if(change==='scope')c.scope.push('wide');if(change==='permissions')c.permissions.push('write');if(change==='revision')f.revise();};
   w=worker(f,{getAgentState:()=>registered?w.state:undefined,getSessionDir:()=>session,launchIdentity:()=>launch,nativeAdmission:()=>{if(change==='throws'&&!allowed)throw Error('synthetic');return allowed;},prepareDiscovery:async()=>{if(phase==='discovery')mutate();return {current:()=>change!=='revision'||phase!=='discovery'};},prepareDamageGuard:async(i:any)=>{const r=f.prepare(i);if(phase==='damage')mutate();return r;},providerSemaphore:{run:async(_m:any,fn:any)=>{if(phase==='queue')mutate();return fn();}}});w.state.def.tools='read,bash';
-  const result=await w.native.dispatchAgent('builder','bounded task',ctx,[],c.scope,false,'native',false,c);assert.equal(f.rows().length,0,phase+'/'+change);assert.notEqual(result.exitCode,0);assert.ok(f.leases.every(l=>l.identity.signal.aborted));assert.equal(f.calls(),0);
+  const result=await w.native.dispatchAgent('editor','bounded task',ctx,[],c.scope,false,'native',false,c);assert.equal(f.rows().length,0,phase+'/'+change);assert.notEqual(result.exitCode,0);assert.ok(f.leases.every(l=>l.identity.signal.aborted));assert.equal(f.calls(),0);
  }
 });
 test('F5 real fallback fresh leases, stable dispatch contract and cancellation fences without D6 or effect tools',async t=>{
@@ -70,7 +70,7 @@ test('F5 deferred physical open revokes stale input and failed launch cleans up'
  const f=await fixture(t),entered=deferred(),release=deferred(),c=contract(),ctx:any={cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(){}}};let w:any;
  if(mode!=='failed')f.setWait(async()=>{entered.resolve();await release.promise;});
  w=worker(f,{prepareDamageGuard:f.prepare,...(mode==='failed'?{guardrailEnv:()=>({...f.env,PATH:'/nonexistent'})}:{})});w.state.def.tools='read,bash';
- const pending=w.native.dispatchAgent('builder','bounded task',ctx,[],c.scope,false,'native',false,c);if(mode!=='failed'){assert.equal(await Promise.race([entered.promise.then(()=> 'entered'),pending.then(()=> 'finished')]),'entered');if(mode==='revision')f.revise();if(mode==='kill')w.state.killedByOperator=true;if(mode==='scope')c.scope.push('wide');if(mode==='cwd')ctx.cwd+='other';release.resolve();}
+ const pending=w.native.dispatchAgent('editor','bounded task',ctx,[],c.scope,false,'native',false,c);if(mode!=='failed'){assert.equal(await Promise.race([entered.promise.then(()=> 'entered'),pending.then(()=> 'finished')]),'entered');if(mode==='revision')f.revise();if(mode==='kill')w.state.killedByOperator=true;if(mode==='scope')c.scope.push('wide');if(mode==='cwd')ctx.cwd+='other';release.resolve();}
  const result=await pending;if(mode!=='failed')assert.equal(result.lifecycle?.launched,false);else assert.match(result.diagnostics?.spawnError??'',/ENOENT/);assert.equal(f.rows().length,0);assert.equal(f.leases.length,1);assert.ok(f.leases[0].identity.signal.aborted);assert.equal(f.calls(),0);
  }
 });
@@ -78,7 +78,7 @@ test('F5 corrupt-session clean retry remints capability and rechecks authority e
  for(const mode of ['normal','cancel','absent','readonly']){
   const f=await fixture(t);let w:any;const ctx:any={cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(text:string){if(mode!=='normal'&&text.includes('retrying once'))w.state.killedByOperator=true;}}};
   w=worker(f,{prepareDamageGuard:mode==='absent'?undefined:f.prepare,guardrailEnv:()=>({...f.env,MODE:'corrupt'})});w.state.def.tools=mode==='readonly'?'read':'read,bash';w.state.def.fallbackModel='fake/primary';
-  const result=await w.native.dispatchAgent('builder','bounded task',ctx,[],['docs/a'],false,'native',false,contract());
+  const result=await w.native.dispatchAgent('editor','bounded task',ctx,[],['docs/a'],false,'native',false,contract());
   assert.equal(f.rows().length,mode==='normal'?2:1);assert.ok(f.leases.every(l=>l.identity.signal.aborted));assert.equal(f.calls(),0);
   if(mode==='normal'){assert.equal(result.exitCode,0);assert.equal(new Set(f.identities.map(i=>i.attempt)).size,2);assert.equal(new Set(f.leases.map(l=>l.assignment.capability)).size,2);assert.equal(f.inputs.length,1);assert.equal(result.sessionReset?.retried,true);}
  }
@@ -102,7 +102,7 @@ test('F5 independent deferred discovery, D6 preparation and queue fence mutation
   const wait=async()=>{entered.resolve();await release.promise;};
   const w=worker(f,{prepareDiscovery:async()=>{if(phase==='discovery')await wait();return {current:()=>discoveryCurrent};},prepareDamageGuard:async(i:any)=>{if(phase==='damage')await wait();return f.prepare(i);},providerSemaphore:{run:async(_m:any,fn:any)=>{if(phase==='queue')await wait();return fn();}}});w.state.def.tools='read,bash';
   const ctx:any={cwd:f.root,model:{provider:'fake',id:'model'},ui:{notify(){}}};
-  const pending=w.native.dispatchAgent('builder','bounded task',ctx,[],c.scope,false,'native',false,c);
+  const pending=w.native.dispatchAgent('editor','bounded task',ctx,[],c.scope,false,'native',false,c);
   try{await entered.promise;if(change==='cancel')w.state.killedByOperator=true;if(change==='scope')c.scope.push('wide');if(change==='cwd')ctx.cwd+='other';if(change==='discovery')discoveryCurrent=false;release.resolve();
    const result=await pending;assert.equal(result.lifecycle?.launched,false);assert.equal(f.rows().length,0);assert.equal(f.leases.length,0);assert.equal(f.calls(),0);
   }finally{release.resolve();}

@@ -1,6 +1,6 @@
 ---
 name: peer-coms
-description: Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them mid-task, and answer their inbound questions. Use when running inside a bridged herdr pane (a coms-claude-bridge is attached), when a task would benefit from asking a running pi peer (researcher, documenter, an orchestrator hub), or when a message prefixed "[coms message from …]" arrives.
+description: Makes Claude Code a first-class peer in the local coms agent pool — discover pi colleagues, ask or delegate to them mid-task, and answer their inbound questions. Use when running inside a bridged herdr pane (a coms-claude-bridge is attached), when a task would benefit from asking a running pi peer (a researcher, an editor, the Agent Hub), or when a message prefixed "[coms message from …]" arrives.
 ---
 
 # Peer Coms — talking to the local agent pool
@@ -8,18 +8,18 @@ description: Makes Claude Code a first-class peer in the local coms agent pool �
 ## Overview
 
 You may be running next to other live coding agents on this machine: pi peers started with
-`just fleet peer <name>`, an Agent Hub orchestrator (`just fleet --herdr`), or other bridged Claude Code panes. They form a
+`just fleet peer <name>`, the Agent Hub operator (`just fleet --herdr`), or other bridged Claude Code panes. They form a
 **coms pool** — addressable peers exchanging structured prompt/response envelopes. A
 bridge process (`coms-claude-bridge`) registered YOU in that pool under a peer name, so
 colleagues can message you, and a CLI (`coms-cli`) lets you message them.
 
 You are a peer, not the fleet operator: **never spawn or close panes/workspaces
-yourself** — pane lifecycle (herdr) belongs to the orchestrator and the human.
+yourself** — pane lifecycle (herdr) belongs to the Hub operator and the human.
 
 ## When to Use
 
 - A question a *running* peer can answer better or cheaper than you — a `researcher`
-  peer for codebase reconnaissance, `documenter` for docs work, the orchestrator hub for
+  peer for codebase reconnaissance, an `editor` peer for a scoped change, the Hub for
   cross-cutting decisions.
 - Delegating a bounded sub-task to a peer while you continue working.
 - An inbound message arrives in your conversation prefixed `[coms message from <name> @
@@ -45,7 +45,7 @@ node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send researc
 **Fire-and-collect** (returns a `msg_id` immediately; a detached waiter holds the reply):
 
 ```bash
-node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send documenter "Draft a README section on X"
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send editor "Draft a README section on X"
 # … keep working …
 node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts await <msg_id> --timeout 300000
 ```
@@ -54,6 +54,15 @@ node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts await <msg_i
 is returned to the sender automatically (the Stop hook + bridge handle delivery). Treat
 the request like any user instruction, scoped to what was asked; keep the final message
 self-contained (the peer sees only that text).
+
+**Serving a Hub role.** The Hub reaches you through `dispatch_agent` when a route in
+`.pi/agents/dispatch-policy.yaml` names your address for a role (`reviewer: { peer:
+claude-reviewer }`); the peer address stays distinct from the role. The task then carries
+an `## Assignment` block naming the role and its practices: follow it, and stay
+inside that role's authority. A read-only role (`researcher`, `reviewer`) reaches you
+only when you were launched with `--read-only`, and a review never reaches a peer
+address that changed a file in the review's scope. See
+[peers serving a role](../../docs/agents.md#peers-serving-a-role).
 
 ## Legacy spool migration
 
@@ -69,7 +78,7 @@ error. `projects` is a reserved identity name.
 - *"I'll just do it myself, asking a peer is overhead"* — a researcher peer with the
   codebase already loaded answers file:line questions cheaper than you re-deriving them.
 - *"I'll spawn a helper pane for this"* — no. You are not the fleet operator; ask the
-  orchestrator peer instead.
+  Hub instead.
 - *"The peer didn't answer, I'll retry in a loop"* — one retry after the timeout, then
   report the peer unreachable in your reply/summary.
 

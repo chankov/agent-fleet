@@ -6,9 +6,9 @@ create	command:test
 create	skill:planning-and-task-breakdown
 create	skill:spec-driven-development
 create	companion:skills-internal-grilling
-create	persona:builder
-create	persona:code-reviewer
-create	persona:test-engineer
+create	persona:editor
+create	persona:researcher
+create	persona:reviewer
 create	reference:communication-contract
 create	skill:incremental-implementation
 create	skill:using-agent-skills

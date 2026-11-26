@@ -175,7 +175,7 @@ export function activeAdditionRecoveryHints(state: ProcessObligationState, taskI
  *  shell/backend stays a potential effect. The usable route is the effective catalog's
  *  deterministic inspection tools with an explicit target path — never the shell string. */
 export function readOnlyInspectionRoute(): string {
- return "Usable read-only route: read/grep/find/ls with an explicit target path (or the filesystem tool when the deterministic-tools opt-in is enabled). Do not execute the shell string; no planner and no slash reset is needed for inspection.";
+ return "Usable read-only route: read/grep/find/ls with an explicit target path (or the filesystem tool when the deterministic-tools opt-in is enabled). Do not execute the shell string; no slash reset is needed for inspection.";
 }
 export function processActionGate(state: ProcessObligationState, contract?: ActionContract, grant?: ActionGrant): { reason: string; message: string } | null {
  const pending = normalizeProcessState(state).additions!.filter(a => a.status === "active" && a.reason === "irreversible_execution");

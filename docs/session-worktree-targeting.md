@@ -32,7 +32,7 @@ the operator manages them with Git/Worktrunk. Without a selector, legacy mode is
 `resourceRoot` is also `af`; for a managed symlink installation, it is the physical
 Fleet source root. Its identity is part of the binding, while human configuration remains in
 `af`. Arbitrary resources outside these two verified roots are refused.
-Agents, profiles, teams, overrides, guard policy, extensions, skills, and prompts
+Role files, profiles, dispatch policy, overrides, guard policy, extensions, skills, and prompts
 remain workspace-owned. Git and relative coding operations run in the target.
 Target configuration does not replace Fleet configuration. The workspace's `AGENTS.md`
 (or `CLAUDE.md`) is an explicitly supplied resource; automatic target-local discovery
@@ -42,13 +42,13 @@ is disabled. Project instructions are read as explicitly requested project data.
 
 In an interactive session, `/af-worktree status` and `/af-worktree verify` show the binding,
 namespace, and configuration state. The base project is preserved, but the effective
-project includes the physical target identity: matching peer names in two teams do not
+project includes the physical target identity: matching peer names in two targets do not
 connect them. Resume requires the same workspace and physical roots.
 A removed/replaced target, mismatched history, or missing mandatory workspace
 policy causes a refusal, not a fallback to main. After such a change, start
 a new session with an explicit selector. There is no live target switch in an existing session.
 
-Fleet evidence, peer snapshots, and workflow state are partitioned by target under `af`.
+Fleet evidence and workflow state are partitioned by target under `af`.
 Interactive Pi history retains its standard global, cwd-scoped location;
 its custom entries carry an immutable binding. Native specialists use
 workspace-owned session artifacts. These different kinds of state are not permissions.

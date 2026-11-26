@@ -61,7 +61,7 @@ workspace/              # Fleet installation; not a Git repository
 └── ringithub/          # nested repository
 ```
 
-Configuration, policy, personas and Fleet evidence stay at the workspace root.
+Configuration, policy, role files and Fleet evidence stay at the workspace root.
 Git state is read and changed per nested repository:
 
 - **Discovery.** A nested repository is known only once a declared scope or a
@@ -104,7 +104,7 @@ are outside this contract.
 | **Pi Coding Agent** | Primary local runtime — runs the dispatcher and specialist subagents | `.pi/harnesses/`, `.pi/extensions/`, `.pi/agents/`, `.pi/prompts/` |
 | **agent-hub** | Thin-context multi-agent harness: dispatcher + specialists + research helpers + Verification Contract | `.pi/harnesses/agent-hub/` |
 | **Workflows** | Headless, code-owned phase order, retries, gates, writes enforcement, and acceptance through `just flow` | `.pi/agent-fleet/scripts/flow.ts`, `.pi/agent-fleet/scripts/workflows/` — see [workflows.md](workflows.md) |
-| **Herdr** | Fleet/workspace control plane — spawns peer teams as tiled workspaces, presence via push events, snapshot/resume | [herdr.dev](https://herdr.dev); client in `.pi/harnesses/lib/herdr-client.ts`, layout in `.pi/agent-fleet/scripts/lib/herdr-layout.ts` |
+| **Herdr** | Fleet/workspace control plane — one-pane Hub or conductor workspaces, a sibling pane per peer, presence via push events | [herdr.dev](https://herdr.dev); client in `.pi/harnesses/lib/herdr-client.ts`, one-pane launcher `.pi/agent-fleet/scripts/herdr-hub.ts`, peer pane command and env file in `.pi/agent-fleet/scripts/lib/herdr-layout.ts` |
 | **coms** | Peer communication protocol/data plane — envelope-based P2P messaging between agents | Shared peer lifecycle in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; Pi registrations in `.pi/harnesses/coms/` and `agent-hub/`; wire helpers in `.pi/agent-fleet/scripts/lib/coms-envelope.ts` and `.pi/agent-fleet/scripts/coms-cli.ts` |
 | **Fleet config screen** | Read-only in-session view of what is configured and active (`/af-config`, Alt+,) in the Hub and every coms peer; file facts and hash checks locally, installer evaluation through the read-only `agent-fleet inspect` verb (`bin/lib/inspect.js`) via a shell-less CLI bridge, and changes only as confirmed `agent-fleet setup`/`configure` runs after a dry-run preview and a matching second dry run | `.pi/harnesses/lib/fleet-config/` (snapshot, view, transition, ui, cli-bridge, mutations); registrations in `.pi/harnesses/agent-hub/commands/config.ts` and `.pi/harnesses/coms/index.ts` — see [setup guide](agent-fleet-setup.md#viewing-configuration-from-a-live-session) |
 | **Claude Code bridge** | Makes an interactive Claude Code pane a bidirectional coms peer | `.pi/agent-fleet/scripts/coms-claude-bridge.ts`, `.pi/agent-fleet/hooks/coms-stop-hook.mjs`, `skills/peer-coms/` — see [claude-code-coms-bridge.md](claude-code-coms-bridge.md) |
@@ -118,7 +118,7 @@ are outside this contract.
 | **System 1 file discovery (D9)** | Off-by-default automatic full-list file ranking; parent scheduler/cache/durable budget, guarded source export, private UDS broker and per-physical-attempt native/descendant identities; no permission or acceptance authority | `.pi/harnesses/agent-hub/file-discovery/`, `tools/ask-system1-files.ts` — [scope/status/full-list and activation](system1-file-discovery.md) |
 | **System 1 damage guard (D6)** | Off-by-default independent commands/edits/results scopes over mandatory Damage-Control baseline; parent-owned durable decisions, approval and native capability transport; production wiring exists, acceptance remains open | `.pi/harnesses/agent-hub/damage-guard-*.ts`, `damage-control-continue/system1-*.ts`, `result-screen.ts` — [contract and limits](system1-damage-guard.md) |
 | **Skill library** | Lifecycle workflows and quality gates every agent follows | `skills/` (native) + `vendor/agent-skills-upstream/skills/` (vendored) — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md) |
-| **Personas** | Reusable specialist definitions, installed verbatim | `agents/` in the package → `.pi/agents/personas/` in a workspace; `bin/lib/personas.js` |
+| **Runtime roles** | The three dispatchable roles (`researcher`, `reviewer`, `editor`) with code-owned ceilings, and the eleven practices an assignment combines for method and expected evidence | `.pi/harnesses/agent-hub/config/roles.ts`, `config/practices.ts`; role files `agents/` in the package → `.pi/agents/personas/` in a workspace (`bin/lib/personas.js`) — see [agents.md](agents.md) |
 
 ## Private configuration-only verification
 
@@ -150,21 +150,22 @@ this implementation. See [verification contracts and limits](operator-current-st
 ## One Hub runtime, independent axes
 
 Every public Pi launch through `just fleet` loads Fleet Core and the `agent-hub`
-harness. Three independent choices shape that runtime:
+harness. Three independent axes shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Operator** | one | The main agent always keeps the captured `read`/`bash`/`edit`/`write` and approved extension surface plus delegation to every installed agent, `poll_panel`, and available coms/Herdr tools. Whether to delegate is its judgment (PHILOSOPHY, 2026-11-11); the former delegate-only `orchestrator` work mode was removed. |
-| **Native roster** | empty or one entry from `.pi/agents/teams.yaml` | Which in-process Pi specialist personas `dispatch_agent` may start. Dispatching an installed agent outside the roster adds it. |
-| **Peer topology** | current terminal, Hub-only Herdr workspace, or Hub plus a `.pi/agents/peers.yaml` preset | Which separate, addressable Pi/Claude processes occupy sibling panes. Starting or spawning peers does not change the native roster. |
+| **Operator** | one | The main agent always keeps the captured `read`/`bash`/`edit`/`write` and approved extension surface plus delegation to the three roles, `poll_panel`, and available coms/Herdr tools. Whether to delegate is its judgment (PHILOSOPHY, 2026-11-11); the former delegate-only `orchestrator` work mode was removed. |
+| **Roles** | always `researcher`, `reviewer` and `editor`, with any of the eleven practices | What a delegate may do. The role's code-owned ceiling decides authority (read-only researcher and reviewer, an editor inside its declared scope); practices add method and expected evidence, never authority. A busy reader gets an automatic instance (`reviewer--p2`); concurrent editors need `parallel: true` and disjoint exact scopes. |
+| **Peer topology** | current terminal or a one-pane Herdr Hub workspace, plus peers started one at a time | Which separate, addressable Pi/Claude processes occupy sibling panes (`just fleet peer <name>` or `herdr_spawn_peer`). A peer can serve a role through a dispatch route; starting one does not change the roles. |
 
-Bare `just fleet` therefore means the operator, an empty native roster, and
-the current terminal; `--agents <roster>` only picks the starting roster.
-`--work-mode` is deprecated and ignored with a warning, and `/af-agents-*` changes
-only the native roster. Dispatch, research, nested delegation, and Verification
+Bare `just fleet` therefore means the operator, the three roles, and the
+current terminal. `--work-mode` is deprecated and ignored with a warning;
+`--agents`, `--peers`, `--agent-team` and the `/af-agents-team`, `/af-agents-add`,
+`/af-agents-drop` and `/af-agents-save` commands were removed with native teams
+and peer groups. Dispatch, research, nested delegation, and Verification
 Contract rigor follow the **task tier** (`trivial`/`small`/`feature`/`project`),
 not a session execution mode. Dispatch/research counts and active duration are
-accounting metrics without turn or task continuation quotas. Planner and plan
+accounting metrics without turn or task continuation quotas. Planning and plan
 review are optional; wide/high-risk work retains independent review and applicable
 exact-action authorization without a pre-effect planning gate.
 
@@ -194,9 +195,9 @@ fresh proof. Plain continue/resume inputs retain the accepted task; identical
 classification declarations avoid new triage, revision hashing and journal writes.
 Changed intent still uses the existing task-transition fence.
 
-All Hub-owned slash commands are always registered. Capability packs are resolved automatically from explicit task intent, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roster, permissions, or the setter's existing transition/confirmation gates.
+All Hub-owned slash commands are always registered. Capability packs are resolved automatically from explicit task intent, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roles, permissions, or the setter's existing transition/confirmation gates.
 
-`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with selected persona, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt in both work modes and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an active roster, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
+`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with the selected role, its practices, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt in both work modes and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an installed role definition, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
 T12 diagnostics have been withdrawn by user decision; there is no command, runner, or replacement entry point. Historical results and accounting remain unchanged. `diagnostic-series-budget.ts` retains the shared v2 ledger, stage/per-unit ceilings, conservative input preflight, migration refusal for ambiguous history, ownership locks, and cancellation fences used by benchmark consumers. `diagnostic-probe-extension.ts` is now a side-effect-free compatibility library exposing only provider/API output-cap mapping, its types, and the transport refusal exit constant. It preserves the reviewed 2048 cap and rejects unsupported payload semantics; it does not register an extension or tool. Existing sessions must be reloaded after updating. The installer retires unchanged managed command/runner files; user-modified obsolete files are preserved and reported for manual review, never deleted automatically. Such retained files are not imported by the current Hub.
 
@@ -220,28 +221,31 @@ replayed exactly once after success; failure retains it for `/compact` or a larg
 entries store only numeric/enumerated pressure metadata, never prompts, tool payloads, credentials,
 error bodies, or summaries.
 
-A persisted native roster is also metadata, not copied configuration: only its team name is stored
-and it is re-resolved against current teams and persona definitions. A stale or absent roster is
-reported and the session continues without it. A session saved in the removed orchestrator mode
-continues as the operator with a one-time notice; the Hub records the operator so the notice is not
-repeated. An explicit `--agent-team` selection retains precedence.
+Session state carries no roster: every session, new or resumed, starts with the installed role
+definitions, and a team name saved by an older session is ignored. A session saved in the removed
+orchestrator mode continues as the operator with a one-time notice; the Hub records the operator so
+the notice is not repeated.
 
 Pi's session JSONL is the authoritative append-only record for rebuilding a session, including
-compaction and Hub metadata. Pressure and roster recovery operate through Pi/Hub lifecycle APIs;
+compaction and Hub metadata. Pressure recovery operates through Pi/Hub lifecycle APIs;
 they never rewrite prior entries. Operators must not edit, truncate, reorder, or synthesize JSONL to
 recover a session.
 
 The project selected by `--project <name>` is the coms namespace for the Hub
-and every standing or dynamically spawned peer. The Hub-facing peer spawn API
+and every peer started for it. The Hub-facing peer spawn API
 cannot override it. Native subagents remain children of that Hub and inherit
 its repository context; peers are separate processes in their own panes.
 
-At dispatch time, `backend: "auto"` applies
-`.pi/agents/dispatch-policy.yaml`; `backend: "native"` bypasses same-name peer
-substitution; and `backend: "coms"` requires a visible same-name peer and never
-falls back to a native child. `.pi/agents/peers.yaml` owns how a peer runs
-(`runner`, persona, model, extensions, and declared `env_file`), not whether a
-dispatch uses it.
+At dispatch time, `backend: "auto"` applies `.pi/agents/dispatch-policy.yaml`,
+whose routes are keyed by role and name a distinct peer address
+(`reviewer: { peer: claude-reviewer }`); `backend: "native"` bypasses the route;
+and `backend: "coms"` requires the route's live peer and never falls back to a
+native child. A read-only role reaches only a peer that declared enforced
+read-only tools at registration, and a reviewer route never reaches a peer
+address that changed a file in the review's scope. How a peer runs (runner,
+persona, model, read-only tools, env file) is set by the flags of
+`just fleet peer <name>` or the parameters of `herdr_spawn_peer`, not by a
+declaration file; whether a dispatch uses the peer is the route's decision.
 
 ## Fleet hierarchy
 
@@ -255,50 +259,47 @@ flowchart TD
         Hub["agent-hub harness<br/>one operator · works directly and delegates<br/>owns the Verification Contract on disk · keeps research dumps out of its own context"]
     end
 
-    subgraph TEAML["OPTIONAL NATIVE ROSTER  (.pi/agents/teams.yaml)"]
-        Team["default: builder · test-engineer · code-reviewer · documenter<br/>also: plan · debug · frontend · security · hotfix · release · info"]
+    subgraph ROLEL["ROLES — always available  (config/roles.ts)"]
+        Roles["editor — writes only inside its declared scope<br/>reviewer — read-only, never approves its author's work<br/>practices (config/practices.ts) add method and evidence, never authority"]
     end
 
-    subgraph RESL["RESEARCH HELPERS — read-only, always available"]
-        Research["researcher  (fast tier — simple reads)<br/>deep-researcher  (deep tier — hard, cross-cutting questions)"]
+    subgraph RESL["RESEARCH — read-only, always available"]
+        Research["researcher  (one attempt per question; distinct questions run in parallel)"]
     end
 
     subgraph SUBL["SUB-AGENTS — focused children, narrow tools + models"]
-        Subs["planner → scout · rules · risk<br/>plan-reviewer → feasibility · deps<br/>builder → recon · verifier<br/>test-engineer → coverage-scout · conventions<br/>code-reviewer → preflight · quality · perf · docs<br/>security-auditor → recon · input-sweep · secrets-sweep"]
+        Subs["editor → recon · verifier<br/>reviewer → preflight · quality · perf · docs · feasibility · deps"]
     end
 
     You -->|task| Hub
-    Hub -->|"dispatch_agent — one persona = one specialist session"| Team
+    Hub -->|"dispatch_agent — role + practices; parallel instances such as editor--p2"| Roles
     Hub -->|"spawn_research"| Research
     Research -.->|"findings written to disk — hub gets paths, not dumps"| Hub
-    Team -->|"subagents: block  (delegate_depth ≥ 1)"| Subs
-    Subs -.->|"results return to the parent agent only"| Team
-    Team -.->|"structured return + evidence"| Hub
+    Roles -->|"subagents: block  (delegate_depth ≥ 1)"| Subs
+    Subs -.->|"results return to the parent agent only"| Roles
+    Roles -.->|"structured return + evidence"| Hub
     Hub -.->|"one status line:  Assertions: 2✓ 1○ 1✗"| You
 ```
 
-Every specialist session is one persona from [`agents/`](../agents/) (installed to `.pi/agents/personas/`) — *skills* tell each agent **how** to work; *personas* define **who** they are (see [agents.md](agents.md)).
+Every delegated session is one role from [`agents/`](../agents/) (installed to `.pi/agents/personas/`) with the practices its assignment names — the *role* fixes **what** the agent may do; its *practices*, and the *skills* they load, tell it **how** to work (see the [role and practice catalogue](agents.md)).
 
 The same idea as a tree:
 
 ```text
-hub (operator by default; orchestrator when selected)
-├── optional native roster (empty by default; example: default)
-│   ├── builder            → recon · verifier
-│   ├── test-engineer      → coverage-scout · conventions
-│   ├── code-reviewer      → preflight · quality · perf · docs
-│   └── documenter
-├── research helpers (spawn_research, any time)
-│   ├── researcher
-│   └── deep-researcher
-└── optional fleet peers (herdr + coms)
-    ├── architect / releaser / web-debugger panes
+hub (one operator)
+├── roles (dispatch_agent, always available; parallel instances on demand)
+│   ├── editor             → recon · verifier
+│   └── reviewer           → preflight · quality · perf · docs · feasibility · deps
+├── research (spawn_research, any time)
+│   └── researcher
+└── optional fleet peers (herdr + coms), each started on its own
+    ├── Pi peers (just fleet peer <name> or herdr_spawn_peer)
     ├── Claude Code peer (coms bridge)
     ├── Hermes (phone human · inbound ask_user)
     └── Codex native MCP (compatible local host · existing Pi sessions)
 ```
 
-Composition rule: **the hub (or a slash command) orchestrates; personas do not invoke other personas as peers.** Specialists may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes specialists with paths, not raw dumps.
+Composition rule: **the hub (or a slash command) orchestrates; roles do not invoke other roles as peers.** Delegates may only fan out to their configured **sub-agents**. Research helpers write findings to disk; the hub resumes delegates with paths, not raw dumps.
 
 ### Automatic file discovery
 
@@ -376,9 +377,9 @@ saved tasks (`run-budget.js`). None imposes a continuation quota. Legacy
 `max-dispatches-per-turn`, `max-research-per-turn` and `turn-wall-time-s` overrides
 are ignored with migration warnings. Usage remains visible with unlimited caps.
 Task tiers still select delegation, specialist deadlines, recycling and role policy.
-Planner and plan-reviewer are optional at every tier. Wide or high-risk classification
+Planning and plan review are optional at every tier. Wide or high-risk classification
 and System 1 additions retain independent review and action authorization, not a
-Planner admission requirement. Gaps use research; new decisions use `ask_user` grilling.
+planning admission requirement. Gaps use research; new decisions use `ask_user` grilling.
 
 The root operator and native specialists use the drift runtime. Repeated identical
 calls or consecutive failures trigger a bounded judge; a current stuck/drifting
@@ -415,7 +416,7 @@ therefore both be true. Compatibility presentation remains
 `accepted | rejected` for flows.
 
 Only native Pi children support trusted runtime checks. The Hub injects the code-owned
-`runtime-test-check.ts` observer only when the native persona has `bash`; the observer wraps the
+`runtime-test-check.ts` observer only when the native role has `bash`; the observer wraps the
 existing bash implementation and preserves the normal damage-control `tool_call` approval and
 bash error-event semantics. The parent accepts a check only when producer schema, observed bash
 start, exact declared command, task, coverage metadata, exit status, and unchanged inspected
@@ -599,9 +600,9 @@ Qualitative guardrails remain separate from usage accounting. **Task triage** cl
 the current task (`trivial`/`small`/`feature`/`project`) for delegation, role and
 individual-process resource policy. It survives follow-ups; lowering is free and
 raising needs a recorded reason. Skipped triage assumes small. Near-identical
-dispatches retain the duplicate guard. Architect, security-auditor and deep-researcher
-retain the trivial/small persona gate; Planner and plan-reviewer are optional at
-every tier. Review rounds are uncapped. Review findings retain their advisory
+dispatches retain the duplicate guard. At trivial/small tiers the gate refuses the
+heavy practices, `architecture` on any role and `security` on a reviewer, without
+charging; planning and plan review are optional at every tier. Review rounds are uncapped. Review findings retain their advisory
 budget and source-invariant rule; findings are never silently demoted by position.
 **Process obligations (T11)** are task-scoped and independent of that budget tier. The
 `set_task_tier` tool accepts explicit `risk` (`unknown | low | high`) and process `scope`
@@ -612,14 +613,14 @@ work. Confirmed low-risk small work uses the existing T2 minimal acceptance path
 adds a separate review stage; wide work also requires independent review. Planning
 is optional and never a pre-effect gate. Current stage evidence names an artifact
 and revision, without claiming that a model review is semantically adequate. A
-requested Planner still needs genuine declared artifact readback to record plan
-occurrence. Missing optional planning cannot block an authorized builder, direct
-operator or coms peer. Exact-action authorization, independent review, current
+requested plan (an editor with the `planning` practice) still needs genuine declared
+artifact readback to record plan occurrence. Missing optional planning cannot block an
+authorized editor, direct operator or coms peer. Exact-action authorization, independent review, current
 verification and task-transition fencing still govern their respective effects.
 Exit 0, prompt echoes, pending transport and stale evidence cannot replace them.
 
 Sensitive-work prohibitions remain distinct from positive requests in handoff
-advice; neither positive nor ambiguous wording mandates a Planner. Resolve factual
+advice; neither positive nor ambiguous wording mandates a planning assignment. Resolve factual
 gaps with focused research and additional decisions with `ask_user` grilling.
 
 Dispatch observation preserves the existing snapshot when the session cwd is a Git
@@ -642,7 +643,7 @@ reasons and task prose are not copied. This extends the existing task/acceptance
 and is not a second workflow engine.
 
 **Docs lane** (`docs-lane.js`): a dispatch whose whole declared `scope` is documentation
-refuses review personas (overridable with `review_reason`) and tells the dispatcher not to
+refuses a reviewer (overridable with `review_reason`) and tells the dispatcher not to
 open a review gate; an absent scope is never the lighter lane. **External-blocker stop**
 (`external-blocker.js`): a specialist emits `EXTERNAL_BLOCKED: …` when it needs something
 outside the fleet's reach (account, permission, credential, telemetry destination), and the
@@ -659,19 +660,20 @@ per-agent and hub settings. Hub or per-agent `off` remains the opt-out. Two rule
 own `artifacts/`, `findings/`, and `delegations/` subtrees are implicitly in scope (the
 deliverable protocol *orders* specialists to write there, and the judge is told so), and the
 `scope` rule is non-terminal — it reports a drift advisory on the result and never stops a
-run by itself, matching the post-run scope gate, which reverts nothing. **Dynamic teams**: `/af-agents-add`,
-`/af-agents-drop`, `/af-agents-save` restructure the roster live (the system prompt rebuilds
-every turn), and the gated `team_adjust` tool lets the dispatcher itself adjust the roster
-when nested delegation is on (feature/project), with user notification. `/af-hub-report` accounts each turn's dispatches,
+run by itself, matching the post-run scope gate, which reverts nothing. **Parallel assignments**:
+a busy reader gets an automatic independent instance (`reviewer--p2`); editors run concurrently
+only with `parallel: true` and disjoint exact scopes; and `dispatch_agent` `after: [instances]`
+queues a dependent assignment until those instances settle, refusing it when a dependency failed.
+`/af-hub-report` accounts each turn's dispatches,
 tokens (billed = input + cacheRead + cacheWrite), recycles, drift stops, and refusals.
 
 ## Runtime stack (tools the fleet sits on)
 
 ```mermaid
 flowchart TD
-    AF["<b>Agent Fleet</b><br/>agent-hub · personas · skills · coms · bridges · CLI"]
-    AF -->|primary runtime| PI["<b>pi</b><br/>coding agent — loads harnesses,<br/>extensions, prompts, personas"]
-    AF -->|control plane| HERDR["<b>herdr</b><br/>tiled peer workspaces,<br/>presence, snapshot/resume"]
+    AF["<b>Agent Fleet</b><br/>agent-hub · roles · skills · coms · bridges · CLI"]
+    AF -->|primary runtime| PI["<b>pi</b><br/>coding agent — loads harnesses,<br/>extensions, prompts, role files"]
+    AF -->|control plane| HERDR["<b>herdr</b><br/>Hub and peer panes,<br/>presence"]
     AF -->|coms peer only| CC["<b>Claude Code</b><br/>bidirectional peer via<br/>the coms bridge<br/><i>not an install target</i>"]
     AF -->|remote human| HERMES["<b>Hermes</b><br/>hub questions relayed to your phone,<br/>plus the Desktop fleet panel"]
     AF -->|Local native MCP| CODEX["<b>Codex native workflow</b><br/>explicit existing sessions<br/>text or voice; no idle wake"]
@@ -693,15 +695,15 @@ These are the external systems Agent Fleet assumes or integrates with — not np
 
 | Dependency | Role | Required? |
 | --- | --- | --- |
-| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and personas | Yes for `just fleet` |
-| **[herdr](https://herdr.dev)** | Workspace control plane: Hub/peer panes, presence push events, team snapshot/resume | Required for `--herdr` or `--peers`; optional for bare `just fleet` |
-| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class coms peer via the [coms bridge](claude-code-coms-bridge.md) — cross-model review and analysis. Never an install target: it hosts no skills, commands, or personas | Optional peer |
+| **[pi](https://github.com/badlogic/pi-mono)** (or your pi install) | Primary coding-agent runtime; loads harnesses, extensions, prompts, and role files | Yes for `just fleet` |
+| **[herdr](https://herdr.dev)** | Workspace control plane: Hub/peer panes, presence push events | Required for `--herdr`, `just fleet conductor hermes` and `just fleet peer` (except with `--here`); optional for bare `just fleet` |
+| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | First-class coms peer via the [coms bridge](claude-code-coms-bridge.md) — cross-model review and analysis. Never an install target: it hosts no skills, commands, or role files | Optional peer |
 | **Hermes** | Remote human-in-the-loop (Telegram relay for hub questions — [coms-hermes-bridge](coms-hermes-bridge.md)) and the Desktop fleet panel ([hermes-desktop-plugins](hermes-desktop-plugins.md), needs v0.19.0+ and the Desktop app) | Optional |
 | **Compatible Codex host** | Local native MCP with real per-call UUID context, Node 22.18+ and existing COMS sessions — [guide](codex-local-mcp.md) | Explicit local configuration; CLI-only hosts retired, no mobile/remote promise |
 | **[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** | Upstream skill library (manually vendored) | Bundled (vendored) |
 | **[disler/pi-vs-claude-code](https://github.com/disler/pi-vs-claude-code)** | Source inspiration / MIT port origin for pi harnesses | Design lineage (ported in-repo) |
-| **LLM providers** | Models per persona (`model:` / `models:` in agent frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |
-| **Chrome DevTools MCP** / **Playwright Agent CLI** | Browser verify (`browser-testing-with-devtools`) and headless automation (`bowser`) | Optional, feature-specific |
+| **LLM providers** | Models per role and practice (`model:`, `models:` and `practice_models:` in role frontmatter) — e.g. OpenAI Codex, GitHub Copilot, Ollama, … | Yes (at least one provider your agents can call) |
+| **Chrome DevTools MCP** / **Playwright Agent CLI** | Browser verify (`browser-testing-with-devtools`) and headless automation (the `bowser` pi skill) | Optional, feature-specific |
 | **Node.js + npm** | CLI (`npx @chankov/agent-fleet`), package install, `just` recipes | Yes for install & tooling |
 
 The existing `agent-fleet doctor` command also performs a read-only manifest preflight. It reports exact selected installation files and manifest-declared tool probes as environment readiness, distinguishes missing installation from unknown or unavailable platforms, and names the existing explicit remediation path. Bare doctor never repairs or installs; `doctor --fix` remains the only repair activation, and package/tool installation remains behind its existing explicit consent path.
@@ -870,10 +872,10 @@ allowance. Physical attempts and unknown usage remain distinct from logical call
 Independent intent-aware predicates at inclusive thresholds add review
 (`security_change` ≥0.80), review (`wide_change` ≥0.85), or exact-action human
 confirmation (`irreversible_execution` ≥0.80). They do not set risk/tier, select
-a model/roster, increase spend or weaken baseline protections. Low probabilities
+a model/role, increase spend or weaken baseline protections. Low probabilities
 are not clearance; missing/invalid/provider-failed results add nothing while
 existing obligations persist. This is active experimental policy, not calibrated
-persona advice or a watchdog stop profile.
+dispatch advice or a watchdog stop profile.
 
 Source additions retain task/evaluation/input provenance and union with baseline
 requirements. New scope invalidates uncovered evidence. A narrow correlated
@@ -965,10 +967,10 @@ separate copied installations still need their normal workspace update.
 agent-hub/
 ├── index.ts                  # bounded composition root; constructs root-owned mutable ports
 ├── types.ts                  # shared Hub agent/state contracts
-├── config/                   # agent/frontmatter, teams, profiles, dispatch policy, overrides
+├── config/                   # roles and practices (roles.ts, practices.ts), role files, profiles, dispatch policy, overrides
 ├── context/                  # state, budgets, assertions/artifacts, session-health factories
-├── commands/                 # 27 typed /af-* command registrars
-├── tools/                    # 16 tools plus dispatch/research execution orchestration
+├── commands/                 # 24 typed /af-* command registrars
+├── tools/                    # tool registrars plus dispatch/research execution orchestration
 ├── dispatch-core.ts          # facade over native, coms, and observability dispatch
 ├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters
 ├── acceptance.ts             # agent-fleet.runtime-result/v1 and minimal acceptance evaluation
@@ -976,7 +978,7 @@ agent-hub/
 ├── tool-protocol.ts          # T3 event/readback correlation and shared diagnostic schema
 ├── recovery-contract.ts      # shared typed failure/recovery policy
 ├── damage-guard-*.ts         # D6 parent state, approval, ownership and broker (acceptance open)
-├── policy/                   # model, roster, capability, and work-mode decisions
+├── policy/                   # model (per practice), roster (roles and parallel instances), capability, and work-mode decisions
 ├── research/                 # helper runtime, spawn transitions, and controls
 ├── ui/                       # grid, dashboard, detail, context, pool, zoom, and history
 ├── input/                    # shortcuts and completion derivation
@@ -994,13 +996,13 @@ Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` 
 ```text
 .pi/                          # Pi runtime: harnesses, extensions, agents config, prompts
 .pi/agent-fleet/              # The fleet runtime, mirrored verbatim into a workspace:
-  scripts/                    #   CLI helpers, bridges, team + one-off peer launchers (pure logic in scripts/lib/)
+  scripts/                    #   CLI helpers, bridges, the one-pane Herdr launcher (herdr-hub.ts) and the single-peer launcher (pure logic in scripts/lib/)
   scripts/workflows/          #   deterministic flow graphs + phase/gate/permission/quality runtime
   hermes/                     #   Hermes-facing skills/integration assets
   hooks/                      #   the coms bridge Stop hook
   docs/                       #   the one doc that installs into a workspace (workflows.md)
 skills/                       # Agent Fleet-native skills (shadow vendored names)
-agents/                       # Personas/subagents; installed to a workspace's .pi/agents/personas/
+agents/                       # The three role definitions (researcher, reviewer, editor); installed to a workspace's .pi/agents/personas/
 vendor/agent-skills-upstream/ # Manually imported upstream skills (pinned SHA)
 bin/                          # npm CLI: setup/doctor/uninstall, the installer engine, explicit operator controllers (bin/lib/)
 references/                   # Supplementary checklists, installed with the skills that cite them
@@ -1037,7 +1039,7 @@ packages/hermes-bridge/       # future Hermes integration package
 - **Workflow engine remains single-sourced.** `just flow` owns deterministic phase order, retries, executable gates, post-hoc writes enforcement, and one flow acceptance decision. It uses the clean spawn/context seams and keeps its clean-tree guard while staying on the current branch by default; creating a flow branch requires explicit `--branch`; normal traces live under `.pi/flow-sessions/`. Explicit flow branches retain source/result metadata, while reserved `cleanup` and `merge` delegate safe removal and squash integration to Worktrunk. The initial Hub `run_flow` adapter calls the same exported dispatcher directly and permits only read-only `scout`: it runs in a stable detached snapshot with no flow branch, stores trace/manifest in the current Hub session, and has one Hub budget/cancellation owner. Snapshot overlay operations validate plain parents before mutation and never follow a HEAD symlink leaf. The native process and descendants use `confineNativeChild`, with only the session-owned phase directory writable; the actual `read`/`grep`/`find`/`ls` data paths are separately limited to the snapshot while damage-control remains loaded. Runtime/model libraries and provider configuration remain readable for Pi startup, so this is intentionally not a global no-read claim. Duplicate identity is idempotent; stale/busy calls are uncharged. All setup/result exceptions settle as structured failures, release active ownership, and preserve honest charged/started state. Owned scout snapshots are cleaned on settlement, with visible cleanup status/errors; traces and explicit branches are retained. Flow acceptance never promotes parent assertions or closes T11 obligations. Writable/committing flows remain outside this adapter pending a separate review.
 - **Thin dispatcher context.** Nothing lands persistently in the dispatcher's
   context if it can live on disk or in a one-line status. Research findings,
-  the Verification Contract ledger, and team snapshots are all disk-first.
+  and the Verification Contract ledger are disk-first.
 - **A harness fault must never look like a specialist fault.** The hub passes
   `--session <file>` on every run, so one corrupt session file used to fail a
   persona in ~1s with no output — indistinguishable from a bad agent, and
@@ -1062,8 +1064,8 @@ packages/hermes-bridge/       # future Hermes integration package
   at 8 — an id nobody can trace back to a plan line costs a dispatch and an
   ASK_USER cycle to re-derive.
 - **Pre-flight validation is free.** Anything the hub can reject before spawning
-  — an unresolvable artifact path, an unknown research persona, a heavy persona
-  at a low tier, a reviewer on a docs-only scope — is refused without spending a
+  — an unresolvable artifact path, a retired persona name or unknown practice, a
+  heavy practice at a low tier, a reviewer on a docs-only scope — is refused without spending a
   budget slot. Artifact paths also resolve across artifact kinds when the name is
   unique, since the hub writes every auto-return under `returns/` while
   dispatchers reasonably guess `reviews/`.
@@ -1076,7 +1078,8 @@ packages/hermes-bridge/       # future Hermes integration package
   returns and two reviews as NOT RECOVERABLE. A failed archive leaves the
   artifacts in place: a stale tree is recoverable, a deleted one is not.
 - **Herdr owns panes, presence, and lifecycle; coms owns messages.** Herdr
-  topology recipes (`--herdr` or `--peers`) require a running server and refuse
+  launches (`--herdr`, `just fleet conductor hermes`, a pane for
+  `just fleet peer`) require a running server and refuse
   with an actionable message otherwise. Bare Fleet does not require Herdr.
   `--no-coms` leaves direct/native execution available but disables peer
   messaging, peer-backed dispatch, and handoff from the Hub.

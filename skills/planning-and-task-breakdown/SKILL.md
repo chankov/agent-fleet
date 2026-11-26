@@ -59,6 +59,8 @@ Match the project's existing `docs` vs `Docs` capitalization, and create the dir
 
 **Project overrides:** if `.ai/agent-fleet-overrides.md` has a `## planning-and-task-breakdown` section, its keys (`plan-dir`, `naming`, `todo`) override these defaults — `todo: separate` restores a standalone `todo.md`, and `todo: tracker` routes tasks to an external issue tracker (below). See [docs/agent-fleet-setup.md](../../docs/agent-fleet-setup.md).
 
+**In the Agent Hub:** a saved plan is an `editor` assignment with the `planning` practice; planning advice without a file is a `researcher` with `planning`; plan review is a different `reviewer` with `independent-review`, adding `architecture` or `planning` as needed. See [roles and practices](../../docs/agents.md#practices).
+
 ### Task List Target
 
 The **task list target** is where tasks and checkpoints are recorded. It is defined once, here; every other reference in this skill defers to it.
@@ -91,7 +93,7 @@ Before writing any code, operate in read-only mode:
 
 **Grilling (required before writing tasks):** Read the shared internal helper at [`../_internal/grilling.md`](../_internal/grilling.md). Inventory load-bearing decisions. Skip anything already explicit in chat, prompt, PRD, spec, or rules. Research facts and decide routine implementation choices independently, recording their basis. Grill only unresolved material decisions one question at a time, with a recommended option; specialists route questions through the orchestrator first. Multiple valid ways alone do not require human input. Do not write tasks while a load-bearing choice is still silently assumed. Update Architecture Decisions, Risks, and Open Questions with accepted, rejected, or deferred choices. If nothing is open, note that grilling found no unspecified forks and continue.
 
-**Model poll (planner, when `delegate` is available):** On an unresolved architectural fork at task tier `feature` or `project`, run `voice-1`, `voice-2`, and `voice-3` **after** recon (`scout`/`rules`), never in the same message, with a character-for-character identical instruction. Do not poll on `trivial`/`small` (delegation is off) and do not invent a poll if `delegate` is missing. Agreement informs a recommendation; it does not settle a material decision on behalf of the human. Record the voices; write a `POLL-{prd-name}.md` digest next to the plan and cite it. An unresolved material decision becomes one `ASK_USER:` question for orchestrator triage with one option per position plus a recommendation and reason — do not write the plan in that same turn. The optional communication contract at [`../../references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
+**Model poll (Hub operator only):** Role delegates carry no model panel. On an unresolved architectural fork at task tier `feature` or `project`, raise one `ASK_USER:` question for operator triage with one option per position plus a recommendation and reason — do not write the plan in that same turn. The operator may consult `poll_panel` before it escalates; agreement informs a recommendation, it does not settle a material decision on behalf of the human. When the operator passes a poll digest, cite it in the plan. The optional communication contract at [`../../references/communication-contract.md`](../../references/communication-contract.md) is not loaded automatically; enable it with `append-prompt: references/communication-contract.md` in `## agent-hub`.
 
 ### Step 2: Identify the Dependency Graph
 
@@ -267,7 +269,7 @@ Do not plan tasks for parallel agents or sessions unless the human explicitly as
 | "I'll pick the obvious variant and note it in Architecture Decisions" | If more than one variant exists and none was mandated, it is not obvious to the programmer who was not in the room. Ask, then record the choice. |
 | "Re-confirming the PRD points shows thoroughness" | Re-asking settled requirements wastes the user and implies the agent did not read them. Skip them. |
 | "These slices are independent, so plan them in parallel" | Independence is not permission. Close one slice before the next unless the human explicitly asked to parallelize. |
-| "The plan is small, or it will run on a worktree, so I'll record whole-plan" | No. The operator writes that opt-in. The planner does not ask which execution mode to use and does not infer it. |
+| "The plan is small, or it will run on a worktree, so I'll record whole-plan" | No. The operator writes that opt-in. The plan author does not ask which execution mode to use and does not infer it. |
 | "The next tasks are just environment verification, not rollout" | If a task cannot close without an environment or an operator, it is not an implementation task. It belongs on a separate deployment checklist, not in this plan. |
 | "The requirements mention deploy, so the implementation plan should include it" | A mention of deploy, publish, or delivery does not add those phases. Record them once under Out of scope unless the human explicitly asked for a deployment plan. |
 

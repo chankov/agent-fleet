@@ -15,7 +15,7 @@ For a separate Fleet workspace and session-scoped `--worktree` selection, see
 
 **Operate a coding-agent *fleet* — not just one chat session.**
 
-Agent Fleet is a **multi-agent orchestration system for AI coding agents**, built pi-first: a thin dispatcher routes work to specialist agents under a Verification Contract, whole teams spawn as tiled workspaces you can snapshot and resume, agents message each other over a shared coms plane, a **Hermes Desktop panel** shows you the whole fleet at a glance — and a library of **29 production-grade lifecycle skills** and **15 personas** keeps every agent disciplined.
+Agent Fleet is a **multi-agent orchestration system for AI coding agents**, built pi-first: a thin dispatcher routes work to three runtime roles — `researcher`, `reviewer`, `editor` — under a Verification Contract, peers spawn as tiled [herdr](https://herdr.dev) panes, agents message each other over a shared coms plane, a **Hermes Desktop panel** shows you the whole fleet at a glance — and a library of **29 production-grade lifecycle skills**, attached to each assignment as **11 engineering practices**, keeps every agent disciplined.
 
 Three things make it unusual:
 
@@ -25,7 +25,7 @@ Three things make it unusual:
 
 > **One coding agent: pi.** Everything installs for pi and nothing else. Claude Code appears throughout this README as a **coms peer** — a real Claude pane bridged into the fleet to answer other agents' questions and run cross-model review. That is its whole role; it is not an install target. [The bridge ↓](docs/claude-code-coms-bridge.md)
 
-![A herdr workspace running an Agent Fleet team: the agent-hub dispatcher pane with its full command surface on the left, six specialist peers tiled on the right, each showing live coms presence](docs/assets/fleet-workspace.png)
+![A herdr workspace running Agent Fleet: the agent-hub dispatcher pane with its full command surface on the left, six specialist peers tiled on the right, each showing live coms presence](docs/assets/fleet-workspace.png)
 
 ---
 
@@ -36,23 +36,24 @@ flowchart TD
     You(["<b>You</b><br/>terminal · desktop · phone"])
 
     subgraph Control["Control surfaces"]
-        Herdr["<b>herdr</b><br/>tiled peer workspaces<br/>snapshot · resume"]
+        Herdr["<b>herdr</b><br/>Hub and peer panes<br/>presence"]
         Desktop["<b>Hermes Desktop plugin</b><br/>live session panel<br/>who is blocked · what it is doing"]
         Phone["<b>Hermes relay</b><br/>hub questions → Telegram<br/>answer from anywhere"]
     end
 
     Hub["<b>agent-hub</b> — thin dispatcher<br/>owns the Verification Contract on disk"]
 
-    subgraph Team["Specialist team (.pi/agents/teams.yaml)"]
-        Specialists["planner · plan-reviewer · builder<br/>test-engineer · code-reviewer · documenter"]
+    subgraph Roles["Runtime roles + practices"]
+        Specialists["<b>editor</b> · <b>reviewer</b><br/>planning · implementation · testing<br/>independent-review · security · release …"]
     end
 
-    Research["<b>research helpers</b> — read-only<br/>findings go to disk, never to the dispatcher"]
+    Research["<b>researcher</b> — read-only<br/>findings go to disk, never to the dispatcher"]
     Coms["<b>coms</b> — peer data plane<br/>pi ⇄ pi ⇄ Claude Code panes"]
 
     You --> Control
     Control --> Hub
     Hub --> Specialists
+    Hub --> Research
     Specialists --> Research
     Hub <--> Coms
     Specialists <--> Coms
@@ -62,12 +63,12 @@ flowchart TD
 | Layer | Job |
 | --- | --- |
 | **[agent-hub](#agent-hub-a-thin-context-dispatcher-for-pi)** | One **pi** runtime — direct operator work or thin-context orchestration under a Verification Contract |
-| **[herdr](https://herdr.dev)** | Fleet control plane — tiled peer workspaces, presence, snapshot/resume |
+| **[herdr](https://herdr.dev)** | Fleet control plane — Hub and peer panes, presence |
 | **coms** | Peer data plane — bidirectional messaging between agents (including Claude Code panes) |
 | **[Hermes Desktop plugin](#watch-the-fleet-from-your-desktop--the-hermes-plugin)** | Live fleet panel in the Hermes desktop app — every session, its state, what it is doing, and who is waiting on you |
 | **[Hermes relay](docs/coms-hermes-bridge.md)** | Remote human control — relay hub questions to your phone and answer them there |
 | **[Codex native voice workflow](docs/fleet-native-voice.md)** | Local named Fleet connections and addressed actions through the native MCP interface |
-| **[Skills](docs/skills-catalog.md) + [personas](docs/agents.md)** | Lifecycle discipline — how to spec, plan, build, verify, review, and ship |
+| **[Skills](docs/skills-catalog.md) + [roles and practices](docs/agents.md)** | Lifecycle discipline — how to spec, plan, build, verify, review, and ship |
 
 ---
 
@@ -104,10 +105,10 @@ just fleet config   # read-only JSON report; inside a session: /af-config or Alt
 Then start a fleet:
 
 ```bash
-just fleet                                      # Hub/operator; direct tools; empty native roster
-just fleet --agents frontend                    # Hub/operator starting with native specialists
-just fleet --agents frontend --peers frontend --project af
-                                                # same Hub + standing peers in Herdr
+just fleet                                      # Hub/operator with the editor, researcher and reviewer roles
+just fleet --herdr --project af                 # the same Hub in a one-pane Herdr workspace
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+                                                # one addressable peer in a pane of its own
 ```
 
 ### Deterministic flows and branch maintenance
@@ -211,20 +212,20 @@ Versioned with [semver](https://semver.org) — [CHANGELOG.md](CHANGELOG.md) · 
 
 | Where the tokens come from | Looks like | Who uses it in a fleet |
 |---|---|---|
-| **ChatGPT / Codex subscription** | `openai-codex/gpt-6-luna`, `…-sol`, `…-codex-spark` | Default for most shipped personas |
-| **Anthropic API** | `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5` | Common override for `builder` / reviewers |
-| **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | `plan-reviewer` and `code-reviewer` — cross-model review |
+| **ChatGPT / Codex subscription** | `openai-codex/gpt-6-luna`, `…-sol`, `…-codex-spark` | Default for the shipped `editor` and most practice and helper models |
+| **Anthropic API** | `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-5-5` | Common override for the `editor` / `reviewer` roles |
+| **Claude subscription** | a real **Claude Code pane**, bridged in as a first-class coms peer | a read-only `reviewer` peer — cross-model review |
 | **Ollama — cloud *or* local** | `ollama/glm-5.2:cloud`, `ollama/minimax-m3:cloud`, or a model on your own box | Overflow capacity and cost control |
 | **Anything else pi can address** | local MLX / llama.cpp / LM Studio weights; bundled `local-full` and `local-workers` use `omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` |
 
 Two consequences worth spelling out:
 
-- **Cross-model review is the point, not a party trick.** A `builder` on one lab's model and a `code-reviewer` on another's catches what a single model rationalizes past. `plan-reviewer` and `code-reviewer` ship ready to run as **Claude Code peers** for exactly this.
-- **Cost lives on a ladder, not a switch.** Each persona declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — swappable at runtime per persona (`/af-agent-model`) or fleet-wide (`/af-models <profile>`). From Fleet Detail (`Alt+A`, Enter), **`m`** can choose any model Pi currently reports as available for that local specialist, research helper, or nested delegate's next run. From Fleet Dashboard itself, **`m`** opens a source/target picker that saves a session-wide substitution for current and future spawns; bare `/af-agent-models-substitute` opens that same flow. Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
+- **Cross-model review is the point, not a party trick.** An `editor` on one lab's model and a `reviewer` on another's catches what a single model rationalizes past. The shipped `dispatch-policy.yaml` routes `reviewer` to a read-only **Claude Code peer** (`claude-reviewer`) for exactly this, with native fallback.
+- **Cost lives on a ladder, not a switch.** Each role declares a default plus a switch list over a three-tier policy — *deep reasoning / workhorse / fast recon* — and can pick a different model per practice (`practice_models:`), swappable at runtime per role or practice (`/af-agent-model editor`, `/af-agent-model editor.planning`) or fleet-wide (`/af-models <profile>`). From Fleet Detail (`Alt+A`, Enter), **`m`** can choose any model Pi currently reports as available for that local specialist, research helper, or nested delegate's next run. From Fleet Dashboard itself, **`m`** opens a source/target picker that saves a session-wide substitution for current and future spawns; bare `/af-agent-models-substitute` opens that same flow. Recon sweeps run on the cheap tier or on your own hardware; only synthesis and verdicts spend the expensive one.
 
 ```bash
-/af-models fast                                   # move the whole team down a tier
-/af-agent-model builder anthropic/claude-sonnet-5-5
+/af-models local-workers                          # switch every role to a profile
+/af-agent-model editor.planning                   # pick the model the editor plans with
 /af-agent-models-substitute                         # visually pick a session-wide source → target mapping
 /af-agent-models-substitute openai-codex/gpt-6.2-sol ollama/glm-5.2:cloud   # same operation, direct form
 ```
@@ -243,7 +244,7 @@ Once a fleet is more than two agents, "is anything waiting on me?" stops being a
 
 - **Every session, not every pane.** The list is built from the coms registry, so an agent that left its herdr pane still shows up — as `detached`, which is a different fact from "gone".
 - **A toast when something needs you.** `needs_answer` (an agent blocked on a human for more than 20s), `vanished` (a session that died mid-work), `stale`, `finished` — pushed over a WebSocket, with a poll underneath that never switches off. Optional [Telegram fan-out](docs/hermes-desktop-plugins.md#being-told-instead-of-watching) for alerts that must survive a closed window.
-- **What an agent is doing *right now*.** Select a row and the modal reads that agent's own transcript — `bash git rev-list…`, `dispatch_agent builder`, `update_assertion` — projected through a per-tool allowlist, never forwarded wholesale.
+- **What an agent is doing *right now*.** Select a row and the modal reads that agent's own transcript — `bash git rev-list…`, `dispatch_agent editor[implementation]`, `update_assertion` — projected through a per-tool allowlist, never forwarded wholesale.
 - **The subagents underneath it.** A hub whose own transcript is idle while three specialists work is exactly the case a naive status panel renders as "nothing happening". Each live child carries a tail of its stdout and a **Cancel** button.
 - **One action, and honest disabled states.** `Focus pane` brings the workspace hosting that agent to the front. An action that cannot work right now stays visible with its reason beside it.
 
@@ -338,39 +339,43 @@ See **[native MCP setup](docs/codex-local-mcp.md)**, **[text/voice workflow](doc
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to every installed agent, embedded `coms`, and `damage-control-continue` guardrails. The operator decides when to delegate: research runs in parallel by default, non-trivial changes get an independent review, `poll_panel` asks the model panel for decisions, and builders can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
+Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to three runtime roles — `researcher`, `reviewer`, `editor` — embedded `coms`, and `damage-control-continue` guardrails. Each assignment combines practices (`planning`, `implementation`, `testing`, `security`, …) that add method and evidence, never authority. The operator decides when to delegate: distinct research questions run in parallel, non-trivial changes get an independent review, `poll_panel` asks the model panel for decisions, and editors can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The `release` practice prepares a release; publishing needs separate explicit permission. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 
 What makes it different is what it **doesn't** put in front of the dispatcher LLM. Multi-agent setups usually drown the orchestrator: every subagent's output, every research dump flows back into one context window until it compacts and forgets. `agent-hub` is built the other way around:
 
 - **Research never enters the dispatcher context.** Specialists end their turn with `NEEDS_RESEARCH:` lines; the hub fans out read-only helpers, writes findings to disk, and resumes the specialist with file paths. The dispatcher sees a one-line notice — never the raw findings. Each local-disk research tool call has a parent-side 120-second watchdog (configurable as `recon-search-timeout-s` in `.ai/agent-fleet-overrides.md`), not a whole-agent deadline.
-- **The Verification Contract lives on disk.** A ledger of checkable acceptance assertions, built from the request *before* any builder runs, rendered as one status line (`Assertions: 2✓ 1○ 1✗ · open: A4`). A stated requirement is never silently dropped, and the contract survives compaction.
+- **The Verification Contract lives on disk.** A ledger of checkable acceptance assertions, built from the request *before* any editor runs, rendered as one status line (`Assertions: 2✓ 1○ 1✗ · open: A4`). A stated requirement is never silently dropped, and the contract survives compaction.
 - **Capability surfaces are automatic and bounded.** No activation command is needed: explicit task intent selects the needed pack, while a ready coms/Herdr runtime alone remains hidden from the model. Ambiguous fleet, peer, or workspace work asks once before its first side effect; packs persist for a task and reset only with `set_task_tier(new_task: true)`.
 - **Authorized work continues under supervision.** Routine call-count, review-count and elapsed-time limits do not request budget renewals. Spend stays visible and the watchdog covers both direct operator work and managed children. Task size does not mandate a Planner or plan review; additional research and unresolved human decisions still use the existing research/ask-user paths. Genuinely different work uses `set_task_tier(new_task: true)`.
 - **`/af-audit` explains recorded delays and refusals.** Its `executionTrace` correlates root/native tool requests, policy decisions, human waits and results, with overlapping time counted once. New trace rows contain metadata and hashed identifiers, excluding command, path, question, answer and output text. Missing, interrupted or truncated coverage remains explicit. See [execution tracing](docs/ARCHITECTURE.md#execution-tracing-and-baseline-policy-classification) for storage and limits.
-- **Specialists run `--no-extensions`.** Managed children receive replacement prompts with selected persona, policy, and skill paths instead of inherited global skills/context; research helpers additionally run `--no-skills` and `--no-context-files`.
+- **Specialists run `--no-extensions`.** Managed children receive replacement prompts with their role, practices, policy, and skill paths instead of inherited global skills/context; research helpers additionally run `--no-skills` and `--no-context-files`.
 
 ![agent-hub's dashboard view: specialists and read-only research helpers running in parallel, each with its own model, spend and status](docs/assets/agent-hub-dashboard.png)
 
 ```bash
-just fleet                                      # operator; empty native roster
-just fleet --agents frontend                    # operator starting with a native roster
+just fleet                                      # operator with the three roles and every practice
 just fleet --no-coms                            # direct/native work; no peer messaging
 
-# roster changes preserve the session; dispatching any installed agent also adds it
-/af-agents-add code-reviewer
-
 # Herdr topology (requires a running server — https://herdr.dev)
-just fleet --herdr --project af
-just fleet --agents frontend --peers frontend --project af
+just fleet --herdr --project af                 # the Hub in one pane
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
 ```
 
-Native specialists are local headless Pi subprocesses; standing peers are separate Pi or Claude Code processes in sibling Herdr panes. They can share a name without ambiguity: `dispatch_agent(..., backend: "native")` always starts the local Pi specialist, `backend: "coms"` requires the live peer, and `backend: "auto"` follows `.pi/agents/dispatch-policy.yaml`.
+Inside the Hub, one editor can combine practices, and readers fan out:
 
-From a Hub pane, add a declared Claude reviewer with `herdr_spawn_peer({ name: "code-reviewer" })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff code-reviewer` works when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. All Hub slash commands remain registered in both work modes and unavailable capabilities refuse with remediation instead of disappearing.
+```js
+dispatch_agent({ agent: "editor", practices: ["planning", "implementation", "testing"], task: "…", scope: ["src/export"] })
+dispatch_agent({ agent: "reviewer", practices: ["independent-review", "security"], task: "Security review of the export change" })
+spawn_research({ task: "Which clients call the export endpoint?" })
+```
 
-Compatibility forms (`just fleet hub`, `just fleet team <preset>`, and `--solo`) remain accepted during migration and print canonical replacements; use `--no-coms` instead of `--solo`.
+Native roles are local headless Pi subprocesses; peers are separate Pi or Claude Code processes in sibling Herdr panes, each started on its own. `dispatch_agent(..., backend: "native")` always starts the local Pi role, `backend: "coms"` requires the live peer, and `backend: "auto"` follows `.pi/agents/dispatch-policy.yaml`, whose routes are keyed by role with a peer address (`reviewer: { peer: claude-reviewer }`). A read-only role reaches only a peer started with `--read-only`, and a reviewer never reaches a peer that changed a file it reviews.
+
+From a Hub pane, add a Claude reviewer with `herdr_spawn_peer({ name: "claude-reviewer", runner: "claude-code", read_only: true })`, then use `coms_send` + `coms_await`; the peer is locked to the Hub's project. `/af-handoff claude-reviewer` works when that peer is visible in the coms pool. Herdr operations require a live Herdr server; peer messaging/handoff require coms readiness. Unavailable capabilities refuse with remediation instead of disappearing.
+
+Compatibility forms (`just fleet hub`, `just fleet team base`, and `--solo`) remain accepted and print canonical replacements; use `--no-coms` instead of `--solo`. Native teams and peer groups were removed in 2.3.0 — see [MIGRATION](docs/MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
 
 Deep dive: [agent-hub harness README](.pi/harnesses/agent-hub/README.md) (the full dispatch loop, coms layer, configuration) · [fleet hierarchy](docs/ARCHITECTURE.md#fleet-hierarchy) · [pi extension catalog](docs/pi-extensions.md) · [Claude Code coms bridge](docs/claude-code-coms-bridge.md) · [Hermes bridge](docs/coms-hermes-bridge.md).
 
@@ -397,10 +402,10 @@ Slash commands map to the development lifecycle; each activates the right skills
 | Build incrementally | `/af-build` | One slice at a time (`auto` runs the whole plan in one approved pass) |
 | Prove it works | `/af-test` | Tests are proof |
 | Review before merge | `/af-review` | Improve code health |
-| Audit web performance | *invoke the `web-performance-auditor` persona* | Measure before you optimize |
+| Audit web performance | *a `reviewer` with the `performance` practice (agent-hub)* | Measure before you optimize |
 | Simplify the code | `/af-code-simplify` | Clarity over cleverness |
 | Ship to production | `/af-ship` | Faster is safer |
-| Orchestrate a team | *agent-hub harness* | The hub drives a config-defined roster |
+| Orchestrate agents | *agent-hub harness* | The operator dispatches roles with practices |
 | Capture session lessons | `/af-compound` *(agent-hub)* | Every session improves the next |
 
 Under the hood are **30 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
@@ -420,19 +425,25 @@ Full catalog with descriptions and triggers: **[docs/skills-catalog.md](docs/ski
 
 ---
 
-## Agent personas
+## Runtime roles and practices
 
-14 pre-configured specialist personas live in [`agents/`](agents/) — reusable subagent definitions your coding agent delegates work to: `planner`, `plan-reviewer`, `builder`, `code-reviewer`, `test-engineer`, `security-auditor`, `web-performance-auditor`, `documenter`, `architect`, `releaser`, `researcher`, `deep-researcher`, plus the pi-only `bowser`, `web-debugger`, and `orchestrator`.
+The Hub dispatches three roles, defined in [`agents/`](agents/):
 
-Each persona is one Markdown file in pi's own frontmatter dialect, installed verbatim to `.pi/agents/personas/` in your workspace — there is no per-agent translation step. A persona you write yourself in `agents/` or `.claude/agents/` is scanned first and wins over an installed one of the same name. Personas are the *who*, skills are the *how* — each carries a conditional hook to its primary skill, and they compose into teams under the hub.
+| Role | Authority |
+|---|---|
+| `researcher` | Read-only investigation, via `spawn_research` |
+| `reviewer` | Read-only independent assessment; never approves its author's work |
+| `editor` | Writes code, tests, plans and docs inside the authorized scope |
 
-Full roster, skill hooks, install matrix, and team composition: **[docs/agents.md](docs/agents.md)**.
+Each assignment attaches practices from an eleven-entry catalogue — `research`, `architecture`, `planning`, `implementation`, `independent-review`, `testing`, `security`, `performance`, `browser-debugging`, `documentation`, `release`. A practice loads the matching skills and names the expected evidence; it never adds authority. The role files install verbatim to `.pi/agents/personas/`. A file with a role's name in your own `agents/` or `.claude/agents/` replaces that role's prompt or model, while the code-owned ceiling still applies. The 13 earlier personas (`builder`, `code-reviewer`, `planner`, …) are refused with their role + practice mapping.
+
+Catalogue, dispatch examples and the migration mapping: **[docs/agents.md](docs/agents.md)**.
 
 ---
 
 ## Why Agent Fleet?
 
-One coding agent is an assistant; a *fleet* is a team you operate. Agent Fleet exists for the moment a single session stops being enough — when you want a dispatcher driving specialists under a Verification Contract, whole peer teams you can snapshot and resume, Claude Code panes that answer pi agents mid-task, a desktop panel that tells you which agent is stuck, and a phone-reachable human in the loop.
+One coding agent is an assistant; a *fleet* is a team you operate. Agent Fleet exists for the moment a single session stops being enough — when you want a dispatcher driving specialist roles under a Verification Contract, peers in their own panes, Claude Code panes that answer pi agents mid-task, a desktop panel that tells you which agent is stuck, and a phone-reachable human in the loop.
 
 Discipline is the other half. AI coding agents default to the shortest path — skipping specs, tests, and security reviews. The skill library gives every agent in the fleet the same discipline senior engineers bring to production code, baking in practices from [Software Engineering at Google](https://abseil.io/resources/swe-book) and Google's [engineering practices guide](https://google.github.io/eng-practices/): Hyrum's Law in API design, the test pyramid and Beyonce Rule in testing, change sizing in review, Chesterton's Fence in simplification, trunk-based development in git workflow.
 
@@ -448,9 +459,9 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime layers, fleet hierarchy, module map, external dependencies |
 | [docs/getting-started.md](docs/getting-started.md) | First session walkthrough |
 | [docs/skills-catalog.md](docs/skills-catalog.md) | All 29 skills with descriptions and triggers |
-| [docs/agents.md](docs/agents.md) | All 14 personas: roster, skill hooks, install matrix, teams |
+| [docs/agents.md](docs/agents.md) | The three runtime roles and eleven practices: dispatch examples, models, peers, migration mapping |
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
-| [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-persona models, dispatcher language, rules/docs targets |
+| [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-role and per-practice models, dispatcher language, rules/docs targets |
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
 | [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · retired CLI migration to native Codex |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |

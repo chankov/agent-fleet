@@ -12,7 +12,7 @@ const narrow: RouteInputs = {
 
 test("narrow planned fix can skip a new planner", () => {
 	const decision = classifyOrchestrationRoute(narrow);
-	assert.equal(decision.route, "builder-reviewer");
+	assert.equal(decision.route, "editor-reviewer");
 	assert.equal(decision.record.scopeBreadth, "narrow");
 	assert.equal(decision.record.risk, "low");
 	assert.equal(decision.record.reversible, true);
@@ -23,7 +23,7 @@ test("narrow planned fix can skip a new planner", () => {
 
 test("missing plan does not require a planner", () => {
 	const decision = classifyOrchestrationRoute({ ...narrow, approvedPlan: false, selfDeclaredSmall: true });
-	assert.equal(decision.route, "builder-reviewer");
+	assert.equal(decision.route, "editor-reviewer");
 	assert.match(decision.reason, /optional/i);
 });
 
@@ -34,20 +34,20 @@ test("cross-cutting, secret, cloud, and a new fork do not mandate a planner", ()
 		{ ...narrow, risk: "cloud" as const },
 		{ ...narrow, unresolvedForks: ["adapter ownership"] },
 	]) {
-		assert.equal(classifyOrchestrationRoute(input).route, "builder-reviewer");
+		assert.equal(classifyOrchestrationRoute(input).route, "editor-reviewer");
 	}
 });
 
 test("table-adapter fix skips planner and documenter", () => {
 	const stages = selectSpecialists(narrow);
-	assert.deepEqual(stages.stages, ["builder", "reviewer"]);
+	assert.deepEqual(stages.stages, ["editor", "reviewer"]);
 	assert.equal(stages.stages.includes("planner"), false);
 	assert.equal(stages.stages.includes("documenter"), false);
 });
 
 test("wide or high-impact work keeps a direct implementation route", () => {
-	assert.equal(selectSpecialists({ ...narrow, scopeBreadth: "wide" }).stages[0], "builder");
-	assert.equal(selectSpecialists({ ...narrow, risk: "high" }).stages[0], "builder");
+	assert.equal(selectSpecialists({ ...narrow, scopeBreadth: "wide" }).stages[0], "editor");
+	assert.equal(selectSpecialists({ ...narrow, risk: "high" }).stages[0], "editor");
 	assert.match(selectSpecialists({ ...narrow, risk: "low" }, { secret: true }).reason, /authorization/);
 });
 
@@ -61,7 +61,7 @@ test("scope or risk change reclassifies with a visible reason", () => {
 	const previous = classifyOrchestrationRoute(narrow);
 	const next = classifyOrchestrationRoute({ ...narrow, scopeBreadth: "wide", risk: "high" }, previous);
 	assert.equal(next.reclassified, true);
-	assert.equal(next.route, "builder-reviewer");
+	assert.equal(next.route, "editor-reviewer");
 	assert.match(next.reason, /scopeBreadth narrow → wide/);
 	assert.match(next.reason, /risk low → high/);
 });

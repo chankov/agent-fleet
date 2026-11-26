@@ -150,7 +150,7 @@ here, with their rationale, so future plans share one source of intent.
 - [Architecture](ARCHITECTURE.md) describes the current runtime structure.
 - [Deterministic workflows](workflows.md) describe the existing code-owned workflow layer.
 - [Agent Hub](../.pi/harnesses/agent-hub/README.md) describes interactive orchestration.
-- [Personas](agents.md) and [orchestration patterns](../references/orchestration-patterns.md)
+- [Roles and practices](agents.md) and [orchestration patterns](../references/orchestration-patterns.md)
   describe roles and composition.
 - The local-model reliability plan (working-tree `docs/plans/`, not published)
   applies this direction to specific observed failures. Its pending decisions,

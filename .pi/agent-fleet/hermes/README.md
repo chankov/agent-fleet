@@ -206,7 +206,7 @@ const current = await monitorRequest(socketPath, { type: "snapshot", token });
 const delta = await monitorRequest(socketPath, {
   type: "output",
   token,
-  taskId: "builder:1",
+  taskId: "editor:1",
   generation: 1,
   afterSequence: 0
 });
@@ -220,7 +220,7 @@ Example snapshot response:
   "snapshot": {
     "tasks": [
       {
-        "id": "builder:1",
+        "id": "editor:1",
         "generation": 1,
         "kind": "child",
         "state": "running",
@@ -237,7 +237,7 @@ Continue incremental output from the returned sequence to avoid duplicates:
 const next = await monitorRequest(socketPath, {
   type: "output",
   token,
-  taskId: "builder:1",
+  taskId: "editor:1",
   generation: 1,
   afterSequence: delta.output.sequence
 });
@@ -250,7 +250,7 @@ generation:
 const cancelled = await monitorRequest(socketPath, {
   type: "cancel",
   token,
-  taskId: "builder:1",
+  taskId: "editor:1",
   generation: 1
 });
 ```
@@ -295,7 +295,7 @@ const admitted = await monitorRequest(socketPath, {
   type: "invoke",
   token,
   requestId: "request-a",
-  taskId: "builder:1",
+  taskId: "editor:1",
   generation: 1,
   action: "request_status",
   parameters: { assertionIds: [], evidenceEventIds: ["hub:1"] },
@@ -328,20 +328,20 @@ an operator who has identified the exact profile/runtime scope.
 
 For `hub-liaison`, ensure the Telegram-capable profile has terminal/file-write tools enabled so it can create exactly `~/.pi/coms/hermes-bridge/questions/<qid>.answer.json` and nothing outside that questions directory.
 
-For `hub-conductor`, either start the pi team/pool outside Hermes first, or use the repo recipe to create a visible conductor workspace:
+For `hub-conductor`, start the Hub (`just fleet --herdr --project af`) and the pi peers it needs (`just fleet peer <name> --project af`) outside Hermes first, or use the repo recipe to create a visible conductor workspace:
 
 ```bash
-just conductor docs      # conductor pane (`hermes -p dev`) + docs team panes
-just fleet conductor hermes docs --dry-run  # preview, no Herdr calls
+just fleet conductor hermes --project af            # one pane: `hermes -p dev`
+just fleet conductor hermes --project af --dry-run  # preview, no Herdr calls
 ```
 
 Inside Hermes, discover and delegate only through coms:
 
 ```bash
-node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cli.ts list
-node --experimental-strip-types /home/nchankov/repos/agent-fleet/scripts/coms-cli.ts send <peer> "<task>" --await --timeout 300000
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts list
+node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send <peer> "<task>" --await --timeout 300000
 ```
 
-Hermes must not drive herdr panes or workspaces; the `just conductor` recipe creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.
+Hermes must not drive herdr panes or workspaces; `just fleet conductor hermes` creates the pane before Hermes starts. The no-herdr boundary is documented in `docs/coms-hermes-bridge.md` and governed by `.pi/damage-control-rules.yaml`.
 
 Hermes/Telegram remains the inbound `ask_user` path. The experimental ChatGPT Fleet session client is a ChatGPT-initiated channel to an existing Pi session and is not an inbound `ask_user` route. See the [session client runbook](../../../docs/codex-session-bridge.md).

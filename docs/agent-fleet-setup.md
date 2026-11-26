@@ -37,33 +37,30 @@ large.
 ## Unified Fleet runtime configuration
 
 A Pi workspace has one public runtime entry point. Bare Fleet loads Fleet Core
-plus Agent Hub with its one **operator**, in the current terminal, with no native
-specialists active:
+plus Agent Hub with its one **operator**, in the current terminal:
 
 ```bash
 just fleet
 just fleet --project af
-```
 
-The native roster and the peer topology are separate controls:
-
-```bash
-# The operator starting with a native roster.
-just fleet --agents frontend --project af
-
-# Herdr Hub-only and Hub-plus-peer topologies.
+# The Hub alone in a one-pane Herdr workspace, and one addressable peer.
 just fleet --herdr --project af
-just fleet --agents frontend --peers frontend --project af
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
 ```
 
-`--agents` only picks the starting roster; the operator can dispatch any other
-installed agent, which adds it. `--work-mode` is deprecated and ignored with a
-warning. `--herdr` affects only
-placement, while `--peers <preset>` implies Herdr and starts the selected peer
-preset. Neither topology option selects a native roster.
+The Hub always has the three runtime roles, `researcher`, `reviewer` and
+`editor`, and all eleven practices; there is no team or roster to select (see
+the [role and practice catalogue](agents.md#roles)). The operator works directly
+and dispatches a role with practices when that helps. Peers are separate
+processes, each started on its own: `just fleet peer <name>` takes its whole
+configuration as flags (`--runner pi|claude-code`, `--persona <p>` or
+`--no-persona`, `--model`, `--read-only`, `--env-file`), and a Hub running inside
+Herdr can start one with `herdr_spawn_peer`. `--herdr` affects only placement.
+`--work-mode` is deprecated and ignored with a warning; `--agents` and `--peers`
+were removed and are refused with their replacement.
 
-`--project <name>` selects one coms namespace for the Hub and every standing or
-dynamically spawned peer. Dynamic peer tools deliberately expose no project
+`--project <name>` selects one coms namespace for the Hub and every
+peer started for it. Dynamic peer tools deliberately expose no project
 override, so an agent cannot cross that boundary. The default project is
 `default`; use an explicit project when multiple fleets share a machine.
 
@@ -71,16 +68,16 @@ The configuration files have distinct ownership:
 
 | File | Controls |
 | --- | --- |
-| `.pi/agents/teams.yaml` | Named **native rosters** of Pi personas available to `dispatch_agent`. Bare Fleet ignores YAML ordering and starts empty; select one with `--agents`, `/af-agents-team`, or add individuals with `/af-agents-add`. |
-| `.pi/agents/peers.yaml` | Named **standing peer presets** and each peer's runner (`pi` or `claude-code`), persona, model, extensions, and optional declared `env_file`. Select a preset with `--peers`; dynamic `herdr_spawn_peer` uses the same declaration resolver. |
-| `.pi/agents/dispatch-policy.yaml` | Routing used only when `dispatch_agent.backend` is `auto`: native/coms preference, fallback, grace period, and peer reply timeout. |
-| `.ai/agent-fleet-overrides.md` (`## agent-hub`) | Project-specific Hub language, model overrides, rule/doc roots, budget ceilings, watchdog, and related execution policy. It does not choose startup work mode or topology. |
+| `.pi/agents/personas/<role>.md` | The three role definitions: prompt, model and candidates, `practice_models:`, delegate sub-roles. A same-named file in `agents/` or `.claude/agents/` takes precedence and may replace the prompt or model; tools and read-only status stay code-owned. See [customizing a role](agents.md#customizing-a-role). |
+| `.pi/agents/dispatch-policy.yaml` | Routing used only when `dispatch_agent.backend` is `auto`, keyed by role: the peer address (`peer:`), native/coms preference, fallback, grace period, and peer reply timeout. |
+| `.pi/agents/model-profiles.yaml` | Named model profiles for `/af-models`; see [complete model profiles](#complete-model-profiles). |
+| `.ai/agent-fleet-overrides.md` (`## agent-hub`) | Project-specific Hub language, model overrides per role and practice, rule/doc roots, budget ceilings, watchdog, and related execution policy. It does not choose startup work mode or topology. |
 
 For deterministic routing, `backend: "native"` always starts the local Pi
-specialist even if a same-name peer is visible. `backend: "coms"` requires a
-visible same-name peer and refuses without native fallback. The default
+specialist even if a peer is visible. `backend: "coms"` requires the live peer
+the role's route names and refuses without native fallback. The default
 `backend: "auto"` follows `dispatch-policy.yaml` and preserves its configured
-fallback behavior.
+fallback behavior. See [peers serving a role](#coms-peers-serving-a-role).
 
 Capability packs load automatically—do not run an activation command. Explicit task intent activates the matching ready surface; readiness alone never exposes coms or Herdr tools to the model. Ambiguous fleet/peer/workspace intent gets one confirmation before its first side effect, and active task packs persist until the explicit `set_task_tier(new_task: true)` reset.
 
@@ -88,20 +85,21 @@ Capability flags and runtime gates fail closed:
 
 - `--no-coms` keeps operator direct tools and native dispatch available, but
   peer dispatch, `coms_send`/`coms_await`, and `/af-handoff` refuse actionably.
-- `--herdr` and `--peers` require a running [Herdr](https://herdr.dev) server.
+- `--herdr` requires a running [Herdr](https://herdr.dev) server, and so does
+  `just fleet peer` unless it runs with `--here`.
   Without Herdr, bare Fleet still works and dynamic pane tools stay inactive.
 - `--browser` adds the browser extension surface and `--all-extensions` opts
   into the complete approved extension set. Missing optional dependencies do
   not grant tools merely because a flag was supplied.
 - Hub-owned slash commands are always registered. A missing coms
-  runtime, Herdr connection, target peer, or native roster produces a
+  runtime, Herdr connection, target peer, or role definition produces a
   capability refusal rather than a missing command.
 
-During the migration release, `just fleet hub`, `just fleet team <preset>`,
-`just fleet team <preset> --no-hub`, and `--solo` remain accepted and print a
-canonical replacement. New automation should use `just fleet` with
-`--agents`, `--peers`, `--herdr`, and `--no-coms`; compatibility does not imply
-that the deprecated grammar will remain indefinitely.
+`just fleet hub`, `--solo` and `just fleet team base` remain accepted and print
+their canonical replacement (`just fleet`, `--no-coms`, `just fleet --herdr`).
+Peer groups are gone: any other `just fleet team <name>`, `snapshot`, `down` and
+`resume` are refused with the replacement. See the
+[migration guide](MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
 
 ### Resume and recovery
 
@@ -126,11 +124,9 @@ The JSONL shown by `/session` under `~/.pi/agent/sessions/` is Pi's authoritativ
 resume with `/resume`, `pi -c`, or `pi --session <path|id>`. Never edit, truncate, reorder, or add
 synthetic entries to recover from context pressure.
 
-A resumed session whose persisted team name no longer resolves against the current
-`.pi/agents/teams.yaml` and persona files reports it and continues without that roster. A session
-saved in the removed orchestrator work mode continues as the operator with a one-time notice. Choose a
-team with `/af-agents-team` or restart with `just fleet --agents <name>` (`--agent-team <name>` for a
-direct Pi launch); fix missing or renamed team/persona declarations before selecting them.
+Every session, new or resumed, starts with the installed roles; there is no team to restore, and a
+team name saved by an older session is ignored. A session saved in the removed orchestrator work mode
+continues as the operator with a one-time notice. `--agent-team` was removed with teams.
 
 ## System 1 configuration
 
@@ -225,7 +221,7 @@ labels without an LLM attempt ID cannot qualify. No gate is inferred from doctor
 
 ## Task triage (active experimental; off by default)
 
-Task triage is a separate Hub consumer, not `dispatch_triage` persona advice,
+Task triage is a separate Hub consumer, not `dispatch_triage` dispatch advice,
 watchdog calibration, or the spend classification performed by `set_task_tier`.
 It uses the shared TypeSafe `jev-1.13.0` service, even with watchdog off. After
 explicit configuration and remote-context consent, it assesses user input before
@@ -325,10 +321,11 @@ consumers from making requests. Restart Hub to adopt configuration changes.
   scores, disable and resume do not erase them. Classification and budgets remain
   separate. Pending input must be bound through `set_task_tier` before dependent
   effects; genuine new-task supersession can require human authorization.
-- For a missing plan producer, ask the human to use `/af-agents-add planner` or
-  `/af-agents-team`. For review, use `/af-agents-add code-reviewer` (or the
-  permitted plan-reviewer/security-auditor) or select a suitable roster. There is
-  no automatic roster change. Dispatch and review counts are usage, not caps;
+- Stage producers are roles: an `editor` with the `planning` practice writes a
+  plan, and an independent `reviewer` produces review evidence. Every installed
+  role is always available; when a role definition is missing, the Hub refuses
+  the dispatch and doctor names the role to install (`agent-fleet setup`). There
+  is no automatic substitute. Dispatch and review counts are usage, not caps;
   an unfinished requirement stays open until its evidence exists.
 - `/af-task-triage-waive <addition-id> <reason>` asks for a correlated human
   decision over one bound addition. It stays **waived**, never satisfied, and
@@ -355,8 +352,8 @@ consumers from making requests. Restart Hub to adopt configuration changes.
 
 Doctor is offline advisory: it distinguishes missing/unapproved/invalid config,
 policy mismatch, provider off/missing key and locally missing canonical roles.
-`locally_ready` means no API validation; local persona files do not prove a live
-roster. Doctor/`--fix` do not activate inference or rewrite human triage/provider
+`locally_ready` means no API validation; local role files do not prove that a
+running Hub loaded them. Doctor/`--fix` do not activate inference or rewrite human triage/provider
 files, and do not inspect `.env` or print key values.
 
 `/af-agents-list` opens the full Fleet dashboard with session-level assessment,
@@ -732,22 +729,23 @@ override files keep working unchanged. When both sections are present their keys
 with later lines winning.
 
 The `rules:` and `docs:` keys are also read outside the harness: the `compound-learning`
-skill (and the `/af-compound` agent-hub command built on it) resolves them as the
-targets an end-of-session compound pass writes lessons to.
+skill (and the `/af-compound` agent-hub command built on it, which dispatches an editor
+with the `documentation` practice) resolves them as the targets an end-of-session
+compound pass writes lessons to.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `language` | `English` | User-facing language the dispatcher uses for every `ask_user` question, every `context` field, and every summary. Specialist task strings always stay in English regardless. |
 | `persona-gate` | — | **Removed.** Ignored with a doctor warning; dispatcher flavor is no longer selectable and the Hub has one operator work mode. Delete the key. |
-| `model.<persona>` | persona frontmatter `model:` | Replaces the named persona's default model for this project (a full pi model spec). If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
-| `models.<persona>` | persona frontmatter `models:` | Replaces the named persona's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
-| `thinking.<persona>` | persona frontmatter `thinking:` | Replaces the named persona's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <persona>`. An invalid value is ignored with a session-start warning. |
+| `model.<role>` | role file `model:` | Replaces the role's default model for this project (a full pi model spec), for example `model.editor`. If the override reports a model/provider error or aborted request before producing text or starting a tool (including a local-model memory-limit failure), agent-hub restores the child session and retries once with the original frontmatter model; it does not fallback after work starts, cancellation, timeout, drift stop, or process-spawn failure. |
+| `models.<role>` | role file `models:` | Replaces the role's model-candidate list for `/af-agent-model` and `/af-models` profiles (comma-separated pi model specs). |
+| `thinking.<role>` | role file `thinking:` | Replaces the role's pi `--thinking` reasoning level for this project: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. Switchable at runtime with `/af-agent-model-thinking <role>`. An invalid value is ignored with a session-start warning. |
 | `model.<role>.<practice>` | role file `practice_models:` | Model for assignments of that role whose first practice with a model choice is `<practice>` (for example `model.editor.planning: openai-codex/gpt-6.2-astra`). See [Per-practice models](#per-practice-models). An unknown practice id is ignored with a session-start warning that lists the known ids; a role with no definition is ignored with a warning. |
 | `thinking.<role>.<practice>` | role file `practice_models:` | Thinking level for the same practice selection: one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. An invalid value is ignored with a session-start warning. |
-| `subagents.<persona>.<role>` | persona frontmatter `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>][, thinking=<off\|minimal\|low\|medium\|high\|xhigh>]`. Other declared roles keep their frontmatter values. Existing roles retain their original frontmatter model as the same one-shot, pre-work-only runtime fallback; model-only overrides retain the declared tool cap. An invalid `thinking=` value is ignored with a session-start warning and the role stays at `off` unless frontmatter already set a valid level. |
-| `delegate-depth.<persona>` | persona frontmatter `delegate_depth:` (default/max 1) | Replaces the persona's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
-| `rules` | none | Comma-separated repo-relative folders holding the project's own rule files (HOW — implementation patterns the work must comply with). Resolution is **index-first**: when a folder has a top-level `README.md`/`index.md`, personas read it first and follow its loading manifest (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without an index is searched **recursively** through all subfolders. The harness tells every dispatched specialist where the rules live and how to resolve them; the planner and code-reviewer personas read the relevant rules, validate their subject against them, and pass them on (cited in plan acceptance criteria / handed to delegate sub-reviewers). Missing folders produce a session-start warning. |
-| `docs` | none | Comma-separated repo-relative documentation **entry points** (WHAT/WHY — architecture, standards, decisions): canonical files (e.g. `Docs/AGENTS.md`) or doc folders (personas start from a folder's `README.md`/index). Unlike `rules`, docs orient rather than bind: every dispatched specialist and research helper is told to read the entry points relevant to its task and follow their links instead of bulk-reading doc trees; the code-reviewer flags changes that alter documented behavior without a doc update; the documenter treats the entry points and the trees they link as the docs it maintains. Missing paths produce a session-start warning. |
+| `subagents.<role>.<sub-role>` | role file `subagents:` | Replaces or adds one delegate sub-role for this project: `<model>[, tools=<caps>][, thinking=<off\|minimal\|low\|medium\|high\|xhigh>]`. Other declared roles keep their frontmatter values. Existing roles retain their original frontmatter model as the same one-shot, pre-work-only runtime fallback; model-only overrides retain the declared tool cap. An invalid `thinking=` value is ignored with a session-start warning and the role stays at `off` unless frontmatter already set a valid level. |
+| `delegate-depth.<role>` | role file `delegate_depth:` (default/max 1) | Replaces the role's delegation depth budget: `0` makes its delegate tool refuse (delegation off for this project), `1` lets it spawn terminal children. Values above 1 are clamped to 1; children at remaining depth 0 do not receive delegate tooling. |
+| `rules` | none | Comma-separated repo-relative folders holding the project's own rule files (HOW — implementation patterns the work must comply with). Resolution is **index-first**: when a folder has a top-level `README.md`/`index.md`, a dispatched role reads it first and follows its loading manifest (session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without an index is searched **recursively** through all subfolders. The harness tells every dispatched role where the rules live and how to resolve them; an editor follows the rules that apply to its change and, with the `planning` practice, cites them in plan acceptance criteria, and the reviewer validates its subject against them and hands them to its delegate sub-reviewers. Missing folders produce a session-start warning. |
+| `docs` | none | Comma-separated repo-relative documentation **entry points** (WHAT/WHY — architecture, standards, decisions): canonical files (e.g. `Docs/AGENTS.md`) or doc folders (a role starts from a folder's `README.md`/index). Unlike `rules`, docs orient rather than bind: every dispatched role and research helper is told to read the entry points relevant to its task and follow their links instead of bulk-reading doc trees; the reviewer flags changes that alter documented behavior without a doc update; an editor treats the entry points and the trees they link as the docs it maintains. Missing paths produce a session-start warning. |
 | `research-keep` | — | **Removed.** Ignored with a session-start warning; live research helpers disappear from the Fleet Dashboard (`Alt+A`) on every terminal outcome. Session, transcript, and findings files plus `/af-agents-history` records remain. Delete the key. |
 | `recon-search-timeout-s` | `120` | Parent-side deadline, in seconds, for each `read`, `grep`, `find`, or `ls` call made by a native research helper or nested delegate child. Accepts an integer `1`–`3600` or `off`; invalid input warns and falls back to `120`. This is **not** an agent/turn deadline: non-tool work can run indefinitely. On timeout the hub returns `tool_timeout` with call metadata, sends SIGTERM to its owned process group, escalates to SIGKILL after a finite grace period, and settles even if the child never closes or a descendant holds a pipe. If that bounded cleanup cannot confirm child/process-group death, the metadata reports `terminationConfirmed: false`; this prevents a parent hang but may indicate an uninterruptible OS-level process needing operator attention. |
 | `mode` | — | **Removed.** Ignored with a warning; budgets follow task tier. Delete the key. |
@@ -758,29 +756,39 @@ targets an end-of-session compound pass writes lessons to.
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
 | `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
 | `watchdog-system1` | `off` | Native specialist consumer only: `off`, `shadow`, or explicitly opted-in experimental `active` for advisory `scope` only (0.95/0.05; not G2-validated). Requires the separate selected feature and shared config; no automatic outbound request from setup/doctor. |
-| `watchdog-judge-model` | researcher persona's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-6-luna`). Falls back to the researcher persona's resolved model, then the dispatcher's. |
-| `poll-panel` | none | Configured panel for `/af-poll` and `poll_panel` when no panel is named. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, Poll uses the panel named `default` if the roster has one, otherwise it refuses and lists the panels. `/af-debate` still requires `--panel` or this key. |
-| `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched persona. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |
+| `watchdog-judge-model` | researcher role's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-6-luna`). Falls back to the researcher role's resolved model, then the dispatcher's. |
+| `poll-panel` | none | Configured panel for `/af-poll` and `poll_panel` when no panel is named. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, Poll uses the panel named `default` if `voices.yaml` has one, otherwise it refuses and lists the panels. `/af-debate` still requires `--panel` or this key. |
+| `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched role. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |
 
-Example — switch the dispatcher to Bulgarian, pin the builder to sonnet, raise the
-code-reviewer's thinking level, move the code-reviewer's docs sub-reviewer to a
-different model, and point the team at the project's rule folders and doc entry
-points:
+Example — switch the dispatcher to Bulgarian, pin the editor to sonnet and its
+planning assignments to a stronger model, raise the reviewer's thinking level,
+move the reviewer's docs sub-reviewer to a different model, and point the roles
+at the project's rule folders and doc entry points:
 
 ```markdown
 ## agent-hub
 language: Bulgarian
-model.builder: anthropic/claude-sonnet-5-5
-models.builder: anthropic/claude-sonnet-5-5, anthropic/claude-haiku-5-5
-thinking.code-reviewer: xhigh
-subagents.code-reviewer.docs: anthropic/claude-sonnet-5-5, tools=read,grep, thinking=medium
-delegate-depth.code-reviewer: 1
+model.editor: anthropic/claude-sonnet-5-5
+models.editor: anthropic/claude-sonnet-5-5, anthropic/claude-haiku-5-5
+model.editor.planning: anthropic/claude-opus-5-5
+thinking.reviewer: xhigh
+subagents.reviewer.docs: anthropic/claude-sonnet-5-5, tools=read,grep, thinking=medium
+delegate-depth.reviewer: 1
 recon-search-timeout-s: 120 # or off to disable the per-tool watchdog
 poll-panel: default
 append-prompt: references/communication-contract.md
 rules: docs/rules, .ai/rules
 docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
 ```
+
+Only the three role names take effect in these keys. A key written for a retired
+persona (`model.builder`, `thinking.planner`, …) is
+dead configuration: the Hub keeps no alias and setup never edits this file.
+`agent-fleet doctor` reports each such key as an advisory finding, never fixed for
+you, with its file and line: an unambiguous name gets the exact replacement
+(`model.builder` → `model.editor.implementation`), an ambiguous one (`planner`,
+`architect`, …) the [role and practice mapping](agents.md#retired-personas) to
+choose from. Edit the key by hand.
 
 #### Per-practice models
 
@@ -812,7 +820,7 @@ and thinking apply as before. A `version: 2` profile owns the whole fleet: while
 only its own entries and session choices apply, not this file or the role file. Applying a flat
 profile replaces the previous profile's practice entries and clears session choices for the
 practices it names. The role's original model remains the one-shot pre-work fallback, as for
-`model.<persona>`. Research helpers started with `spawn_research` use the role model.
+`model.<role>`. Research helpers started with `spawn_research` use the role model.
 
 The shipped role files keep the models of the retired personas: the editor uses
 `openai-codex/gpt-6.2-astra` (thinking `high`) for planning, `openai-codex/gpt-6.2-sol` for
@@ -826,6 +834,10 @@ Each native run records the selection on its resume contract as `modelSource`: `
 
 Read by `just flow` when a flow starts. The `quality` and `build-test` flows need
 a command, and there is no default: a missing command is a startup refusal (exit `3`).
+The command is the deterministic test phase: `build-test` runs the editor role with the
+single practice `implementation`, and `document` runs the editor with `documentation`.
+A flow's editor model is the active complete profile's `editor.<practice>` entry, else
+the role file's `practice_models:` entry, else the role model.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -862,17 +874,16 @@ No skill or harness loads this section. Its only reader is `agent-fleet doctor`
 (and the runtime's Agent Fleet doctor command), which warns when a declared name is neither set in
 the environment nor declared in the workspace root `.env`.
 
-### Per-peer env files (`env_file:` in peers.yaml)
+### Per-peer env files (`just fleet peer <name> --env-file <path>`)
 
-Fleet peers spawned through `--peers`, `just fleet peer`, or the Hub's
-constrained dynamic peer tool can carry their own environment: an `env_file:`
-entry in `.pi/agents/peers.yaml` names a
-**repo-relative** KEY=VALUE file (same format as `.env`, no shell evaluation)
-that herdr injects into the peer's pane before the command runs — no `source`,
-no leaking into sibling panes. The file must exist at spawn (team-up refuses
-otherwise, never mid-run), and its **values never appear in `--dry-run`
-output** — only the path. Keep these files gitignored exactly like the root
-`.env` this section describes.
+A peer started with `just fleet peer` can carry its own environment:
+`--env-file` names a **repo-relative** KEY=VALUE file (same format as `.env`, no
+shell evaluation) that herdr injects into the peer's pane before the command
+runs (with `--here`, into the launched process) — no `source`, no leaking into
+sibling panes. The file must exist at launch (the launcher refuses otherwise,
+never mid-run), and its **values never appear in `--dry-run` output** — only the
+path. Keep these files gitignored exactly like the root `.env` this section
+describes.
 
 ## The install record — `.ai/agent-fleet-state.json` and `.ai/agent-fleet-setup.md`
 
@@ -941,16 +952,34 @@ Commit these files if the team should share install state — keep paths relativ
 so they stay portable. A self-referencing checkout (agent-fleet itself) may
 instead `.gitignore` them, since their recorded paths are local to one machine.
 
-## Coms-backed team members
+## Coms peers serving a role
 
-A team member the `agent-hub` harness dispatches (`.pi/agents/teams.yaml`) can be
-served by a live coms peer of the same name instead of a freshly spawned native
-subagent. With the default `backend: "auto"`,
-`.pi/agents/dispatch-policy.yaml` decides that per member at dispatch time;
-explicit `native` bypasses substitution, while explicit `coms` requires the
-peer and never falls back. `.pi/agents/peers.yaml` decides *how* each peer runs.
-A peer with `runner: claude-code` is an interactive Claude Code pane plus its
-bridge — the one way Claude Code takes part in a fleet. See
+A role assignment the `agent-hub` harness dispatches can be served by a live
+coms peer instead of a freshly spawned native subagent. With the default
+`backend: "auto"`, `.pi/agents/dispatch-policy.yaml` decides at dispatch time.
+Its routes are keyed by role and name the peer by its own address, which is
+distinct from the role:
+
+```yaml
+routes:
+  reviewer:
+    peer: claude-reviewer
+    prefer: coms
+    fallback: native
+```
+
+A parallel instance (`reviewer--p2`) uses its role's route. Explicit `native`
+bypasses the route, while explicit `coms` requires the route's live peer and
+never falls back. A read-only role (researcher, reviewer) reaches only a peer
+launched with `--read-only` that declares it at registration; otherwise it runs
+native, or is refused under `fallback: none`. A reviewer route never reaches a
+peer address that changed a file in the review's scope: an `auto` route runs a
+native reviewer instead, and an explicit `coms` backend or `fallback: none` is
+refused before anything starts. How each peer runs is set by the flags of
+`just fleet peer <name>`; there is no peer declaration file. A peer started with
+`--runner claude-code` is an interactive Claude Code pane plus its bridge — the
+one way Claude Code takes part in a fleet. See
+[peers serving a role](agents.md#peers-serving-a-role) and
 [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
 
 Installing `skill:peer-coms` pulls `hook:coms-stop-hook` in as a companion, which
@@ -1040,7 +1069,7 @@ source:  /home/you/.npm/_npx/<hash>/node_modules/@chankov/agent-fleet
 ## install-status
 skills:     [spec-driven-development, test-driven-development, code-review-and-quality]
 commands:   [spec, plan, build]
-personas:   [code-reviewer]
+personas:   [editor, researcher, reviewer]
 extensions: []
 harnesses:  []
 companions: [skills-internal-grilling]
@@ -1100,8 +1129,8 @@ does not validate credentials or contact the provider. Full schema and provider 
 
 ### Complete model profiles
 
-`/af-models <name>` reads `.pi/agents/model-profiles.yaml`. Flat persona-to-model
-maps remain supported and keep their declared-candidate validation. A `version: 2`
+`/af-models <name>` reads `.pi/agents/model-profiles.yaml`. Flat role-to-model
+maps (including `<role>.<practice>` keys) remain supported and keep their declared-candidate validation. A `version: 2`
 profile declares the whole execution model set independently of
 `.ai/agent-fleet-overrides.md`:
 
@@ -1117,7 +1146,7 @@ local-full:
   routing: native
   dispatcher: *qwen36
   agents:
-    # Every shipped persona uses *qwen36 (see .pi/agents/model-profiles.yaml).
+    # editor, researcher and reviewer use *qwen36 (see .pi/agents/model-profiles.yaml).
   subagents:
     # Every declared child role uses *qwen36.
   services:
@@ -1129,14 +1158,15 @@ local-full:
     - { name: qwen-integrator, model: *qwen36, integrator: true }
 ```
 
-- `defaults` supplies **every persona and every declared child**, including future
-  personas, research helpers and team changes. `agents` and `subagents` contain
-  exceptions. To preserve a persona's existing selection, omit it from `agents`.
+- `defaults` supplies **every role and every declared child**, including research
+  helpers. `agents` and `subagents` contain exceptions. To preserve a role's
+  existing selection, omit it from `agents`.
   Each selection accepts a
   model string or `{model, thinking}`.
   Unspecified thinking inherits defaults, then `off`. Tool caps and delegation
-  depth remain unchanged. Unknown persona/child names are rejected, except a
-  leftover `orchestrator` entry from before that persona was retired, which is ignored.
+  depth remain unchanged. Unknown role/child names are rejected, including a retired
+  persona name such as `builder`, except a leftover `orchestrator` entry from before
+  that persona was retired, which is ignored.
   `agents` also accepts `<role>.<practice>` keys (`editor.planning: { model, thinking }`)
   for a practice-level selection; see [Per-practice models](#per-practice-models).
 - `dispatcher` changes the current Pi session's model and thinking. When omitted,
@@ -1173,7 +1203,7 @@ and manual model/sub-role/substitution settings are restored before applying the
 next profile. A fresh Pi session clears the active profile; select it again there.
 
 The profile is passed through the owned process tree. Workflow commands started
-from that session inherit its persona models, thinking, panel and fallback policy.
+from that session inherit its role models, thinking, panel and fallback policy.
 Separately started fleet sessions/standing peers retain their own configuration.
 The bundled `local-full` profile explicitly covers all shipped child roles and needs
 no project model overrides. Every role, service and panel entry uses the single
@@ -1193,7 +1223,7 @@ does not authorize live requests or calibrate the policy. See the
 
 ### Fleet Dashboard thinking shortcut
 
-In the Fleet Dashboard (**Alt+A**), select a native specialist or research persona
+In the Fleet Dashboard (**Alt+A**), select a native role or the researcher
 with **↑/↓**, then use **←/→** to decrease/increase its thinking level
 (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). The arrows stop at either end.
 Changes are session-only and apply on the next dispatch or `spawn_research`,

@@ -39,7 +39,7 @@ Pin the exact version when the run has to be reproducible:
 npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
-**Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
+**Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. It includes the three agent roles (`persona:researcher`, `persona:reviewer`, `persona:editor`, catalogue group "Agent roles"), which the Hub also brings in whenever it is selected; they install to `.pi/agents/personas/<role>.md`. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
 `claude-bridge`, and the experimental `system1` and
 `system1-task-triage`), not an
 arbitrary package-entry mode — `setup --help` lists them. Experimental features
@@ -207,7 +207,7 @@ flag such as `--project`.
 
 ```bash
 just fleet doctor    # exit 0 = nothing to repair, 2 = repairable findings
-just fleet           # Hub in operator work mode, empty native roster
+just fleet           # Hub/operator with the editor, researcher and reviewer roles
 ```
 
 From here on `just fleet setup`, `just fleet doctor`, and `just fleet uninstall`
@@ -349,7 +349,7 @@ first, take `theirs`, then re-apply it.
 ### Keeping local edits across updates
 
 If you have customized an installed artifact — a skill under `.pi/skills/`, a
-persona under `.pi/agents/personas/` — understand that `setup` is a **reconcile to the
+role definition under `.pi/agents/personas/` — understand that `setup` is a **reconcile to the
 package**, not a merge in your favour. A file you edited where upstream did not
 change is refreshed and your edit is overwritten, without a conflict and without
 a prompt. `--dry-run` is what makes this visible before it happens.
@@ -357,7 +357,7 @@ a prompt. `--dry-run` is what makes this visible before it happens.
 The durable ways to customize:
 
 - **`.ai/agent-fleet-overrides.md`** — human-owned, never overwritten. Spec/plan
-  paths, dev server, branch policy, per-persona models, dispatcher language.
+  paths, dev server, branch policy, per-role and per-practice models, dispatcher language.
   See [agent-fleet-setup.md](agent-fleet-setup.md). This is the intended door.
 - **Your own artifacts** — a skill under a name Agent Fleet does not ship is not
   in the catalogue, so no lifecycle command touches it.
@@ -366,7 +366,11 @@ The durable ways to customize:
   installed but not in this selection`).
 
 Editing a shipped artifact in place is the one approach the lifecycle actively
-works against.
+works against. To change a role's prompt or model, use the overrides file or see
+[customizing a role](agents.md#customizing-a-role).
+
+For the personas retired in 2.3.0, see
+[Upgrading to the three agent roles](#upgrading-to-the-three-agent-roles).
 
 ## What reconcile does to each file
 
@@ -419,6 +423,32 @@ you: it moves to `.pi/agent-fleet/hooks/coms-stop-hook.mjs`, and Claude Code
 only runs it once `.claude/settings.json` names it. `setup` prints the snippet
 with the current path when it installs the hook. Nothing else installs under
 `.claude/` any more.
+
+## Upgrading to the three agent roles
+
+The package now ships three role definitions — `researcher`, `reviewer` and
+`editor` — instead of the earlier personas (`builder`, `code-reviewer`,
+`test-engineer`, …). Their item ids stay `persona:researcher`,
+`persona:reviewer` and `persona:editor`, and installing the Hub
+(`pi-harness:agent-hub`) always installs all three. Run `setup` once:
+
+- A retired persona your install record owns leaves the catalogue, so `setup`
+  removes it under the ownership rule: an unedited copy is deleted, an edited
+  one is kept, drops out of the record, and is yours from then on. A definition
+  the installer never recorded is not touched.
+- `setup` never edits `.ai/agent-fleet-overrides.md` or
+  `.pi/agents/model-profiles.yaml`. A key there that still names a retired
+  persona (`model.builder`, `thinking.planner`, a profile's `builder:` entry)
+  is dead config the Hub never applies.
+- `doctor` reports what is left for you, read-only and never auto-fixed: each
+  such key with its file and line and the exact replacement key where there is
+  one (`model.builder` → `model.editor.implementation`), or the role and
+  practices to choose from where a persona had more than one use; and each
+  leftover definition file named for a retired persona.
+- `uninstall` refuses to remove a single role while the Hub stays installed.
+
+The persona → role + practices mapping and the other changes of this release are
+in the [migration guide](MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
 
 ## Desired state and migration
 

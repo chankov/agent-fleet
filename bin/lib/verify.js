@@ -51,6 +51,9 @@ export const ADVISORY_FINDINGS = new Set([
   "legacy-target",
   "overrides",
   "yaml-shape",
+  // A leftover definition file for a retired persona: the Hub ignores it, and
+  // it may be a copy the user edited, so it is reported, never a defect.
+  "retired-persona",
   "pi-package-ownership",
 ]);
 
@@ -185,11 +188,18 @@ export async function runVerify({
 
   for (const entry of items) {
     for (const rel of entry.legacyTargets ?? []) {
+      // A file named like a role in agents/ is also how a project replaces that
+      // role's prompt or model (the role ceiling still applies), so say both.
+      const role = entry.id.startsWith("persona:") ? entry.id.slice("persona:".length) : null;
       findings.push({
         type: "legacy-target",
         path: rel,
-        issue: `${entry.id} used to install here; the runtime still loads it`,
-        fix: `re-run install to retire it (kept if you edited it), or delete ${rel} by hand`,
+        issue: role
+          ? `${rel} replaces the installed ${role} role's prompt and model (the role ceiling still applies); ${entry.id} also used to install here`
+          : `${entry.id} used to install here; the runtime still loads it`,
+        fix: role
+          ? `keep it if you customize the ${role} role on purpose; otherwise delete it, or re-run setup, which removes it only while it matches the shipped file`
+          : `re-run install to retire it (kept if you edited it), or delete ${rel} by hand`,
       });
     }
     if (entry.owned && entry.retired) {
@@ -420,7 +430,7 @@ function evaluateItem({ item, binding, workspace, sourceRoot, baseRoot, recorded
         })];
 
     // A directory target can exist because a *different* item writes inside it
-    // — `.pi/agents/` holds both the fleet YAML and the installed personas. An
+    // — `.pi/agents/` holds both the fleet YAML and the installed roles. An
     // item we never installed, none of whose leaves are present, is absent, not
     // half-broken; only a recorded item can go missing.
     const allLeavesMissing = files.length > 0 && files.every((f) => f.state === "missing");

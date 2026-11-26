@@ -270,11 +270,11 @@ async function cmdSetHermesTelegram() {
 //     file the doctor restores is byte-identical to one `install` writes. That
 //     is the guarantee the whole plan exists for: setup and repair cannot drift.
 //   • the legacy scan — for what the state file cannot own: broken links in a
-//     pre-engine workspace, and stale persona names inside YAML the manifest
-//     does not manage. These need rename heuristics, not a manifest lookup.
+//     pre-engine workspace. These need rename heuristics, not a manifest lookup.
 //
-// Everything else the scan reports (overrides problems, non-role dispatch routes)
-// is advisory: printed, never auto-fixed, because the fix is always a hand edit.
+// Everything else the scan reports (overrides problems, non-role dispatch routes,
+// retired persona definition files and keys) is advisory: printed, never
+// auto-fixed, because the fix is always a hand edit.
 function warnAlias(name) { console.error(`Warning: ${name} is deprecated; use setup.`); }
 
 async function cmdConfigure() {
@@ -481,7 +481,7 @@ async function cmdDoctor() {
     catch (err) { fail(`cannot recover pending transaction: ${err.message}`); }
   }
 
-  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "system1", "system1-binding", "task-triage"]);
+  const ADVISORY_FINDING_TYPES = new Set(["overrides", "yaml-shape", "retired-persona", "system1", "system1-binding", "task-triage"]);
   // These findings affect launch readiness and the doctor exit code, but npm
   // execution remains behind its dedicated explicit-consent commands.
   const MANUAL_FINDING_TYPES = new Set(["runtime-dependencies", "manifest-tool"]);

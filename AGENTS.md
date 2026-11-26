@@ -8,7 +8,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 ## Repository Overview
 
-Agent Fleet is a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) with a library of lifecycle skills and agent personas for Pi.
+Agent Fleet is a Pi-centered multi-agent orchestration system (agent-hub dispatcher, herdr fleet control plane, coms peer messaging, Hermes remote control) with a library of lifecycle skills and three runtime roles (researcher, reviewer, editor) for Pi.
 
 ## Project Philosophy
 
@@ -95,21 +95,21 @@ Correct behavior:
 
 This keeps workflow enforcement identical across every supported runtime.
 
-## Orchestration: Personas, Skills, and Commands
+## Orchestration: Roles, Practices, Skills, and Commands
 
 This repo has three composable layers. They have different jobs and should not be confused:
 
 - **Skills** define workflows with steps and exit criteria. Invoke the matching skill from its `SKILL.md`.
-- **Personas** (`agents/<role>.md`) — roles with a perspective and an output format. The *who*.
-- **Slash commands** (`.pi/prompts/af-*.md`) — user-facing entry points. The *when*. The orchestration layer.
+- **Roles and practices** — the Agent Hub dispatches only three roles: `researcher` (read-only investigation, via `spawn_research`), `reviewer` (read-only independent assessment; never approves its author's work) and `editor` (writes within the authorized scope). Each assignment attaches practices (`planning`, `implementation`, `testing`, `security`, `release`, …) that add method and expected evidence, never authority. The role files are `agents/{researcher,reviewer,editor}.md`; the ceilings and the practice catalogue are code (`.pi/harnesses/agent-hub/config/roles.ts`, `practices.ts`). The *who* and *what evidence*.
+- **Slash commands** (`.pi/prompts/af-*.md`) — user-facing entry points. The *when*.
 
-Composition rule: **the user (or a slash command) is the orchestrator. Personas do not invoke other personas.** A persona may invoke skills.
+Composition rule: **the Hub operator, a deterministic flow or the user composes the work. Roles do not dispatch other roles.** A practice loads skills.
 
-The multi-persona pattern this repo endorses in a plain session is **parallel fan-out with a merge step** — used by `/af-ship` to run `code-reviewer`, `security-auditor`, and `test-engineer` concurrently and synthesize their reports. Do not build a "router" persona that decides which other persona to call; that's the job of slash commands and intent mapping. The `agent-hub` harness is the sanctioned exception: the generated dispatcher prompt dispatches specialists under a Verification Contract, with that orchestration living in the harness rather than a peer persona calling another.
+Example: `dispatch_agent({ agent: "editor", practices: ["planning", "implementation", "testing"], task: "…", scope: ["src/export"] })`. Parallel editors need `parallel: true` and disjoint scopes against an agreed interface, a dependent assignment waits with `after: [...]`, and work split across editors closes with one independent review of the integrated change. Retired persona names (`builder`, `code-reviewer`, `planner`, …) are refused with their role + practice mapping. The `release` practice prepares a release; publishing (`git push`, `npm publish`, …) needs separate explicit permission. Do not build a "router" agent that only decides which other agent to call.
 
-See [docs/agents.md](docs/agents.md) for the decision matrix and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
+See [docs/agents.md](docs/agents.md) for the role and practice catalogue and the migration mapping, and [references/orchestration-patterns.md](references/orchestration-patterns.md) for the full pattern catalog.
 
-**Claude Code interop:** a Claude Code pane joins a fleet as a coms peer, not as a persona host. It carries no persona file — `runner: claude-code` in `.pi/agents/peers.yaml` spawns the CLI plus `.pi/agent-fleet/scripts/coms-claude-bridge.ts`, and the peer's name is what other agents address. `.pi/agents/dispatch-policy.yaml` can then route an agent-hub team member's `dispatch_agent` call to that live peer. See `docs/claude-code-coms-bridge.md`.
+**Claude Code interop:** a Claude Code pane joins a fleet as a coms peer, not as a role host. It carries no role file — `just fleet peer <name> --runner claude-code [--read-only]` spawns the CLI plus `.pi/agent-fleet/scripts/coms-claude-bridge.ts`, and the peer's name is what other agents address. `.pi/agents/dispatch-policy.yaml` can then route a role to that live peer (`reviewer: { peer: claude-reviewer, prefer: coms, fallback: native }`); a read-only role reaches only a peer started with `--read-only`. See `docs/claude-code-coms-bridge.md`.
 
 ## Creating a New Skill
 

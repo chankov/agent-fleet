@@ -47,7 +47,7 @@ Every phase declares:
 
 - `name`: stable machine-readable phase name;
 - `kind`: `engineer`, `agent`, or `code`;
-- `owner`: operator, persona, or deterministic subsystem;
+- `owner`: operator, runtime role, or deterministic subsystem;
 - `description`: one sentence explaining why the phase exists;
 - `retries`: optional bounded correction rounds.
 
@@ -90,14 +90,15 @@ An interrupted run must not remain marked `running`.
 
 ## Agent phase construction
 
-Resolve personas through the existing agent scanner.
-Use the persona model, fallback model, thinking level, tools, system prompt, and additive `writes` declaration.
+Resolve the phase's runtime role (`researcher`, `reviewer` or `editor`) through the existing agent scanner; retired persona names are not resolved.
+Use the role model, fallback model, thinking level, tools, system prompt, and additive `writes` declaration.
+A phase that names a practice takes that practice's model: an active complete profile's `<role>.<practice>` entry, else the role file's `practice_models:` entry, else the role model.
 Build a replacement specialist prompt and context manifest.
 Do not inherit the hub prompt.
 Spawn through `spawnPiAgentWithModelFallback` with detached process-group ownership.
 Load `damage-control-continue` for the child.
 Keep the tool watchdog and whole-turn deadline enabled.
-Store each persona session at `.pi/flow-sessions/<runId>/<agentKey>/session.json`.
+Store each agent session at `.pi/flow-sessions/<runId>/<agentKey>/session.json`.
 Resume the same session for corrections.
 Recycle before spawn when projected prompt use exceeds the resolved context window.
 
@@ -128,7 +129,7 @@ For every agent phase, synchronize:
 A schema-only edit is incomplete.
 A prompt-only edit is incomplete.
 A call-site-only edit is incomplete.
-Personas keep the shared return-contract vocabulary and need no flow-only rewrite.
+Role files keep the shared return-contract vocabulary and need no flow-only rewrite.
 
 ## Correction loop
 
@@ -158,8 +159,8 @@ Gates verify claims; they do not replace envelope validation.
 
 ## Writes boundary
 
-Persona `writes` is additive frontmatter and remains ignored by the hub.
-A flow agent phase must have either persona `writes` or an explicit call-site permission policy; omission is refused before spawn.
+Role-file `writes` is additive frontmatter and remains ignored by the hub.
+A flow agent phase must have either role-file `writes` or an explicit call-site permission policy; omission is refused before spawn.
 Use `writes: []` for repository read-only.
 A non-empty list is an allowlist; use an explicit `writes: ["**"]` call-site policy when a workflow intentionally permits repository-wide changes.
 Runtime session files are always writable.
@@ -197,7 +198,7 @@ When at base and clean, fall back to `HEAD~1`.
 Name untracked files explicitly because `git diff` omits them.
 Bound diff text with `maxDiffLines`.
 Record how many lines were hidden.
-The reason belongs in the trace and in the documenter's context.
+The reason belongs in the trace and in the documenting editor's context.
 
 ## Commit placement
 
@@ -205,7 +206,7 @@ Commit only after deterministic verification succeeds.
 A build-test flow commits once after the suite is green.
 An exhausted repair loop commits nothing.
 A document flow commits only gated documentation.
-Commit only changes introduced after the recorded baseline and allowed by persona policy.
+Commit only changes introduced after the recorded baseline and allowed by the phase's writes policy.
 The commit message comes from the validated envelope.
 A no-change result is logged and is not an error.
 
@@ -223,7 +224,7 @@ Dry-run is an authoring gate, not a substitute for focused unit tests.
 
 `make-workflow.ts` reads every `wf-*.ts` phase docstring.
 It classifies explicit `engineer(...)`, `agent(...)`, and `code(...)` kinds.
-It parses separators only at parenthesis depth zero, so annotations such as `agent(builder-fix, bounded)` remain one phase.
+It parses separators only at parenthesis depth zero, so annotations such as `agent(editor-fix, bounded)` remain one phase.
 It computes deterministic edit distance over the resulting phase-kind sequences.
 Length difference participates in scoring after edit distance.
 Workflow name breaks exact score ties.

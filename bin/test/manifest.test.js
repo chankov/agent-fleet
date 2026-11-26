@@ -222,31 +222,61 @@ test("command sources never cross agents", () => {
   }
 });
 
-test("every persona is offered, including the ones coupled to the pi runtime", () => {
-  for (const name of ["bowser", "web-debugger", "code-reviewer"]) {
-    const item = manifest.items.find((i) => i.id === `persona:${name}`);
-    assert.deepEqual(Object.keys(item.agents), [...MANIFEST_AGENTS], name);
+// The 13 personas retired by PLAN-11-01 (D1); the Hub refuses them at dispatch.
+const RETIRED_PERSONA_IDS = [
+  "architect", "bowser", "builder", "code-reviewer", "deep-researcher", "documenter", "plan-reviewer",
+  "planner", "releaser", "security-auditor", "test-engineer", "web-debugger", "web-performance-auditor",
+].map((name) => `persona:${name}`);
+
+test("the catalogue offers exactly the three runtime roles, under their persona:* ids (D24)", () => {
+  const roles = manifest.items.filter((i) => i.kind === "persona").map((i) => i.id);
+  assert.deepEqual(roles, ["persona:editor", "persona:researcher", "persona:reviewer"]);
+  for (const id of roles) {
+    const item = manifest.items.find((i) => i.id === id);
+    assert.deepEqual(Object.keys(item.agents), [...MANIFEST_AGENTS], id);
+    assert.equal(item.group, "personas", id);
+    assert.equal(item.recommended, true, `${id} is recommended`);
   }
+  assert.equal(manifest.groups.find((g) => g.id === "personas").title, "Agent roles");
+  assert.deepEqual(manifest.items.find((i) => i.id === "persona:editor").subcategory, "rw");
+  for (const id of ["persona:researcher", "persona:reviewer"]) assert.equal(manifest.items.find((i) => i.id === id).subcategory, "ro", id);
+  // No retired id survives anywhere in the hand-edited half or the generated catalogue.
+  const text = JSON.stringify(meta) + serializeManifest(manifest);
+  for (const id of RETIRED_PERSONA_IDS) assert.equal(text.includes(`"${id}"`), false, `${id} is still referenced`);
 });
 
-test("personas are copied verbatim — agents/*.md is already pi's own dialect", () => {
-  const item = manifest.items.find((i) => i.id === "persona:builder");
+test("the Hub requires all three roles, and each role is pinned by it (D7)", () => {
+  const hub = manifest.items.find((i) => i.id === "pi-harness:agent-hub");
+  const roles = ["persona:editor", "persona:researcher", "persona:reviewer"];
+  for (const id of roles) {
+    assert.ok(hub.requires.includes(id), `pi-harness:agent-hub requires ${id}`);
+    assert.deepEqual(manifest.items.find((i) => i.id === id).pinnedBy, ["pi-harness:agent-hub"], id);
+  }
+  const { selected } = resolveSelection(manifest, "pi", { items: ["pi-harness:agent-hub"] });
+  for (const id of roles) assert.ok(selected.includes(id), `selecting the Hub installs ${id}`);
+  assert.deepEqual(manifest.presets.default.items.filter((id) => id.startsWith("persona:")), roles);
+  const orchestration = manifest.items.find((i) => i.id === "skill:orchestration-verification");
+  assert.deepEqual(orchestration.recommendsWith, ["persona:editor", "persona:reviewer"]);
+  assert.deepEqual(manifest.items.find((i) => i.id === "skill:compound-learning").recommendsWith, ["command:compound", "persona:editor"]);
+});
+
+test("roles are copied verbatim — agents/*.md is already pi's own dialect", () => {
+  const item = manifest.items.find((i) => i.id === "persona:editor");
   assert.deepEqual(Object.keys(item.agents), ["pi"]);
   assert.equal(item.agents["pi"].strategy, "copy-file");
-  assert.equal(item.agents["pi"].source[0], "agents/builder.md");
-  // The workspace keeps its root clean: personas land beside the fleet YAML
+  assert.equal(item.agents["pi"].source[0], "agents/editor.md");
+  // The workspace keeps its root clean: roles land beside the fleet YAML
   // configuration, in a subdirectory of their own.
-  assert.equal(item.agents["pi"].target, ".pi/agents/personas/builder.md");
+  assert.equal(item.agents["pi"].target, ".pi/agents/personas/editor.md");
   // ...and the pre-2.1 path is declared so a surviving copy is reported
   // instead of silently shadowing the installed one (scanAgentDirs reads
   // `agents/` first).
-  assert.deepEqual(item.agents["pi"].legacyTargets, ["agents/builder.md"]);
+  assert.deepEqual(item.agents["pi"].legacyTargets, ["agents/editor.md"]);
 });
 
-test("every persona declares its pre-2.1 agents/ path as a legacy target", () => {
+test("every role declares its pre-2.1 agents/ path as a legacy target", () => {
   const personas = manifest.items.filter((i) => i.kind === "persona");
-  // 14 since the orchestrator catalog persona went with its work mode (2026-11-11).
-  assert.ok(personas.length >= 14);
+  assert.equal(personas.length, 3, "researcher, reviewer and editor are the only shipped definitions (PLAN-11-01)");
   assert.equal(personas.some((i) => i.id === "persona:orchestrator"), false);
   for (const item of personas) {
     const name = item.id.slice("persona:".length);

@@ -70,18 +70,18 @@ test('build-test at a non-Git workspace root builds, verifies and commits inside
   for(const name of ['rin-docs','ringithub']){const repo=join(root,name);mkdirSync(repo);git(repo,'init','-q');for(const [key,value] of [['user.name','Fixture'],['user.email','f@example.test'],['commit.gpgsign','false']])git(repo,'config',key,value);writeFileSync(join(repo,'marker'),name);git(repo,'add','.');git(repo,'commit','-qm','initial');}
   // An installed workspace: Fleet resources at the root, never inside a nested repository.
   mkdirSync(join(root,'.ai'));mkdirSync(join(root,'.pi/agents/personas'),{recursive:true});
-  copyFileSync(join(source,'agents/builder.md'),join(root,'.pi/agents/personas/builder.md'));copyFileSync(join(source,'.pi/damage-control-rules.yaml'),join(root,'.pi/damage-control-rules.yaml'));symlinkSync(join(source,'.pi/harnesses'),join(root,'.pi/harnesses'));
+  copyFileSync(join(source,'agents/editor.md'),join(root,'.pi/agents/personas/editor.md'));copyFileSync(join(source,'.pi/damage-control-rules.yaml'),join(root,'.pi/damage-control-rules.yaml'));symlinkSync(join(source,'.pi/harnesses'),join(root,'.pi/harnesses'));
   writeFileSync(join(root,'.ai/agent-fleet-overrides.md'),`## workflows\nquality: ${process.execPath} -e "process.exit(1)"\nquality.ringithub: ${process.execPath} -e "require('fs').accessSync('feature.txt')"\n`);
   writeFileSync(join(bin,'pi'),`#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(process.env.FAKE_PI_CALLS,JSON.stringify({cwd:process.cwd()})+'\\n');fs.writeFileSync('feature.txt','built\\n');\nconst report=JSON.stringify({status:'success',summary:'Feature built',artifacts:[],notes_for_next_agent:'',changed_files:['feature.txt'],commit_message:'feat: add the feature'});\nprocess.stdout.write(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:report}})+'\\n');\n`);chmodSync(join(bin,'pi'),0o755);
   const ringithub=join(root,'ringithub'),before=git(ringithub,'rev-parse','HEAD'),docsHead=git(join(root,'rin-docs'),'rev-parse','HEAD');
   for(const [args,status,message] of [[['--worktree','rin-docs','--worktree','ringithub'],2,/Duplicate --worktree/],[['--worktree','rin-docs,ringithub'],3,/rin-docs,ringithub/]] as const){
    const refused=cli('build-test',...args,'--branch','--run-id','two-repositories','add the feature');assert.equal(refused.status,status,refused.stderr);assert.match(refused.stderr,message);
   }
-  assert.equal(existsSync(calls),false,'a flow over two repositories never starts the builder');
+  assert.equal(existsSync(calls),false,'a flow over two repositories never starts the editor');
   const built=cli('build-test','--worktree','ringithub','--branch','--run-id','nested-build','add the feature');
   const diagnostics=JSON.stringify({error:built.error?.message,status:built.status,signal:built.signal,stdout:built.stdout,stderr:built.stderr});
   assert.equal(built.error,undefined,diagnostics);assert.equal(built.signal,null,diagnostics);assert.equal(built.status,0,diagnostics);assert.match(built.stdout+built.stderr,/FLOW ACCEPTED/,diagnostics);
-  assert.deepEqual(readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line).cwd),[ringithub],'the builder ran once, inside ringithub');
+  assert.deepEqual(readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line).cwd),[ringithub],'the editor ran once, inside ringithub');
   assert.equal(git(ringithub,'branch','--show-current'),'flow/build-test-nested-build');assert.equal(git(ringithub,'rev-parse','HEAD~1'),before);
   assert.equal(git(ringithub,'log','-1','--format=%s'),'feat: add the feature');assert.equal(git(ringithub,'show','--name-only','--format=','HEAD'),'feature.txt');assert.equal(git(ringithub,'status','--porcelain'),'');
   const trace=join(root,'.pi/flow-sessions/targets',resolveSessionRoots(root,{worktree:'ringithub'}).targetId,'nested-build');assert.ok(existsSync(join(trace,'trace.jsonl')),'the trace stays at the workspace root');

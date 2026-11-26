@@ -33,7 +33,7 @@ function visible(models) {
 }
 
 const PERSONA = `---
-name: builder
+name: editor
 description: stub
 tools: read
 model: missing/model
@@ -47,7 +47,7 @@ stub
 
 test("model-visibility names the persona or voice, model, and failed check", async () => {
   const ws = workspace({
-    "agents/builder.md": PERSONA,
+    "agents/editor.md": PERSONA,
     ".pi/agents/voices.yaml": `default:\n  - name: sol\n    model: bad/voice\n  - name: grok\n    model: also/voice\n`,
   });
   try {
@@ -61,14 +61,14 @@ test("model-visibility names the persona or voice, model, and failed check", asy
       assert.ok(f.model);
       assert.equal(f.check, "child-visible");
     }
-    assert.ok(findings.some((f) => f.issue.includes('persona "builder"') && f.issue.includes("missing/model") && f.path === "agents/builder.md"));
-    assert.ok(findings.some((f) => f.issue.includes('subagent "builder/scout"') && f.issue.includes("also/missing")));
+    assert.ok(findings.some((f) => f.issue.includes('persona "editor"') && f.issue.includes("missing/model") && f.path === "agents/editor.md"));
+    assert.ok(findings.some((f) => f.issue.includes('subagent "editor/scout"') && f.issue.includes("also/missing")));
     assert.ok(findings.some((f) => f.issue.includes('voice "default/sol"') && f.path === ".pi/agents/voices.yaml"));
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
 test("missing voices.yaml is not a finding", async () => {
-  const ws = workspace({ "agents/builder.md": PERSONA });
+  const ws = workspace({ "agents/editor.md": PERSONA });
   try {
     const findings = await runDoctor({ workspace: ws, sourceRoot, checkVisibility: visible });
     assert.equal(findings.filter((f) => f.type === "model-visibility").length, 0);
@@ -77,19 +77,19 @@ test("missing voices.yaml is not a finding", async () => {
 });
 
 test("doctor does not auto-fix model-visibility findings", async () => {
-  const ws = workspace({ "agents/builder.md": PERSONA });
+  const ws = workspace({ "agents/editor.md": PERSONA });
   try {
-    const before = readFileSync(join(ws, "agents/builder.md"), "utf8");
+    const before = readFileSync(join(ws, "agents/editor.md"), "utf8");
     const applied = await runDoctor({ workspace: ws, sourceRoot, apply: true, checkVisibility: hidden });
     assert.deepEqual({ repaired: applied.repaired, deleted: applied.deleted }, { repaired: 0, deleted: 0 });
-    assert.equal(readFileSync(join(ws, "agents/builder.md"), "utf8"), before);
+    assert.equal(readFileSync(join(ws, "agents/editor.md"), "utf8"), before);
     const findings = applied.findings.filter((f) => f.type === "model-visibility");
     assert.ok(findings.length >= 1);
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
 test("visible models produce no model-visibility findings", async () => {
-  const ws = workspace({ "agents/builder.md": PERSONA });
+  const ws = workspace({ "agents/editor.md": PERSONA });
   try {
     const findings = (await runDoctor({
       workspace: ws, sourceRoot, checkVisibility: visible,
@@ -98,13 +98,25 @@ test("visible models produce no model-visibility findings", async () => {
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("a definition that is not a role is not a visibility target — the Hub never loads it (D2)", async () => {
+  const retired = PERSONA.replace("name: editor", "name: builder");
+  const ws = workspace({ "agents/builder.md": retired, ".pi/agents/personas/my-own.md": PERSONA.replace("name: editor", "name: my-own") });
+  try {
+    assert.deepEqual(collectModelTargets(ws), []);
+    const findings = await runDoctor({ workspace: ws, sourceRoot, checkVisibility: hidden });
+    assert.equal(findings.filter((f) => f.type === "model-visibility").length, 0);
+    // The retired file is reported once, as what it is.
+    assert.deepEqual(findings.filter((f) => f.type === "retired-persona").map((f) => f.path), ["agents/builder.md"]);
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test('doctor includes complete profile defaults, child roles, services and inline voices',()=>{
  const dir=mkdtempSync(join(tmpdir(),'profile-doctor-'));
  try{
   mkdirSync(join(dir,'.pi','agents'),{recursive:true});
-  writeFileSync(join(dir,'.pi','agents','model-profiles.yaml'),`local:\n  version: 2\n  defaults: {model: omlx/laguna}\n  dispatcher: omlx/laguna\n  subagents:\n    builder:\n      recon: omlx/qwen\n  services:\n    watchdog: omlx/laguna\n  panel:\n    - {name: second, model: omlx/qwen}\n`);
+  writeFileSync(join(dir,'.pi','agents','model-profiles.yaml'),`local:\n  version: 2\n  defaults: {model: omlx/laguna}\n  dispatcher: omlx/laguna\n  subagents:\n    editor:\n      recon: omlx/qwen\n  services:\n    watchdog: omlx/laguna\n  panel:\n    - {name: second, model: omlx/qwen}\n`);
   const targets=collectModelTargets(dir);
-  assert.ok(targets.some(t=>t.subject==='local/builder/recon'&&t.model==='omlx/qwen'));
+  assert.ok(targets.some(t=>t.subject==='local/editor/recon'&&t.model==='omlx/qwen'));
   assert.ok(targets.some(t=>t.subject==='local/panel/second'));
   assert.ok(targets.some(t=>t.subject==='local/defaults'));
  }finally{rmSync(dir,{recursive:true,force:true});}

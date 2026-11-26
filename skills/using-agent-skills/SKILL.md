@@ -39,10 +39,10 @@ Task arrives
     ├── Deprecating/migrating? ────────→ deprecation-and-migration
     ├── Writing docs/ADRs? ───────────→ documentation-and-adrs
     ├── Adding logs/metrics/alerts? ───→ observability-and-instrumentation
-    ├── Orchestrating a multi-agent team? → orchestration-verification
+    ├── Orchestrating multiple agents? → orchestration-verification
     │   └── "Make X behave like Y"? ──→ orchestration-verification (parity inventory)
     ├── Session ending with lessons worth keeping? → compound-learning
-    ├── Authoring a new skill/persona? ─→ designing-agents
+    ├── Authoring a skill/role prompt? → designing-agents
     └── Deploying/launching? ─────────→ shipping-and-launch
 ```
 
@@ -195,4 +195,4 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Ship | shipping-and-launch | Pre-launch checklist, monitoring, rollback plan |
 | Orchestrate | orchestration-verification | Acceptance assertions, parity inventory, structured returns |
 | Learn | compound-learning | Session lessons → deduped, capped diffs on the project's rules/docs |
-| Author | designing-agents | Author a persona, workflow skill, or pi harness |
+| Author | designing-agents | Author a role prompt, workflow skill, or pi harness |

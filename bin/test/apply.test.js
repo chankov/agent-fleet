@@ -475,7 +475,7 @@ test("real manifest: install pi/recommended, verify clean, re-plan empty", async
   assert.ok(applied.summary.applied > 15, "the recommended profile is not empty");
   assert.ok(existsSync(join(workspace, ".pi/skills/test-driven-development/SKILL.md")));
   assert.ok(existsSync(join(workspace, ".pi/prompts/af-build.md")));
-  assert.ok(existsSync(join(workspace, ".pi/agents/personas/builder.md")));
+  for (const role of ["editor", "researcher", "reviewer"]) assert.ok(existsSync(join(workspace, `.pi/agents/personas/${role}.md`)), role);
 
   const report = await runVerify({ ...common, includeDoctor: false });
   assert.equal(hasDrift(report), false, "a fresh install must verify clean");
@@ -484,22 +484,22 @@ test("real manifest: install pi/recommended, verify clean, re-plan empty", async
   assert.equal(again.summary.changes, 0, "installing twice must be a no-op");
 });
 
-test("real manifest: a persona installs as a verbatim copy of the canonical file", () => {
+test("real manifest: a role installs as a verbatim copy of the canonical file", () => {
   const workspace = tmp("real-persona");
   const manifest = loadManifest(repoRoot);
   const plan = buildPlan({
     workspace, sourceRoot: repoRoot, packageVersion: manifest.packageVersion,
-    manifest, agent: "pi", items: ["persona:code-reviewer"], platform: "linux",
+    manifest, agent: "pi", items: ["persona:reviewer"], platform: "linux",
   });
   applyPlan({ plan, manifest });
 
-  const installed = read(workspace, ".pi/agents/personas/code-reviewer.md");
-  const canonical = readFileSync(join(repoRoot, "agents/code-reviewer.md"), "utf8");
+  const installed = read(workspace, ".pi/agents/personas/reviewer.md");
+  const canonical = readFileSync(join(repoRoot, "agents/reviewer.md"), "utf8");
 
   // agents/*.md is written in pi's own dialect, so there is nothing to
   // translate — install is a copy, and the state records it as one.
   assert.equal(installed, canonical);
-  assert.equal(readState(workspace).items["persona:code-reviewer"].files[0].mode, "copy");
+  assert.equal(readState(workspace).items["persona:reviewer"].files[0].mode, "copy");
 });
 
 test("real manifest: a fresh install leaves no stray files behind", () => {

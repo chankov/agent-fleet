@@ -11,7 +11,7 @@ export interface RouteInputs {
 }
 
 export interface RouteDecision {
-	route: "builder-reviewer";
+	route: "editor-reviewer";
 	reason: string;
 	reclassified: boolean;
 	record: {
@@ -36,7 +36,7 @@ function recordOf(input: RouteInputs): RouteDecision["record"] {
 export function selectSpecialists(input: RouteInputs, signals: { secret?: boolean; cloud?: boolean; contradiction?: boolean } = {}) {
 	const decision = classifyOrchestrationRoute(input);
 	const clarification = signals.contradiction || input.unresolvedForks.length > 0;
-	return { stages: ["builder", "reviewer"] as const, reason: [decision.reason,
+	return { stages: ["editor", "reviewer"] as const, reason: [decision.reason,
 		clarification ? "Resolve gaps with focused research; use ask_user grilling for additional decisions." : "",
 		signals.secret || signals.cloud ? "Sensitive-action authorization and independent review remain separate." : "",
 	].filter(Boolean).join(" ") };
@@ -47,7 +47,7 @@ export function authorizePlanStatusUpdate(input: { planPath: string; allowedScop
 	const inScope = input.allowedScope.some(root => path === root || path.startsWith(`${root.replace(/\\/g, "/")}/`));
 	if (!inScope) return { allowed: false, reason: "plan file is outside the permitted scope" };
 	if (!input.evidenceRefs.some(ref => ref.trim())) return { allowed: false, reason: "plan status requires evidence" };
-	return { allowed: true, reason: "builder may update plan status" };
+	return { allowed: true, reason: "the editor may update plan status" };
 }
 
 export function classifyOrchestrationRoute(input: RouteInputs, previous?: RouteDecision): RouteDecision {
@@ -60,9 +60,9 @@ export function classifyOrchestrationRoute(input: RouteInputs, previous?: RouteD
 		: "";
 	const reclassified = changes.length > 0 || !!forkChange;
 	const reason = [
-		"Execute the authorized task; Planner and plan review are optional, never admission prerequisites",
+		"Execute the authorized task; planning and plan review are optional, never admission prerequisites",
 		input.selfDeclaredSmall ? "self-declared small was ignored" : "",
 		reclassified ? `reclassified because ${[...changes, forkChange].filter(Boolean).join("; ")}` : "",
 	].filter(Boolean).join(". ");
-	return { route: "builder-reviewer", reason, reclassified, record };
+	return { route: "editor-reviewer", reason, reclassified, record };
 }

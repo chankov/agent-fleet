@@ -16,15 +16,26 @@ import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../.
 //   3. (retired) peers.yaml/teams.yaml scans — both files were removed with
 //      peer groups and native teams (PLAN-11-01, D7/D8/D16).
 //   4. Overrides-file problems — unknown sections/keys, invalid values, and
-//      unset declared env vars in .ai/agent-fleet-overrides.md. Advisory
-//      only: reported, never auto-fixed (the fix is always a hand edit).
+//      unset declared env vars in .ai/agent-fleet-overrides.md, plus agent-hub
+//      keys that name something other than a role (`model.<x>`, `models.<x>`,
+//      `thinking.<x>`, `subagents.<x>.<child>`, `delegate-depth.<x>`), with
+//      file:line; a retired persona name gets its exact replacement key or,
+//      when it maps to several assignments, the role-and-practice mapping
+//      (D22). Advisory only: reported, never auto-fixed (always a hand edit).
+//   4b. Retired persona leftovers (D1/D2/D22) — a definition file named for a
+//      retired persona in agents/, .claude/agents/, .pi/agents/personas/ or
+//      .pi/agents/ (type "retired-persona"), and a .pi/agents/model-profiles.yaml
+//      key naming one (flat, v2 `agents:`, v2 `subagents:`; type "yaml-shape").
+//      The Hub ignores both; doctor reports the mapping and never deletes or edits.
 //   5. Mixed skill/prompt ownership — project/global Pi settings enable
 //      `@chankov/agent-fleet` skills/prompts while `.ai/agent-fleet-state.json`
 //      also owns matching copied `skill:*` / `command:*` items. Advisory only:
 //      package vs copy ownership is a user choice; doctor --fix never mutates it.
-//   6. Model visibility — persona, delegate sub-role, and voices.yaml models
-//      that a clean-room `pi --no-extensions` child cannot see. Read-only:
-//      never auto-fixed. A missing voices.yaml is not a finding.
+//   6. Model visibility — role definition, delegate sub-role, model profile and
+//      voices.yaml models that a clean-room `pi --no-extensions` child cannot
+//      see. Definition files that are not a role are skipped: the Hub never
+//      loads them (4b reports the retired ones). Read-only: never auto-fixed.
+//      A missing voices.yaml is not a finding.
 //   7. Runtime dependencies — each installed npm root is checked with `npm ls`.
 //      Missing/broken dependencies are actionable but never auto-installed by
 //      doctor; use the explicit dependency or setup execution consent path.
@@ -36,14 +47,14 @@ import { loadSystem1Snapshot, providerDocument, readSystem1Selected } from "../.
 //      API validity is never inferred or probed.
 //
 // For each broken link we look up a canonical replacement in the source
-// `agents/` or `skills/` tree (many breakages are stale names from the
-// pre-merge layout, e.g. `reviewer` → `code-reviewer`).
+// `agents/` or `skills/` tree (many breakages are stale names from an older
+// layout, e.g. `tester` → `editor`).
 
 import { readdirSync, readlinkSync, existsSync, lstatSync, statSync, unlinkSync, symlinkSync, readFileSync, openSync, readSync, closeSync } from "node:fs";
 import { join, resolve, dirname, basename, relative, isAbsolute, sep, delimiter } from "node:path";
 import { homedir } from "node:os";
-import { parse as parseYaml } from "yaml";
-import { validateOverrides } from "./validate-overrides.js";
+import { parse as parseYaml, parseDocument, LineCounter, isMap, isScalar } from "yaml";
+import { validateOverrides, formatRetiredAssignments, OVERRIDE_ROLES } from "./validate-overrides.js";
 import { readInstallationState, assertLocalInstallation, RETIRED_INSTALLATION_OWNER_MESSAGE } from "../../.pi/harnesses/lib/installation-state.js";
 import { readState, STATE_REL_PATH } from "./state.js";
 import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
@@ -143,8 +154,14 @@ export async function runDoctor({ workspace, sourceRoot, apply = false, checkVis
   // 2./3. Dispatch routes keyed by something other than a role (advisory, never auto-fixed).
   findings.push(...await scanDispatchPolicyRoutes(workspace));
 
-  // 4. Advisory validation of the overrides file (never auto-fixed).
-  findings.push(...validateOverrides({ workspace }));
+  // 4. Advisory validation of the overrides file (never auto-fixed). The
+  // retired-persona mapping comes from the Hub's role table, not a copy.
+  const roles = await roleTable();
+  findings.push(...validateOverrides({ workspace, retiredPersonas: roles.assignments }));
+
+  // 4b. Retired persona definition files and profile keys (advisory, never deleted).
+  findings.push(...scanRetiredDefinitions(workspace, roles));
+  findings.push(...scanRetiredProfileKeys(workspace, roles));
 
   // 5. Mixed copied / package-native skill+prompt ownership (advisory, never auto-fixed).
   findings.push(...scanPiPackageOwnership({ workspace, sourceRoot }));
@@ -324,7 +341,7 @@ function taskTriageFinding(readiness, selected, configured = false, producers = 
     selected, configured, remoteApproved, readiness, apiValidity: "unverified",
     ...(producers ? { stageProducerStatus: producers.status, missingLocalProducers } : {}),
     issue: `Task triage: ${readiness}; API validity is unverified${missingLocalProducers.length ? `; locally missing ${missingLocalProducers.join(", ")}` : ""}`,
-    fix: missingLocalProducers.length ? `install the ${missingLocalProducers.join(" and ")} role definition${missingLocalProducers.length > 1 ? "s" : ""} (agent-fleet setup --items ${missingLocalProducers.map(name => `persona:${name}`).join(",")}, or add agents/<role>.md); doctor never changes them`
+    fix: missingLocalProducers.length ? `install the ${missingLocalProducers.join(" and ")} role definition${missingLocalProducers.length > 1 ? "s" : ""}: run agent-fleet setup (the Hub brings all three roles, ${OVERRIDE_ROLES.map(name => `persona:${name}`).join(", ")}), or add ${missingLocalProducers.map(name => `agents/${name}.md`).join(" and ")}; doctor never changes them`
       : readiness === "locally_ready" || readiness === "disabled_by_setup" || readiness === "disabled"
         ? "no automatic action" : "review the human-owned task triage configuration and local provider readiness; doctor never starts inference",
   };
@@ -372,8 +389,113 @@ let roleTablePromise;
 function roleTable() {
   roleTablePromise ??= import("../../.pi/harnesses/agent-hub/config/roles.ts")
     .then((roles) => ({ names: [...roles.ROLE_NAMES], retired: roles.retiredPersonaDiagnostic, assignments: roles.retiredAssignments }))
-    .catch(() => ({ names: ["researcher", "reviewer", "editor"], retired: () => null, assignments: () => null }));
+    .catch(() => ({ names: [...OVERRIDE_ROLES], retired: () => null, assignments: () => null }));
   return roleTablePromise;
+}
+
+/** The frontmatter `name:` of a definition file (the name the Hub uses), else its basename. */
+function definitionName(abs, fileName) {
+  let head = "";
+  try {
+    const fd = openSync(abs, "r");
+    try {
+      const buffer = Buffer.alloc(4096);
+      head = buffer.toString("utf8", 0, readSync(fd, buffer, 0, buffer.length, 0));
+    } finally { closeSync(fd); }
+  } catch { /* unreadable: fall back to the file name */ }
+  const frontmatter = head.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+  return (frontmatter.match(/^name:\s*["']?([^"'\r\n]+?)["']?\s*$/m)?.[1] ?? fileName.replace(/\.md$/, "")).trim().toLowerCase();
+}
+
+// A definition file under a retired persona name. The Hub loads only the three
+// role definitions and names each ignored file at session start (D1/D2), so
+// such a file is dead weight that still reads like a working agent. An install
+// record may own it until the next setup retires it; once setup kept an edited
+// copy it is the user's. Advisory either way: reported with the mapping, never
+// deleted — the user decides what of its prompt to carry into a role file.
+function scanRetiredDefinitions(workspace, roles) {
+  const owned = new Set(Object.values(readInstallationState(workspace).state?.items ?? {})
+    .flatMap((item) => (item?.files ?? []).map((file) => file?.path)).filter(Boolean));
+  const findings = [];
+  for (const rel of AGENT_DIRS) {
+    const dir = join(workspace, rel);
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (!entry.name.endsWith(".md")) continue;
+      const abs = join(dir, entry.name);
+      // A dangling link is the broken-symlink scan's finding, not this one.
+      try { if (!statSync(abs).isFile()) continue; } catch { continue; }
+      const name = definitionName(abs, entry.name);
+      const diagnostic = roles.retired(name);
+      if (!diagnostic) continue;
+      const path = `${rel}/${entry.name}`;
+      findings.push({
+        type: "retired-persona",
+        path,
+        classification: "advisory",
+        persona: name,
+        issue: `${diagnostic} The Hub ignores this definition file.`,
+        fix: owned.has(path)
+          ? "run agent-fleet setup to retire it (an unedited copy is removed; an edited one is kept, becomes yours, and stays reported here)"
+          : `carry anything you still need into a role file (${roles.names.map((role) => `agents/${role}.md`).join(", ")}), then delete it by hand; doctor never deletes it`,
+      });
+    }
+  }
+  return findings;
+}
+
+const MODEL_PROFILES_REL = ".pi/agents/model-profiles.yaml";
+
+// `.pi/agents/model-profiles.yaml` keys that name a retired persona: a flat
+// profile key or v2 `agents:` key (`<name>` or `<name>.<practice>`), and a v2
+// `subagents:` parent. The Hub refuses such a profile entry when it is applied
+// ("unknown persona"); doctor names the replacement ahead of that. Only retired
+// names are reported — the Hub already explains any other unknown name.
+function scanRetiredProfileKeys(workspace, roles) {
+  let text;
+  try { text = readFileSync(join(workspace, MODEL_PROFILES_REL), "utf8"); } catch { return []; }
+  const lineCounter = new LineCounter();
+  let doc;
+  try { doc = parseDocument(text, { lineCounter }); } catch { return []; }
+  if (doc.errors.length || !isMap(doc.contents)) return [];
+  const entries = (node) => (isMap(node) ? node.items : [])
+    .filter((pair) => isScalar(pair.key))
+    .map((pair) => ({ key: String(pair.key.value), value: pair.value, line: pair.key.range ? lineCounter.linePos(pair.key.range[0]).line : null }));
+  const findings = [];
+  const check = (profile, section, { key, line }, parentOnly) => {
+    const dot = key.indexOf(".");
+    const name = (dot > 0 ? key.slice(0, dot) : key).toLowerCase();
+    const assignments = roles.assignments(name);
+    if (!assignments?.length) return;
+    const practice = dot > 0 ? key.slice(dot + 1) : null;
+    const candidates = [...new Set(parentOnly || practice
+      ? assignments.map((entry) => practice ? `${entry.role}.${practice}` : entry.role)
+      : assignments.flatMap((entry) => entry.practices.map((id) => `${entry.role}.${id}`)))];
+    const where = `profile "${profile}"${section ? ` ${section}:` : ""} key "${key}"`;
+    const mapping = formatRetiredAssignments(assignments);
+    findings.push({
+      type: "yaml-shape",
+      path: line ? `${MODEL_PROFILES_REL}:${line}` : MODEL_PROFILES_REL,
+      ...(line ? { line } : {}),
+      issue: `${where} names the retired persona "${name}", so the Hub cannot apply it`,
+      fix: candidates.length === 1
+        ? `rename the key to "${candidates[0]}" (${mapping}); doctor never edits this file`
+        : `"${name}" maps to more than one assignment — pick the one you meant and rename by hand to ${parentOnly ? "<role>" : "<role>.<practice>"}: ${mapping}`,
+    });
+  };
+  for (const { key: profile, value } of entries(doc.contents)) {
+    if (!isMap(value)) continue;
+    const fields = entries(value);
+    const version = fields.find((field) => field.key === "version")?.value;
+    if (!(isScalar(version) && version.value === 2)) {
+      for (const field of fields) check(profile, null, field, false);
+      continue;
+    }
+    for (const field of entries(fields.find((entry) => entry.key === "agents")?.value)) check(profile, "agents", field, false);
+    for (const field of entries(fields.find((entry) => entry.key === "subagents")?.value)) check(profile, "subagents", field, true);
+  }
+  return findings;
 }
 
 function inferKind(targetDir) {
@@ -763,8 +885,10 @@ const AGENT_DIRS = ["agents", ".claude/agents", ".pi/agents/personas", ".pi/agen
 const VOICES_REL = ".pi/agents/voices.yaml";
 
 /**
- * Models the clean-room child must be able to see: each persona's primary model,
- * each declared delegate sub-role, and every voice in voices.yaml (when present).
+ * Models the clean-room child must be able to see: each role definition's primary
+ * model, each declared delegate sub-role, every model profile selection, and every
+ * voice in voices.yaml (when present). A definition that is not a role is never
+ * loaded by the Hub (D2), so its models are not a readiness question.
  */
 export function collectModelTargets(workspace) {
   const targets = [];
@@ -776,7 +900,10 @@ export function collectModelTargets(workspace) {
     for (const file of entries) {
       if (!file.endsWith(".md")) continue;
       const abs = join(dir, file);
-      try { targets.push(...parsePersonaModelTargets(abs, `${rel}/${file}`)); }
+      try {
+        targets.push(...parsePersonaModelTargets(abs, `${rel}/${file}`)
+          .filter((target) => OVERRIDE_ROLES.includes(target.subject.split("/")[0].toLowerCase())));
+      }
       catch { /* unreadable persona is not a visibility finding */ }
     }
   }

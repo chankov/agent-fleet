@@ -709,8 +709,8 @@ the per-tool argument allowlist and why it never returns an error.
     { "id": "hub-turn-3f2a", "generation": 1, "kind": "parent", "state": "running",
       "hubInstanceId": "9c1e…", "updatedAt": "2026-07-27T09:14:02.118Z",
       "children": [
-        { "id": "run-builder-7", "generation": 2, "kind": "child", "state": "running",
-          "specialist": "builder", "parentId": "hub-turn-3f2a", "parentGeneration": 1,
+        { "id": "run-editor-7", "generation": 2, "kind": "child", "state": "running",
+          "specialist": "editor", "parentId": "hub-turn-3f2a", "parentGeneration": 1,
           "hubInstanceId": "9c1e…", "outputSequence": 41,
           "output": "npm test\n601 passing\n" } ] } ] }
 ```

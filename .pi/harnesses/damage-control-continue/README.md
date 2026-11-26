@@ -66,7 +66,10 @@ harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that 
 Runtime allowances layered on top of the rules file (which is never modified).
 They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths`,
 `noDeletePaths`. Destructive `bashToolPatterns` (`rm -rf`, `git push --force`,
-`DROP TABLE`, …) can never be exempted.
+`DROP TABLE`, …) can never be exempted. Publishing verbs (`git push`,
+`npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish`, `gh release
+create|upload|edit`) are `ask` rules: every call needs its own approval, because
+preparing a release (the `release` practice) never authorizes publishing.
 
 **Pre-authorize** (when you know the agent will need it):
 
@@ -108,7 +111,7 @@ over the size limit) stays local, and a `relay_not_used` log entry says why.
 **Shared exemptions file**: agent-hub keeps one session-scoped file
 (`~/.pi/coms/exemptions/<session>.json`, deleted on shutdown) and passes it to
 every spawned child via `AGENT_HUB_EXEMPTIONS_FILE`. `/af-allow <pattern> session`
-in the hub lands there, so it covers the whole team. Every native specialist,
+in the hub lands there, so it covers every child of the session. Every native role subagent,
 research helper, and nested delegate uses this harness and re-reads the file on
 every block, so mid-session grants reach already-running children. Everything
 (grants, revokes, escalation

@@ -9,6 +9,7 @@ This guide covers the major releases. Each change breaks something different:
 | 3 | OpenCode support removed entirely | Workspaces installed with `--agent opencode` | [OpenCode](#3-opencode-is-gone) |
 | 4 | Pi Fleet startup unified behind one guarded Agent Hub runtime | Scripts and habits built on `just fleet hub` / `just fleet team` | [Fleet runtime](#4-one-unified-just-fleet-runtime) |
 | 5 | The orchestrator work mode removed; one operator | Scripts using `--work-mode`, habits built on `/af-work-mode` or Alt+M | [One operator](#5-one-operator-the-orchestrator-work-mode-is-removed) |
+| 6 | Three runtime roles with practices replace the 14 personas; native teams and peer groups removed (2.3.0) | Dispatches, overrides and profiles that name a persona; `teams.yaml`, `peers.yaml`, `just fleet team …`, `/af-agents-*` | [Roles](#6-three-runtime-roles-replace-the-personas) |
 
 If you read only one thing: **update with `just fleet setup --dry-run` first.**
 The plan names every file it will overwrite, and this release changes enough
@@ -202,6 +203,10 @@ growth (`/af-agents-add`), deterministic `dispatch_agent` routing through
 `backend: auto|native|coms`, and same-project dynamic Pi or Claude Code peer
 spawning through Herdr.
 
+> Since 2.3.0, `--agents`, `--peers`, `/af-agents-add` and `just fleet team <preset>`
+> are gone; see [section 6](#6-three-runtime-roles-replace-the-personas). The
+> examples above describe that earlier release.
+
 ### Deprecated forms — accepted for one migration release
 
 | Old | New |
@@ -233,9 +238,121 @@ the delegate-only **orchestrator** mode, the `/af-work-mode` command, the **Alt+
 | `orchestrator:` under a model profile's `agents:` | ignored instead of invalidating the profile; delete it |
 | a writable dispatch beside another writer ran with uncertain attribution | it is refused unless both use `parallel: true` with disjoint exact scopes |
 
-`teams.yaml`, `/af-agents-*`, `dispatch-policy.yaml` and `peers.yaml` are unchanged. If you relied on
+`teams.yaml`, `/af-agents-*`, `dispatch-policy.yaml` and `peers.yaml` were unchanged in that release
+(2.3.0 later removed teams and peer groups; see [section 6](#6-three-runtime-roles-replace-the-personas)). If you relied on
 the orchestrator to keep a weaker main model away from direct edits, choose a stronger model for the
 Hub session; local models remain fully supported as delegated agents.
+
+---
+
+## 6. Three runtime roles replace the personas
+
+Release 2.3.0 (minor). The Hub dispatches three roles, `researcher`, `reviewer`
+and `editor`, and each assignment attaches practices from an eleven-entry catalogue.
+A practice adds method and expected evidence, never authority. The catalogue is
+[agents.md](agents.md).
+
+### Persona → role + practices
+
+Naming a retired persona is refused before anything starts, with the mapping.
+There is no alias. Pick the role by the outcome you need.
+
+| Retired persona | Dispatch instead |
+|---|---|
+| `architect` | `researcher` + `architecture` for analysis; `editor` + `architecture`, `documentation` for an ADR |
+| `bowser` | `researcher` + `browser-debugging` to observe; `editor` + `browser-debugging` for stateful interaction or test artifacts |
+| `builder` | `editor` + `implementation`, adding `testing` as needed |
+| `code-reviewer` | `reviewer` + `independent-review` |
+| `deep-researcher` | `researcher` + `research` (one researcher; the question drives the depth) |
+| `documenter` | `editor` + `documentation` |
+| `plan-reviewer` | `reviewer` + `independent-review`, adding `architecture` or `planning` as needed |
+| `planner` | `editor` + `planning` for a saved plan; `researcher` + `planning` for advice |
+| `releaser` | `editor` + `release` (prepares only; publishing needs separate permission) |
+| `security-auditor` | `reviewer` + `independent-review`, `security`; fixes: `editor` + `security` |
+| `test-engineer` | `editor` + `testing` for test changes; `reviewer` + `testing`, `independent-review` for coverage |
+| `web-debugger` | `researcher` + `browser-debugging` to diagnose; `editor` + `browser-debugging` for scoped changes |
+| `web-performance-auditor` | `reviewer` + `performance`, `independent-review`; writes or optimization: `editor` + `performance` |
+
+```js
+// before
+dispatch_agent({ agent: "builder", task: "…" })
+// now
+dispatch_agent({ agent: "editor", practices: ["implementation", "testing"], task: "…", scope: ["src/export"] })
+```
+
+Research stays on `spawn_research`, which runs the `researcher` role; its
+`persona` parameter accepts only `researcher` or nothing.
+
+### Teams and peer groups are removed
+
+| Removed | Use instead |
+|---|---|
+| `.pi/agents/teams.yaml`, `/af-agents-team`, `/af-agents-add`, `/af-agents-drop`, `/af-agents-save`, the `team_adjust` tool, `--agent-team` | Nothing to activate: the Hub always has the three roles and every practice, and the operator prompt lists them |
+| `just fleet --agents <roster>` | `just fleet` (the flag is refused with this reason) |
+| `.pi/agents/peers.yaml`, `just fleet --peers …`, `just fleet team <name>` | `just fleet peer <name>` per peer, with `--runner`, `--persona`/`--no-persona`, `--model`, `--read-only`, `--env-file`; `herdr_spawn_peer` from a Hub inside Herdr |
+| `just fleet team base` | Still accepted with a warning; use `just fleet --herdr` |
+| `just fleet snapshot`, `down`, `resume` | Removed; close a workspace with `herdr workspace close <id>` and start peers again |
+| `read_only: true` in `peers.yaml` | `just fleet peer <name> --read-only` |
+| `dispatch-policy.yaml` routes keyed by persona or peer name | Keyed by role with a separate address: `reviewer: { peer: claude-reviewer, prefer: coms, fallback: native }` |
+
+`just fleet --herdr` and `just fleet conductor hermes` now open one pane on a
+single-pane launcher. A pi peer always loads Chrome DevTools MCP unless it is
+read-only. A read-only role reaches only a peer started with `--read-only`, and a
+reviewer never reaches a peer address that changed a file in the review's scope.
+
+### Overrides, profiles and doctor
+
+Persona keys in `.ai/agent-fleet-overrides.md` (`model.builder`, `thinking.planner`,
+…) no longer have any effect. The Hub keeps no alias and setup never edits the
+overrides file. Rename them by hand:
+
+| Before | After |
+|---|---|
+| `model.builder: <model>` | `model.editor.implementation: <model>` |
+| `model.<persona>` for an ambiguous persona (`planner`, `architect`, …) | `model.<role>.<practice>` for the assignment you mean, from the table above |
+| `model.<persona>` meaning the whole role | `model.editor`, `model.reviewer`, `model.researcher` |
+
+`thinking.` keys follow the same pattern. `agent-fleet doctor` reports each retired
+key with its file and line: the exact replacement for an unambiguous name, and the
+mapping for an ambiguous one. It also reports leftover retired definition files.
+Both are advisory, and `doctor --fix` changes neither.
+
+A model profile that still names a retired persona fails validation
+(`unknown persona "builder"`). Use role keys and `<role>.<practice>` keys such as
+`editor.planning`. Per-practice models can also come from a role file's
+`practice_models:` and from `/af-agent-model <role>.<practice>`
+([precedence](agents.md#models-per-role-and-practice)).
+
+### Installation
+
+The catalogue now ships three role items, `persona:researcher`, `persona:reviewer`
+and `persona:editor`, in the group "Agent roles". All three are in the default preset
+and come with the Hub. On the next `just fleet setup`, unmodified installed copies of
+retired personas under `.pi/agents/personas/` are removed and edited copies are kept
+as yours. A kept copy is harmless: the Hub never dispatches it and lists it in its
+startup notice. Your own `agents/editor.md` (or another role name) still replaces
+that role's prompt or model under the same ceiling.
+
+### Flows and commands
+
+| Entry point | Runs |
+|---|---|
+| `just flow build-test` | `editor` + `implementation`; the test suite stays the flow's deterministic code phase |
+| `just flow document` | `editor` + `documentation`, docs-only writes (`docs/`, `**/*.md`), no shell |
+| `just flow scout` | `researcher` |
+| `/af-compound` | `editor` + `documentation` |
+
+A flow's model is an active complete profile's `editor.<practice>` entry, else the
+role file's `practice_models:`, else the role model. Phase names in traces changed
+from `builder` to `editor` (`editor-fix-N`).
+
+### Publishing
+
+The `release` practice prepares a release and never publishes. `git push`,
+`npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish` and
+`gh release create|upload|edit` now need a one-call approval from the damage-control
+rules in every session that loads them: the Hub, its native children and pi peers. Scripts that relied on an unattended push from a Hub
+session must approve each publish or run it outside the session.
 
 ---
 

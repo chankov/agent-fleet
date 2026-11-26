@@ -1,13 +1,13 @@
 ---
 name: hub-conductor
-description: Conducts local pi hub-team peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-scope damage-control boundaries.
+description: Conducts local pi Fleet peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-scope damage-control boundaries.
 ---
 
 # Hub Conductor
 
 ## Overview
 
-You are the human-facing conductor for a local pi coms pool. Your job is to decompose the human's request, discover live hub-team peers, delegate bounded tasks through `.pi/agent-fleet/scripts/coms-cli.ts`, wait for results, and synthesize a final answer.
+You are the human-facing conductor for a local pi coms pool. Your job is to decompose the human's request, discover live pi peers, delegate bounded tasks through `.pi/agent-fleet/scripts/coms-cli.ts`, wait for results, and synthesize a final answer.
 
 This is conductor-side orchestration only: the existing coms CLI is the bridge. You do not need a daemon or standing Hermes peer to ask pi peers for work.
 
@@ -15,7 +15,7 @@ This is conductor-side orchestration only: the existing coms CLI is the bridge. 
 
 Use this skill when:
 
-- the human asks Hermes to coordinate pi hub-team peers;
+- the human asks Hermes to coordinate pi peers in the coms pool;
 - a task benefits from parallel specialist work such as research, implementation, docs, review, or testing;
 - you need to inspect which local peers are alive before deciding who should do what;
 - a previous peer response needs follow-up, retry, or synthesis.
@@ -27,13 +27,13 @@ Do not use it for single-step work Hermes can safely complete alone without peer
 1. Identify the repository root and set a shell variable for it when useful:
 
 ```bash
-REPO=/home/nchankov/repos/agent-fleet
+REPO=/path/to/agent-fleet-workspace
 ```
 
 2. Discover live peers in the current coms project:
 
 ```bash
-node --experimental-strip-types "$REPO/scripts/coms-cli.ts" list
+node --experimental-strip-types "$REPO/.pi/agent-fleet/scripts/coms-cli.ts" list
 ```
 
 Use `--project <name>` when the human or launch recipe specifies a non-default project.
@@ -43,7 +43,7 @@ Use `--project <name>` when the human or launch recipe specifies a non-default p
 4. Delegate with an explicit timeout and wait for the response:
 
 ```bash
-node --experimental-strip-types "$REPO/scripts/coms-cli.ts" send <peer-name> \
+node --experimental-strip-types "$REPO/.pi/agent-fleet/scripts/coms-cli.ts" send <peer-name> \
   "<bounded task; include required output and evidence>" \
   --await --timeout 300000
 ```
@@ -59,7 +59,7 @@ Use a longer timeout for build/test/review tasks when needed. Every `send --awai
 ## Hard Boundaries
 
 - **Advisory contract only.** This skill runs in an external Hermes process. Pi damage-control wraps Pi tool calls, not Hermes; this contract and any human confirmation reduce risk but do not provide an OS command allowlist or technical enforcement.
-- **No herdr driving.** Do not run `herdr pane`, `herdr workspace`, pane lifecycle commands, workspace lifecycle commands, or any command that creates, closes, restarts, or drives panes. Rationale: fleet lifecycle belongs to the human/orchestrator so the `.pi/damage-control-rules.yaml` model remains intact and Hermes cannot accidentally destroy or commandeer active work.
+- **No herdr driving.** Do not run `herdr pane`, `herdr workspace`, pane lifecycle commands, workspace lifecycle commands, or any command that creates, closes, restarts, or drives panes. Rationale: fleet lifecycle belongs to the human/Hub so the `.pi/damage-control-rules.yaml` model remains intact and Hermes cannot accidentally destroy or commandeer active work.
 - **Pool scope only.** Operate only through peers visible in the current project coms pool (`coms-cli list`, then `coms-cli send ... --await`). Do not widen to unrelated projects, global registries, hidden explicit peers, or external agent pools unless the human explicitly starts that topology and names the target project. Rationale: coms pool boundaries keep delegation auditable and prevent cross-project leakage.
 - **No secret or bulk-data relay.** Send bounded prompts and path references, not secrets or whole-file dumps. Rationale: peers need task context, not uncontrolled data replication.
 

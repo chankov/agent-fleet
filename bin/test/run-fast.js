@@ -98,6 +98,7 @@ export const fastTestFiles = [
   ".pi/harnesses/lib/system1/config-triage.test.js",
   ".pi/harnesses/agent-hub/system1-config.integration.test.ts",
   "bin/test/reconcile.test.js",
+  "bin/test/retired-personas.test.js",
   "bin/test/setup-delivery.test.js",
   "bin/test/release-workflow.test.js",
   "bin/test/node-test-rerun.test.js",

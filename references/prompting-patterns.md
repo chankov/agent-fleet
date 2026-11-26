@@ -1,12 +1,12 @@
 # Prompting Patterns Reference
 
-Consolidated prompt-engineering best practices for authoring instructions that coding agents will follow. Use alongside the `designing-agents`, `context-engineering`, and `using-agent-skills` skills, and consult this file before finalizing any agent persona, slash command, skill, pi harness, or rule file.
+Consolidated prompt-engineering best practices for authoring instructions that coding agents will follow. Use alongside the `designing-agents`, `context-engineering`, and `using-agent-skills` skills, and consult this file before finalizing any role prompt, slash command, skill, pi harness, or rule file.
 
 ## How to Use This Reference
 
 Three primary audiences:
 
-1. **Persona authors** writing files under `.pi/agents/personas/` — check sections 1-3, 6, 7, 12 before writing.
+1. **Role prompt authors** writing a role prompt for `researcher`, `reviewer` or `editor` (installed in `.pi/agents/personas/<role>.md`; the designing-agents skill covers where a project override goes) — check sections 1-3, 6, 7, 12 before writing.
 2. **Skill authors** writing files under `skills/` — check sections 1, 2, 4, 6.4, 7, 12 before writing.
 3. **Rule-file authors** writing project rules (CLAUDE.md, AGENTS.md, or supplementary rule files) — check sections 1.4, 2, 9, 11, 12.
 

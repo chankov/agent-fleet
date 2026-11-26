@@ -10,22 +10,22 @@ import {BROKER_LIMITS} from './broker.ts';
 import {FILE_DISCOVERY_LIMITS} from '../../lib/system1/config-file-discovery.js';
 import {createChildHookHarness,nativeFixture} from './native-fixture.test-support.ts';
 function worker(f:any,overrides:any={}) {
- const state:any={def:{name:'builder',description:'builder',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY\nUse skills/incremental-implementation/SKILL.md',file:'agents/builder.md',fallbackModel:'fake/model'},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
+ const state:any={def:{name:'editor',description:'editor',tools:'read,find',toolsExplicit:true,systemPrompt:'MANDATORY POLICY\nUse skills/incremental-implementation/SKILL.md',file:'agents/editor.md',fallbackModel:'fake/model'},status:'idle',task:'',toolCount:0,messageCount:0,elapsed:0,lastWork:'',contextPct:0,contextTokens:0,sessionFile:null,runCount:0,runsSinceFresh:0,timeline:[]};
  const deps:any={getAgentState:()=>state,listAgentStates:()=>[state],getSessionDir:()=>f.session,getDispatchPolicy:()=>({default:'native',grace_s:0,substitutions:{}}),isComsReady:()=>false,getIdentity:()=>null,peersInScope:()=>[],wasComsMissNotified:()=>false,markComsMissNotified(){},startMonitorChild(){},finalizeMonitorChild(){},registerMonitorWaitOnly(){},registerMonitorProcess(){},appendMonitorOutput(){},getContextWindow:()=>100000,currentBudget:()=>({delegation:false,agentTurnMs:20000}),bumpRecycle(){},bumpDriftStop(){},getSessionHealthIo:()=>({existsSync,readFileSync,renameSync}),getSafetyHarnessPath:()=> 'safety',getDelegateExtensionPath:()=>null,getReconSearchTimeoutMs:()=>1000,getProjectDocsPaths:()=>['docs/PHILOSOPHY.md'],getUserLanguage:()=> 'English',getWatchdogSetting:()=> 'off',getWatchdogAgentOverride(){},getWorkMode:()=> 'operator',providerSemaphore:{run:async(_m:string,fn:any)=>fn()},executionHistory:{start:()=>({}),end(){}},displayName:(s:string)=>s,shortModel:(s:string)=>s,resolvedModel:()=> 'fake/primary',resolvedThinking:()=> 'off',resolveThinkingLevel:()=> 'off',resolvedSubagentModel:()=> 'fake/model',substitutedModel:(m:any)=>m,modelWindowLookup:()=>()=>undefined,specialistProjectPolicyPaths:()=>['AGENTS.md'],guardrailEnv:()=>f.env,appendInputArtifacts:(p:string)=>p+'\nINPUT_ARTIFACT original failure evidence',appendDeclaredScope:(p:string,s:string[])=>p+'\nDECLARED_SCOPE '+s.join(','),flushTimelineStore(){},appendTimelineText(){},appendTimelineEvent(){},createTranscriptStore:()=>({append(){}}),updateWidget(){},startDelegationWatch(){},dispatchViaComs:async()=>null,runDriftJudge:async()=>null,notifyProviderQueue(){},spawnPiAgentWithModelFallback,prepareDiscovery:f.prepare,...overrides};
  return {state,deps,native:createDispatchNative(deps)};
 }
 test('T9 actual native prepare/spawn keeps separate FULL context, policy/acceptance/scope/evidence; fallback fresh leases and exact resume contract',async t=>{
  const f=nativeFixture(t),w=worker(f),task='own worker rounding\nA3 acceptance remains VERBATIM\nDELIVERABLE exact';
  const contract={taskId:'task',instructions:task,scope:f.paths,deliverables:['docs/result'],artifacts:[],model:'fake/primary',permissions:'read,find'};
- const result=await w.native.dispatchAgent('builder',task,f.ctx,[],f.paths,false,'native',false,contract);assert.equal(result.exitCode,0);
- const continued=await w.native.dispatchAgent('builder','USER_ANSWER exact resume',f.ctx,[],f.paths,false,'native',true,contract);assert.equal(continued.exitCode,0);
+ const result=await w.native.dispatchAgent('editor',task,f.ctx,[],f.paths,false,'native',false,contract);assert.equal(result.exitCode,0);
+ const continued=await w.native.dispatchAgent('editor','USER_ANSWER exact resume',f.ctx,[],f.paths,false,'native',true,contract);assert.equal(continued.exitCode,0);
  const rows=f.rows();assert.equal(rows.length,4);assert.equal(new Set(rows.map((r:any)=>r.attempt)).size,4);assert.equal(rows[0].resume,false);assert.equal(rows[2].resume,true);
  for(const row of rows){assert.match(row.systemPrompt,/Read the persona source before work and applicable project rules before edits or commands/);assert.match(row.systemPrompt,/skills\/incremental-implementation\/SKILL.md/);assert.match(row.systemPrompt,/AGENTS.md/);assert.ok(row.keyAbsent&&row.registered&&row.modelStepAfterAdvice);assert.equal(row.tools,'read,find,submit_result');assert.match(row.prompt,/DECLARED_SCOPE docs\/file-0.ts,docs\/file-1.ts,docs\/file-2.ts/);assert.match(row.prompt,/INPUT_ARTIFACT original failure evidence/);assert.match(row.prompt,/File discovery context \(advisory, separate/);assert.equal(row.advice.rows.length,3);assert.equal(row.advice.taskHash,sourceHash(task));assert.equal(row.advice.queryHash,sourceHash(JSON.stringify([task,f.paths])));}
  assert.match(rows[0].prompt,/A3 acceptance remains VERBATIM/);assert.match(rows[2].prompt,/USER_ANSWER exact resume/);assert.equal(w.state.resumeContract.instructions,task.replace(/\s+/g,' '));assert.deepEqual(w.state.resumeContract.scope,f.paths);assert.equal(f.channel().owners.size,0);
 });
 test('T9 overlapping native owners keep own task/query/scope and immutable per-attempt identity, never parent or other owner query',async t=>{
- const f=nativeFixture(t),a=worker(f),b=worker(f);b.state.def.name='verifier';const scopes=[[f.paths[0]],[f.paths[1]]],tasks=['builder own query','verifier separate query'];
- const results=await Promise.all([a.native.dispatchAgent('builder',tasks[0],f.ctx,[],scopes[0],false,'native'),b.native.dispatchAgent('verifier',tasks[1],f.ctx,[],scopes[1],false,'native')]);assert.ok(results.every(r=>r.exitCode===0));
+ const f=nativeFixture(t),a=worker(f),b=worker(f);b.state.def.name='verifier';const scopes=[[f.paths[0]],[f.paths[1]]],tasks=['editor own query','verifier separate query'];
+ const results=await Promise.all([a.native.dispatchAgent('editor',tasks[0],f.ctx,[],scopes[0],false,'native'),b.native.dispatchAgent('verifier',tasks[1],f.ctx,[],scopes[1],false,'native')]);assert.ok(results.every(r=>r.exitCode===0));
  const rows=f.rows();assert.equal(new Set(rows.map((r:any)=>r.attempt)).size,4);
  for(let i=0;i<2;i++){const own=rows.filter((r:any)=>r.prompt.startsWith(tasks[i]));assert.equal(own.length,2);for(const row of own){assert.equal(row.advice.taskHash,sourceHash(tasks[i]));assert.equal(row.advice.queryHash,sourceHash(JSON.stringify([tasks[i],scopes[i]])));assert.ok(row.prompt.includes('DECLARED_SCOPE '+scopes[i][0]));}}
  assert.equal(f.channel().owners.size,0);
@@ -34,7 +34,7 @@ test('T9 native manifest post-await gate/kill/restart/task/session/queue recheck
  for(const mode of ['kill','restart','task','session','admission','tools','queue','failed']){
   const f=nativeFixture(t);let allowed=true,session=f.session,spawns=0;let w:any;
   w=worker(f,{getSessionDir:()=>session,nativeAdmission:()=>allowed,prepareDiscovery:async(i:any)=>{const prepared=await f.prepare(i);if(mode==='kill')w.state.killedByOperator=true;if(mode==='restart')w.state.restarting=true;if(mode==='task')f.switchTask();if(mode==='session')session+='-new';if(mode==='admission')allowed=false;if(mode==='tools')w.state.def.tools='find';return prepared;},providerSemaphore:{run:async(_m:string,fn:any)=>{if(mode==='queue')allowed=false;return fn();}},...(mode==='failed'?{guardrailEnv:()=>({PATH:'/nonexistent'})}:{spawnPiAgentWithModelFallback:async()=>{spawns++;throw Error('must not launch');}})});
-  const result=await w.native.dispatchAgent('builder','own query',f.ctx,[],f.paths,false,'native');assert.notEqual(result.exitCode,0);assert.equal(spawns,0);assert.equal(f.channel().owners.size,0);
+  const result=await w.native.dispatchAgent('editor','own query',f.ctx,[],f.paths,false,'native');assert.notEqual(result.exitCode,0);assert.equal(spawns,0);assert.equal(f.channel().owners.size,0);
   if(mode!=='failed')assert.equal(result.lifecycle?.launched,false);
  }
 });
@@ -117,7 +117,7 @@ test('late provider success cannot overwrite a failed child-hook terminal delive
 });
 test('D8 native single-file worker receives orientation before its first model step across primary/fallback attempts',async t=>{
  const f=nativeFixture(t,1,32768,{},{semantic:true}),w=worker(f);
- const result=await w.native.dispatchAgent('builder','edit rounding with runtime proof',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0);
+ const result=await w.native.dispatchAgent('editor','edit rounding with runtime proof',f.ctx,[],f.paths,false,'native');assert.equal(result.exitCode,0);
  const rows=f.rows();assert.equal(rows.length,2);for(const row of rows){assert.ok(row.modelStepAfterAdvice&&row.keyAbsent);assert.equal(row.advice.rows[0].answers.length,5);assert.match(row.prompt,/d8_orientation_exact_v1/);assert.match(row.systemPrompt,/Read the persona source/);}
  assert.notEqual(rows[0].attempt,rows[1].attempt);assert.equal(f.channel().owners.size,0);
 });

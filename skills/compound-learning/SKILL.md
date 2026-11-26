@@ -1,6 +1,6 @@
 ---
 name: compound-learning
-description: Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session evidence, dedupes them against the existing rule tree, and lands them as minimal diffs on existing files. Use when a session ends with user corrections, recurring review findings, or debugging root causes worth keeping, when the user says "compound" or "capture the lessons", or as the documenter's process for a /compound or /af-compound dispatch.
+description: Captures a finished session's lessons into the project's own rules and docs — extracts candidate lessons from session evidence, dedupes them against the existing rule tree, and lands them as minimal diffs on existing files. Use when a session ends with user corrections, recurring review findings, or debugging root causes worth keeping, when the user says "compound" or "capture the lessons", or as the editor's process for a /compound or /af-compound dispatch with the documentation practice.
 ---
 
 # Compound Learning
@@ -17,7 +17,7 @@ The enemy is not missing lessons — it is **bloat**. A rule tree that grows by 
 
 - A session is wrapping up and it contained at least one correction, recurring finding, or hard-won discovery.
 - The user says "compound", "capture the lessons", "update the rules from this session", or runs a `/compound` or `/af-compound` command.
-- You are the `documenter` persona dispatched with a compound task by the agent-hub dispatcher.
+- You are an `editor` dispatched by the agent-hub operator with the `documentation` practice and a compound task (`/af-compound` sends this assignment).
 - Periodically, as a **consolidation pass** over a rule tree that has accumulated additions (see Step 8).
 
 **When NOT to use:** mid-task (finish the work first — compounding interrupts flow and the evidence isn't complete); after a trivial session with nothing corrected or discovered; to document what the code or git history already records.

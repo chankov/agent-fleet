@@ -1,6 +1,6 @@
 # Specification: The Chronicle (agent-workflow)
 
-> Historical note: this spec describes the retired `agent-chain` / Chronicle direction. Current supported workflow orchestration is consolidated under `agent-hub` plus the lifecycle skills.
+> Historical note: this spec describes the retired `agent-chain` / Chronicle direction. Current supported workflow orchestration is consolidated under `agent-hub` plus the lifecycle skills. Since 2.3.0 the Hub dispatches three runtime roles (`researcher`, `reviewer`, `editor`) with practices instead of personas and teams; see [the role and practice catalogue](../agents.md).
 
 ## 1. Overview
 **The Chronicle** is a temporal orchestration extension for the Pi Coding Agent. It enables long-running, state-aware workflows that span multiple sessions and personas. Unlike traditional linear agents, The Chronicle manages a formal **State Machine** where each stage of a project is handled by a specialized agent persona, with the extension acting as a persistent "State Supervisor."

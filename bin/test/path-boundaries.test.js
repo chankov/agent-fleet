@@ -94,6 +94,7 @@ test("no shipped code or data names a retired workspace root", () => {
 const DOC_ROOTS = [...RETIRED_ROOTS, "agents"];
 const DOC_ALLOWLIST = new Map([
   ["references/orchestration-patterns.md", "describes the Claude Code plugin layout, not an agent-fleet workspace"],
+  ["skills/designing-agents/SKILL.md", "authors a project's own role override, which belongs in the project's agents/ (read before the installed copies, PLAN-11-01 D2)"],
 ]);
 
 test("agent-readable installed markdown names no retired workspace root", () => {

@@ -65,9 +65,11 @@ Options:
       a repaired file is byte-identical to a freshly installed one;
     • broken symlinks the install record cannot own (pre-engine workspaces).
 
-  Overrides problems and dispatch-policy routes keyed by something other than
-  a role are advisory: reported, never auto-fixed, because the fix is always a
-  hand edit.
+  Overrides problems, dispatch-policy routes keyed by something other than a
+  role, and retired persona leftovers (an overrides or model-profiles key, or a
+  definition file, that still names one — reported with file:line and the
+  replacement role and practices) are advisory: reported, never auto-fixed,
+  because the fix is always a hand edit.
 
 Options:
   --workspace <path>                  Target workspace (default: cwd)

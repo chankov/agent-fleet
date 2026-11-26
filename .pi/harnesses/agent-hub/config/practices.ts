@@ -77,7 +77,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 		roles: ALL_ROLES,
 		method: [
 			"Size the plan to the request. Order tasks by dependency, give each acceptance criteria, keep each task to about five files, and cite the applicable project rule files in the affected criteria.",
-			"An editor writes only the plan document: resolve the directory from `.ai/agent-fleet-overrides.md` → `## planning-and-task-breakdown` → `plan-dir` (default `docs/plans/{area}`) and the name from its `naming` key (default `PLAN-{prd-name}.md`), then end the final response with `PLAN_FILE: <repo-relative path>` on its own line.",
+			"An editor saves the plan as one document (alone, or before implementing when the assignment also carries implementation): resolve the directory from `.ai/agent-fleet-overrides.md` → `## planning-and-task-breakdown` → `plan-dir` (default `docs/plans/{area}`) and the name from its `naming` key (default `PLAN-{prd-name}.md`), then end the final response with `PLAN_FILE: <repo-relative path>` on its own line.",
 			"A researcher or reviewer returns planning advice or plan critique and writes nothing.",
 		].join("\n"),
 	}),

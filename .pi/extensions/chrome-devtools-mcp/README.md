@@ -12,7 +12,7 @@ This unlocks the workflow described in `skills/browser-testing-with-devtools/` f
 
 ## When to use this vs `bowser`
 
-These tools are the **interactive** browser stack — a live headful Chrome with `chrome_devtools__*` DOM/console/network/performance tools, driven by the `web-debugger` persona (run it as a coms peer so the extension loads into its process — see `.pi/agents/peers.yaml`). For **automated, headless, parallel** browser work that can run as a dispatched `--no-extensions` subagent, use the `bowser` persona / `.pi/skills/bowser/` instead (it drives `playwright-cli` over Bash). They are complementary; the full decision lives in [docs/pi-extensions.md](../../../docs/pi-extensions.md#two-browser-stacks--when-to-use-which).
+These tools are the **interactive** browser stack — a live headful Chrome with `chrome_devtools__*` DOM/console/network/performance tools. They load into the Hub with `just fleet --browser` and into every pi coms peer that is not read-only (`just fleet peer <name>`); a native subagent does not get them. Such work carries the `browser-debugging` practice: a researcher observes and diagnoses, an editor performs stateful interaction or writes test artifacts (see [the practice catalogue](../../../docs/agents.md#practices)). For **automated, headless, parallel** browser work that can run in a dispatched `--no-extensions` subagent, use `.pi/skills/bowser/` instead (it drives `playwright-cli` over Bash, so it needs a role with a shell, such as an editor). They are complementary; the full decision lives in [docs/pi-extensions.md](../../../docs/pi-extensions.md#two-browser-stacks--when-to-use-which).
 
 ## Configuration
 

@@ -6,7 +6,7 @@ Code itself asks pi peers questions mid-task via `coms-cli`. Requires a running
 [herdr](https://herdr.dev) server (the bridge drives the Claude pane through herdr's
 socket API).
 
-Hub dispatches to `code-reviewer`, `plan-reviewer`, and `security-auditor` (including parallel instances) opt into review protocol v1. Progress does not complete the request. On both Claude and Pi peers, put prose inside the report, not before or after the frame (embedded examples are not final). To finish, return a standalone JSON object, optionally enclosed in a single JSON code fence, with the original `msg_id`, `phase: "final"`, `verdict: "APPROVE"` or `"REJECT"`, and a nonempty `report` string. If the wait times out, use `coms_get` or `coms_await` with that same ID; do not send a second review request. Ordinary messages still accept a plain-text reply.
+Hub dispatches to the `reviewer` role (including parallel instances such as `reviewer--p2`) opt into review protocol v1. Progress does not complete the request. On both Claude and Pi peers, put prose inside the report, not before or after the frame (embedded examples are not final). To finish, return a standalone JSON object, optionally enclosed in a single JSON code fence, with the original `msg_id`, `phase: "final"`, `verdict: "APPROVE"` or `"REJECT"`, and a nonempty `report` string. If the wait times out, use `coms_get` or `coms_await` with that same ID; do not send a second review request. Ordinary messages still accept a plain-text reply.
 
 When a Pi reviewer ends a turn with an incomplete frame, the receiving peer requests the final frame once on the same message ID. The follow-up respects the normal queue pause. A second incomplete reply ends the review with an error and releases the next queued request.
 
@@ -34,7 +34,7 @@ Claude Code ── Bash: coms-cli send/await ──▶ any pi peer            (o
 | Envelope CLI | `.pi/agent-fleet/scripts/coms-cli.ts` | `list` / `send` / `await` / `reply` — any process becomes a coms participant. `send --await` is a blocking round trip; plain `send` prints a `msg_id` and a detached waiter holds the reply for `await`. |
 | Stop hook | `.pi/agent-fleet/hooks/coms-stop-hook.mjs` | PRIMARY completion path: writes each turn's final assistant message to `~/.pi/coms/claude-bridge/<pane>/last-message.json` (keyed by `HERDR_PANE_ID`). Exact text, no scraping. The text comes from the hook input's `last_assistant_message`; Claude Code can run the hook before its transcript holds the final message, so the transcript is only a fallback for older versions, and there the hook waits up to 2 s for the current turn's finished message and otherwise writes nothing. It never answers with an earlier turn's reply. |
 | Skill | `skills/peer-coms/SKILL.md` | Teaches Claude Code its peer role: discover with `coms-cli list`, ask with `send --await`, answer inbound prompts normally, never drive panes itself. |
-| Runner | `runner: claude-code` in `.pi/agents/peers.yaml` | `just fleet team` spawns the Claude CLI + its bridge in one pane (`_claude-peer` internally); `model:` maps to `claude --model`, and `just fleet resume` maps the Herdr-captured session id to `claude --resume`. |
+| Runner | `just fleet peer <name> --runner claude-code` | Spawns the Claude CLI + its bridge in one pane (`_claude-peer` internally); `--model` maps to `claude --model`. The Hub's `herdr_spawn_peer` with `runner: "claude-code"` does the same from inside Herdr. |
 
 ## Setup
 
@@ -71,20 +71,22 @@ configuration and merging into it is not something a pi install should decide.
    use `coms-cli`. Point Claude Code at it the way you normally load project skills —
    a `CLAUDE.md` reference to `.pi/skills/peer-coms/SKILL.md` is enough.
 
-3. **Spawn:** either add a `runner: claude-code` peer to a peers.yaml team and
-   `just fleet team <team> --no-hub`, or attach a bridge to an existing Herdr Claude pane:
+3. **Spawn:** start the peer on its own with `just fleet peer <name> --runner claude-code`
+   (add `--read-only` for a reviewer or researcher peer), call `herdr_spawn_peer` from a Hub
+   running inside Herdr, or attach a bridge to an existing Herdr Claude pane:
 
    ```bash
+   just fleet peer claude-reviewer --runner claude-code --read-only --project af
    node --experimental-strip-types .pi/agent-fleet/scripts/coms-claude-bridge.ts --name claude-main
    # (inside the pane: HERDR_PANE_ID is inherited; or pass --pane <id>)
    ```
 
-## Demo scenario (verified live)
+## Demo scenario
 
 ```bash
-just fleet team docs --no-hub         # Pi peers up
-# pane with: bridge (claude-main) + claude
-just fleet hub                         # in another pane: the orchestrator
+just fleet peer researcher --read-only                # a read-only Pi peer
+just fleet peer claude-main --runner claude-code      # pane with: bridge (claude-main) + claude
+just fleet                                            # in another pane: the Hub
 # from the hub (or any shell):
 node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send claude-main \
   "Summarize the failing test output in artifacts/test.log" --await --timeout 300000
@@ -97,16 +99,31 @@ node --experimental-strip-types .pi/agent-fleet/scripts/coms-cli.ts send researc
   "Where is the retry logic for webhooks? file:line" --await --timeout 300000
 ```
 
-## Serving team dispatches (coms-backed dispatch)
+## Serving a role (coms-backed dispatch)
 
-A bridge peer that shares a name with an agent-hub team member (e.g. `code-reviewer`,
-`plan-reviewer` in the shipped `peers.yaml`) can serve that member's `dispatch_agent`
-calls transparently: `.pi/agents/dispatch-policy.yaml` marks the member `prefer: coms`,
-and the hub routes the dispatch to the live peer instead of spawning a native subagent —
-same return contract, ASK_USER handling, and history. The standing Claude session keeps
-its context across review rounds. A peer can write to the workspace, so its review takes an
-exclusive writer slot. Choose native read-only inspection for review alongside an active builder. See
-"Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
+A bridge peer can serve a role's `dispatch_agent` calls transparently.
+`.pi/agents/dispatch-policy.yaml` keys each route by role and names the peer address
+separately; the shipped policy sends reviews to a Claude Code peer:
+
+```yaml
+routes:
+  reviewer:
+    peer: claude-reviewer
+    prefer: coms
+    fallback: native
+```
+
+The Hub then routes a `reviewer` dispatch (and its parallel instances) to the live
+`claude-reviewer` instead of spawning a native subagent — same return contract,
+ASK_USER handling, and history. The standing Claude session keeps its context across
+review rounds. A read-only role reaches only a peer started with `--read-only` (see
+below), and such a peer takes no writer slot, so it can review beside an active editor.
+A reviewer route never reaches a peer address that changed a file in the review's scope,
+even after the peer restarts: a peer is its address, whatever its session. An `auto`
+route then runs a native reviewer with a notice; an explicit `backend: "coms"` or
+`fallback: none` is refused before anything starts. For a deliberately fresh reviewer,
+start a peer under another name. See [peers serving a role](agents.md#peers-serving-a-role)
+and "Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
 
 ## Read-only peers
 
@@ -116,9 +133,9 @@ Researcher and reviewer roles may use a peer only when it declares
 (`~/.pi/coms/projects/<project>/agents/<name>.json`, the entries
 `peersInScope()` returns). Peers without the field behave as before.
 
-Request it with `read_only: true` on the peer in `.pi/agents/peers.yaml` (or
-`just fleet peer <name> --read-only`). The launch enforces the restriction and
-the peer declares it only from evidence it checks itself:
+Request it with `just fleet peer <name> --read-only` (or `read_only: true` on
+`herdr_spawn_peer`). The launch enforces the restriction and the peer declares it
+only from evidence it checks itself:
 
 | Runner | Launch | Declared when |
 |---|---|---|
@@ -130,8 +147,9 @@ the peer declares it only from evidence it checks itself:
 reports exactly `Glob`, `Grep`, `Read` and no MCP servers. pi drops every
 tool outside a `--tools` allowlist from its registry, so the set cannot grow
 later in the session. When the pi check fails, the peer registers **without**
-`read_only` and shows a warning. The Hub then falls back to a native
-specialist. `extensions:` cannot combine with `read_only`.
+`read_only` and shows a warning. The Hub then runs the role natively. A
+read-only pi peer loads no extension, not even `chrome-devtools-mcp`, and needs
+a role or persona file (`--persona`) to launch.
 
 Neither runner can message other peers: the pi peer has no `coms_*` tools
 and the Claude pane has no Bash for `coms-cli`. A read-only peer therefore
@@ -155,9 +173,9 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
 
 - **Executable preflight:** a standalone `fleet peer` requires `claude --version`
   to succeed before it creates a pane, so a missing CLI or partial npm install
-  fails directly instead of surfacing as a 45-second registration timeout. Team
-  layouts and direct `_claude-peer` calls repeat the check inside each created
-  pane before starting its bridge; their failure remains visible in that pane.
+  fails directly instead of surfacing as a 45-second registration timeout. Panes
+  from `herdr_spawn_peer` and direct `_claude-peer` calls repeat the check inside
+  the pane before starting its bridge; their failure remains visible in that pane.
 - **Serialization:** one prompt at a time per pane; queue depth shows in the peer's
   agent card and the herdr sidebar (`q<depth>`).
 - **Presence:** the bridge annotates its pane through the shared `HerdrPresence`
@@ -184,4 +202,4 @@ Older releases used the ambiguous name-only path `~/.pi/coms/cli/<name>/`. If th
 - **Restarts:** the bridge is bound to the pane id, not the Claude process — restart
   Claude in the pane and the bridge keeps working.
 - **Fleet safety:** the bridge and skill never create or close panes; herdr driving
-  stays with the orchestrator (see `.pi/damage-control-rules.yaml`).
+  stays with the Hub (see `.pi/damage-control-rules.yaml`).

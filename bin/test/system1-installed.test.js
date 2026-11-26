@@ -325,10 +325,25 @@ test("extracted tarball installs System 1 workspaces without publishing tests", 
     });
     assert.equal(triageDoctorText.includes("synthetic-test-only-key"), false);
     const triageDoctor = JSON.parse(triageDoctorText).findings.find(f => f.type === "task-triage");
-    assert.equal(triageDoctor.readiness, "missing_local_producer", "installed Default lacks the editor/reviewer role definitions even with a locally ready provider");
-    assert.ok(triageDoctor.missingLocalProducers.includes("editor"));
-    assert.match(triageDoctor.fix, /install the .*editor.* role definition.*agent-fleet setup --items persona:editor/);
-    assert.doesNotMatch(triageDoctor.fix, /\/af-agents-/);
+    assert.equal(triageDoctor.readiness, "locally_ready", "the Hub installs the editor and reviewer role definitions with it (D7)");
+    assert.deepEqual(triageDoctor.missingLocalProducers, []);
+    // Without an installed editor definition the stage producer is missing, and the fix names how to restore it.
+    const installedEditor = join(triageWs, ".pi/agents/personas/editor.md");
+    const editorText = readFileSync(installedEditor, "utf8");
+    rmSync(installedEditor);
+    // The recorded editor is now missing, so doctor also plans its repair and exits 2.
+    const noEditorRun = spawnSync(process.execPath, [cli, "doctor", "--workspace", triageWs, "--json"], {
+      encoding: "utf8", env: { ...doctorEnv, TYPESAFE_API_KEY: "synthetic-test-only-key" },
+    });
+    assert.equal(noEditorRun.status, 2, noEditorRun.stderr);
+    const noEditorReport = JSON.parse(noEditorRun.stdout);
+    assert.ok(noEditorReport.repairs.some((action) => action.id === "persona:editor"), "doctor --fix would restore the recorded role");
+    const noEditor = noEditorReport.findings.find(f => f.type === "task-triage");
+    assert.equal(noEditor.readiness, "missing_local_producer");
+    assert.deepEqual(noEditor.missingLocalProducers, ["editor"]);
+    assert.match(noEditor.fix, /install the editor role definition: run agent-fleet setup \(the Hub brings all three roles, persona:researcher, persona:reviewer, persona:editor\), or add agents\/editor\.md; doctor never changes them/);
+    assert.doesNotMatch(noEditor.fix, /\/af-agents-|--items/);
+    writeFileSync(installedEditor, editorText);
     execFileSync(process.execPath, [cli, "setup", "--workspace", triageWs, "--preset", "default", "--features", "none", "--yes"], { encoding: "utf8" });
     assert.equal(readFileSync(triageConfigPath, "utf8"), humanTriage, "disable preserves the human config");
     const disabled = runtimeStatus();

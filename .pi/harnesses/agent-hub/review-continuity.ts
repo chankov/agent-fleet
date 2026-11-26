@@ -10,10 +10,13 @@ import { isChangeAuthor } from "./review-closure.ts";
 import { basePersonaName } from "./run-budget.js";
 const hash=(s:string|Buffer)=>createHash("sha256").update(s).digest("hex");
 export interface ReviewBaseline { head:string; files:Record<string,{content:string|null;mode:number}>; }
+// The lexical check compares the caller's own spelling of the workspace and the
+// path (an artifact path may name the workspace through a symlinked temp root);
+// the physical check then compares both resolved, so a symlink cannot escape.
 function contained(cwd:string,path:string):string {
- const root=realpathSync(cwd),target=resolve(root,path),rel=relative(root,target);
+ const base=resolve(cwd),target=resolve(base,path),rel=relative(base,target);
  if(isAbsolute(rel)||rel===".."||rel.startsWith(".."+sep))throw new Error("Review path outside workspace");
- const physical=realpathSync(target),realRel=relative(root,physical);
+ const root=realpathSync(base),physical=realpathSync(target),realRel=relative(root,physical);
  if(isAbsolute(realRel)||realRel===".."||realRel.startsWith(".."+sep))throw new Error("Review symlink escape");
  return target;
 }

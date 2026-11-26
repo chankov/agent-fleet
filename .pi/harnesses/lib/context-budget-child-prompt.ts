@@ -53,7 +53,7 @@ export function buildDeliverableProtocol(agentKey: string, runNumber: number, ar
 	return `
 
 ## Deliverable-to-file protocol
-When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: ${artifactRoot}/<kind>/${filename} (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${filename}. If your persona already has an explicit output path contract such as planner PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
+When your deliverable is a document (plan, review, critique, inventory, report), write the full document to the real session artifact path when your tools allow it: ${artifactRoot}/<kind>/${filename} (kinds: plans, reviews, inventories, evidence). Do NOT write repo-root ./artifacts/... files. In your final response, report and pass the artifact-relative handoff path: artifacts/<kind>/${filename}. If your assignment already has an explicit output path contract such as the planning practice's PLAN_FILE, keep that existing behavior and also summarize/return the session artifact path the hub gives you.
 Finish with the artifact-relative path plus a digest of no more than 10 lines. If the dispatch includes acceptance assertions (A1, A2, ...), also include the structured return from skills/orchestration-verification/SKILL.md. If your tools are read-only and you cannot write a document artifact yourself, finish with the digest + structured return; the hub will still persist your full final return under artifacts/returns/ for dispatcher recovery.`;
 }
 

@@ -4,14 +4,14 @@ Runtime coordination protocols for a *fleet* of long-lived agents — peers in h
 coms peers, bridged non-pi agents — talking to each other while work is in flight. This is
 the **runtime layer**: message-level protocols between already-running agents.
 [orchestration-patterns.md](orchestration-patterns.md) covers the **composition layer**
-(which personas to invoke and how to wire them: direct invocation, slash-command fan-out,
+(which roles and practices to assign and how to wire them: direct invocation, slash-command fan-out,
 Claude Code Agent Teams) — read that one when deciding *who runs*; read this one when
 deciding *how running agents coordinate*.
 
 Adapted from the coordination protocols in disler's cmux experiments
 (`PATTERNS-read-and-notify.md`), generalized away from cmux and grounded in this repo's
 mechanisms: coms envelopes (`coms_send`/`coms_await`), the agent-hub Verification
-Contract, and the herdr fleet layer (`team-up`, events, pane control).
+Contract, and the herdr fleet layer (`just fleet peer`, `herdr_spawn_peer`, events, pane control).
 
 Each pattern: when to use → protocol → how this repo instantiates it → failure modes.
 Patterns name live mechanisms or say "not implemented here" — nothing aspirational is
@@ -113,8 +113,11 @@ artifacts only where the digest warrants it. Raw dumps never travel upward.
   previews + paths, never inlined full content.
 - The delegate `DIGEST:` contract — children return ≤30 digest lines with `path:line`
   citations plus the result-file path; over-long returns are truncated with a warning.
-- `just fleet team <team> --no-hub` is the fleet-level shard step: one pane per peer, each an
-  addressable worker.
+- Inside the Hub, distinct `spawn_research` questions run in parallel, a busy reader gets an
+  automatic instance (`reviewer--p2`), and editors fan out with `parallel: true` over disjoint
+  scopes — see [parallel assignments](../docs/agents.md#dispatch-examples).
+- `just fleet peer <name>` (or `herdr_spawn_peer`) per worker is the fleet-level shard step:
+  one pane per peer, each an addressable worker.
 
 **Failure modes:** digest inflation (cap lines, require citations); merger re-reading
 every full artifact (defeats the point — pull selectively); shards that were not
@@ -142,7 +145,7 @@ damage-control rules before giving any LLM that verb).
 
 **Failure modes:** declaring the fastest answer the best answer (validate first);
 zombie runners after the race (tear down explicitly); racing where lanes share state
-(two builders editing one worktree is a conflict, not a race — isolate worktrees).
+(two editors changing one worktree is a conflict, not a race — isolate worktrees).
 
 ---
 
@@ -166,6 +169,6 @@ zombie runners after the race (tear down explicitly); racing where lanes share s
 
 ---
 
-*Composition-layer patterns (which personas, which commands, Agent Teams):*
+*Composition-layer patterns (which roles and practices, which commands, Agent Teams):*
 [orchestration-patterns.md](orchestration-patterns.md). *The contract the dispatcher
 enforces over all of these:* [skills/orchestration-verification](../skills/orchestration-verification/SKILL.md).

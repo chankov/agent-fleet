@@ -162,7 +162,8 @@ test("registered build-test and document workflows complete stubbed CLI dry runs
 		const cwd = repo();
 		try {
 			mkdirSync(join(cwd, "agents")); mkdirSync(join(cwd, ".ai"));
-			for (const persona of ["builder", "documenter"]) writeFileSync(join(cwd, "agents", `${persona}.md`), `---\nname: ${persona}\ndescription: stub\ntools: read\nwrites: []\nmodel: stub/model\n---\nstub`);
+			// Both flows run the editor role (build-test with implementation, document with documentation).
+			writeFileSync(join(cwd, "agents", "editor.md"), "---\nname: editor\ndescription: stub\ntools: read\nmodel: stub/model\n---\nstub");
 			writeFileSync(join(cwd, ".ai", "agent-fleet-overrides.md"), "## workflows\nquality: npm test\n"); writeFileSync(join(cwd, ".gitignore"), ".pi/flow-sessions/\n");
 			execFileSync("git", ["add", "."], { cwd }); execFileSync("git", ["commit", "-qm", "flow fixtures"], { cwd });
 			const args = name === "build-test" ? [name, "implement X", "--dry-run", "--run-id", `${name}-dry`] : [name, "--dry-run", "--run-id", `${name}-dry`];

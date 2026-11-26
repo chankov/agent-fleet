@@ -9,9 +9,9 @@ description: Defines the Verification Contract that keeps a multi-agent run hone
 
 Multi-agent runs drop clearly stated requirements silently. The dispatcher relays the requirement as *prose*, specialists return *prose* summaries ("approved", "verification passed"), and the feature ships broken anyway. Propagation is rarely the problem — the requirement is usually right there in the dispatch text. **Verification is the problem:** nothing exercised the requirement and refused "done" until it passed.
 
-This skill defines the four artifacts that replace prose-as-truth with **checkable assertions and named evidence**. It is the single canonical source for their formats — orchestrator and specialist personas reference this skill by name instead of restating the schema.
+This skill defines the four artifacts that replace prose-as-truth with **checkable assertions and named evidence**. It is the single canonical source for their formats — the Hub operator and the `researcher`, `reviewer` and `editor` role definitions reference this skill by name instead of restating the schema.
 
-1. **Acceptance assertions** — the dispatcher converts the request into numbered, individually checkable statements before any builder runs.
+1. **Acceptance assertions** — the dispatcher converts the request into numbered, individually checkable statements before any editor runs.
 2. **Parity / touchpoint inventory** — for "make X behave like existing Y", an exhaustive list of every site where the exemplar is special-cased; each becomes an assertion.
 3. **Structured upward return** — specialists report assertion *status with evidence*, never a prose verdict.
 4. **Requirement-regression reset** — on "it's wrong again", stale summaries are invalidated and the assertion set rebuilt from the latest correction before re-dispatch.
@@ -29,17 +29,18 @@ This skill defines the four artifacts that replace prose-as-truth with **checkab
 
 The dispatcher runs this loop; the four artifacts below define the formats each step uses.
 
-1. **Build the acceptance assertions first** (Artifact 1). Before any builder is dispatched, convert the request into a numbered, tagged list of checkable pass conditions. No dispatch goes out before the assertions exist.
-2. **If the request is "make X behave like existing Y", run the parity inventory first** (Artifact 2). Commission a `deep-researcher` pass that enumerates every site where the exemplar is special-cased, and turn each site into an assertion covering the whole set.
+1. **Build the acceptance assertions first** (Artifact 1). Before any editor is dispatched, convert the request into a numbered, tagged list of checkable pass conditions. No dispatch goes out before the assertions exist.
+2. **If the request is "make X behave like existing Y", run the parity inventory first** (Artifact 2). Commission a researcher pass (`spawn_research` with the `research` practice) that enumerates every site where the exemplar is special-cased, and turn each site into an assertion covering the whole set.
 3. **Dispatch in vertical micro-slices, assertions passed verbatim.** Each dispatch carries the relevant assertions word-for-word — never a paraphrase — and ends at a named gate.
 4. **Accept only structured returns** (Artifact 3). Specialists report assertion *status with named evidence*, not a prose verdict. Demote any "proven" claim without evidence to unproven.
 5. **Gate each slice on proven assertions.** Advance only on assertions that came back proven; `unproven` and `failed` both mean not done and feed the next dispatch. A `runtime-ui` assertion is closed only by an actual runtime observation, never a static review.
 6. **On "wrong again", run the regression reset** (Artifact 4). Invalidate stale summaries, rebuild the affected assertions from the latest correction (re-running the parity inventory for "behave like" cases), then re-dispatch.
 7. **Recover the ledger after compaction.** If the running context is summarized, re-read the full assertion text and evidence (e.g. `get_assertions` in the agent-hub harness) before re-dispatching or reporting done — a counts-only status line is not enough to gate on.
+8. **Close on an independent review of the integrated change.** Acceptance evidence for review comes from a `reviewer` with the `independent-review` practice, never from the author of the work. With several editors, run one review of the whole change after the writers finish; a verdict on one editor's files or on an earlier revision does not close it. A follow-up review receives the previous findings and the delta to the new revision. Roles and practices: [docs/agents.md](../../docs/agents.md#roles).
 
 ## Artifact 1 — Acceptance assertions (dispatcher-owned, built first)
 
-Before dispatching any builder, the dispatcher turns the request into a numbered list of assertions. Each assertion is:
+Before dispatching any editor, the dispatcher turns the request into a numbered list of assertions. Each assertion is:
 
 ```
 A<N> `<tag>`: <single checkable pass condition>
@@ -80,7 +81,7 @@ A2/A3/A4 are deliberately *per-type* — "works for Walkover" proves one third o
 
 For any "make X behave like existing Y" request, the exemplar (`Y`) is almost always special-cased in more than one place. Patch one site and the siblings stay broken — the run reports "done" and the user re-asks. To kill this:
 
-1. **Run a parity pass first** — a `deep-researcher` recon that enumerates **every** site where the exemplar is special-cased: feature flags, branches, display logic, validation, translations, fixtures, tests.
+1. **Run a parity pass first** — a researcher recon (`spawn_research`) that enumerates **every** site where the exemplar is special-cased: feature flags, branches, display logic, validation, translations, fixtures, tests.
 2. **Turn each site into an assertion** — every listed site must be generalised to the whole set, and gets an assertion (usually `code-grep` for "no exemplar-only branch remains" plus a `runtime-ui`/`test` for the behaviour).
 3. **Re-run the proof across every member of the set** — the verification for member A is repeated for B and C. A proof that only covers the exemplar does not close the assertion.
 
@@ -89,7 +90,7 @@ The inventory is **dispatcher-owned**: the dispatcher commissions it and convert
 ```
 Parity inventory checklist
 - [ ] Every exemplar special-case site enumerated (flags, branches, display, validation,
-      translations, fixtures, tests) — by a deep-researcher pass, not a guess.
+      translations, fixtures, tests) — by a researcher pass, not a guess.
 - [ ] Each site mapped to an assertion that covers the WHOLE set, not just the exemplar.
 - [ ] The verification plan re-runs the same proof for every member of the set.
 - [ ] A `code-grep` assertion guards against any exemplar-only branch surviving.
@@ -130,9 +131,9 @@ When the user says a delivered requirement is **wrong again**, the prior upward 
 ```
 request ──→ [A1] build acceptance assertions (dispatcher)
    │            │
-   │            └─ "behave like Y"? ──→ [A2] parity inventory (deep-researcher) ──→ more assertions
+   │            └─ "behave like Y"? ──→ [A2] parity inventory (researcher) ──→ more assertions
    ▼
-dispatch builder (assertions verbatim) ──→ [A3] structured return (status + evidence)
+dispatch editor (assertions verbatim) ──→ [A3] structured return (status + evidence)
    │                                              │
    │            ┌── all relevant assertions proven? ──┐
    ▼            │                                     │
@@ -169,14 +170,16 @@ push events over polling, barriers, fan-in digests) are catalogued in
 - The same defect is re-asked and the next dispatch reuses the old assertions/summaries unchanged.
 - "Works for the exemplar" is reported as the whole requirement done.
 - Verification covers code mechanics and the exemplar path (which has fixtures) but not semantic parity across the set or the runtime UI.
+- Work split across several editors is closed on one editor's verdict, an earlier revision's verdict, or the author's own approval.
 
 ## Verification
 
 Before reporting an orchestrated task as done, confirm:
 
-- [ ] A numbered acceptance-assertion list existed **before** the first builder dispatch, each with a tag and a single pass condition.
+- [ ] A numbered acceptance-assertion list existed **before** the first editor dispatch, each with a tag and a single pass condition.
 - [ ] Every "behave like Y" requirement produced a parity/touchpoint inventory, and each site became an assertion covering the whole set.
 - [ ] Every specialist return was the structured object — `assertions_proven` entries each name their evidence.
 - [ ] Every `runtime-ui` assertion carries an actual runtime observation (DOM / screenshot / network), not static approval.
 - [ ] No assertion sits in `assertions_unproven` or `assertions_failed` at "done" — unproven means not done.
 - [ ] On any "wrong again", the assertion set was rebuilt from the latest correction before re-dispatch.
+- [ ] The closing review is an independent reviewer's fresh verdict covering the whole integrated change.

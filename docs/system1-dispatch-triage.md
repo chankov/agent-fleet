@@ -13,8 +13,8 @@ and not an automatic before-dispatch hook. It never starts an agent, changes tie
 permissions, budgets, or satisfies acceptance. `dispatch_agent` retains all gates.
 
 The tool accepts `task`, `scope`, `language`, and `domain`. It derives candidates
-from the current roster, excluding research personas, busy specialists, and roles
-blocked by current process, tier, review, documentation-lane and budget checks.
+from the current roster of roles and their instances, excluding the research role,
+busy instances, and roles blocked by current process, tier, review, documentation-lane and budget checks.
 These are advisory snapshots, not reservations. Dispatch always checks again.
 Use minimal non-secret context, never credentials, transcripts or file contents.
 Credential-like text is refused before inference; absolute paths are replaced with
@@ -68,7 +68,7 @@ there. `dispatch_agent` optionally accepts `triage_id` and `triage_reason` (`use
 `better_fit`, `changed_scope`, `independent_judgment`) for explicit disposition.
 Correlation is rejected when stale. The subsequent observation records a submitted
 call, **not proof of launch or success**; dispatch evidence owns those facts. No
-correlation is inferred merely from matching persona names.
+correlation is inferred merely from matching role names.
 
 ## Testing the enabled repository experiment
 

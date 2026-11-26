@@ -65,7 +65,7 @@ node --experimental-strip-types skills/drafting-workflows/scripts/make-workflow.
   <name> 'agent(plan) → agent(build) → agent(review)'
 ```
 
-The generator reads `Phases:` docstrings, compares phase-kind sequences deterministically, and breaks ties by workflow name. Commas inside phase parentheses (for example `agent(builder-fix, bounded)`) remain part of that phase. It copies the nearest source in full, replaces the phase docstring block, and renames the workflow/preflight entry symbols to match the new file. It never overwrites an existing workflow.
+The generator reads `Phases:` docstrings, compares phase-kind sequences deterministically, and breaks ties by workflow name. Commas inside phase parentheses (for example `agent(editor-fix, bounded)`) remain part of that phase. It copies the nearest source in full, replaces the phase docstring block, and renames the workflow/preflight entry symbols to match the new file. It never overwrites an existing workflow.
 
 Do not regenerate boilerplate from memory. Copying the entire nearest flow preserves imports, envelopes, explicit permission enforcement, gates, correction behavior, dry-run stubs, and finish semantics that a partial template can accidentally omit. The symbol rename is the sole identity change required to make `just flow <name>` discover the new module.
 
@@ -135,7 +135,7 @@ Before presenting a workflow draft, confirm:
 - [ ] Every remaining `// TODO:` is a gate, retry-bound, or acceptance judgment.
 - [ ] Implemented phase order matches the `Phases:` docstring.
 - [ ] Envelope schema, JSON prompt example, and call-site name agree.
-- [ ] Every agent phase has an explicit persona or call-site writes policy; omission is a startup error, never unrestricted by accident.
+- [ ] Every agent phase has an explicit writes policy from its role file (`writes:`) or its call site; omission is a startup error, never unrestricted by accident.
 - [ ] Writes policy and protected paths are enforced around agent phases.
 - [ ] The generated export is uniquely named for the file and resolves through `just flow <name>`.
 - [ ] `npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit` passes.

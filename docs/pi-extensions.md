@@ -77,7 +77,7 @@ all of them. If the harnesses lived there, a plain `pi` run would load them all 
 same CLI flags would abort startup with duplicate registrations. So the harnesses live in
 `.pi/harnesses/` instead, and you load the desired recipe explicitly:
 
-- through the unified `justfile` interface — `just fleet`, `just fleet --agents <roster>`, `just fleet --peers <preset>`, `just fleet peer <name>`, …
+- through the unified `justfile` interface — `just fleet`, `just fleet --herdr`, `just fleet peer <name>`, …
 - or directly — `pi -e .pi/harnesses/<name>/index.ts` (advanced use; you must compose safety/utilities yourself)
 
 When you consume this repo from another project, use deterministic `agent-fleet
@@ -94,12 +94,11 @@ exception is loading `damage-control-continue` and `ask-user-remote` before `age
 
 ```bash
 just fleet deps         # install nested runtime deps only; starts no Pi/harness
-just fleet              # Hub/operator + Fleet Core; empty native roster
-just fleet --agents frontend
-                        # Hub/orchestrator + native specialist roster
-just fleet --agents default --peers docs --project af
-                        # Hub + native roster + standing Herdr peers
-just fleet peer code-reviewer --project af    # ONE peer in its own Herdr pane, no team
+just fleet              # Hub/operator + Fleet Core; the researcher, reviewer and editor roles
+just fleet --herdr --project af
+                        # the Hub alone in a one-pane Herdr workspace
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+                        # ONE peer in its own Herdr pane
 just fleet help         # unified command grammar
 just --list             # shows the single public `fleet` entry point
 ```
@@ -121,7 +120,7 @@ itself.
 
 | Extension | Category | What it does | Run |
 |-----------|----------|--------------|-----|
-| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Unified operator/orchestrator runtime: Fleet Core guardrails, dynamic native roster, specialist delegation, research helpers, embedded coms, `/af-handoff`, explicit native/coms backend routing, and footer `agent fleet v<version> · <model><thinking> · <team>` — plus, inside [Herdr](https://herdr.dev), constrained peer spawn, raw pane spawn, read, confirmed close, and notify tools | `just fleet` |
+| [agent-hub](../.pi/harnesses/agent-hub/README.md) | Orchestration | Unified operator runtime: Fleet Core guardrails, three runtime roles (`researcher`, `reviewer`, `editor`) with combinable practices, research helpers, embedded coms, `/af-handoff`, explicit native/coms backend routing, and footer `agent fleet v<version> · <model><thinking>` — plus, inside [Herdr](https://herdr.dev), constrained peer spawn, raw pane spawn, read, confirmed close, and notify tools | `just fleet` |
 | [ask-user-remote](../.pi/harnesses/ask-user-remote/README.md) | Orchestration | Captures stock `pi-ask-user` and registers the default `ask_user`; with `user-remote` live it races local UI against the Hermes bridge, otherwise it is stock local behavior | Fleet Core (`just fleet`) |
 | [damage-control-continue](../.pi/harnesses/damage-control-continue/README.md) | Safety | Fleet Core safety harness; guards default Pi, Hub, native children, and Herdr Pi peers. Blocks feed back without aborting the turn; protected paths support explicit approval, while dangerous command patterns remain non-exemptible | `just fleet` |
 | [coms](../.pi/harnesses/coms/README.md) | Messaging | Peer-to-peer messaging between agents on one machine, composed with Fleet Core safety and utilities | `just fleet peer <name>` |
@@ -147,7 +146,7 @@ The three persistent-UI harnesses — `agent-hub`, `coms`, and
 default status footer, that shared key gives a supported stack exactly one version instead of one
 copy per harness. `agent-hub` replaces the default footer: it does **not** consume that status
 key. Its custom footer reads its own adjacent stamped manifest and renders one local version
-first — `agent fleet v<version> · <model><thinking> · <team>` — so an agent-hub stack also displays the
+first — `agent fleet v<version> · <model><thinking>` — so an agent-hub stack also displays the
 version exactly once.
 
 The `agent fleet` half of that label is an [OSC 8](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)
@@ -175,15 +174,17 @@ make a harness self-contained: copied target harnesses still require the existin
 `agent-team` recipe and absorbs the day-to-day pieces that previously required separate
 harnesses:
 
-- **One operator** — bare `just fleet` starts the operator with direct coding tools, delegation to
-  every installed agent, and an empty native roster. The former orchestrator work mode,
+- **One operator** — bare `just fleet` starts the operator with direct coding tools and delegation
+  to the three runtime roles, `researcher`, `reviewer` and `editor`, each assignment carrying
+  practices that add method and expected evidence, never authority (see
+  [roles and practices](agents.md)). Native teams were removed in 2.3.0. The former orchestrator work mode,
   `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. During a pending task transition, `get_assertions` can report the current task’s status repeatedly without binding the input or counting as a diversion. `set_task_tier` and `ask_user` remain available. Other tools, including edits and agent launches, are refused until binding; a second diversion stops the turn, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height
   gates allow it. Use `j`/`k` inside the view; plain and Alt arrow keys remain editor input unchanged.
 - **Fleet Dashboard** — **`Alt+A`** or `/af-agents-list` opens a
-  full-screen dashboard of the active native roster, delegates, currently running research
+  full-screen dashboard of the roles and their parallel instances, delegates, currently running research
   helpers, and coms peers, with the coms pool panel pinned to the bottom. Live research helpers never appear in the
   main dispatcher view; they vanish from the dashboard on every terminal outcome while their
   session/findings files and `/af-agents-history` records remain. The dashboard supports row
@@ -194,18 +195,20 @@ harnesses:
   interrupting current work. See the
   [agent-hub README](../.pi/harnesses/agent-hub/README.md#fleet-dashboard-and-detail) for
   keys and action semantics.
-- **Specialist delegation** — `dispatch_agent` for writable child-agent work. Read-only
-  investigation is automated through dispatcher-invoked `spawn_research` and the specialists'
-  `NEEDS_RESEARCH:` pipe; dedicated research lifecycle slash commands are not registered.
+- **Role delegation** — `dispatch_agent` for `reviewer` and `editor` assignments with
+  `practices`, `parallel: true` instances and `after: [...]` dependencies. Read-only investigation
+  runs the `researcher` through dispatcher-invoked `spawn_research` (distinct questions in parallel)
+  and the specialists' `NEEDS_RESEARCH:` pipe; dedicated research lifecycle slash commands are not
+  registered. See [dispatch examples](agents.md#dispatch-examples).
 - **Verification Contract** — the dispatcher owns a ledger of checkable acceptance assertions
-  built before any builder runs, via the `set_assertions` / `update_assertion` tools. Each
+  built before any editor runs, via the `set_assertions` / `update_assertion` tools. Each
   assertion is tagged (`test` | `runtime-ui` | `code-grep` | `manual`) and advanced only on
   *proven with evidence*; the ledger persists to `.pi/agent-sessions/assertions.json` (wiped at
   session start like `findings/`) and shows a one-line status, keeping the contract out of the
   dispatcher LLM context. It kills the parity failure (exemplar shipped, siblings missed) by
   requiring a parity/touchpoint inventory for "behave like" requests and runtime proof for UI
   assertions — see the [`orchestration-verification`](../skills/orchestration-verification/SKILL.md)
-  skill, which the `orchestrator` persona drives. Advisory in this phase (surfaced, not a hard
+  skill, which the Hub operator follows. Advisory in this phase (surfaced, not a hard
   dispatch refusal).
 - **Operator controls** — `/af-zoom` timeline inspection plus child-agent kill/restart controls. `/af-context` is a separate read-only full-screen context-budget view: provider totals/cache fields are authoritative, component estimates are labelled heuristic or provider-scaled, stable prompt and volatile-state cost are separated, loaded-but-excluded and inactive packs visibly cost zero, and fleet members use separate model-window denominators. It also shows live pressure phase, measured usage, the 60%/70% thresholds and 80% ceiling, episode, and last recovery outcome. It never reveals or persists raw prompts, schemas, conversation content, error bodies, or compaction summaries.
 - **Automatic capability packs** — no activation command is needed. Intent, tier, pending work, and runtime state resolve the model-visible tools before the turn; readiness alone does not make coms/Herdr visible. Ambiguous fleet, peer, or workspace use asks once before its first side effect. The compact pack is transient when explicitly requested or pressure is imminent; ordinary task packs persist until `set_task_tier(new_task: true)`. Managed children receive selected replacement prompts/manifests (`--no-skills` and `--no-context-files` where applicable), not inherited global context.
@@ -234,7 +237,7 @@ harnesses:
   [Hermes integration guide](../.pi/agent-fleet/hermes/README.md#local-agent-hub-monitor-integration) for startup,
   wire examples, cancellation semantics, and reconnect behavior.
 
-#### Context and roster recovery troubleshooting
+#### Context recovery troubleshooting
 
 A green standing-prompt budget does not guarantee that a long tool loop fits: messages and tool
 results continue accumulating inside the current model window. Agent Hub warns at **60%** live
@@ -250,33 +253,33 @@ session JSONL under `~/.pi/agent/sessions/` remains the authoritative append-onl
 overflow does not imply corruption: inspect with `/session`, resume with `/resume` or Pi's session
 flags, and **never edit, truncate, reorder, or synthesize JSONL entries to recover**.
 
-If resume reports that a persisted native roster no longer resolves, the session continues without
-it. Select a current team with `/af-agents-team` or restart via `just fleet --agents <name>` (direct
-Pi: `--agent-team <name>`), after repairing stale team/persona definitions. A session saved in the
-removed orchestrator work mode continues as the operator with a one-time notice.
+A resumed session gets every installed role again; there is no team to resolve. A session saved
+in the removed orchestrator work mode continues as the operator with a one-time notice.
 
 ### Runtime axes and explicit routing
 
-The native roster and the peer topology are independent:
+The roles and the peer topology are independent:
 
 ```bash
-just fleet                                      # operator, empty native roster
-just fleet --agents frontend                    # operator starting with a native roster
+just fleet                                      # operator with the three roles
 just fleet --herdr --project af                 # one Hub pane in Herdr
-just fleet --agents frontend --peers frontend --project af
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+                                                # one peer beside it
 ```
 
-A **native specialist** is a local headless Pi child selected from `teams.yaml`; a **peer** is a
-separate long-lived Pi or Claude Code process registered over coms, usually in a sibling Herdr
-pane. Add a native reviewer at runtime with `/af-agents-add code-reviewer`. When a same-name
-Claude reviewer is live, `dispatch_agent`'s `backend: "native"` still forces the local Pi child,
-`backend: "coms"` requires that peer with no native fallback, and `backend: "auto"` follows
-`dispatch-policy.yaml`.
+A **role** runs as a local headless Pi child; a **peer** is a separate long-lived Pi or Claude Code
+process registered over coms, usually in a sibling Herdr pane. `.pi/agents/dispatch-policy.yaml`
+routes by role, with `peer:` naming the coms address (`reviewer: { peer: claude-reviewer, prefer:
+coms, fallback: native }`). When that read-only Claude reviewer is live, `dispatch_agent`'s
+`backend: "native"` still forces the local Pi child, `backend: "coms"` requires that peer with no
+native fallback, and `backend: "auto"` follows the policy. A read-only role reaches only a peer
+started with `--read-only`, and a reviewer route never reaches a peer that changed a file in the
+review's scope ([peers serving a role](agents.md#peers-serving-a-role)).
 
-Inside a Herdr-backed Hub, `herdr_spawn_peer({ name: "code-reviewer" })` uses the declaration in
-`peers.yaml` (including `runner: claude-code`), creates a sibling pane, locks it to the Hub project,
-and waits for coms readiness. Then use `coms_send` + `coms_await`, or `/af-handoff
-code-reviewer`. These actions need a running Herdr server and/or ready coms as appropriate; the
+Inside a Herdr-backed Hub, `herdr_spawn_peer({ name: "claude-reviewer", runner: "claude-code",
+read_only: true })` creates a sibling pane, locks it to the Hub project, and waits for coms
+readiness; its settings are its parameters. Then use `coms_send` + `coms_await`, or `/af-handoff
+claude-reviewer`. These actions need a running Herdr server and/or ready coms as appropriate; the
 commands stay registered and explain missing capability. Arbitrary pane commands use the separate
 `herdr_spawn_pane` tool, meant for auxiliary processes such as watchers or servers.
 
@@ -286,66 +289,81 @@ commands stay registered and explain missing capability. Arbitrary pane commands
 
 This repo ships **two** ways to drive a browser from a pi agent. They are complementary, not redundant — the axis that separates them is the **tool model** (and where they can run), not just headless-vs-headful, since both can do either:
 
-| | `bowser` / `playwright-cli` | `web-debugger` / `chrome-devtools-mcp` |
+| | `playwright-cli` | `chrome-devtools-mcp` |
 |---|---|---|
 | Tool model | CLI over **Bash** (no tool schemas in context) | live `chrome_devtools__*` MCP tools |
 | Strength | headless, parallel named sessions, background automation, scraping, token-efficient | interactive headful debugging, live DOM/console/network, performance traces |
-| Where it runs | **dispatched subagent** (survives `--no-extensions`), peer, or main session | main session or **coms peer** (the extension must be loaded into the process) |
-| Persona | `bowser` | `web-debugger` |
+| Where it runs | a dispatched **editor** (it has Bash and survives `--no-extensions`), a peer, or the main session | the main session (`just fleet --browser`) or a **Pi coms peer** (every non-read-only Pi peer loads it) |
 | Skill | `.pi/skills/bowser/` | `skills/browser-testing-with-devtools/` |
+
+Both serve the `browser-debugging` practice, which carries the method and expected evidence
+([practices](agents.md#practices)). The retired `bowser` and `web-debugger` personas map to a
+`researcher` with `browser-debugging` for observation or diagnosis, and an `editor` with the same
+practice for stateful interaction, test artifacts or scoped changes.
 
 **Policy:**
 
-- **Automated / CI / background / parallel runtime-UI evidence** → `bowser` (headless `playwright-cli`). This is what the `orchestrator` delegates as a subagent to close `runtime-ui` acceptance assertions.
-- **Interactive debugging of a running dev app** → `web-debugger` (headful `chrome-devtools-mcp`), reached as a coms peer or run on the main session.
-- **Manual visual inspection / login flows** → `web-debugger` headful, or attach to an existing Chrome.
+- **Automated / CI / background / parallel runtime-UI evidence** → an `editor` with
+  `browser-debugging` driving headless `playwright-cli` over Bash; name the `.pi/skills/bowser/`
+  skill in the task. This is what the operator delegates to close `runtime-ui` acceptance
+  assertions.
+- **Interactive debugging of a running dev app** → headful `chrome-devtools-mcp`, on the main
+  session (`--browser`) or a Pi coms peer.
+- **Manual visual inspection / login flows** → `chrome-devtools-mcp` headful, or attach to an existing Chrome.
 - **Always require runtime evidence** — snapshot + console + network before/after a critical interaction; a screenshot only for visual/layout confirmation.
 
-Why `web-debugger` is a coms peer and not a dispatchable subagent: its `chrome_devtools__*` tools come from the always-on `chrome-devtools-mcp` extension, and agent-hub spawns subagents with `--no-extensions`, so a dispatched child would not have those tools. A coms peer is its own pi process that loads the extension explicitly (via the `extensions:` field in `.pi/agents/peers.yaml`, routed through the `_peer-plus` recipe), and a long-lived peer maps naturally onto one persistent live browser. `bowser` has no such constraint because it only needs Bash + the `playwright-cli` binary on PATH.
+Why `chrome-devtools-mcp` needs a peer or the main session: its `chrome_devtools__*` tools come
+from the `chrome-devtools-mcp` extension, and agent-hub spawns subagents with `--no-extensions`, so
+a dispatched child would not have those tools. A Pi coms peer is its own pi process; every Pi peer
+started with `just fleet peer <name>` or `herdr_spawn_peer` loads the extension, except a
+`--read-only` one, and a long-lived peer maps naturally onto one persistent live browser.
+`playwright-cli` has no such constraint because it only needs Bash + the binary on PATH; a
+read-only `researcher` has no Bash, so it reports which check an editor must run.
 
 ## One peer at a time — `just fleet peer`
 
-`just fleet --peers <preset>` is the right topology for a *known* set of collaborators, but it
-requires every peer to be declared in `.pi/agents/peers.yaml` and it builds a whole
-workspace. When you want **one** more agent — often a Claude Code reviewer — next to
-what you already have:
+Each peer starts on its own; there are no peer groups and no declaration file (peer groups,
+`.pi/agents/peers.yaml`, `just fleet team <name>`, team snapshots and resume were removed in 2.3.0).
+A peer's settings are its flags — `--runner pi|claude-code`, `--persona <p>` / `--no-persona`,
+`--model`, `--read-only`, `--env-file` — so the same command always produces the same peer:
 
 ```bash
-just fleet peer code-reviewer --project af                      # peers.yaml decides the runner
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
 just fleet peer scratch-reviewer --runner claude-code --model opus --project af
-just fleet peer researcher --model openai-codex/gpt-6-luna --project af
-just fleet peer web-debugger --browser --project af             # persona peer + devtools MCP
+just fleet peer scout --persona researcher --read-only --project af   # read-only Pi persona peer
+just fleet peer browser-lab --persona editor --project af            # Pi persona peer + devtools MCP
 just fleet peer nick --here --project af                        # this terminal, not a pane
 just fleet peer anything --runner claude-code --dry-run         # print the plan, touch nothing
 ```
 
 **The name decides the shape of the peer** — one verb, three launchers:
 
-| The name… | Peer | Recipe |
+| The name (or `--persona`)… | Peer | Recipe |
 |---|---|---|
-| is declared in `peers.yaml` | whatever it declares (`runner`, `model`, `extensions`, `env_file`) | per declaration |
-| matches `agents/<name>.md` | that guarded persona peer | `_peer` / `_peer-plus` |
-| matches nothing | Fleet Core + coms under that identity, no persona | `_fleet-peer` |
-| `--runner claude-code` | interactive Claude Code + its coms bridge in one pane | `_claude-peer` |
+| matches a role or persona file (`agents/`, `.claude/agents/`, `.pi/agents/personas/`) | that guarded persona peer + Chrome DevTools MCP | `_peer` |
+| … with `--read-only` | the same persona with `read,grep,find,ls` only, no MCP servers and no extra extension; it declares `read_only` | `_peer-read-only` |
+| matches nothing | Fleet Core + coms + Chrome DevTools MCP under that identity, no persona | `_fleet-peer` |
+| `--runner claude-code` | interactive Claude Code + its coms bridge in one pane (`--read-only`: `Read,Grep,Glob`, MCP off) | `_claude-peer` / `_claude-peer-read-only` |
 
-The third row is what this command meant before pane placement existed, and it is the
+The no-persona row is what this command meant before pane placement existed, and it is the
 only shape that accepts raw pi arguments — everything after `--` goes to pi verbatim
 (`just fleet peer nick --here -- --session /path/to/session.json`). Note that the
-persona-by-name rule can change what an existing invocation means: `agents/architect.md`
-exists, so `just fleet peer architect` is now the architect persona peer. `--no-persona`
-forces the plain Fleet Core shape back.
+persona-by-name rule can change what an existing invocation means: `agents/reviewer.md`
+exists, so `just fleet peer reviewer` is the reviewer persona peer. `--no-persona`
+forces the plain Fleet Core shape back. A read-only launch needs a persona or
+`--runner claude-code`.
 
 - **Placement** — by default the peer gets its own pane: run inside a herdr pane and it
   splits *that* pane (`--direction right|down`); run outside herdr and it creates a
   single-pane workspace labelled `<worktree-tag>-peer-<name>`, refusing to clobber an
   existing one. `--here` runs it in the calling terminal instead.
-- **Field resolution** — explicit flag → the `peers.yaml` declaration for that *name*
-  (searched across every team) → a convention default. A name the fleet already defines
-  keeps its declared fields; a name it does not need no manifest entry at all.
+- **Field resolution** — explicit flag → a convention default (the same-named persona when
+  one exists). Nothing is read from a declaration file.
 - **Nothing is silently dropped** — a flag that cannot apply to the resolved shape is an
-  error, not a no-op: `--all-extensions` on a persona peer, `--persona` on a Claude Code
-  peer, a mistyped flag, or a pi flag that forgot its `--` separator.
-- **`--project` matters** — same rule as teams: the flag form is `--project af`;
+  error, not a no-op: `--browser` or `--extensions` (every Pi peer already loads Chrome
+  DevTools MCP), `--persona` on a Claude Code peer, `--read-only` on a no-persona Pi peer, a
+  mistyped flag, or a pi flag that forgot its `--` separator.
+- **`--project` matters** — the flag form is `--project af`;
   `project=af` is a `just` variable override and is silently ignored, leaving the peer
   in the shared `default` pool.
 - **Readiness** — a pane launch waits (bounded) for the peer to register in the coms pool
@@ -370,7 +388,7 @@ The `justfile` sets `dotenv-load`, so a `.env` file at the repo root is auto-loa
 | `AZURE_SPEECH_KEY` | `pi-voice-stt` (azure backend) | Azure Speech resource key |
 | `AZURE_SPEECH_ENDPOINT` | `pi-voice-stt` (azure backend) | Azure resource endpoint, used when `provider.endpoint` is unset |
 | `PI_STT_CONFIG` / `PI_STT_KEYBIND` | `pi-voice-stt` | Override config (inline JSON or path) / the record hotkey (default `alt+s`) |
-| `AGENT_FLEET_SPAWN_DELAY` | `_peer` / `_peer-plus` recipes | Seconds to sleep before launching pi in a fleet pane (set per pane by `just fleet --peers`/`just fleet resume`, see below) |
+| `AGENT_FLEET_SPAWN_DELAY` | `_peer` / `_peer-read-only` recipes | Seconds to sleep before launching pi in a fleet pane (set per pane by the Hub's `herdr_spawn_peer`, see below) |
 
 The `chrome-devtools-mcp` server starts once at extension load, so changing its vars needs a pi
 restart / `/reload` to take effect.
@@ -379,14 +397,12 @@ restart / `/reload` to take effect.
 
 pi loads its credential store (`~/.pi/agent/auth.json`) once at boot under a short-retry
 file lock. When the stored OAuth token is stale, the first pi to boot refreshes it over
-the network *while holding that lock*; sibling panes spawned in the same instant (as
-`just fleet --peers` / `just fleet resume` do) lose the lock race and come up
-with every provider showing **unconfigured**. To dodge this, the team scripts check
-`auth.json` before spawning (only `type`/`expires` are read — values never leave the
-process): if any OAuth credential is expired or about to expire, one pi pane (the hub
-when present, else the first pi peer) starts immediately and refreshes the token, and
-every other pi pane gets `AGENT_FLEET_SPAWN_DELAY` in its pane env — the `_peer` /
-`_peer-plus` recipes sleep that many seconds before launching pi. Fresh tokens mean zero
+the network *while holding that lock*; a sibling pane spawned in the same instant loses
+the lock race and comes up with every provider showing **unconfigured**. To dodge this,
+the Hub's `herdr_spawn_peer` checks `auth.json` before spawning (only `type`/`expires` are
+read — values never leave the process): if an OAuth credential is expired or about to
+expire, a pi pane spawned right after another gets `AGENT_FLEET_SPAWN_DELAY` in its pane
+env — the `_peer` / `_peer-read-only` recipes sleep that many seconds before launching pi. Fresh tokens mean zero
 delay everywhere; `claude-code` runner panes never wait. Pure logic in
 `.pi/agent-fleet/scripts/lib/spawn-stagger.ts` (under `node --test`).
 
@@ -396,23 +412,20 @@ delay everywhere; `claude-code` runner panes never wait. Pure logic in
 
 These ported files are runtime dependencies of the extensions above:
 
-- **`agents/`** — canonical persona Markdown files for shared and pi-specific agents.
-  Read by `agent-hub`.
-- **`.pi/agents/`** — pi YAML configs only (`teams.yaml`, `peers.yaml`).
-  The earlier `reviewer` and `red-team` personas were folded into `code-reviewer` and
-  `security-auditor`; the remaining team/peer configs already reference the canonical names.
-  A peer entry may carry an optional `extensions:` field (comma-separated names under
-  `.pi/extensions/`) — Fleet's team launcher then routes it through the `_peer-plus` recipe so those
-  extensions load into the peer process. The `web-debugger` peer uses this to get
-  `chrome-devtools-mcp`'s `chrome_devtools__*` tools (see the two-browser-stacks section above).
+- **`agents/`** — the three role definitions (`researcher.md`, `reviewer.md`, `editor.md`) in
+  pi's frontmatter format. Read by `agent-hub`, which applies the code-owned role ceiling; see
+  [roles and practices](agents.md).
+- **`.pi/agents/`** — pi YAML configs only (`dispatch-policy.yaml`, `model-profiles.yaml`,
+  `voices.yaml`), plus `personas/` where setup installs the role files. `teams.yaml` and
+  `peers.yaml` were removed in 2.3.0.
 - **`.pi/damage-control-rules.yaml`** — the destructive-command / protected-path rule set
   for `damage-control-continue`.
 - **`.pi/skills/bowser/`** — a pi-runtime skill for headless Playwright browser
-  automation, used by the `bowser` agent persona. Kept separate from the core
+  automation, used by an editor with the `browser-debugging` practice. Kept separate from the core
   engineering `skills/`. It drives the external **Playwright Agent CLI**
   (`playwright-cli`), which is **not** bundled — install it once with
   `npm install -g @playwright/cli@latest` (deterministic setup checks for it when
-  `bowser` is selected). Docs: <https://playwright.dev/agent-cli/installation>.
+  the bowser skill is selected). Docs: <https://playwright.dev/agent-cli/installation>.
 - **`docs/pi-specs/`** — the original design specifications: `agent-forge` (now consolidated
   into `agent-hub`), `agent-workflow` (retired `agent-chain`), and `damage-control`.
 

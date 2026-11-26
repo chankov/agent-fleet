@@ -24,7 +24,7 @@
     },
     {
       "id": "personas",
-      "title": "Agent personas",
+      "title": "Agent roles",
       "order": 2,
       "agents": [
         "pi"
@@ -32,8 +32,7 @@
       "subcategoryLabel": "access",
       "subcategories": [
         "rw",
-        "ro",
-        "pi-only"
+        "ro"
       ]
     },
     {
@@ -132,9 +131,9 @@
         "command:review",
         "command:spec",
         "command:test",
-        "persona:builder",
-        "persona:code-reviewer",
-        "persona:test-engineer",
+        "persona:editor",
+        "persona:researcher",
+        "persona:reviewer",
         "pi-extension:btw",
         "pi-extension:compact-and-continue",
         "pi-harness:agent-hub",
@@ -1361,7 +1360,7 @@
       "group": "hermes",
       "subcategory": "skill",
       "title": "hub-conductor",
-      "summary": "Conducts local pi hub-team peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-s…",
+      "summary": "Conducts local pi Fleet peers from Hermes through coms-cli list/send --await, while preserving no-herdr and pool-scop…",
       "recommended": false,
       "stability": "stable",
       "consent": "operator",
@@ -1468,166 +1467,13 @@
       ]
     },
     {
-      "id": "persona:architect",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "architect",
-      "summary": "System architect — owns design decisions and migration strategy; answers design questions with concrete, justified re…",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/architect.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/architect.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/architect.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:bowser",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "pi-only",
-      "title": "bowser",
-      "summary": "Headless browser automation agent using Playwright CLI.",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/bowser.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/bowser.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/bowser.md"
-          ]
-        }
-      },
-      "requires": [
-        "pi-runtime-skill:bowser"
-      ]
-    },
-    {
-      "id": "persona:builder",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "builder",
-      "summary": "Implementation and code generation — lands changes in small verifiable increments.",
-      "recommended": true,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/builder.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/builder.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/builder.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:code-reviewer",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "ro",
-      "title": "code-reviewer",
-      "summary": "Senior code reviewer that evaluates changes across five dimensions — correctness, readability, architecture, security…",
-      "recommended": true,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/code-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/code-reviewer.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/code-reviewer.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:deep-researcher",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "ro",
-      "title": "deep-researcher",
-      "summary": "Read-only deep reconnaissance for hard, ambiguous, or high-stakes questions — traces cross-cutting call paths, maps u…",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/deep-researcher.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/deep-researcher.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/deep-researcher.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:documenter",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "documenter",
-      "summary": "Documentation and README generation",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/documenter.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/documenter.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/documenter.md"
-          ]
-        }
-      }
-    },
-    {
       "id": "persona:editor",
       "kind": "persona",
       "group": "personas",
-      "subcategory": null,
+      "subcategory": "rw",
       "title": "editor",
       "summary": "Writing specialist that creates or changes code, tests, plans and documentation within the authorized write scope, la…",
-      "recommended": false,
+      "recommended": true,
       "stability": "stable",
       "consent": "file",
       "platform": "any",
@@ -1643,82 +1489,10 @@
             "agents/editor.md"
           ]
         }
-      }
-    },
-    {
-      "id": "persona:plan-reviewer",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "ro",
-      "title": "plan-reviewer",
-      "summary": "Plan critic — reviews, challenges, and validates implementation plans",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/plan-reviewer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/plan-reviewer.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/plan-reviewer.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:planner",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "planner",
-      "summary": "Architecture and implementation planning — produces a written PLAN file with dependency-ordered tasks and acceptance…",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/planner.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/planner.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/planner.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:releaser",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "releaser",
-      "summary": "Release owner — cuts versions and ships; runs the changeset → version-bump → tag flow on request.",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/releaser.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/releaser.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/releaser.md"
-          ]
-        }
-      }
+      },
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
     },
     {
       "id": "persona:researcher",
@@ -1727,7 +1501,7 @@
       "subcategory": "ro",
       "title": "researcher",
       "summary": "Read-only investigator that answers a bounded question from the code, docs and sources it can read, scales its depth…",
-      "recommended": false,
+      "recommended": true,
       "stability": "stable",
       "consent": "file",
       "platform": "any",
@@ -1743,16 +1517,19 @@
             "agents/researcher.md"
           ]
         }
-      }
+      },
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
     },
     {
       "id": "persona:reviewer",
       "kind": "persona",
       "group": "personas",
-      "subcategory": null,
+      "subcategory": "ro",
       "title": "reviewer",
       "summary": "Independent read-only reviewer that assesses a named plan, code change or documentation revision against its task, th…",
-      "recommended": false,
+      "recommended": true,
       "stability": "stable",
       "consent": "file",
       "platform": "any",
@@ -1768,112 +1545,9 @@
             "agents/reviewer.md"
           ]
         }
-      }
-    },
-    {
-      "id": "persona:security-auditor",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "ro",
-      "title": "security-auditor",
-      "summary": "Security engineer focused on vulnerability detection, threat modeling, and secure coding practices.",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/security-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/security-auditor.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/security-auditor.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:test-engineer",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "rw",
-      "title": "test-engineer",
-      "summary": "QA engineer specialized in test strategy, test writing, and coverage analysis.",
-      "recommended": true,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/test-engineer.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/test-engineer.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/test-engineer.md"
-          ]
-        }
-      }
-    },
-    {
-      "id": "persona:web-debugger",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "pi-only",
-      "title": "web-debugger",
-      "summary": "Interactive headful Chrome debugging via Chrome DevTools MCP — live DOM snapshots, console, network, and performance…",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/web-debugger.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/web-debugger.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/web-debugger.md"
-          ]
-        }
       },
-      "requires": [
-        "pi-extension:chrome-devtools-mcp"
-      ]
-    },
-    {
-      "id": "persona:web-performance-auditor",
-      "kind": "persona",
-      "group": "personas",
-      "subcategory": "ro",
-      "title": "web-performance-auditor",
-      "summary": "Web performance engineer focused on Core Web Vitals, loading, rendering, and network optimization.",
-      "recommended": false,
-      "stability": "stable",
-      "consent": "file",
-      "platform": "any",
-      "agents": {
-        "pi": {
-          "source": [
-            "agents/web-performance-auditor.md"
-          ],
-          "sourceMode": "first",
-          "target": ".pi/agents/personas/web-performance-auditor.md",
-          "strategy": "copy-file",
-          "legacyTargets": [
-            "agents/web-performance-auditor.md"
-          ]
-        }
-      },
-      "companions": [
-        "reference:performance-checklist"
+      "pinnedBy": [
+        "pi-harness:agent-hub"
       ]
     },
     {
@@ -2051,6 +1725,9 @@
         "companion:pi-harness-manifests"
       ],
       "requires": [
+        "persona:editor",
+        "persona:researcher",
+        "persona:reviewer",
         "pi-harness:ask-user-remote",
         "pi-harness:damage-control-continue"
       ]
@@ -2371,7 +2048,6 @@
         }
       },
       "parents": [
-        "persona:web-performance-auditor",
         "skill:code-review-and-quality",
         "skill:performance-optimization",
         "skill:shipping-and-launch"
@@ -2619,7 +2295,7 @@
       },
       "recommendsWith": [
         "command:compound",
-        "persona:documenter"
+        "persona:editor"
       ]
     },
     {
@@ -2725,7 +2401,7 @@
       "group": "skills",
       "subcategory": "meta",
       "title": "designing-agents",
-      "summary": "Designs and writes a focused artifact another agent runs — an agent persona in .pi/agents/personas/, a workflow skill…",
+      "summary": "Designs and writes a focused artifact another agent runs — a role prompt that replaces one runtime role's prompt or m…",
       "recommended": false,
       "stability": "stable",
       "consent": "file",
@@ -3013,9 +2689,8 @@
         "reference:fleet-coordination-patterns"
       ],
       "recommendsWith": [
-        "persona:builder",
-        "persona:code-reviewer",
-        "persona:test-engineer"
+        "persona:editor",
+        "persona:reviewer"
       ]
     },
     {

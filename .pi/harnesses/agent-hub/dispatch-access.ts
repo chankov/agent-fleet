@@ -9,7 +9,8 @@ export interface DispatchAccess {
 	/**
 	 * A read-only role in an explicit active-check mode keeps its shell, but only
 	 * under the native write-denying sandbox (empty write allowlist, decision D4).
-	 * It takes no writer slot and cannot route to coms.
+	 * It cannot route to coms, and it is tracked under the writer gate (isTrackedAccess)
+	 * so its receipts and changed-file observation stay exact.
 	 */
 	readonly activeCheck?: boolean;
 	/** Admission reserved an unisolated writer slot for a possible remote route. */

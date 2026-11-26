@@ -12,7 +12,7 @@ Automate browsers using `playwright-cli` — a token-efficient CLI for Playwrigh
 
 ## Requirements
 
-This skill drives the external **Playwright Agent CLI** (`playwright-cli`). It is **not** bundled with agent-fleet — install it once before using this skill (the guided setup checks for it when `bowser` is selected).
+This skill drives the external **Playwright Agent CLI** (`playwright-cli`). It is **not** bundled with agent-fleet — install it once before using this skill.
 
 - **Node.js 20+**
 - **`playwright-cli`** — install globally:
@@ -38,8 +38,8 @@ Full install docs: <https://playwright.dev/agent-cli/installation>
 
 This skill (`playwright-cli`) and the `chrome-devtools-mcp` pi extension are **complementary**, not redundant — they differ by tool model, not just headless-vs-headful (both can do either):
 
-- **`bowser` / `playwright-cli` (this skill)** — CLI-driven, headless-first, parallel named sessions, token-efficient (no tool schemas in context). It needs only Bash, so it works as a **dispatched subagent** under `--no-extensions`. Use it for automated, parallel, or background runtime-UI evidence and scraping.
-- **`web-debugger` / `chrome-devtools-mcp`** — live `chrome_devtools__*` tools (DOM/console/network/performance traces) for **interactive headful** debugging with a human in the loop. Those tools come from an always-on extension, so they are reachable in the main session or a **coms peer**, not a `--no-extensions` subagent. Use it to *understand* a failure in a running dev app.
+- **`playwright-cli` (this skill)** — CLI-driven, headless-first, parallel named sessions, token-efficient (no tool schemas in context). It needs only Bash, so it works in a **dispatched subagent** under `--no-extensions` whose role has a shell, such as an editor with the `browser-debugging` practice. Use it for automated, parallel, or background runtime-UI evidence and scraping.
+- **`chrome-devtools-mcp`** — live `chrome_devtools__*` tools (DOM/console/network/performance traces) for **interactive headful** debugging with a human in the loop. Those tools come from an extension, so they are reachable in the main session (`just fleet --browser`) or a pi **coms peer** that is not read-only, not a `--no-extensions` subagent. Use it to *understand* a failure in a running dev app.
 
 ## Key Details
 

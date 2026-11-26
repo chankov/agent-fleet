@@ -591,7 +591,7 @@ test('local-full serializes every declared child locally without project overrid
  const {scanAgentDirs,parseModelProfilesYaml}=await import('./config/agents.ts');
  const {createModelPolicy}=await import('./policy/models.ts');
  const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
- // Only the role definitions are dispatched (D2); retired persona files on disk are ignored.
+ // Only the role definitions are dispatched (D2): the shipped agents/ holds exactly the three roles.
  const defs=selectRoleDefinitions(scanAgentDirs(process.cwd())).roles;const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-full'] as any;
  const policy=createModelPolicy({getAllDefs:()=>defs,getActiveDef:n=>defs.find(d=>d.name===n),getResearchDefs:()=>[],refreshUi(){}});
  policy.applyProfile(profile);

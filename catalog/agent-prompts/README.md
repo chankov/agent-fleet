@@ -1,6 +1,6 @@
 # Reusable project-task prompt index
 
-Prompts supplement existing Fleet skills and target policy, and are used by reference from target rules or commands. They are not automatically personas or independent slash entries. Adapt only prompts relevant to the requested task.
+Prompts supplement existing Fleet skills and target policy, and are used by reference from target rules or commands. They are not Fleet role definitions or independent slash entries. Adapt only prompts relevant to the requested task.
 
 | When | Template | Target use |
 | --- | --- | --- |

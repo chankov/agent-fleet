@@ -1,155 +1,267 @@
-# Agent Personas
+# Roles and practices
 
-Specialist personas that play a single role with a single perspective. Each persona is a Markdown file consumed as a system prompt by pi. The file is written in pi's own frontmatter dialect and installs verbatim — there is no per-harness rewrite step.
+The Agent Hub dispatches three runtime roles. A role sets what an assignment may
+do. Each assignment also carries one or more practices, which add method and
+expected evidence but never authority. The operator chooses the role by the work
+the subagent may perform, attaches the practices the assignment needs, and stays
+responsible for integrating the results.
 
-## The full roster
+The code owns both catalogues: [roles.ts](../.pi/harnesses/agent-hub/config/roles.ts)
+and [practices.ts](../.pi/harnesses/agent-hub/config/practices.ts). The role
+prompts are [researcher](../agents/researcher.md), [reviewer](../agents/reviewer.md)
+and [editor](../agents/editor.md). The Hub operator prompt lists the same roles and
+practices.
 
-| Persona | Role | Access | Primary skill | Agents |
-|---|---|---|---|---|
-| [planner](../agents/planner.md) | Architect — writes dependency-ordered PLAN files with acceptance criteria. Delegate roles: `scout`, `rules`, `voice-1`/`voice-2`/`voice-3` (default model panel). `risk` is gone. | rw (plan file only) | [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | all |
-| [plan-reviewer](../agents/plan-reviewer.md) | Plan critic — stress-tests plans for gaps, ordering, feasibility | read-only | [planning-and-task-breakdown](../skills/planning-and-task-breakdown/SKILL.md) | all |
-| [builder](../agents/builder.md) | Implementer — lands changes in small verifiable increments | rw | [incremental-implementation](../skills/incremental-implementation/SKILL.md) | all |
-| [code-reviewer](../agents/code-reviewer.md) | Senior staff engineer — five-axis review before merge | read-only | [code-review-and-quality](../skills/code-review-and-quality/SKILL.md) | all |
-| [test-engineer](../agents/test-engineer.md) | QA — test strategy, coverage analysis, the Prove-It pattern | rw | [test-driven-development](../vendor/agent-skills-upstream/skills/test-driven-development/SKILL.md) | all |
-| [security-auditor](../agents/security-auditor.md) | Security engineer — vulnerability detection, threat modeling, OWASP | read-only | [security-and-hardening](../skills/security-and-hardening/SKILL.md) | all |
-| [web-performance-auditor](../agents/web-performance-auditor.md) | Web performance engineer — Core Web Vitals, loading, rendering, network audits (via `/webperf`) | read-only | [performance-optimization](../skills/performance-optimization/SKILL.md) | all |
-| [documenter](../agents/documenter.md) | Tech writer — READMEs, inline docs, usage examples | rw | [documentation-and-adrs](../vendor/agent-skills-upstream/skills/documentation-and-adrs/SKILL.md) | all |
-| [architect](../agents/architect.md) | System architect — design decisions and migration strategy | rw | [api-and-interface-design](../vendor/agent-skills-upstream/skills/api-and-interface-design/SKILL.md) | all |
-| [releaser](../agents/releaser.md) | Release owner — changeset → version-bump → tag flow | rw | [git-workflow-and-versioning](../skills/git-workflow-and-versioning/SKILL.md), [shipping-and-launch](../vendor/agent-skills-upstream/skills/shipping-and-launch/SKILL.md) | all |
-| [researcher](../agents/researcher.md) | Fast read-only recon — reports findings with file:line citations | read-only | — | all |
-| [deep-researcher](../agents/deep-researcher.md) | Deep recon for hard, cross-cutting questions | read-only | — | all |
-| [bowser](../agents/bowser.md) | Headless browser automation via Playwright CLI | rw | — | pi only |
-| [web-debugger](../agents/web-debugger.md) | Interactive headful Chrome debugging via Chrome DevTools MCP (coms peer) | rw | [browser-testing-with-devtools](../skills/browser-testing-with-devtools/SKILL.md) | pi only |
+## Roles
 
-## How personas connect to skills
+| Role | Assignment and authority | Reached through | Default practice |
+|---|---|---|---|
+| `researcher` | Read-only investigation (`read,grep,find,ls`). Starts with the smallest search that can answer the question and deepens it when sources disagree or evidence is missing. Returns sources, uncertainty and remaining questions. | `spawn_research` | `research` |
+| `reviewer` | Read-only, independent assessment of a named plan, code change or documentation revision. Returns findings and a verdict scoped to what it inspected. The author of reviewed work can never approve it, including after changing role. | `dispatch_agent` | `independent-review` |
+| `editor` | Creates or changes code, tests, plans and documentation inside the authorized write scope. Returns the changes, checks run and outstanding work. | `dispatch_agent` | `implementation` |
 
-Personas are the *who*, skills are the *how*. Each working persona carries a conditional hook to its primary skill: if `skills/<skill-name>/SKILL.md` exists in the repo it is working on, the persona reads it before starting and follows its process and output format. Install the matching skill alongside the persona to get the full structured workflow — without it, the persona still works on its built-in rules. The research personas and `bowser` deliberately carry no skill hook (recon must stay lean; the orchestration prompt is built by agent-hub). The hub operator itself follows [`orchestration-verification`](../skills/orchestration-verification/SKILL.md); the former `orchestrator` catalog persona was retired with its work mode. Several personas also honour the per-project overrides in `.ai/agent-fleet-overrides.md` — e.g. `planner` writes its plan where `## planning-and-task-breakdown` says, and reviewers validate against the project's `rules:` folders.
+- The role ceiling comes from code. A role file can change the prompt and the
+  model, never the tools, the read-only status or the kind.
+- A reviewer gets a shell only in an active-check mode (`review_mode: "run-checks"`
+  or a current-state mode). That shell runs inside the write-denying sandbox with an
+  empty write allowlist. Without the sandbox the dispatch is refused, and the check
+  belongs to an editor that returns revision-bound results.
+- `dispatch_agent { agent: "researcher" }` is refused with a pointer to
+  `spawn_research`.
+- An unknown role, unknown practice, or practice the role cannot use is refused
+  before anything starts. So is a [retired persona name](#retired-personas).
 
-## Installing personas
+## Practices
 
-The Full deterministic preset selects every stable persona and copies it to
-`.pi/agents/personas/<name>.md` in the workspace — `.pi/agents/` itself holds the
-fleet YAML configuration, so the personas get a subdirectory of their own. Nothing is translated: the canonical format *is* the pi format,
-which is why a persona verifies byte-for-byte against its source.
+A practice supplies method and expected evidence and points the worker at existing
+skills, resolved native-first: the workspace's `skills/`, then `.pi/skills/`, then
+the vendored upstream copy ([UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md)). Authority
+still comes from the role ceiling, the authorized scope, the backend and the
+existing action permissions.
 
-## Roles, peers and the Hub
+| Practice id | Roles | Skills | Typical result |
+|---|---|---|---|
+| `research` | all | source-driven-development, context-engineering | An answer with traceable sources, stated uncertainty and the remaining questions |
+| `architecture` | all | spec-driven-development, api-and-interface-design | Options, constraints and an interface decision with the trade-off that decided it |
+| `planning` | all | planning-and-task-breakdown | Ordered tasks with dependencies and acceptance criteria. An editor saves the plan; a researcher or reviewer returns advice or critique |
+| `implementation` | editor | incremental-implementation | A scoped change with verification evidence |
+| `independent-review` | reviewer | code-review-and-quality, orchestration-verification | A plan feasibility, code correctness or documentation accuracy verdict against a named revision |
+| `testing` | all | test-driven-development | A reproduction, regression coverage or check results |
+| `security` | all | security-and-hardening | Findings with evidence, or a scoped remediation with verification |
+| `performance` | all | performance-optimization | Measurements, their interpretation and any verified improvement |
+| `browser-debugging` | all | browser-testing-with-devtools, debugging-and-error-recovery | A reproducible interaction, observations and a diagnosis. Readers only observe |
+| `documentation` | editor | documentation-and-adrs | Accurate user guidance or a recorded decision |
+| `release` | editor | shipping-and-launch, git-workflow-and-versioning | Release preparation and readiness evidence |
 
-Native teams (`.pi/agents/teams.yaml`) and peer groups (`.pi/agents/peers.yaml`, `just fleet team <name>`) were removed in favor of three runtime roles (PLAN-11-01). For the Hub → agent → sub-agent picture, see [ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
+**Publishing needs separate permission.** The `release` practice prepares a
+release: the changeset, version, changelog and readiness checks. It never
+publishes. `git push`, `npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish` and
+`gh release create|upload|edit` each need a one-call approval from the
+damage-control rules ([.pi/damage-control-rules.yaml](../.pi/damage-control-rules.yaml)),
+whatever the role or practice.
 
-- **pi (agent-hub harness)** — the Hub dispatches one of three built-in roles, `researcher`, `reviewer` and `editor`, and shapes each assignment with practices (for example `editor` with the `planning` practice). The Hub always has all three roles and every practice; there is no team to activate. A retired persona name (`planner`, `builder`, `code-reviewer`, …) is refused with its role-and-practice mapping. `just fleet --herdr` opens the Hub alone in a one-pane [herdr](https://herdr.dev) workspace ([herdr-hub.ts](../.pi/agent-fleet/scripts/herdr-hub.ts); requires a running herdr server).
-- **Coms peers** — each peer is started on its own with `just fleet peer <name>` (flags `--runner pi|claude-code`, `--model`, `--read-only`, `--env-file`) or by the Hub's `herdr_spawn_peer`. A role can be served by a live peer instead of a fresh subagent, including a bridged Claude Code pane (`--runner claude-code`). [.pi/agents/dispatch-policy.yaml](../.pi/agents/dispatch-policy.yaml) routes by role at dispatch time, and a read-only role (researcher, reviewer) reaches only a peer started with `--read-only`. See [claude-code-coms-bridge.md](claude-code-coms-bridge.md).
+At the trivial and small task tiers, `architecture` on any role and `security` on a
+reviewer are refused without charging. Raise the tier with an honest reason first.
 
-## How personas relate to skills and commands
+## Dispatch examples
 
-Three layers, each with a distinct job:
+One editor with combined practices plans, implements and tests in one assignment:
 
-| Layer | What it is | Example | Composition role |
-|-------|-----------|---------|------------------|
-| **Skill** | A workflow with steps and exit criteria | `code-review-and-quality` | The *how* — invoked from inside a persona or command |
-| **Persona** | A role with a perspective and an output format | `code-reviewer` | The *who* — adopts a viewpoint, produces a report |
-| **Command** | A user-facing entry point | `/review`, `/ship` | The *when* — composes personas and skills |
-
-The user (or a slash command) is the orchestrator. **Personas do not call other personas.** Skills are mandatory hops inside a persona's workflow.
-
-## When to use each
-
-### Direct persona invocation
-Pick this when you want one perspective on the current change and the user is in the loop.
-
-- "Review this PR" → invoke `code-reviewer` directly
-- "Are there security issues in `auth.ts`?" → invoke `security-auditor` directly
-- "What tests are missing for the checkout flow?" → invoke `test-engineer` directly
-- "Audit Core Web Vitals on the product page" → invoke `web-performance-auditor` directly
-
-### Slash command (single persona behind it)
-Pick this when there's a repeatable workflow you'd otherwise re-explain every time.
-
-- `/review` → wraps `code-reviewer` with the project's review skill
-- `/test` → wraps `test-engineer` with TDD skill
-- `/webperf` → wraps `web-performance-auditor` for performance-focused audits on web apps
-
-### Slash command (orchestrator — fan-out)
-Pick this only when **independent** investigations can run in parallel and produce reports that a single agent then merges.
-
-- `/ship` → fans out to `code-reviewer` + `security-auditor` + `test-engineer` in parallel, then synthesizes their reports into a go/no-go decision
-
-This fan-out is the endorsed pattern for a plain session. The `agent-hub` harness adds a dispatcher model on top: the generated prompt of the hub's one operator spawns specialist subagents under a Verification Contract (see [the Verification Contract skill](../skills/orchestration-verification/SKILL.md) and the [agent-hub harness](../.pi/harnesses/agent-hub/)). See [references/orchestration-patterns.md](../references/orchestration-patterns.md) for the full pattern catalog and anti-patterns.
-
-## Decision matrix
-
-```
-Is the work a single perspective on a single artifact?
-├── Yes → Direct persona invocation
-└── No  → Are the sub-tasks independent (no shared mutable state, no ordering)?
-         ├── Yes → Slash command with parallel fan-out (e.g. /ship)
-         └── No  → Sequential slash commands run by the user (/spec → /plan → /build → /test → /review)
+```js
+dispatch_agent({
+  agent: "editor",
+  practices: ["planning", "implementation", "testing"],
+  task: "Plan and add rate limiting to the export endpoint; cover the 429 path with a test",
+  scope: ["src/export", "test/export", "docs/plans"],
+})
 ```
 
-## Worked example: valid orchestration
+Distinct research questions run in parallel. Each question is its own attempt,
+and the same question already in flight is refused as busy:
 
-`/ship` is the canonical fan-out orchestrator in this repo:
-
-```
-/ship
-  ├── (parallel) code-reviewer    → review report
-  ├── (parallel) security-auditor → audit report
-  └── (parallel) test-engineer    → coverage report
-                  ↓
-        merge phase (main agent)
-                  ↓
-        go/no-go decision + rollback plan
+```js
+spawn_research({ task: "Where is the export endpoint authenticated?", expected_result: "path:line list" })
+spawn_research({ task: "Which clients call the export endpoint?", practices: ["research", "architecture"] })
 ```
 
-Why this works:
-- Each sub-agent operates on the same diff but produces a **different perspective**
-- They have no dependencies on each other → genuine parallelism, real wall-clock savings
-- Each runs in a fresh context window → main session stays uncluttered
-- The merge step is small and benefits from full context, so it stays in the main agent
+Readers fan out by concern on the same revision. A busy reviewer doing plain
+inspection gets its own instance (`reviewer--p2`, `reviewer--p3`) without
+`parallel: true`; active checks and editors still need it. Practices are
+part of the review identity, so a security review never reuses a plain one:
 
-## Worked example: invalid orchestration (do not build this)
-
-A `meta-orchestrator` persona whose job is "decide which other persona to call":
-
-```
-/work-on-pr → meta-orchestrator
-                  ↓ (decides "this needs a review")
-              code-reviewer
-                  ↓ (returns)
-              meta-orchestrator (paraphrases result)
-                  ↓
-              user
+```js
+dispatch_agent({ agent: "reviewer", task: "Review the export change at HEAD" })
+dispatch_agent({ agent: "reviewer", practices: ["independent-review", "security"], task: "Security review of the export change at HEAD" })
+dispatch_agent({ agent: "reviewer", practices: ["testing", "independent-review"], task: "Assess test coverage of the export change" })
 ```
 
-Why this fails:
-- Pure routing layer with no domain value
-- Adds two paraphrasing hops → information loss + 2× token cost
-- The user already knows they want a review; let them call `/af-review` directly
-- Replicates work that slash commands and `AGENTS.md` intent-mapping already do
+### Parallel editors with a shared interface
 
-## Rules for personas
+Editors run one at a time unless each assignment sets `parallel: true` and the
+runtime can isolate a disjoint scope of exact existing paths. Otherwise writes stay
+sequential.
 
-1. A persona is a single role with a single output format. If you find yourself adding a second role, create a second persona.
-2. **Personas do not invoke other personas.** Composition is the job of slash commands or the user. The one exception is the `agent-hub` harness, where the generated dispatcher prompt dispatches specialists; that dispatch lives in the harness, not in a peer persona calling another.
-3. A persona may invoke skills (the *how*).
-4. Every persona file ends with a "Composition" block stating where it fits.
+1. **Agree the contract first.** Settle the signatures, formats and acceptance
+   checks the editors share before dispatching them. Record them in the task brief,
+   or have one editor land the shared file before the parallel writers start. A
+   shared file has one owner. An editor that finds the interface unsettled, or
+   different from its assignment, stops the dependent work and returns `blocked` or
+   `partial`.
+2. **Dispatch writers with disjoint scopes.** The second concurrent editor runs as
+   `editor--p2`, and its result says so:
 
-## Harness interop
+   ```js
+   dispatch_agent({ agent: "editor", parallel: true, practices: ["implementation", "testing"],
+     task: "Implement GET /orders/summary against the OrderSummary contract in the brief",
+     scope: ["src/server/orders", "test/server/orders"] })
+   dispatch_agent({ agent: "editor", parallel: true, practices: ["implementation"],
+     task: "Render the order summary in the client against the same contract",
+     scope: ["src/client/orders"] })
+   ```
 
-The role files run under the `agent-hub` harness as native subagents, and a
-persona can run as a standalone peer via `just fleet peer <name>` (a same-named
-persona is loaded). Both read the same canonical file.
+3. **Queue a consumer with `after`.** `after` names instances already dispatched in
+   this task. The call waits with a visible "queued after …" status, and nothing
+   starts or is charged until each dependency settles. A failed or unsettled
+   dependency refuses the consumer with a diagnostic, and cancellation is honored.
+   An assignment cannot wait for its own instance, and research runs through
+   `spawn_research` handles, not instances.
 
-**A Claude Code peer carries no persona.** `runner: claude-code` spawns the
-Claude CLI plus its coms bridge; what the pane knows about its role comes from
-its own session, not from an `agents/*.md` file. `peer-launch` refuses
-`--persona` for that runner rather than pretending otherwise. The peer's *name*
-is what makes it substitutable for a team member — see
-[claude-code-coms-bridge.md](claude-code-coms-bridge.md).
+   ```js
+   dispatch_agent({ agent: "reviewer", after: ["editor"],
+     task: "Audit the server endpoint once it lands", scope: ["src/server/orders"] })
+   ```
 
-## Adding a new persona
+4. **Integrate, then review the whole change.** Collect results by assignment,
+   reconcile interface differences, edit shared files and run the full checks on the
+   combined change. Then dispatch one independent review covering the integrated
+   whole:
 
-1. Create `agents/<role>.md` with the same frontmatter format used by existing personas. (`agents/` and `.claude/agents/` are yours — scanned before `.pi/agents/personas/`, so a persona you write there overrides an installed one of the same name.)
-2. Define the role, scope, output format, and rules.
-3. Add a **Composition** block at the bottom (Invoke directly when / Invoke via / Do not invoke from another persona).
-4. Add the persona to the table at the top of this file.
-5. If the persona enables a new orchestration pattern, document it in `references/orchestration-patterns.md` rather than inventing the pattern in the persona file itself.
+   ```js
+   dispatch_agent({ agent: "reviewer",
+     task: "Review the whole order-summary change on the integrated working tree" })
+   ```
+
+Closure needs a fresh verdict that covers every changed file at the integrated
+revision. A verdict on one editor's files, on the base revision, or from an author
+of the change does not close the task. When an editor changes reviewed work, the
+follow-up review receives the previous findings and the delta.
+
+## Retired personas
+
+The 13 personas that shipped before 2.3.0 are no longer dispatched. Naming one is
+refused before anything starts, and the message gives the mapping below. There is
+no alias. Choose the role by the outcome you need.
+
+| Retired persona | Dispatch instead |
+|---|---|
+| `architect` | `researcher` + `architecture` for analysis; `editor` + `architecture`, `documentation` for an ADR |
+| `bowser` | `researcher` + `browser-debugging` for observation; `editor` + `browser-debugging` for authorized stateful interaction or test artifacts |
+| `builder` | `editor` + `implementation`; add `testing` as needed |
+| `code-reviewer` | `reviewer` + `independent-review` for code or documentation |
+| `deep-researcher` | `researcher` + `research`; the question drives the depth |
+| `documenter` | `editor` + `documentation` |
+| `plan-reviewer` | `reviewer` + `independent-review`; add `architecture` or `planning` as needed |
+| `planner` | `editor` + `planning` for a saved plan; `researcher` + `planning` for advice |
+| `releaser` | `editor` + `release` for scoped preparation; publishing needs separate explicit permission |
+| `security-auditor` | `reviewer` + `independent-review`, `security`; fixes go to `editor` + `security` |
+| `test-engineer` | `editor` + `testing` for test changes; `reviewer` + `testing`, `independent-review` for coverage assessment |
+| `web-debugger` | `researcher` + `browser-debugging` for diagnosis; `editor` + `browser-debugging` for scoped changes |
+| `web-performance-auditor` | `reviewer` + `performance`, `independent-review`; measurement that needs writes or optimization goes to `editor` + `performance` |
+
+`researcher` keeps its name and becomes the role. Upgrade steps, the overrides key
+migration and what `doctor` reports are in
+[MIGRATION-agent-fleet.md](MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
+
+## Models per role and practice
+
+Each role file sets `model:`, `models:` (the candidates `/af-agent-model` offers)
+and `thinking:`. It may also set `practice_models:` for per-practice defaults:
+
+```yaml
+practice_models:
+  planning: { model: openai-codex/gpt-6.2-astra, thinking: high }
+```
+
+A practice-level choice comes from, highest first: the session
+(`/af-agent-model <role>.<practice>`), the active model profile (`editor.planning`),
+`.ai/agent-fleet-overrides.md` (`model.<role>.<practice>`, `thinking.<role>.<practice>`),
+then the role file's `practice_models:`. The first practice in assignment order with
+a choice wins. Without one, the role's own model chain applies. The run records
+which source chose the model. Override keys are documented in
+[agent-fleet-setup.md](agent-fleet-setup.md).
+
+## Peers serving a role
+
+A live coms peer can serve a role instead of a fresh native subagent.
+[.pi/agents/dispatch-policy.yaml](../.pi/agents/dispatch-policy.yaml) keys routes by
+role, with a separate peer address:
+
+```yaml
+routes:
+  reviewer:
+    peer: claude-reviewer
+    prefer: coms
+    fallback: native
+```
+
+- Start each peer on its own: `just fleet peer <name>` with `--runner pi|claude-code`,
+  `--persona <name>` or `--no-persona`, `--model`, `--read-only` and `--env-file`, or
+  `herdr_spawn_peer` from a Hub running inside Herdr. A pi peer loads Chrome DevTools
+  MCP unless it is read-only.
+- A read-only role (`researcher`, `reviewer`) reaches only a peer launched with
+  `--read-only` that declares it at registration. Otherwise the route runs native, or
+  is refused under `fallback: none`.
+- A reviewer route never reaches a peer address that changed a file in the review's
+  scope, even after a restart. An auto route runs a native reviewer instead. An
+  explicit `backend: "coms"` or `fallback: none` is refused before anything starts.
+- A parallel instance such as `reviewer--p2` uses its role's route.
+
+See [claude-code-coms-bridge.md](claude-code-coms-bridge.md) for a Claude Code
+reviewer peer.
+
+## Customizing a role
+
+Only the three role names are dispatched. A workspace file with a role's name
+replaces that role's prompt or model: `agents/<role>.md` or `.claude/agents/<role>.md`
+win over the installed `.pi/agents/personas/<role>.md`. The code-owned ceiling still
+applies. Any other definition file is ignored, and Hub startup lists it in one
+notice. A retired name gets its mapping in that notice. A missing role is named too,
+and dispatches to it are refused until `agent-fleet setup` installs it.
+
+To add method for a kind of work, write or extend a skill and use it through the
+practice that names it. To add a new kind of assignment, propose a practice change in
+`practices.ts`. See [designing-agents](../skills/designing-agents/SKILL.md).
+
+## Installing the roles
+
+The installer ships the three role files as items `persona:researcher`,
+`persona:reviewer` and `persona:editor` in the catalogue group "Agent roles". All
+three are in the default preset and come with the Hub. They install verbatim to
+`.pi/agents/personas/<role>.md`, beside the fleet YAML in `.pi/agents/`. Setup
+removes unmodified installed copies of retired personas and keeps edited ones.
+`agent-fleet doctor` reports leftover retired definitions and override keys without
+changing them. See [npm-install.md](npm-install.md) for the lifecycle.
+
+## Roles, skills and commands
+
+| Layer | What it is | Example | Job |
+|---|---|---|---|
+| **Skill** | A workflow with steps and exit criteria | `code-review-and-quality` | The *how*, loaded through a practice or a command |
+| **Role + practices** | A capability ceiling plus the method for one assignment | `reviewer` + `independent-review`, `security` | The *who* and *what evidence* |
+| **Command** | A user-facing entry point | `/af-review`, `/af-ship` | The *when* |
+
+Roles do not dispatch other roles. Composition belongs to the Hub operator, a
+deterministic flow or the user. Inside an assignment, a role file's `subagents:`
+are helpers on a cheaper model (for example the editor's `recon` and `verifier`), not
+other roles. The operator follows
+[orchestration-verification](../skills/orchestration-verification/SKILL.md). See
+[orchestration-patterns.md](../references/orchestration-patterns.md) for the pattern
+catalogue and anti-patterns. For the Hub → role → helper picture, see
+[ARCHITECTURE.md](ARCHITECTURE.md#fleet-hierarchy).
+
+### Avoid a routing layer
+
+Do not build an agent whose only job is to decide which other agent to call. It
+adds a paraphrasing hop, loses information and doubles the token cost. The operator
+already chooses the role, and the user can call a command such as `/af-review`
+directly.

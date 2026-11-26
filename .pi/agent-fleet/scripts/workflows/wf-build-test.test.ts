@@ -1,20 +1,37 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { ENVELOPE_EXAMPLES } from "./lib/envelopes.ts";
-import type { PersonaDefinition } from "./lib/personas.ts";
+import { resolveRole, type PersonaDefinition } from "./lib/personas.ts";
 import type { PermissionSnapshot } from "./lib/permissions.ts";
 import type { QualityResult } from "./lib/quality.ts";
 import { Run } from "./lib/run.ts";
-import { buildTestWorkflow, type BuildReport } from "./wf-build-test.ts";
+import { BUILD_ASSIGNMENT, buildTestWorkflow, type BuildReport } from "./wf-build-test.ts";
 
-const persona: PersonaDefinition = { name: "builder", description: "build", tools: "read,write,edit,bash", model: "stub/model", models: [], thinking: "low", systemPrompt: "", file: "agents/builder.md" };
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const persona: PersonaDefinition & { assignment: string } = { name: "editor", description: "edit", tools: "read,write,edit,bash", model: "stub/model", models: [], thinking: "low", systemPrompt: "", file: "agents/editor.md", assignment: "## Assignment\nRole: editor" };
 function baseline(cwd: string): PermissionSnapshot { return { cwd, paths: new Map() }; }
 function quality(passed: boolean, text: string): QualityResult { return { argv: ["stub-test"], exitCode: passed ? 0 : 1, stdout: "", stderr: text, logPath: "/tmp/command.log", passed }; }
 
-test("build-test follows build, red evidence, same builder fix, green verification, then one commit", async () => {
+test("the build phase is the editor role with the implementation practice, under its ceiling and model choice", () => {
+	assert.deepEqual(BUILD_ASSIGNMENT, { role: "editor", practices: ["implementation"] });
+	const editor = resolveRole("editor", BUILD_ASSIGNMENT.practices, REPO);
+	assert.equal(editor.name, "editor");
+	assert.deepEqual(editor.practices, ["implementation"]);
+	assert.deepEqual(editor.tools.split(","), ["read", "write", "edit", "bash", "grep", "find", "ls"]);
+	assert.equal(editor.modelSource, "role", "implementation declares no practice model, so the role model runs");
+	assert.match(editor.assignment, /^## Assignment\nRole: editor/);
+	assert.match(editor.assignment, /### Implementation\nExpected result:/);
+	assert.throws(() => resolveRole("editor", ["shipping"], REPO), /Flow start refused: Unknown practice "shipping"/);
+	const empty = mkdtempSync(join(tmpdir(), "wf-build-no-role-"));
+	try { assert.throws(() => resolveRole("editor", ["implementation"], empty), /role "editor" has no definition/); }
+	finally { rmSync(empty, { recursive: true, force: true }); }
+});
+
+test("build-test follows build, red evidence, same editor fix, green verification, then one commit", async () => {
 	const cwd = mkdtempSync(join(tmpdir(), "wf-build-test-"));
 	try {
 		const run = new Run({ cwd, runId: "build-green" }); const tasks: string[] = []; let tests = 0, commits = 0;
@@ -29,7 +46,8 @@ test("build-test follows build, red evidence, same builder fix, green verificati
 			commit: () => { commits++; return "abc"; },
 		});
 		assert.equal(result.exitCode, 0); assert.equal(commits, 1); assert.equal(tasks.length, 2); assert.ok(tasks[1].includes("EXACT RED OUTPUT"));
-		assert.deepEqual(run.trace.events().filter(event => event.type === "phase_start").map(event => event.phase), ["request", "build", "test", "builder-fix-1", "test-after-fix-1", "commit"]);
+		assert.ok(tasks.every(task => task.endsWith("\n\n## Assignment\nRole: editor")), "every editor phase carries its assignment block");
+		assert.deepEqual(run.trace.events().filter(event => event.type === "phase_start").map(event => event.phase), ["request", "build", "test", "editor-fix-1", "test-after-fix-1", "commit"]);
 	} finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

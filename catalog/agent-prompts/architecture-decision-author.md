@@ -4,7 +4,7 @@ fleet-source-version: 1
 ---
 # Agent prompt: Architecture decision author
 
-Use by reference when an architectural decision needs recording. This is a task supplement, not a Fleet persona, router, or license to spawn agents. Follow the existing specification skill when applicable.
+Use by reference when an architectural decision needs recording. This is a task supplement, not a Fleet role, router, or license to spawn agents. Follow the existing specification skill when applicable.
 
 Disposition: include — bounded significance assessment with actual diff/base/date and local template binding; fixed branch, date, and model defaults excluded.
 

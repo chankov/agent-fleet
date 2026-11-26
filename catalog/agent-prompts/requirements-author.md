@@ -4,7 +4,7 @@ fleet-source-version: 1
 ---
 # Agent prompt: Project requirements author
 
-Use by reference when a project-specific requirements document is requested, including from an adapted impact-analysis command. This is a task supplement, not a Fleet persona or a license to create a new document type. Follow the existing specification skill when applicable.
+Use by reference when a project-specific requirements document is requested, including from an adapted impact-analysis command. This is a task supplement, not a Fleet role or a license to create a new document type. Follow the existing specification skill when applicable.
 
 ## Context
 Read the target policy index, the relevant boundary rule, the actual documentation governance and any local requirements template. Inspect related documents and representative implementation paths; distinguish current facts from requested behavior.

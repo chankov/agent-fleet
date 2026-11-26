@@ -100,16 +100,16 @@ The bridge appends one JSON object per line to `~/.pi/coms/hermes-bridge/log.ndj
 
 ## Hermes as conductor
 
-Hermes can also act as the conductor without this daemon: use `coms-cli list` to discover peers and `coms-cli send --await --timeout <ms>` to delegate to hub-team pi peers, then synthesize the results for the human. This conductor topology uses the existing coms CLI as the bridge; no standing Hermes peer is required.
+Hermes can also act as the conductor without this daemon: use `coms-cli list` to discover peers and `coms-cli send --await --timeout <ms>` to delegate to the pool's pi peers, then synthesize the results for the human. This conductor topology uses the existing coms CLI as the bridge; no standing Hermes peer is required.
 
 Launch a visible conductor workspace with:
 
 ```bash
-just fleet conductor hermes docs            # live conductor + team workspace
-just fleet conductor hermes docs --dry-run  # preview; no Herdr calls
+just fleet conductor hermes --project af            # live one-pane conductor workspace
+just fleet conductor hermes --project af --dry-run  # preview; no Herdr calls
 ```
 
-The live recipe reuses `.pi/agent-fleet/scripts/team-up.ts --conductor`: it creates a normal herdr workspace labeled `<worktree-tag>-conductor-<team>` (the tag is the last dot-segment of the checkout's basename, so the same team from a different worktree gets its own workspace), places a `conductor` pane running `hermes -p dev`, and tiles the chosen team beside it. Team peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
+The live recipe runs `.pi/agent-fleet/scripts/herdr-hub.ts --conductor hermes`: it creates a herdr workspace labeled `<worktree-tag>-conductor-hermes-<name>` (the optional name defaults to `full`; the tag is the last dot-segment of the checkout's basename, so the same launch from a different worktree gets its own workspace) with one `conductor-hermes` pane running `hermes -p dev`. An existing workspace with that label is refused. Peers are not part of it: start each with `just fleet peer <name> --project af`. Peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
 
 ### Telegram bridge control command
 
@@ -162,12 +162,12 @@ node --experimental-strip-types .pi/agent-fleet/scripts/coms-hermes-bridge.ts \
   --hermes-profile default \
   --timeout 1800000 \
   --to 'telegram:<chat_id>:<thread_id>'
-just fleet team docs --project af
+just fleet --herdr --project af
 ```
 
 Repeated value flags such as two `--to` arguments are rejected at startup rather than silently selecting one destination. The `ask-user-remote` wrapper resolves the explicit Pi `--project` flag when the tool executes, so non-default hubs discover `user-remote` in their own pool.
 
-Hard boundary: the Hermes conductor must not run `herdr` commands, drive panes, create/kill workspaces, or manage fleet lifecycle. Herdr driving stays with the human/orchestrator so the damage-control model remains intact; see `.pi/damage-control-rules.yaml` for the authoritative no-herdr boundary. Hermes may only operate inside the project coms pool through the documented coms CLI commands.
+Hard boundary: the Hermes conductor must not run `herdr` commands, drive panes, create/kill workspaces, or manage fleet lifecycle. Herdr driving stays with the human/Hub so the damage-control model remains intact; see `.pi/damage-control-rules.yaml` for the authoritative no-herdr boundary. Hermes may only operate inside the project coms pool through the documented coms CLI commands.
 
 ## Hermes and the experimental ChatGPT session client
 
