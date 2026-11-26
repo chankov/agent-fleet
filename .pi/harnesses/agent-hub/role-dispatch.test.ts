@@ -109,3 +109,27 @@ test("readers keep their ceiling on every path: inspection, active checks, deleg
 	assert.equal(dispatchAccess(editor).writable, true);
 	assert.equal(dispatchAccess(editor, "run-checks").writable, true);
 });
+
+test("spawn_research runs two questions at once; the same question in flight is busy", async () => {
+	const d = prepareDeps({ agents: ["editor"] });
+	const releases: Array<() => void> = []; const prompts: string[] = [];
+	(d as any).research = {
+		anonymousDef: () => ({ name: "research", tools: "read,grep,find,ls" }),
+		createState: (def: any) => ({ id: prompts.length + 1, def }),
+		resolveModel: () => "provider/model",
+		spawn: async (_state: any, prompt: string) => { prompts.push(prompt); await new Promise<void>(resolve => releases.push(resolve)); return { output: "found", exitCode: 0, elapsed: 0 }; },
+	};
+	(d.state as any).getTurnReport = () => ({ refusals: 0, research: 0 });
+	(d.state as any).getSessionTotals = () => ({ refusals: 0, research: 0 });
+	const research = createResearchExecutor(d as any);
+	const first = research("q1", { task: "Which module owns the access rule?" }, undefined, undefined, ctx);
+	const second = research("q2", { task: "Where is the retry budget enforced?", practices: ["research", "security"] }, undefined, undefined, ctx);
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(prompts.length, 2, "two researchers investigate in parallel");
+	const duplicate = await research("q3", { task: "which module owns the ACCESS rule" }, undefined, undefined, ctx);
+	assert.equal(duplicate.details.status, "busy");
+	assert.equal(prompts.length, 2);
+	for (const release of releases) release();
+	const results = await Promise.all([first, second]);
+	assert.deepEqual(results.map(result => result.details.exitCode), [0, 0]);
+});

@@ -490,21 +490,47 @@ test("one role with a different practice set is a distinct attempt; the role def
 	assert.equal(calls, 2);
 });
 
-test("research progress ignores paraphrase but recognizes a normalized read-scope change and effective model", async t => {
+test("a failed research question is not retried by a trivial rewording; a new question, a scope change or a model change is a new attempt", async t => {
 	const cwd = mkdtempSync(join(tmpdir(), "research-progress-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "source.ts"), "same");
 	let calls = 0; let model = "local/a";
 	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
 	const run = withNoProgress(d, "research", async () => ({ content: [], details: { status: "verification_failed", exitCode: 1, dispatchId: `r-${++calls}` } }), () => ({ model, tools: "read,grep,find,ls" }));
-	const base: any = { task: "original wording", read_scope: ["src/**"], goal: "locate API", expected_result: "path:line" };
+	const base: any = { task: "Where is the API defined?", read_scope: ["src/**"], goal: "locate API", expected_result: "path:line" };
 	await run("1", base, undefined, undefined, { cwd } as any);
-	const paraphrase = await run("2", { ...base, task: "completely rephrased", goal: "locate   API" }, undefined, undefined, { cwd } as any);
-	assert.equal((paraphrase.details as any).status, "no_progress_refused"); assert.equal(calls, 1);
-	await run("3", { ...base, read_scope: ["src/narrow/**"] }, undefined, undefined, { cwd } as any);
-	assert.equal(calls, 2, "a real structured scope change is a distinct bounded operation");
+	const reworded = await run("2", { ...base, task: "  where IS the api defined  ", goal: "locate   API!" }, undefined, undefined, { cwd } as any);
+	assert.equal((reworded.details as any).status, "no_progress_refused", "case, punctuation and spacing do not make a new question");
+	assert.equal(calls, 1);
+	await run("3", { ...base, task: "Which tests cover the API?" }, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 2, "a different question is its own attempt");
+	await run("4", { ...base, read_scope: ["src/narrow/**"] }, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 3, "a real structured scope change is a distinct bounded operation");
 	model = "local/b";
-	await run("4", base, undefined, undefined, { cwd } as any);
-	assert.equal(calls, 3, "effective model is part of execution conditions");
+	await run("5", base, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 4, "effective model is part of execution conditions");
+});
+
+test("two research questions run in parallel, while the same question in flight is busy", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "research-parallel-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", cwd], { stdio: "ignore" });
+	const releases: Array<() => void> = []; let started = 0;
+	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+	const run = withNoProgress(d, "research", async () => { started++; await new Promise<void>(resolve => releases.push(resolve)); return { content: [], details: { status: "done", exitCode: 0, dispatchId: `r-${started}` } }; }, () => ({ model: "local/a", tools: "read,grep,find,ls" }));
+	const first = run("1", { task: "Which module owns the access rule?" } as any, undefined, undefined, { cwd } as any);
+	const second = run("2", { task: "Where is the retry budget enforced?" } as any, undefined, undefined, { cwd } as any);
+	const third = run("3", { task: "Which module owns the access rule?", goal: "find the enforcing check" } as any, undefined, undefined, { cwd } as any);
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(started, 3, "distinct questions (including the same task with another goal) are independent read-only executors");
+	const duplicate = await run("4", { task: "  which module owns the ACCESS rule " } as any, undefined, undefined, { cwd } as any);
+	assert.equal((duplicate.details as any).status, "busy", "the same question already in flight is not started twice");
+	assert.equal(started, 3);
+	for (const release of releases) release();
+	await Promise.all([first, second, third]);
+	const again = run("5", { task: "Which module owns the access rule?" } as any, undefined, undefined, { cwd } as any);
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(started, 4, "a settled successful question may be asked again");
+	for (const release of releases) release();
+	await again;
 });
 
 test("integer exit without explicit lifecycle does not settle; closeSeen does", async t => {
@@ -689,13 +715,15 @@ test("real unknown-tool dispatch failures bind the runtime catalog producer to s
  assert.equal(calls, 2, "recovery only permits the explicit post-change invocation; it never auto-retries");
 });
 
-test("same persona cancellation also fences research vs dispatch operations", async () => {
+test("cancelling one research question fences that question, not another one", async () => {
  const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } }; let runs = 0;
- const execute = async () => { runs++; return { content: [], details: { status: "cancelled", exitCode: 1, dispatchId: "cross-mode" } }; };
- const dispatch = withNoProgress(d, "dispatch", execute), research = withNoProgress(d, "research", execute);
- await dispatch("d", { agent: "deep-researcher", task: "work" }, undefined, undefined, {} as any);
- const result = await research("r", { persona: "Deep_Researcher", task: "other", read_scope: ["docs"] }, undefined, undefined, {} as any);
- assert.equal((result.details as any).status, "no_progress_refused"); assert.equal(runs, 1);
+ const research = withNoProgress(d, "research", async () => { runs++; return { content: [], details: { status: "cancelled", exitCode: 1, dispatchId: `cancel-${runs}` } }; });
+ await research("r1", { task: "Which file owns the rule?", read_scope: ["docs"] }, undefined, undefined, {} as any);
+ const again = await research("r2", { task: "which FILE owns the rule", read_scope: ["docs"] }, undefined, undefined, {} as any);
+ assert.equal((again.details as any).status, "no_progress_refused", "the cancelled question needs fresh authorization");
+ assert.equal(runs, 1);
+ await research("r3", { task: "Where is the cache invalidated?", read_scope: ["docs"] }, undefined, undefined, {} as any);
+ assert.equal(runs, 2, "an unrelated question is not fenced by another question's cancellation");
 });
 
 test("task reset does not silently authorize a recorded operator cancellation", () => {

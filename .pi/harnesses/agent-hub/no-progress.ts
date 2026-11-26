@@ -662,6 +662,13 @@ export function normalizePaths(paths: readonly string[] | undefined): string[] {
 	return [...new Set((paths ?? []).map(path => posix.normalize(String(path).trim().replace(/\\/g, "/")).replace(/\/+$/, "")).filter(Boolean))].sort();
 }
 
+const normalizeQuestionText = (value: unknown): string => String(value ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+
+/** Stable identity of one research question: task, goal and expected result, trivially normalized. */
+export function researchQuestionIdentity(task: unknown, goal?: unknown, expectedResult?: unknown): string {
+	return createHash("sha256").update(JSON.stringify([normalizeQuestionText(task), normalizeQuestionText(goal), normalizeQuestionText(expectedResult)])).digest("hex").slice(0, 24);
+}
+
 export function normalizeResearchContract(params: Pick<SpawnResearchParams, "read_scope" | "goal" | "expected_result">): ResearchContract {
 	const text = (value: string | undefined) => value?.trim().replace(/\s+/g, " ") || undefined;
 	for (const path of (params.read_scope ?? []).map(value => value.trim().replace(/\\/g, "/"))) if (/^(?:\/|[A-Za-z]:)/.test(path) || path.split("/").includes("..")) throw new Error("read_scope must be repository-relative and cannot escape through ..");
@@ -728,7 +735,12 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 		// scheduling precondition settled before this guard runs, not part of the work the
 		// child performs. Adding or dropping a dependency must never open a cancellation or
 		// unknown-effect fence on the same assignment.
-		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity, ...practiceIdentity]);
+		// Each research question is its own attempt and executor, so distinct questions run in
+		// parallel (PHILOSOPHY: read-only research runs freely). A trivial rewording (case,
+		// punctuation, spacing) is the same question; Poll asks one question of several voices
+		// through its own workflow and is not guarded here.
+		const question = research ? researchQuestionIdentity(params.task, research.goal, research.expectedResult) : undefined;
+		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity, ...practiceIdentity, ...(question ? [{ question }] : [])]);
 		const conditions = executionConditions(params, ctx);
 		const fingerprint = () => canonical({
 			worktree: worktreeRevision(cwd, scope),
@@ -740,7 +752,7 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 			tier: (d as any).state?.getTaskTier?.() ?? null,
 			catalogVersion: (d as any).getToolCatalogVersion?.() ?? null,
 		});
-		const executorKey = canonicalExecutor(cwd, actor);
+		const executorKey = canonicalExecutor(cwd, question ? `${actor}#${question}` : actor);
 		const userAnswer = "agent" in params ? params.task.match(/^USER_ANSWER:\s*(\S+)\s*::\s*(.+)$/m) : null;
 		if (userAnswer) d.noProgress.recordUserAnswer({ dispatchId: userAnswer[1], question: userAnswer[2].trim(), scope, prose: params.task });
 		const parentAnswer = "agent" in params ? params.task.match(/^ORCHESTRATOR_ANSWER:[ \t]*(.+)$/m) : null;

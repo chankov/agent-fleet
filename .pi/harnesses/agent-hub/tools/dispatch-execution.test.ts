@@ -155,13 +155,20 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: indetermina
  const params: any = kind === "dispatch" ? { agent: "editor", task: "Fix original task" } : { task: "Investigate original failure" };
  await run("first", params, undefined, undefined, {} as any);
  d.state.setTurnDispatchCount(0);
- const refused = await run("second", { ...params, task: "Completely different wording of the same bounded work" }, undefined, undefined, {} as any);
+ // Dispatch ignores task wording entirely. Research keys each question by its normalized text
+ // (parallel research), so only a trivial rewording of the failed question is the same attempt.
+ const rewording = kind === "dispatch" ? "Completely different wording of the same bounded work" : "  investigate ORIGINAL failure! ";
+ const refused = await run("second", { ...params, task: rewording }, undefined, undefined, {} as any);
  assert.equal((refused.details as any).status, "no_progress_refused");
  assert.equal((refused.details as any).recoveryCategory, "indeterminate");
  assert.equal(executions, 1);
  assert.equal((d as any).noProgress.authorize(`${kind}-failed`), false, "unknown cause cannot be authorized as a retry");
  const stillRefused = await run("third", params, undefined, undefined, {} as any);
  assert.equal((stillRefused.details as any).status, "no_progress_refused"); assert.equal(executions, 1);
+ if (kind === "research") {
+  await run("fourth", { task: "Which module owns the access rule?" }, undefined, undefined, {} as any);
+  assert.equal(executions, 2, "a different read-only question is its own attempt");
+ }
 });
 
 test("missing scope roots refuse before accounting or dispatch", async () => {
