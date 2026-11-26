@@ -472,6 +472,24 @@ test("structured research contract normalizes paths and prose without changing l
 	assert.deepEqual(normalizeResearchContract({}), { readScope: [], goal: undefined, expectedResult: undefined });
 });
 
+test("one role with a different practice set is a distinct attempt; the role default equals its explicit practice", async t => {
+	const cwd = mkdtempSync(join(tmpdir(), "role-practice-progress-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "source.ts"), "same");
+	let calls = 0;
+	const d: any = { noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } };
+	const run = withNoProgress(d, "dispatch", async () => ({ content: [], details: { status: "verification_failed", exitCode: 1, dispatchId: `d-${++calls}` } }), () => ({ model: "local/a", tools: "read,write" }));
+	const base: any = { agent: "editor", task: "change source.ts", scope: ["source.ts"] };
+	await run("1", base, undefined, undefined, { cwd } as any);
+	const sameDefault = await run("2", { ...base, practices: ["Implementation"] }, undefined, undefined, { cwd } as any);
+	assert.equal((sameDefault.details as any).status, "no_progress_refused", "the explicit role default is the same assignment");
+	assert.equal(calls, 1);
+	await run("3", { ...base, practices: ["testing", "implementation"] }, undefined, undefined, { cwd } as any);
+	assert.equal(calls, 2, "another practice set is another attempt, as another persona was");
+	const reordered = await run("4", { ...base, practices: ["implementation", "testing"] }, undefined, undefined, { cwd } as any);
+	assert.equal((reordered.details as any).status, "no_progress_refused", "practice order does not make an attempt new");
+	assert.equal(calls, 2);
+});
+
 test("research progress ignores paraphrase but recognizes a normalized read-scope change and effective model", async t => {
 	const cwd = mkdtempSync(join(tmpdir(), "research-progress-")); t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	execFileSync("git", ["init", cwd], { stdio: "ignore" }); writeFileSync(join(cwd, "source.ts"), "same");
@@ -782,11 +800,11 @@ test('registered tool schemas retain runtime optional fields and provider compat
  const { registerSpawnResearch } = await import('./tools/spawn-research.ts');
  const tools: any[] = []; const pi: any = { registerTool: (tool: any) => tools.push(tool) };
  registerDispatchAgent(pi, {} as any); registerSpawnResearch(pi, {} as any);
- assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','parallel','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
+ assert.deepEqual(Object.keys(tools[0].parameters.properties).sort(), ['agent','practices','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','backend','parallel','triage_id','triage_reason','private_config_files','verifier_sources'].sort());
  assert.equal(tools[0].parameters.properties.parallel.type, 'boolean', 'the parallel writer flag is an optional boolean');
  const schema = tools[0].parameters, fields = schema.properties;
  assert.deepEqual(schema.required, ['agent', 'task'], 'new private declarations remain opt-in');
- for (const name of ['private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {
+ for (const name of ['practices', 'private_config_files', 'verifier_sources', 'artifacts', 'scope', 'deliverables']) {
   assert.equal(fields[name].type, 'array'); assert.equal(fields[name].items.type, 'string');
  }
  for (const [name, values] of Object.entries({ review_mode: ['changes','run-checks','operator-current-state','private-config-current-state'], backend: ['auto','native','coms'], scope_mode: ['existing','create'], triage_reason: ['used','better_fit','changed_scope','independent_judgment'] })) {
@@ -795,11 +813,11 @@ test('registered tool schemas retain runtime optional fields and provider compat
  }
  assert.equal(fields.watchdog.type, 'boolean');
  for (const name of ['agent','task','review_reason','triage_id']) assert.equal(fields[name].type, 'string');
- assert.deepEqual(Object.keys(tools[1].parameters.properties).sort(), ['task','persona','model','artifacts','read_scope','goal','expected_result'].sort());
+ assert.deepEqual(Object.keys(tools[1].parameters.properties).sort(), ['task','practices','persona','model','artifacts','read_scope','goal','expected_result'].sort());
  assert.doesNotMatch(JSON.stringify(tools.map(t => t.parameters)), /\(\?[=!<]/);
  for (const tool of tools) {
   const kind = tool.name === 'dispatch_agent' ? 'dispatch' : 'research';
-  const params = kind === 'dispatch' ? { agent: 'builder', task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', review_mode: 'changes', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
+  const params = kind === 'dispatch' ? { agent: 'reviewer', practices: ['independent-review'], task: 'inspect', artifacts: [], scope: [], deliverables: [], scope_mode: 'create', watchdog: false, review_reason: '', review_mode: 'changes', backend: 'native', triage_id: 'id', triage_reason: 'better_fit' } : { task: 'inspect', practices: ['research'], persona: 'researcher', model: 'model', artifacts: [], read_scope: ['src'], goal: 'find', expected_result: 'evidence' };
   let calls = 0;
   const run = withNoProgress({ noProgress: createNoProgressGuard(), artifacts: { loadInputArtifacts: () => [] } } as any, kind, async () => { calls++; return { content: [] }; });
   await run('one', params as any, undefined, undefined, { cwd: process.cwd() } as any);

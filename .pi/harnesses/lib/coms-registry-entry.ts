@@ -29,6 +29,15 @@ export interface ComsRegistryEntry {
 	started_at: string;
 	explicit: boolean;
 	version: number;
+	// Read-only declaration (maintainer decision D3, PLAN-11-01). Present and
+	// `true` ONLY when the peer proved, from evidence it checked itself at
+	// registration, that this session's effective tool set was fixed at launch
+	// to inspection-only tools — it cannot write files, run a shell, or publish.
+	// Absent (never `false`) for every other peer, so entries written before the
+	// field existed read exactly like a peer that makes no claim. Readers must
+	// test `entry.read_only === true`; any other value is "not read-only".
+	// Registration owns it; the heartbeat only carries it forward.
+	read_only?: boolean;
 	// Live status snapshot — refreshed every keepalive tick. Optional so
 	// entries written before the heartbeat carried them still parse cleanly.
 	context_used_pct?: number | null;
@@ -51,9 +60,13 @@ export interface ComsIdentity {
 	explicit: boolean;
 	model: string;
 	started_at: string;
+	// Set at registration from checked launch evidence (see the entry field).
+	// Only `true` is ever published; anything else publishes nothing.
+	read_only?: boolean;
 }
 
-// What is genuinely new at heartbeat time.
+// What is genuinely new at heartbeat time. Deliberately has no read-only
+// field: a heartbeat cannot learn anything that would justify the claim.
 export interface LiveSnapshot {
 	now: string;
 	pid: number;
@@ -91,6 +104,9 @@ export function buildLiveRegistryEntry(identity: ComsIdentity, live: LiveSnapsho
 		started_at: identity.started_at,
 		explicit: identity.explicit,
 		version: 1,
+		// From the registration identity only — never from `live`, so a heartbeat
+		// can neither invent the claim nor flip it.
+		...(identity.read_only === true ? { read_only: true } : {}),
 		context_used_pct: typeof live.contextUsedPct === "number" && Number.isFinite(live.contextUsedPct) && live.contextUsedPct >= 0 ? Math.round(live.contextUsedPct) : null,
   context_measurement: typeof live.contextUsedPct === "number" && Number.isFinite(live.contextUsedPct) && live.contextUsedPct >= 0 ? "measured" : "unknown",
 		queue_depth: count(live.queueDepth),

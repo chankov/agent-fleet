@@ -49,8 +49,8 @@ test('F8 actual root specialist/research/nested launches use production D6 with 
  const root=mkdtempSync(join(tmpdir(),'d6-root-'));mkdirSync(join(root,'.ai'));writeFileSync(join(root,'.ai','agent-fleet.json'),JSON.stringify({features:{system1:false}}));
  mkdirSync(join(root,'.pi','agents','personas'),{recursive:true});mkdirSync(join(root,'.pi','harnesses','damage-control-continue'),{recursive:true});
  writeFileSync(join(root,'.pi','harnesses','damage-control-continue','index.ts'),'export default function(){}');
- writeFileSync(join(root,'.pi','agents','teams.yaml'),'fixture:\n  - fixture-worker\n');
- writeFileSync(join(root,'.pi','agents','personas','fixture-worker.md'),'---\nname: fixture-worker\ndescription: synthetic worker\ntools: read,bash,delegate\nmodel: fake/worker\nmodels:\n  - fake/worker\n  - fake/primary\nsubagents:\n  nested:\n    model: fake/nested\n    tools: read,bash\n---\nSynthetic policy.');
+ writeFileSync(join(root,'.pi','agents','teams.yaml'),'fixture:\n  - editor\n');
+ writeFileSync(join(root,'.pi','agents','personas','editor.md'),'---\nname: editor\ndescription: synthetic worker\ntools: read,bash,delegate\nmodel: fake/worker\nmodels:\n  - fake/worker\n  - fake/primary\nsubagents:\n  nested:\n    model: fake/nested\n    tools: read,bash\n---\nSynthetic policy.');
  writeFileSync(join(root,'pi'),`#!/usr/bin/env node
 const fs=require('node:fs'),args=process.argv;
 let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',async()=>{try{
@@ -85,8 +85,8 @@ let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',async
  assert.equal(registration,null,'disabled optional D6 must not register physical launches');
  assert.ok(entries.some(row=>row.customType==='damage-guard-input'));
  const classified=await tools.get('set_task_tier').execute('tier',{tier:'feature',risk:'low',scope:'small',reason:'Synthetic fixture needs the existing nested-launch budget'},undefined,undefined,ctx);assert.notEqual(classified.isError,true,JSON.stringify(classified));
- ctx.ui.select=async(_prompt,options)=>options.find(option=>option.startsWith('fake/primary'));await commands.get('af-agent-model').handler('fixture-worker',ctx);
- const dispatch=await tools.get('dispatch_agent').execute('specialist-call',{agent:'fixture-worker',task:'Inspect the synthetic launch contract',backend:'native'},undefined,undefined,ctx);
+ ctx.ui.select=async(_prompt,options)=>options.find(option=>option.startsWith('fake/primary'));await commands.get('af-agent-model').handler('editor',ctx);
+ const dispatch=await tools.get('dispatch_agent').execute('specialist-call',{agent:'editor',task:'Inspect the synthetic launch contract',backend:'native'},undefined,undefined,ctx);
  assert.equal(dispatch.details.exitCode,0,JSON.stringify(dispatch));
  const research=await tools.get('spawn_research').execute('research-call',{task:'Find synthetic launch evidence',model:'fake/research'},undefined,undefined,ctx);assert.equal(research.details.exitCode,0,JSON.stringify(research));
  const reports=readFileSync(${JSON.stringify(join(root,'report'))},'utf8').trim().split('\\n').map(JSON.parse);

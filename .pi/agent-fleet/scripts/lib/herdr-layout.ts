@@ -33,6 +33,29 @@ export interface Peer {
 	// "claude-code" spawns an interactive Claude Code plus its coms bridge in
 	// the pane via `_claude-peer` (model → `claude --model`).
 	runner?: string;
+	// Optional "true" | "false" (default false). "true" launches the peer with
+	// ENFORCED inspection-only tools and lets it declare `read_only: true` in
+	// its coms registry entry (PLAN-11-01 decision D3): a pi persona peer routes
+	// through `_peer-read-only` (pi `--tools` allowlist + `--no-mcp` +
+	// `--coms-read-only`); a claude-code peer routes through
+	// `_claude-peer-read-only`, whose bridge launches the restricted claude.
+	// Both siblings keep the positionals of `_peer`/`_claude-peer`.
+	// It cannot combine with `extensions:` — the allowlist would drop every
+	// extension tool, and this launcher never drops a declared field silently.
+	read_only?: string;
+}
+
+/**
+ * Whether a peer declaration asks for a read-only launch. Only the literal
+ * strings "true"/"false" are accepted: a typo must not silently launch a
+ * writable peer the operator believes is read-only (or the reverse).
+ */
+export function peerReadOnly(p: Peer, source: string): boolean {
+	if (p.read_only === undefined || p.read_only === "false") return false;
+	if (p.read_only === "true") return true;
+	throw new Error(
+		`Invalid read_only for peer "${p.name ?? "(unnamed)"}" (${source}): ${JSON.stringify(p.read_only)} (expected true or false)`,
+	);
 }
 
 function stripQuotes(v: string): string {
@@ -106,6 +129,9 @@ export function findPeerByName(teams: Record<string, Peer[]>, name: string): Pee
 // `_peer <persona> <name> [<model>] [<session>]`. `resumeRef` (a pi session
 // path for `pi --session`) fills the trailing session positional — when the
 // peer has no model, an empty-string placeholder keeps the positions aligned.
+// `read_only: "true"` swaps in the read-only sibling recipe (`_peer-read-only`
+// or `_claude-peer-read-only`) with the same positionals; a peer without it
+// produces exactly the argv it always did.
 export function peerCommand(p: Peer, team: string, resumeRef?: string, project = DEFAULT_PROJECT): string[] {
 	validateProject(project);
 	if (p.runner !== undefined && p.runner !== "claude-code") {
@@ -130,12 +156,18 @@ export function peerCommand(p: Peer, team: string, resumeRef?: string, project =
 	if (p.runner === "claude-code" && p.extensions) {
 		throw new Error(`Peer "${p.name}": extensions: are pi-only and cannot combine with runner: claude-code.`);
 	}
+	const readOnly = peerReadOnly(p, `team "${team}"`);
+	if (readOnly && p.extensions) {
+		throw new Error(
+			`Peer "${p.name}" in team "${team}": read_only: true cannot combine with extensions: — the read-only tool allowlist would drop every extension tool.`,
+		);
+	}
 	const parts: string[] =
 		p.runner === "claude-code"
-			? ["just", "_claude-peer", p.name]
+			? ["just", readOnly ? "_claude-peer-read-only" : "_claude-peer", p.name]
 			: p.extensions
 				? ["just", "_peer-plus", p.extensions, p.persona!, p.name]
-				: ["just", "_peer", p.persona!, p.name];
+				: ["just", readOnly ? "_peer-read-only" : "_peer", p.persona!, p.name];
 	if (p.model) parts.push(p.model);
 	if (resumeRef !== undefined) {
 		if (!p.model) parts.push(""); // keep the model positional aligned

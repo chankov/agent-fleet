@@ -25,7 +25,7 @@
 // No sockets, no process.exit, no fs — callers supply the manifest text and a
 // persona-existence probe, and every failure is a plain Error.
 
-import { findPeerByName, parsePeersYaml, peerCommand, type Peer } from "./herdr-layout.ts";
+import { findPeerByName, parsePeersYaml, peerCommand, peerReadOnly, type Peer } from "./herdr-layout.ts";
 import { DEFAULT_PROJECT, teamWorkspaceLabel, validateProject } from "./team-project.ts";
 
 /** Synthetic team name used in peerCommand errors for a peer that has no team. */
@@ -69,6 +69,11 @@ export interface PeerLaunchOptions {
 	direction?: "right" | "down";
 	/** --here: run in the calling terminal instead of a pane. */
 	here?: boolean;
+	/**
+	 * --read-only; omit to inherit the declaration's `read_only:`. Launches the
+	 * peer with enforced inspection-only tools so it can declare `read_only`.
+	 */
+	readOnly?: boolean;
 }
 
 export interface PeerLaunchContext {
@@ -98,6 +103,8 @@ export interface PeerLaunchPlan {
 	workspaceLabel: string;
 	/** True when peers.yaml declares this name (its fields seeded the plan). */
 	declared: boolean;
+	/** Present (true) only for a read-only launch; absent keeps the old plan shape. */
+	readOnly?: true;
 }
 
 function validateName(name: string): string {
@@ -162,6 +169,8 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 		"pi";
 
 	const model = opts.model ?? declared?.model;
+	const readOnly = opts.readOnly ?? (declared ? peerReadOnly(declared, ".pi/agents/peers.yaml") : false);
+	const readOnlyField = readOnly ? { read_only: "true" } : {};
 	const common = {
 		name,
 		runner,
@@ -172,6 +181,7 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 		direction: opts.direction ?? ("right" as const),
 		workspaceLabel: teamWorkspaceLabel("peer", name, project, ctx.worktreeTag),
 		declared: declared !== undefined,
+		...(readOnly ? { readOnly: true as const } : {}),
 	};
 
 	if (runner === "claude-code") {
@@ -183,7 +193,7 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 		return {
 			...common,
 			kind: "claude-peer",
-			command: peerCommand({ name, ...(model ? { model } : {}), runner }, ADHOC_TEAM, undefined, project),
+			command: peerCommand({ name, ...(model ? { model } : {}), runner, ...readOnlyField }, ADHOC_TEAM, undefined, project),
 		};
 	}
 
@@ -196,6 +206,13 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 	// what this command did before pane placement existed. Not an error: it is
 	// the third shape of peer, and the only one that takes raw pi arguments.
 	if (!persona) {
+		if (readOnly) {
+			throw new Error(
+				`read-only launches exist for persona peers (\`_peer-read-only\`) and --runner claude-code, not for the ` +
+					`personaless core peer "${name}". Pass --persona <name>, add .pi/agents/personas/${name}.md, or pass ` +
+					"`-- --coms-read-only --tools read,grep,find,ls --no-mcp` yourself (coms still verifies the tool set).",
+			);
+		}
 		if (opts.extensions) {
 			throw new Error(
 				`--extensions needs a persona peer. Pass --persona <name>, add .pi/agents/personas/${name}.md, ` +
@@ -226,7 +243,7 @@ export function buildPeerLaunchPlan(opts: PeerLaunchOptions, ctx: PeerLaunchCont
 		persona,
 		...(extensions ? { extensions } : {}),
 		command: peerCommand(
-			{ name, persona, ...(model ? { model } : {}), ...(extensions ? { extensions } : {}) },
+			{ name, persona, ...(model ? { model } : {}), ...(extensions ? { extensions } : {}), ...readOnlyField },
 			ADHOC_TEAM,
 			undefined,
 			project,
@@ -249,7 +266,7 @@ function takeValue(argv: string[], i: number, flag: string): string {
 /**
  * `<name> [--runner r] [--persona p|--no-persona] [--model m] [--project p]
  *  [--extensions a,b] [--browser] [--all-extensions] [--direction right|down]
- *  [--here] [--dry-run] [--peers path] [-- PI_ARGS…]`
+ *  [--read-only] [--here] [--dry-run] [--peers path] [-- PI_ARGS…]`
  *
  * The peer name is the only positional and everything after `--` goes to pi
  * verbatim. An unrecognized flag BEFORE `--` is an error rather than silently
@@ -285,6 +302,9 @@ export function parsePeerArgs(argv: string[]): ParsedPeerArgs {
 				break;
 			case "--no-persona":
 				out.noPersona = true;
+				break;
+			case "--read-only":
+				out.readOnly = true;
 				break;
 			case "--model":
 				out.model = takeValue(argv, i++, arg);

@@ -1,5 +1,5 @@
 import { parseReview } from "../../harnesses/lib/coms-review.ts";
-import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harnesses/lib/workspace-context.ts";
+import {sessionRootsFromEnv,projectForSession,executionRoot,targetEnvironment} from "../../harnesses/lib/workspace-context.ts";
 // .pi/agent-fleet/scripts/coms-claude-bridge.ts
 //
 // The Claude Code ↔ coms bridge: one bridge per Claude Code pane, launched
@@ -23,8 +23,17 @@ import {sessionRootsFromEnv,projectForSession,executionRoot} from "../../harness
 //
 // usage: coms-claude-bridge.ts --name <peer-name> [--pane <pane_id>]
 //        [--project <p>] [--reply-timeout <ms>]
+//        [--read-only [--model <m>] [--resume <session>]]
 //   --pane defaults to HERDR_PANE_ID (set inside every herdr pane).
+//   --read-only: the bridge itself launches Claude Code in THIS pane, in the
+//       foreground, with the enforced read-only argv (claudeReadOnlyArgv), and
+//       only then declares `read_only: true` in its registry entry. It exits —
+//       and deregisters — when that Claude process exits, so a later Claude
+//       started by hand in the pane can never inherit the declaration. Without
+//       --read-only nothing changes: Claude is started next to the bridge by
+//       the `_claude-peer` recipe and the entry carries no `read_only`.
 
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -89,6 +98,91 @@ function die(msg: string): never {
 	process.exit(1);
 }
 
+// ── read-only launch (PLAN-11-01, maintainer decision D3) ──
+//
+// Verified against Claude Code 2.1.330 (`claude --help`, and the session's own
+// `system/init` record under `-p --output-format stream-json`, which lists the
+// effective tools and MCP servers):
+//   --tools Read,Grep,Glob  → built-in tools limited to exactly Glob/Grep/Read;
+//   --strict-mcp-config     → with no --mcp-config: zero MCP servers. Required:
+//                             `--tools` alone keeps every MCP tool (plugin and
+//                             claude.ai connectors — mail, file upload, …);
+//   --disallowedTools …     → deny rules for the mutating/egress built-ins, in
+//                             case a future build re-adds one past `--tools`;
+//   --permission-mode dontAsk → anything that would prompt is denied, so an
+//                             unattended peer never waits on (or gets) approval.
+
+/** The only built-in tools a read-only Claude Code peer keeps. */
+export const CLAUDE_READ_ONLY_TOOLS = ["Read", "Grep", "Glob"] as const;
+/** Mutating or egress built-ins additionally denied (defense in depth). */
+export const CLAUDE_READ_ONLY_DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"] as const;
+
+const CLAUDE_READ_ONLY_PREFIX: readonly string[] = [
+	"--tools", CLAUDE_READ_ONLY_TOOLS.join(","),
+	"--disallowedTools", CLAUDE_READ_ONLY_DENIED_TOOLS.join(","),
+	"--strict-mcp-config",
+	"--permission-mode", "dontAsk",
+];
+
+function launchValue(flag: string, value: string): string {
+	if (value === "" || value.startsWith("-") || /[\r\n]/.test(value)) {
+		throw new Error(`${flag} needs a plain value, got ${JSON.stringify(value)}`);
+	}
+	return value;
+}
+
+/** argv (after `claude`) for an enforced read-only interactive Claude Code session. */
+export function claudeReadOnlyArgv(opts: { model?: string; resume?: string } = {}): string[] {
+	return [
+		...CLAUDE_READ_ONLY_PREFIX,
+		...(opts.model ? ["--model", launchValue("--model", opts.model)] : []),
+		...(opts.resume ? ["--resume", launchValue("--resume", opts.resume)] : []),
+	];
+}
+
+/** True only for argv that claudeReadOnlyArgv() could have produced. */
+export function claudeArgvIsReadOnly(argv: readonly string[] | null | undefined): boolean {
+	if (!argv || argv.length < CLAUDE_READ_ONLY_PREFIX.length) return false;
+	if (CLAUDE_READ_ONLY_PREFIX.some((arg, i) => argv[i] !== arg)) return false;
+	const rest = argv.slice(CLAUDE_READ_ONLY_PREFIX.length);
+	const seen = new Set<string>();
+	for (let i = 0; i < rest.length; i += 2) {
+		const flag = rest[i], value = rest[i + 1];
+		if ((flag !== "--model" && flag !== "--resume") || seen.has(flag)) return false;
+		if (value === undefined || value === "" || value.startsWith("-") || /[\r\n]/.test(value)) return false;
+		seen.add(flag);
+	}
+	return true;
+}
+
+export interface BridgeArgs {
+	name: string;
+	project: string;
+	pane: string | null;
+	replyTimeoutMs: number;
+	/** null: Claude is started by the recipe (today's behavior). Else the bridge launches it. */
+	launch: { argv: string[] } | null;
+}
+
+/** Parse bridge argv. `--model`/`--resume` belong to the read-only launch only. */
+export function parseBridgeArgs(argv: string[]): BridgeArgs {
+	const name = flagValue(argv, "--name");
+	if (!name) throw new Error("--name <peer-name> is required");
+	const readOnly = argv.includes("--read-only");
+	const model = flagValue(argv, "--model");
+	const resume = flagValue(argv, "--resume");
+	if (!readOnly && (model !== null || resume !== null)) {
+		throw new Error("--model/--resume configure the Claude Code this bridge launches, which it does only with --read-only");
+	}
+	return {
+		name,
+		project: flagValue(argv, "--project") ?? "default",
+		pane: flagValue(argv, "--pane"),
+		replyTimeoutMs: Number(flagValue(argv, "--reply-timeout") ?? DEFAULT_REPLY_TIMEOUT_MS),
+		launch: readOnly ? { argv: claudeReadOnlyArgv({ model: model ?? undefined, resume: resume ?? undefined }) } : null,
+	};
+}
+
 export function hookWatchDir(paneId: string): string {
 	return path.join(os.homedir(), ".pi", "coms", "claude-bridge", paneId.replace(/[^A-Za-z0-9_-]/g, "_"));
 }
@@ -110,6 +204,12 @@ export function bridgeRegistryIdentity(reg: {
 	endpoint: string;
 	cwd: string;
 	startedAt: string;
+	/**
+	 * The argv THIS bridge spawned `claude` with, when it launched Claude itself.
+	 * The read-only declaration is derived from it and from nothing else: no
+	 * flag, env var or pane state can make a recipe-started Claude read-only.
+	 */
+	launchedArgv?: readonly string[] | null;
 }): ComsIdentity {
 	return {
 		session_id: reg.sessionId,
@@ -123,6 +223,7 @@ export function bridgeRegistryIdentity(reg: {
 		cwd: reg.cwd,
 		explicit: false,
 		started_at: reg.startedAt,
+		...(claudeArgvIsReadOnly(reg.launchedArgv) ? { read_only: true } : {}),
 	};
 }
 
@@ -140,12 +241,17 @@ export function bridgeRegistryEntry(
 }
 
 async function main(): Promise<void> {
-	const argv = process.argv.slice(2);
-	const name = flagValue(argv, "--name") ?? die("--name <peer-name> is required");
-	const rawProject=flagValue(argv, "--project")??"default",roots=sessionRootsFromEnv();
+	let args: BridgeArgs;
+	try { args = parseBridgeArgs(process.argv.slice(2)); }
+	catch (err) { die(err instanceof Error ? err.message : String(err)); }
+	const { name, replyTimeoutMs, launch } = args;
+	const rawProject=args.project,roots=sessionRootsFromEnv();
  const project=roots?.mode==="targeted"?projectForSession(rawProject,roots).project:rawProject;
-	const paneId = flagValue(argv, "--pane") ?? process.env.HERDR_PANE_ID ?? die("--pane <pane_id> required (or run inside a herdr pane)");
-	const replyTimeoutMs = Number(flagValue(argv, "--reply-timeout") ?? DEFAULT_REPLY_TIMEOUT_MS);
+	const paneId = args.pane ?? process.env.HERDR_PANE_ID ?? die("--pane <pane_id> required (or run inside a herdr pane)");
+	// A launched Claude inherits THIS terminal, so it can only be in our own pane.
+	if (launch && paneId !== process.env.HERDR_PANE_ID) {
+		die("--read-only launches Claude Code in this pane; run it inside the herdr pane it bridges (no foreign --pane)");
+	}
 
 	try {
 		await requireHerdr();
@@ -154,12 +260,31 @@ async function main(): Promise<void> {
 		throw err;
 	}
 
+	// ── read-only launch: the bridge owns the Claude process ──
+	// Foreground child on the pane's terminal (stdio inherit, same process
+	// group), started exactly the way exec-at-target.ts starts the recipe's
+	// Claude. Its exit ends the bridge, so the declaration lives exactly as long
+	// as the restricted process it describes.
+	let claude: ChildProcess | null = null;
+	let onClaudeExit: (code: number) => void = (code) => { process.exit(code); };
+	if (launch) {
+		claude = spawn("claude", launch.argv, {
+			cwd: roots?.executionRoot ?? process.cwd(),
+			env: roots ? targetEnvironment(roots) : process.env,
+			stdio: "inherit",
+		});
+		claude.once("error", (err) => die(`could not launch claude: ${err.message}`));
+		claude.once("exit", (code, signal) => onClaudeExit(code ?? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1)));
+	}
+
 	// `_claude-peer` backgrounds this bridge before the shell starts Claude Code.
 	// Do not publish a coms identity during that gap: Hub peer readiness is based
 	// on registration, and an immediate prompt typed into the still-booting pane
 	// is lost while the Claude TUI replaces the shell screen.
 	const startup = await waitForClaudePaneReady(async () => (await herdr.paneGet(paneId)).pane);
 	if (!startup.ready) {
+		// Leave no restricted Claude behind without the bridge that describes it.
+		if (claude && claude.exitCode === null) { try { claude.kill("SIGTERM"); } catch { /* already gone */ } }
 		die(`Claude Code was not detected as ready in pane ${paneId} after ${Math.round(startup.waitedMs / 1000)}s`);
 	}
 
@@ -174,7 +299,7 @@ async function main(): Promise<void> {
 		cwd: executionRoot(process.cwd()),
 	};
 	const queue = new PromptQueue<PromptEnvelope>();
-	const purpose = "Claude Code (bridged pane)";
+	const purpose = launch ? "Claude Code (bridged pane, read-only)" : "Claude Code (bridged pane)";
 
 	// Built once — `started_at` is registration time and stays put across every
 	// keepalive rebuild below.
@@ -185,6 +310,7 @@ async function main(): Promise<void> {
 		endpoint: id.endpoint,
 		cwd: id.cwd,
 		startedAt: nowIso(),
+		launchedArgv: claude ? launch!.argv : null,
 	});
  if(roots?.mode==='targeted')registryIdentity.targetId=roots.targetId;
 
@@ -318,17 +444,28 @@ async function main(): Promise<void> {
 
 	// ── shutdown ──
 	let shuttingDown = false;
-	function shutdown(): void {
+	function shutdown(code = 0): void {
 		if (shuttingDown) return;
 		shuttingDown = true;
 		clearInterval(keepalive);
 		try { server.close(); } catch { /* ignore */ }
 		try { fs.unlinkSync(id.endpoint); } catch { /* ignore */ }
 		removeRegistryEntry(project, uniqueName);
-		process.exit(0);
+		if (claude && claude.exitCode === null && claude.signalCode === null) {
+			try { claude.kill("SIGTERM"); } catch { /* already gone */ }
+		}
+		process.exit(code);
 	}
-	process.on("SIGTERM", shutdown);
-	process.on("SIGINT", shutdown);
+	if (claude) {
+		onClaudeExit = (code) => shutdown(code);
+		// Ctrl+C reaches the whole foreground group; it belongs to the Claude TUI.
+		// The bridge follows Claude's exit instead of dying under it.
+		process.on("SIGINT", () => { /* Claude decides; its exit ends the bridge */ });
+		process.on("SIGHUP", () => shutdown(129));
+	} else {
+		process.on("SIGINT", () => shutdown());
+	}
+	process.on("SIGTERM", () => shutdown());
 }
 
 export interface ClaudeDrivePorts {

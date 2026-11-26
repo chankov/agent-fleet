@@ -45,8 +45,8 @@ function rankedin(t: any) {
 	let processState = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "rankedin PRD change" }).state;
 	let turnDispatches = 0, taskDispatches = 0, reviewRounds = 0, activeWriters = 0, overlap = 0, calls = 0;
 	const agents = new Map<string, any>([
-		["builder", { def: { name: "builder", tools: "read,write,edit,bash" }, runCount: 0, contextPct: 0, lastBackend: null }],
-		["code-reviewer", { def: { name: "code-reviewer", tools: "read,bash" }, runCount: 0, contextPct: 0, lastBackend: null }],
+		["editor", { def: { name: "editor", tools: "read,write,edit,bash" }, runCount: 0, contextPct: 0, lastBackend: null }],
+		["reviewer", { def: { name: "reviewer", tools: "read,bash" }, runCount: 0, contextPct: 0, lastBackend: null }],
 	]);
 	const turnReport = { refusals: 0, dispatches: [] as unknown[], research: 0, tier: "small" };
 	const sessionTotals = { refusals: 0, dispatches: 0, research: 0, billed: 0, out: 0 };
@@ -146,14 +146,14 @@ async function buildThenComsReview(f: Rankedin) {
 		{ id: "P2", tag: "test", text: "The PRD test still passes after follow-up edits", source: "user request", test_command: TEST },
 	]);
 	nativeBuilder(f, () => writeFileSync(join(f.root, "rin-docs/prd.md"), "# PRD\n\nBuilt by the builder.\n"));
-	const build = await f.dispatch({ agent: "builder", task: "P1 P2: update the PRD", scope: ["rin-docs/prd.md"] });
+	const build = await f.dispatch({ agent: "editor", task: "P1 P2: update the PRD", scope: ["rin-docs/prd.md"] });
 	assert.equal(build.details.backendUsed, "native");
 	assert.deepEqual(f.state().changedFiles, ["rin-docs/prd.md"], "the builder's edit is attributed inside rin-docs");
 	assert.deepEqual(f.state().acceptance.revisionScopes, ["rin-docs"]);
 	const early = await f.prove("P1");
 	assert.equal(early.details.reason, "process_obligations_open"); assert.match(early.content[0].text, /open: review/);
 	comsReviewer(f, "coms-review-1");
-	const review = await f.dispatch({ agent: "code-reviewer", task: "Review the P1 PRD change", scope: ["rin-docs/prd.md"], backend: "coms" });
+	const review = await f.dispatch({ agent: "reviewer", task: "Review the P1 PRD change", scope: ["rin-docs/prd.md"], backend: "coms" });
 	assert.equal(review.details.backendUsed, "coms");
 	assert.equal(review.details.processVerdict.obligations.review.status, "satisfied", JSON.stringify(review.details.processVerdict));
 	assert.deepEqual(f.state().review.revisionScopes, ["rin-docs"], "the review is recorded over the repository it covered");
@@ -175,7 +175,7 @@ test("plan 7 e2e: the operator's own edit closes through a native current-state 
 		return { output: "**Verdict:** APPROVE\ntests_run: full regression", exitCode: 0, elapsed: 1, dispatchId: "current-state", lifecycle: CLEAN,
 			specialistResultTool: true, specialistResult: submission, runtimeTests: [{ command: TEST, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
 	});
-	const review = await f.dispatch({ agent: "code-reviewer", task: "P1: current state of the operator's PRD edit", scope: ["rin-docs/prd.md"], backend: "native", review_mode: "operator-current-state" });
+	const review = await f.dispatch({ agent: "reviewer", task: "P1: current state of the operator's PRD edit", scope: ["rin-docs/prd.md"], backend: "native", review_mode: "operator-current-state" });
 	assert.equal(review.details.operatorStateVerification.status, "accepted", JSON.stringify(review.details.operatorStateVerification));
 	assert.deepEqual(f.state().changedFiles, ["rin-docs/prd.md"]);
 	assert.deepEqual(f.state().review.revisionScopes, ["rin-docs"]);
@@ -204,7 +204,7 @@ test("plan 7 e2e: a later change in rin-docs makes the review stale, a change in
 	assert.equal(stale.details.reason, "process_obligations_open", "any change in the reviewed repository makes the review stale (D8)");
 	assert.match(stale.content[0].text, /open: review/); assert.equal(f.assertion("P2").status, "open");
 	comsReviewer(f, "coms-review-2");
-	const again = await f.dispatch({ agent: "code-reviewer", task: "Review the P2 PRD change again", scope: ["rin-docs/prd.md"], backend: "coms" });
+	const again = await f.dispatch({ agent: "reviewer", task: "Review the P2 PRD change again", scope: ["rin-docs/prd.md"], backend: "coms" });
 	assert.equal(again.details.processVerdict.obligations.review.status, "satisfied");
 	const proof = await f.prove("P2");
 	assert.equal(proof.details.status, "proven", JSON.stringify(proof.content));
@@ -213,7 +213,7 @@ test("plan 7 e2e: a later change in rin-docs makes the review stale, a change in
 test("plan 7 e2e: /af-recover reconciles a failed builder attempt in rin-docs and releases the retry", async t => {
 	const f = rankedin(t);
 	await f.setAssertions([{ id: "P1", tag: "test", text: "The PRD test passes", source: "user request", test_command: TEST }]);
-	const build = { agent: "builder", task: "P1: update the PRD", scope: ["rin-docs/prd.md"], deliverables: ["rin-docs/prd.md"] };
+	const build = { agent: "editor", task: "P1: update the PRD", scope: ["rin-docs/prd.md"], deliverables: ["rin-docs/prd.md"] };
 	nativeBuilder(f, () => writeFileSync(join(f.root, "rin-docs/prd.md"), "# PRD\n\nBuilt, but the test is red.\n"), 1, "build-red");
 	const failed = await f.dispatch(build);
 	assert.equal(failed.details.status, "verification_failed", JSON.stringify(failed.details.verificationResult));
@@ -225,7 +225,7 @@ test("plan 7 e2e: /af-recover reconciles a failed builder attempt in rin-docs an
 	assert.equal(unreviewed.cleared, false); assert.equal(unreviewed.reason, "independent_current_revision_review_required");
 	const review = (dispatchId: string, output: string) => {
 		f.child(async agent => { f.agents.get(agent).lastBackend = "native"; return { output, exitCode: 0, elapsed: 1, dispatchId }; });
-		return f.dispatch({ agent: "code-reviewer", task: "Review the failed P1 PRD attempt", scope: ["rin-docs/prd.md"], backend: "native" });
+		return f.dispatch({ agent: "reviewer", task: "Review the failed P1 PRD attempt", scope: ["rin-docs/prd.md"], backend: "native" });
 	};
 	await review("rejecting-review", "verdict: REJECT\nThe PRD edit drops the scope section.\n\n### Suggestions\n- Keep the scope section.\n");
 	const rejected = JSON.parse((await f.recover(`reconcile ${operationId} ${attemptId}`))[0]);

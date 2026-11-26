@@ -33,6 +33,20 @@
 #               - name: claude-main
 #                 runner: claude-code
 #                 model: opus
+#   read_only — optional `true` | `false` (default false). `true` launches the peer
+#             with ENFORCED inspection-only tools, which lets it declare
+#             `read_only: true` in its coms registry entry — the only way the Hub
+#             routes a read-only role (researcher/reviewer) to a peer. A pi persona
+#             peer goes through `_peer-read-only` (pi `--tools read,grep,find,ls`
+#             — no coms tools — plus `--no-mcp` and `--coms-read-only`); a
+#             `runner: claude-code` peer goes through `_claude-peer-read-only`,
+#             whose bridge launches `claude` with only Read/Grep/Glob and no MCP
+#             servers. The peer declares the field only after checking that tool
+#             set itself; any other value is rejected, and `extensions:` cannot
+#             combine with it. See docs/claude-code-coms-bridge.md. Example:
+#               - name: code-reviewer
+#                 runner: claude-code
+#                 read_only: true
 
 # Hub-only workspace: `just fleet team base --project <name>` creates a Herdr
 # workspace containing only the guarded hub, with no reusable coms peer panes.

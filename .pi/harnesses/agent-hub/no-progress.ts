@@ -11,6 +11,7 @@ import type { DispatchExecutorDeps } from "./tools/dispatch-execution.ts";
 import { reconcileTechnical, type TechnicalEvidence } from './reconcile.ts';
 import { renderRecoverCommands, renderNextInvocation } from './recover-policy.ts';
 import type { ToolExecutor, DispatchAgentParams, SpawnResearchParams } from "./tools/context.ts";
+import { assignmentPracticeKey } from "./config/roles.ts";
 
 interface Failure {
 	questions?: string[];
@@ -110,7 +111,7 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
  if (!value || !['dispatch_agent', 'spawn_research'].includes(value.tool)) return [{ field: 'tool', expected: 'dispatch_agent | spawn_research', actual: type(value?.tool) }];
  if (!value.params || typeof value.params !== 'object' || Array.isArray(value.params)) return [{ field: 'params', expected: 'object', actual: type(value.params) }];
  const params = value.params as unknown as Record<string, unknown>;
- const keys = value.tool === 'dispatch_agent' ? ['agent','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','private_config_files','verifier_sources','backend','parallel','triage_id','triage_reason'] : ['task','persona','model','artifacts','read_scope','goal','expected_result'];
+ const keys = value.tool === 'dispatch_agent' ? ['agent','practices','task','artifacts','scope','scope_mode','deliverables','watchdog','review_reason','review_mode','private_config_files','verifier_sources','backend','parallel','triage_id','triage_reason'] : ['task','practices','persona','model','artifacts','read_scope','goal','expected_result'];
  const diagnostics: InvocationDiagnostic[] = [];
  const add = (field: string, expected: string, item: unknown, reason?: string) => { if (diagnostics.length < 16) diagnostics.push({ field, expected, actual: type(item), ...(reason ? { reason } : {}) }); };
  for (const key of ['task', ...(value.tool === 'dispatch_agent' ? ['agent'] : [])]) {
@@ -121,7 +122,7 @@ function invocationDiagnostics(value: NonNullable<GuardHistory['invocation']>): 
  for (const [key, item] of Object.entries(params)) {
   if (!keys.includes(key)) { add('params.<unknown-key>', 'supported field', item, 'unknown key (redacted)'); continue; }
   if (item === undefined || key === 'task' || key === 'agent') continue;
-  if (['artifacts','scope','deliverables','read_scope','private_config_files','verifier_sources'].includes(key)) {
+  if (['practices','artifacts','scope','deliverables','read_scope','private_config_files','verifier_sources'].includes(key)) {
    if (!Array.isArray(item)) add(key, 'array of strings', item);
    else item.forEach((entry, i) => {
     if (typeof entry !== 'string') add(`${key}[${i}]`, 'string', entry);
@@ -717,7 +718,13 @@ export function withNoProgress<P extends DispatchAgentParams | SpawnResearchPara
 					verifierSources: dispatch?.verifier_sources,
 				} : {}),
 			};
-		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity]);
+		// A non-default practice set is part of the attempt identity. The role default keeps
+		// the earlier key shape, so fences recorded before roles existed still match.
+		const role = "agent" in params ? params.agent : "researcher";
+		const practices = assignmentPracticeKey(role, params.practices);
+		const defaultPractices = assignmentPracticeKey(role, []);
+		const practiceIdentity = isDeepStrictEqual(practices, defaultPractices) ? [] : [practices];
+		const key = canonical([kind, resolve(cwd), actor, scope, inputs.map(input => input.path).sort(), contractIdentity, ...practiceIdentity]);
 		const conditions = executionConditions(params, ctx);
 		const fingerprint = () => canonical({
 			worktree: worktreeRevision(cwd, scope),

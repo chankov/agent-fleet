@@ -1,41 +1,34 @@
 # The first team is activated at startup. Switch with: /agents-team
-# researcher / deep-researcher are not listed — they are always available through spawn_research.
+# Members are runtime roles; each dispatch attaches practices (config/practices.ts).
+# researcher is not listed — it is always available through spawn_research.
 
 default:
-  - builder
-  - test-engineer
-  - code-reviewer
-  - documenter
+  - editor
+  - reviewer
 
 plan:
-  - planner
-  - plan-reviewer
+  - editor
+  - reviewer
 
 debug:
-  - test-engineer
-  - builder
-  - code-reviewer
+  - editor
+  - reviewer
 
 frontend:
-  - planner
-  - builder
-  - bowser
-  - code-reviewer
+  - editor
+  - reviewer
 
 security:
-  - security-auditor
-  - builder
-  - test-engineer
-  - code-reviewer
+  - reviewer
+  - editor
 
 hotfix:
-  - builder
-  - code-reviewer
+  - editor
+  - reviewer
 
 release:
-  - releaser
-  - documenter
+  - editor
 
 info:
-  - documenter
-  - code-reviewer
+  - editor
+  - reviewer

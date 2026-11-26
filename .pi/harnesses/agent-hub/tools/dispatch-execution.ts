@@ -26,19 +26,38 @@ import { MAX_AUTO_RESEARCH_QUESTIONS, MAX_AUTO_RESEARCH_ROUNDS } from "../resear
 import type { InputArtifactPreview } from "../context/assertions-artifacts.ts";
 import type { DispatchAgentParams, SpawnResearchParams, ToolExecutionResult, ToolExecutor, ToolUpdate } from "./context.ts";
 import { evaluateProcessObligations, processAllowsPersona, processPreEffectGate } from "../process-obligations.ts";
-import { dispatchAccess, type DispatchAccess } from "../dispatch-access.ts";
+import { dispatchAccess, isTrackedAccess, type DispatchAccess } from "../dispatch-access.ts";
+import { assignmentPracticeIds, formatAssignmentBlock, isResearcherRole, isReviewerRole, resolveAssignment, ROLE_NAMES, type ResolvedAssignment } from "../config/roles.ts";
+import { PRACTICE_IDS } from "../config/practices.ts";
+import { sessionRootsFromEnv, workspaceRoot } from "../../lib/workspace-context.ts";
 
 type Gate = { reason: string; message: string } | null;
 export type { DispatchExecutionState, DispatchExecutorDeps, WriterEntry } from "./dispatch-execution-types.ts";
 
-export function preflightGate(d: DispatchExecutorDeps, persona: string): Gate {
+/** Native-first skill roots for practice lookup: the workspace, then the Fleet resource root. */
+export function assignmentSkillRoots(cwd: string): string[] {
+	const roots = [workspaceRoot(cwd)];
+	try { const resource = sessionRootsFromEnv()?.resourceRoot; if (resource && !roots.includes(resource)) roots.push(resource); } catch { /* legacy session: workspace only */ }
+	return roots;
+}
+
+/** Resolve the role and practices of a dispatch; a refusal never starts or charges anything. */
+export function resolveDispatchAssignment(agent: string, practices: readonly string[] | undefined, cwd: string): ReturnType<typeof resolveAssignment> {
+	return resolveAssignment({ agent, practices }, assignmentSkillRoots(cwd));
+}
+
+export function withAssignment(task: string, assignment: ResolvedAssignment | undefined): string {
+	return assignment ? `${task}\n\n${formatAssignmentBlock(assignment)}` : task;
+}
+
+export function preflightGate(d: DispatchExecutorDeps, persona: string, practices: readonly string[] = []): Gate {
 	const s = d.state;
 	const blocked = checkExternalBlockerGate({ blockers: s.getExternalBlockers(), acknowledged: s.getExternalBlockerAcknowledged(), askUserAvailable: s.isAskUserAvailable(), marker: s.getExternalBlockerMarker() });
 	if (blocked) return blocked;
 	const blockedProcess = s.processBlock?.();
 	if (blockedProcess) return blockedProcess;
 	const process = s.getProcessState?.();
-	return process && processAllowsPersona(process, persona) ? null : checkTierPersonaGate(s.getTaskTier(), persona);
+	return process && processAllowsPersona(process, persona) ? null : checkTierPersonaGate(s.getTaskTier(), persona, [...practices]);
 }
 
 function refusalCategoryFor(status: string, reason?: string): "not_started" | "operator_cancelled" | "unknown_tool" {
@@ -69,29 +88,25 @@ function refusal(d: DispatchExecutorDeps, agent: string, task: string, status: s
 	return { content: [{ type: "text", text: scopeDiagnostic ? `${message}\n${formatScopeDiagnostic(scopeDiagnostic)}` : message }], details: { agent, task, status, reason: reason ?? status, recoveryCategory, elapsed: 0, exitCode: 1, fullOutput: "", started: false, notStarted: true, effects: "none", ...(scopeDiagnostic ? { scopeDiagnostic } : {}) } };
 }
 
-const RESEARCH_DISPATCH_NAMES = new Set(["researcher", "deep-researcher"]);
-
 function rosterNames(d: DispatchExecutorDeps): string[] {
 	return Array.from(d.state.getAgentStates().values()).map(s => s.def.name);
 }
 
 function isResearchDispatchName(d: DispatchExecutorDeps, agent: string): boolean {
-	if (RESEARCH_DISPATCH_NAMES.has(agent)) return true;
+	if (isResearcherRole(agent)) return true;
 	return d.state.getResearchPersonas().some(p => normalizeAgentInput(p.name) === agent);
 }
 
 function unknownAgentMessage(agent: string, available: string[], researchHint: boolean): string {
 	const roster = available.length ? available.join(", ") : "(none)";
-	const research = researchHint
-		? `\n\n"${agent}" is a research persona. Call spawn_research with persona "${agent}" instead of dispatch_agent. Do not invent a substitute dispatch.`
-		: "";
-	const processRole = !researchHint && ["planner", "code-reviewer", "plan-reviewer", "security-auditor"].includes(agent)
-		? `Ask the human to install the ${agent} persona (agent-fleet setup, or /af-agents-add ${agent} when its file is present); once installed, dispatching it adds it to the team. This does not change the tier or budget. `
-		: "";
-	return `Unknown agent "${agent}". dispatch_agent accepts installed agents. Installed agents: ${roster}.${research}\n\nDo not invent a substitute dispatch. ${processRole}Use an installed agent, or spawn_research for a research persona.`;
+	if (researchHint) return `"${agent}" is the research role. Call spawn_research (with practices when needed) instead of dispatch_agent. Do not invent a substitute dispatch.`;
+	return `The ${agent} role is not installed. Installed roles: ${roster}. Ask the human to install it (agent-fleet setup, or /af-agents-add ${agent} when its file is present); once installed, dispatching it adds it to the team. This does not change the tier or budget. Do not invent a substitute dispatch.`;
 }
 
-export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string, ctx?: ExtensionContext): ToolExecutionResult | null {
+export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, task: string, ctx?: ExtensionContext, practices?: readonly string[]): ToolExecutionResult | null {
+	// Roles and practices first (D1): a retired persona or unknown practice is refused with its mapping.
+	const assignment = resolveDispatchAssignment(agent, practices, ctx?.cwd || process.cwd());
+	if (!assignment.ok) return refusal(d, agent, task, assignment.reason, `${assignment.message}\nRoles: ${ROLE_NAMES.join(", ")}. Practices: ${PRACTICE_IDS.join(", ")}.`, assignment.reason);
 	const roster = rosterNames(d);
 	let onRoster = d.state.getAgentStates().has(agent) || roster.some(name => normalizeAgentInput(name) === agent);
 	const available = [...new Set([...roster, ...(d.state.getInstalledAgentNames?.() ?? [])])];
@@ -114,7 +129,7 @@ export function validateDispatchAgent(d: DispatchExecutorDeps, agent: string, ta
 }
 
 function dispatchRequirements(d: DispatchExecutorDeps, access: DispatchAccess, task: string): AcceptanceRequirement[] {
-	if (!access.writable) return [];
+	if (!isTrackedAccess(access)) return [];
 	// validateBoundAssertionIds returns undefined only for an undefined input (legacy caller marker); the ledger map is always an array,
 	// so `?? []` is a type narrowing with no runtime effect — an invalid ledger still throws, an empty ledger still yields an empty set.
 	const ledgerIds = validateBoundAssertionIds(d.state.getAssertions().map(assertion => assertion.id)) ?? [];
@@ -141,6 +156,8 @@ function appendRuntimeAcceptanceContract(task: string, requirements: AcceptanceR
 }
 
 function needsComsWriter(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams): boolean {
+	// A read-only role reaches coms only through a peer with enforced read-only tools (D3): no writer slot.
+	if (d.state.getAgentStates().get(agent)?.def.readOnly === true) return false;
 	if (params.backend === "coms") return true;
 	if (params.backend === "native" || params.parallel || (params.review_mode && params.review_mode !== "changes")) return false;
 	return d.state.mayRouteToComs?.(agent) === true;
@@ -155,7 +172,7 @@ const SCOPE_GLOB = /[*?[\]{}!]/;
  */
 export function parallelWriterGate(d: DispatchExecutorDeps, agent: string, params: DispatchAgentParams, comsWriter = needsComsWriter(d, agent, params)): ToolExecutionResult | null {
 	const s = d.state; const def = s.getAgentStates().get(agent)?.def;
-	if (!def || (!dispatchAccess(def, params.review_mode).writable && !comsWriter)) return null;
+	if (!def || (!isTrackedAccess(dispatchAccess(def, params.review_mode)) && !comsWriter)) return null;
 	const parallel = params.parallel === true;
 	const scope = (params.scope || []).map(String).map(entry => entry.trim()).filter(Boolean);
 	if (parallel) {
@@ -187,21 +204,24 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
  if (privateMode) {
   try {
    const tools = String(s.getAgentStates().get(agent)?.def.tools ?? '').split(',').map(t => t.trim());
-   if (!['code-reviewer','security-auditor'].includes(agent) || params.backend !== 'native' || params.scope_mode === 'create' || scope?.length || params.deliverables?.length || artifacts?.length || !s.getProcessState || (s.getProcessState().changedFiles.length || s.getProcessState().workOrigin || s.getProcessState().acceptance.evidenceRef || s.getProcessState().review.evidenceRef || s.getProcessState().additions?.some(a => a.status === 'active' && a.reason !== 'irreversible_execution')) || tools.some(t => ['edit','write'].includes(t)) || !tools.includes('bash')) throw Error();
+   if (!isReviewerRole(agent) || params.backend !== 'native' || params.scope_mode === 'create' || scope?.length || params.deliverables?.length || artifacts?.length || !s.getProcessState || (s.getProcessState().changedFiles.length || s.getProcessState().workOrigin || s.getProcessState().acceptance.evidenceRef || s.getProcessState().review.evidenceRef || s.getProcessState().additions?.some(a => a.status === 'active' && a.reason !== 'irreversible_execution')) || tools.some(t => ['edit','write'].includes(t)) || !tools.includes('bash')) throw Error();
    const declarations = s.getAssertions();
    if (!declarations.some(r => r.id !== 'AF-MIN-CHANGE') || declarations.some(r => !['test','code-grep'].includes(r.tag) || !r.testCommand && !r.compilerCommand)) throw Error();
    capturePrivateConfig(ctx.cwd || process.cwd(), params.private_config_files, params.verifier_sources);
   } catch { return refusal(d,agent,task,'private_config_preflight_failed','Private verification requires exact safe configuration/helper declarations, explicit automated checks and an independent native read-only reviewer; no source obligations, artifacts or Git scope.'); }
  }
  if(operatorMode){try{operatorScopeSyntax(scope);}catch{return refusal(d,agent,task,'operator_state_preflight_failed','Current-state scope must contain 1–128 unique exact files; no aliases/globs.');}}
- if(operatorMode && (!['code-reviewer','security-auditor'].includes(agent)||params.backend!=='native'||params.scope_mode==='create'||params.deliverables?.length||!s.getProcessState))
-  return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native code/security reviewer, existing exact files and no deliverables.');
-	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx);
+ if(operatorMode && (!isReviewerRole(agent)||params.backend!=='native'||params.scope_mode==='create'||params.deliverables?.length||!s.getProcessState))
+  return refusal(d,agent,task,'operator_state_preflight_failed','Current-state verification requires a native reviewer, existing exact files and no deliverables.');
+	const rosterRefusal = validateDispatchAgent(d, agent, task, ctx, params.practices);
 	if (rosterRefusal) return rosterRefusal;
+	const resolvedAssignment = resolveDispatchAssignment(agent, params.practices, ctx.cwd || process.cwd());
+	if (!resolvedAssignment.ok) return refusal(d, agent, task, resolvedAssignment.reason, resolvedAssignment.message, resolvedAssignment.reason);
+	const assignment = resolvedAssignment;
 	const def = s.getAgentStates().get(agent)?.def;
 	const access = { ...dispatchAccess(def ?? { tools: "" }, params.review_mode), comsWriter: needsComsWriter(d, agent, params) };
-	if (runChecks && (!isReviewPersona(agent) || !access.tools.split(",").some(tool => tool.trim() === "bash") || params.backend === "coms")) {
-		return refusal(d, agent, task, "review_checks_requires_native", "run-checks requires a native reviewer configured with bash.");
+	if (runChecks && (!isReviewerRole(agent) || !access.tools.split(",").some(tool => tool.trim() === "bash") || params.backend === "coms")) {
+		return refusal(d, agent, task, "review_checks_requires_native", "run-checks requires a native reviewer configured with bash; it runs in the write-denying sandbox.");
 	}
 	if (!access.writable && def?.readOnly && params.deliverables?.length) {
 		return refusal(d, agent, task, "read_only_deliverables", "A read-only audit returns its report through submit_result. File deliverables require a separate writer.");
@@ -211,7 +231,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	if (s.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 	d.budget.ensureTaskTier();
 	const processGate = s.processBlock?.() ?? (s.getProcessState ? processPreEffectGate(s.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
-	const preflight = preflightGate(d, agent) ?? processGate ?? (s.getProcessState && processAllowsPersona(s.getProcessState(), agent) ? null : checkDocsLane(agent, scope || [], review_reason));
+	const preflight = preflightGate(d, agent, assignmentPracticeIds(assignment)) ?? processGate ?? (s.getProcessState && processAllowsPersona(s.getProcessState(), agent) ? null : checkDocsLane(agent, scope || [], review_reason));
 	if (preflight) return refusal(d, agent, task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx as any)}`, preflight.reason);
 	let contract: DeliverableContract;
 	try { contract = preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: s.getSessionDir() }); }
@@ -267,7 +287,7 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 	try { s.recordDelegation?.({ agent, kind: "specialist", task, scope: scopeGlobs }); } catch { /* the brief is a record, never a gate */ }
 	const requirements = privateMode ? privateRequirements(s.getAssertions() as AcceptanceRequirement[]) : dispatchRequirements(d, access, operatorMode ? '' : task);
  const privateConfig: PrivateConfigBinding | undefined = privateMode ? {files: [...params.private_config_files!].sort(), sources: [...params.verifier_sources!].sort(), taskId: d.noProgress.taskId(), sessionDir: s.getSessionDir(), declarationHash: receiptDeclarationHash(requirements, scopeGlobs, s.getAcceptedUserInput?.(), inputArtifacts), captureId: '', generation: '', epoch: 0} : undefined;
-	const acceptedTask = appendRuntimeAcceptanceContract(task, requirements) + (privateConfig ? '\n\n## Private configuration current-state review\nReview the declared verifier/helper sources for semantic adequacy and completeness of declared dependencies. Private bodies are NOT input artifacts: never attach, copy, quote or export them. Run each exact declared offline command through approved bash. No activation, notification runtime, sockets, grants, policy changes or journal replay. Return an explicit APPROVE/REJECT and full scoped regression evidence. This private proof cannot satisfy Git source obligations.\nVerifier/helper sources: ' + JSON.stringify(privateConfig.sources) : '') + (operatorCandidate ? '\n\n## Explicit operator-current-state verification\nInspect the exact current candidate; do not modify source or claim historical authorship. Run every explicit automated verification command through approved bash, and report full scoped regression evidence. Manual assertions remain unsupported by automation. Return an explicit APPROVE/REJECT; runtime verifies unchanged scope/revision and actual checks. This does not make your read-only task a changed-task success.' : '');
+	const acceptedTask = appendRuntimeAcceptanceContract(withAssignment(task, assignment), requirements) + (privateConfig ? '\n\n## Private configuration current-state review\nReview the declared verifier/helper sources for semantic adequacy and completeness of declared dependencies. Private bodies are NOT input artifacts: never attach, copy, quote or export them. Run each exact declared offline command through approved bash. No activation, notification runtime, sockets, grants, policy changes or journal replay. Return an explicit APPROVE/REJECT and full scoped regression evidence. This private proof cannot satisfy Git source obligations.\nVerifier/helper sources: ' + JSON.stringify(privateConfig.sources) : '') + (operatorCandidate ? '\n\n## Explicit operator-current-state verification\nInspect the exact current candidate; do not modify source or claim historical authorship. Run every explicit automated verification command through approved bash, and report full scoped regression evidence. Manual assertions remain unsupported by automation. Return an explicit APPROVE/REJECT; runtime verifies unchanged scope/revision and actual checks. This does not make your read-only task a changed-task success.' : '');
 	const declaredTask = contract.files.length ? `${acceptedTask}\n\n## Expected deliverables (explicit contract)\nProduce these exact files and report their paths. The hub will read them back; a prose claim is not delivery.\n${contract.files.map(file => `- ${file.path}`).join("\n")}` : acceptedTask;
 	const agentState = s.getAgentStates().get(agent.toLowerCase());
 	const resumeContract = {
@@ -280,11 +300,11 @@ export function prepareDispatch(d: DispatchExecutorDeps, params: DispatchAgentPa
 		model: agentState ? (d.resolvedAgentModel?.(agentState.def, ctx) ?? agentState.def.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null)) : null,
 		permissions: access.tools,
 	};
- return { access, privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.()) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision, revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
+ return { assignment, access, privateConfig, operatorCandidate, beforeSnapshot, reviewInput: !privateMode && s.getProcessState ? reviewInput(ctx.cwd || process.cwd(), d.noProgress.taskId(), agent, scopeGlobs, operatorReviewState(s.getProcessState(),operatorCandidate), s.getAssertions(), inputArtifacts, s.getAcceptedUserInput?.(), assignmentPracticeIds(assignment)) : null, taskToken: d.noProgress.taskToken(), taskId: resumeContract.taskId, beforeRevision, revisionScopes: revisionBasis, requirements, contract, resumeContract, sessionDir: s.getSessionDir(), agent, task: declaredTask, inputArtifacts, scopeGlobs, fingerprint, parallel: params.parallel === true };
 }
 
 function startTracking(d: DispatchExecutorDeps, prepared: PreparedDispatch, ctx: ExtensionContext): Tracking {
-	const s = d.state; const canWrite = prepared.access.writable || prepared.access.comsWriter === true;
+	const s = d.state; const canWrite = isTrackedAccess(prepared.access) || prepared.access.comsWriter === true;
 	const tracking: Tracking = { writable: canWrite, snapshot: null as any, overlapBaseline: s.getWritableOverlapCounter(), writerGeneration: s.getWriterGeneration?.(), concurrentAtStart: s.getActiveWritableDispatches() > 0 || !!s.getActiveWriters?.().length };
 	if (canWrite) {
 		tracking.concurrentAtStart = s.getActiveWritableDispatches() > 0;
@@ -463,11 +483,13 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 	return withNoProgress(d, "dispatch", async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability;
 		const agent = normalizeAgentInput(params.agent);
-		const invalid = validateDispatchAgent(d, agent, params.task, ctx); if (invalid) return invalid;
+		const invalid = validateDispatchAgent(d, agent, params.task, ctx, params.practices); if (invalid) return invalid;
+		const guardedAssignment = resolveDispatchAssignment(agent, params.practices, ctx.cwd || process.cwd());
+		const guardedPractices = guardedAssignment.ok ? assignmentPracticeIds(guardedAssignment) : [];
 		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 		d.budget.ensureTaskTier();
 		const processGate = d.state.processBlock?.() ?? (d.state.getProcessState ? processPreEffectGate(d.state.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
-		const preflight = preflightGate(d, agent) ?? processGate ?? (d.state.getProcessState && processAllowsPersona(d.state.getProcessState(), agent) ? null : checkDocsLane(agent, params.scope || [], params.review_reason));
+		const preflight = preflightGate(d, agent, guardedPractices) ?? processGate ?? (d.state.getProcessState && processAllowsPersona(d.state.getProcessState(), agent) ? null : checkDocsLane(agent, params.scope || [], params.review_reason));
 		if (preflight) return refusal(d, agent, params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`);
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
@@ -475,7 +497,7 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
         if (isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && !needsComsWriter(d, agent, params) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
             const state=d.state.getProcessState();
             let cached=null;
-            try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.()),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
+            try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.(),guardedPractices),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
             if(cached){
                 const verdict=evaluateProcessObligations(state,{writable:true,budgetTier:d.state.getTaskTier()??"small",currentRevision:(scopes:readonly string[])=>revisionOf(ctx.cwd,[...scopes])});
                 d.state.persistProcessVerdict?.(state,verdict);
@@ -531,7 +553,15 @@ export function createRecoveryResearchExecutor(d: DispatchExecutorDeps): ToolExe
 function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchParams> {
 	return async (_id, params, signal, onUpdate, ctx) => {
 		const capability = d.provisionalCapabilityRefusal("fleet"); if (capability) return capability; const s = d.state; d.budget.ensureTaskTier();
-		const preflight = preflightGate(d, params.persona || ""); if (preflight) return refusal(d, "", params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`, preflight.reason);
+		const researchAssignment = resolveDispatchAssignment("researcher", params.practices, ctx.cwd || process.cwd());
+		if (!researchAssignment.ok) return refusal(d, "researcher", params.task, researchAssignment.reason, researchAssignment.message, researchAssignment.reason);
+		if (params.persona && !isResearcherRole(normalizeAgentInput(params.persona))) {
+			const named = resolveDispatchAssignment(normalizeAgentInput(params.persona), params.practices, ctx.cwd || process.cwd());
+			const message = !named.ok && named.reason === "retired_persona" ? named.message : `spawn_research runs the researcher role; persona "${params.persona}" is not it. Omit persona, or use "researcher".`;
+			return refusal(d, "researcher", params.task, !named.ok ? named.reason : "unknown_role", message, !named.ok ? named.reason : "unknown_role");
+		}
+		const researchPractices = assignmentPracticeIds(researchAssignment);
+		const preflight = preflightGate(d, "researcher", researchPractices); if (preflight) return refusal(d, "", params.task, preflight.reason, `${preflight.message}\n\n${refusalSnapshot(d, ctx)}`, preflight.reason);
 		if (signal?.aborted) return refusal(d, "", params.task, "cancelled", "Operation cancelled before research.");
 		let def: any; let persona = false;
 		if (params.persona) { def = s.getResearchPersonas().find(x => x.name.toLowerCase() === params.persona!.toLowerCase()); if (!def) return { content: [{ type: "text", text: `No research persona "${params.persona}". Available: ${s.getResearchPersonas().map(x => x.name).join(", ") || "(none defined)"}. Omit \`persona\` for an ad-hoc helper. (Nothing started or counted.)` }], details: { status: "not_started", reason: "unknown_agent", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; persona = true; } else def = d.research.anonymousDef();
@@ -539,11 +569,11 @@ function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchP
 		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; }
 		s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; s.getSessionTotals().research++; d.budget.updateModeStatus();
 		const taskToken=d.noProgress.taskToken(),sessionDir=s.getSessionDir();
-  const admit=()=>taskToken===d.noProgress.taskToken()&&sessionDir===s.getSessionDir()&&!signal?.aborted&&!d.provisionalCapabilityRefusal('fleet')&&!preflightGate(d,params.persona||'');
+  const admit=()=>taskToken===d.noProgress.taskToken()&&sessionDir===s.getSessionDir()&&!signal?.aborted&&!d.provisionalCapabilityRefusal('fleet')&&!preflightGate(d,"researcher",researchPractices);
   const state = d.research.createState(def, persona, model);
   try { s.recordDelegation?.({ agent: persona ? def.name : "research", kind: "research", task: params.task, scope: params.read_scope ?? [], researchId: state.id }); } catch { /* the brief is a record, never a gate */ }
   onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
-		try { const result = await d.research.spawn(state, structuredResearchPrompt(params), ctx, artifacts, signal, {readScope:normalizeResearchContract(params).readScope,admit}); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, lifecycle: (result as any).lifecycle ?? null, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
+		try { const result = await d.research.spawn(state, withAssignment(structuredResearchPrompt(params), researchAssignment), ctx, artifacts, signal, {readScope:normalizeResearchContract(params).readScope,admit}); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, lifecycle: (result as any).lifecycle ?? null, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }
 		catch (err: any) { return { content: [{ type: "text", text: `Error spawning research helper: ${err?.message || err}` }], details: { handle: `r${state.id}`, model, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" } }; }
 	};
 }

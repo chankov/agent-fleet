@@ -20,7 +20,7 @@ export function prepareDeps(overrides: { agents?: string[]; research?: string[];
 	let turn = overrides.turn ?? 0;
 	let task = 0, activeWriters = 0, overlapCounter = 0;
 	let processState = applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "test fixture" }).state;
-	const agents = new Map<string, FixtureAgent>((overrides.agents ?? ["builder"]).map(name => [name.toLowerCase(), { def: { name, tools: overrides.tools ?? "read" }, runCount: 0, contextPct: 0, lastBackend: null }]));
+	const agents = new Map<string, FixtureAgent>((overrides.agents ?? ["editor"]).map(name => [name.toLowerCase(), { def: { name, tools: overrides.tools ?? "read" }, runCount: 0, contextPct: 0, lastBackend: null }]));
 	const turnReport = { refusals: 0, dispatches: [] as unknown[], research: 0, tier: "small" };
 	const sessionTotals = { refusals: 0, dispatches: 0, research: 0, billed: 0, out: 0 };
 	const writeRunArtifact: DispatchExecutorDeps["artifacts"]["writeRunArtifact"] = () => "/tmp/tool-result.md";
@@ -53,7 +53,7 @@ export function prepareDeps(overrides: { agents?: string[]; research?: string[];
 			getSessionDir: () => "/tmp",
 			getAgentStates: () => agents,
 			getAssertions: (): ReturnType<DispatchExecutionState["getAssertions"]> => [],
-			getResearchPersonas: () => (overrides.research ?? ["researcher", "deep-researcher"]).map(name => ({ name })),
+			getResearchPersonas: () => (overrides.research ?? ["researcher"]).map(name => ({ name })),
 			getActiveWritableDispatches: () => activeWriters,
 			setActiveWritableDispatches(v: number) { activeWriters = v; },
 			getWritableOverlapCounter: () => overlapCounter,
@@ -99,7 +99,7 @@ export function gitDiagnosticsFixture(t: any, git = true) {
  const assertions = [{ id: "A1", status: "open" }];
  return import("../context/assertions-artifacts.ts").then(({ createAssertionsArtifactsContext }) => {
   d.artifacts = createAssertionsArtifactsContext({ getSessionDir: () => sessionDir, getAssertions: () => assertions as any, getRunHistoryKeep: () => 2, setStatus() {} }) as any;
-  (d._agents.get("builder") as any).lastBackend = "native";
+  (d._agents.get("editor") as any).lastBackend = "native";
   return { cwd, sessionDir, d, assertions };
  });
 }
@@ -112,10 +112,10 @@ export async function highRiskChangedFixture(t: any) {
  let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
  process = { ...process, plan: { ...process.plan, evidenceRef: "plan:approved", revision: "approved" } };
  d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
- d._agents.set("code-reviewer", { def: { name: "code-reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
+ d._agents.set("reviewer", { def: { name: "reviewer", tools: "read" }, runCount: 0, lastBackend: "native" });
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 9;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "high-build" }; };
- await createDispatchExecutor(d as any)("build", { agent: "builder", task: "high risk change" }, undefined, undefined, { cwd } as any);
+ await createDispatchExecutor(d as any)("build", { agent: "editor", task: "high risk change" }, undefined, undefined, { cwd } as any);
  assert.equal(process.review.required, true); assert.ok(process.changedFiles.includes("src/api.ts"));
  return { cwd, d, process: () => process };
 }
@@ -135,8 +135,8 @@ export async function operatorStateFixture(t:any,scenario='pass',layout:'single'
   execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','add','.'],{cwd:app});
   execFileSync('git',['-c','user.email=fixture@example.test','-c','user.name=Fixture','commit','-qm','base'],{cwd:app});
  }
- const d=prepareDeps({agents:['code-reviewer'],tools:'read,bash'});d._agents.get('code-reviewer')!.lastBackend='native';
- Object.assign(d._agents.get('code-reviewer')!.def, { readOnly: true });
+ const d=prepareDeps({agents:['reviewer'],tools:'read,bash'});d._agents.get('reviewer')!.lastBackend='native';
+ Object.assign(d._agents.get('reviewer')!.def, { readOnly: true });
  const session=mkdtempSync(join(tmpdir(),'operator-session-'));t.after(()=>rmSync(session,{recursive:true,force:true}));d.state.getSessionDir=()=>session;
  const {createAssertionsArtifactsContext}=await import('../context/assertions-artifacts.ts');
  d.artifacts.writeRunArtifact=createAssertionsArtifactsContext({getAssertions:()=>[],getSessionDir:()=>session,getRunHistoryKeep:()=>null,setStatus:()=>{}}).writeRunArtifact;

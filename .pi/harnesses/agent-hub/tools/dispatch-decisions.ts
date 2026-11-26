@@ -10,7 +10,8 @@ import { retainReviewHistory } from "../review-continuity.ts";
 import { countReviewFindings } from "../review-findings.js";
 import { retainReview, reviewInput } from "../review-reuse.ts";
 import { affirmativeReviewVerdict } from "../review-verdict.ts";
-import { basePersonaName, isReviewPersona } from "../run-budget.js";
+import { isReviewPersona } from "../run-budget.js";
+import { assignmentPracticeIds, isEditorRole, isReviewerRole } from "../config/roles.ts";
 import { reviewScopeDiagnostic } from "../scope-diagnostic.ts";
 import { checkScope, reviewableChangedPaths, revisionOf } from "../scope-gate.js";
 import { verificationDiagnostics } from "../verification-diagnostics.ts";
@@ -54,7 +55,7 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
  }
  const privateConfigVerification = p.privateConfig ? finishPrivateConfigReview({
   cwd, binding: p.privateConfig, beforeRevision: p.beforeRevision, revision: afterRevision, sameTask: sameTaskNow(), native: backendUsed === 'native',
-  reviewerValid: ['code-reviewer','security-auditor'].includes(state?.def.name ?? '') && !String(state?.def.tools ?? '').split(',').some(t => ['edit','write'].includes(t.trim())),
+  reviewerValid: isReviewerRole(state?.def.name ?? '') && !String(state?.def.tools ?? '').split(',').some(t => ['edit','write'].includes(t.trim())),
   stillCurrent: () => sameTaskNow() && s.getActiveWritableDispatches() <= (tracking.writable ? 1 : 0) && s.getWritableOverlapCounter() === tracking.overlapBaseline
    && !s.getProcessState?.().changedFiles.length && !s.getProcessState?.().acceptance.evidenceRef && !s.getProcessState?.().review.evidenceRef
    && s.getProcessState?.().runtimeReceipts?.generation === p.privateConfig!.generation && s.getProcessState?.().runtimeReceipts?.epoch === p.privateConfig!.epoch
@@ -78,11 +79,11 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
 		if (!p.privateConfig && !p.operatorCandidate && runtimeResult.acceptance.accepted && runtimeResult.verification.evidenceRefs[0]) {
 			processState = noteProcessStage(processState, "acceptance", { evidenceRef: runtimeResult.verification.evidenceRefs[0], revision: afterRevision, revisionScopes: p.revisionScopes, changedFiles: processState.changedFiles });
 		}
-		const stage = p.privateConfig ? null : basePersonaName(p.agent) === "planner" ? "plan" : isReviewPersona(p.agent) ? "review" : null;
+		const stage = p.privateConfig ? null : isEditorRole(p.agent) && !!p.assignment && assignmentPracticeIds(p.assignment).includes("planning") ? "plan" : isReviewPersona(p.agent) ? "review" : null;
 		const affirmativeReview = affirmativeReviewVerdict(result.output);
 		// Candidate registration happens only after independent review and actual
         // same-revision runtime checks, never from reported past edits.
-        const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.()):null;
+        const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.(),p.assignment?assignmentPracticeIds(p.assignment):[]):null;
         // Named, ordered qualifiers: the same conjunction as before, so a refusal can
         // say which one failed. Diagnostics never relax or reorder a gate.
         const reviewQualifiers: Array<[string, boolean]> = [
@@ -164,7 +165,7 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
             } catch { /* Missing optional baseline forces a full review next time. */ }
         }
 		const planDeliverable = p.contract.files.map(file => file.path).find(path => /plan/i.test(path));
-		if (p.agent === "builder" && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
+		if (isEditorRole(p.agent) && planDeliverable && runPath && authorizePlanStatusUpdate({ planPath: planDeliverable, allowedScope: p.scopeGlobs, evidenceRefs: [runPath] }).allowed && sameTask) {
 			processState = noteProcessStage(processState, "plan", { evidenceRef: runPath, revision: afterRevision, revisionScopes: p.revisionScopes });
 		}
         if (p.privateConfig && privateConfigVerification?.status === 'accepted' && 'evidenceRef' in privateConfigVerification && 'evidenceHash' in privateConfigVerification && 'reviewer' in privateConfigVerification) {

@@ -1,3 +1,4 @@
+import type { ResolvedAssignment } from "../config/roles.ts";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { diagnoseChangedTypeScript } from "../../lib/changed-file-diagnostics.ts";
 import type { AcceptanceRequirement, DeliverableContract } from "../acceptance.ts";
@@ -87,6 +88,8 @@ export interface DispatchExecutorDeps {
 }
 
 export interface PreparedDispatch {
+	/** Role and practices resolved at admission (config/roles.ts). */
+	assignment?: ResolvedAssignment;
 	access: DispatchAccess;
 	privateConfig?: PrivateConfigBinding;
 	operatorCandidate?: OperatorStateCandidate;

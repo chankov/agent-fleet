@@ -1,4 +1,4 @@
-import { dispatchAccess } from "./dispatch-access.ts";
+import { dispatchAccess, isTrackedAccess } from "./dispatch-access.ts";
 import {createCodexBootstrapControls} from './codex-bootstrap.ts';
 import {homedir} from 'node:os';
 import { privateDeclarationHash, type PrivateProofUse } from './private-config-review.ts';
@@ -43,6 +43,7 @@ import { registerFilesystemTool, FILESYSTEM_POLICY_ROOTS_ENV } from './filesyste
 import type { AgentDef, AgentState, ResearchState } from "./types.ts";
 import { DEFAULT_OVERRIDES, parseAgentTeamOverrides, type AgentTeamOverrides } from "./config/overrides.ts";
 import { loadAgentConfiguration } from "./config/agents.ts";
+import { isResearcherRole, roleDefinitionNotice, type IgnoredDefinition, type RoleName } from "./config/roles.ts";
 import { abbrevThinking, displayName, extractAskUserQuestions, extractNeedsResearch, resolveDelegateExtension, resolveThinkingLevel } from "./presentation.ts";
 import { MAX_LIVE_ENTRY_CHARS, appendTimelineEvent, appendTimelineText, flushTimelineStore } from "./timeline.ts";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -218,7 +219,6 @@ import { fileURLToPath } from "node:url";
 // ── Extension ────────────────────────────────────
 
 const CONTEXT_WARN_THRESHOLD = 70;
-const RESEARCHER_PERSONAS = new Set(["researcher", "deep-researcher"]);
 
 /**
  * Test-only transport seam for real-Pi acceptance. With the offline guard,
@@ -357,6 +357,9 @@ export default function (pi: ExtensionAPI) {
 	const executionHistory = createExecutionHistoryStore();
 
 	let researchPersonas: AgentDef[] = [];
+	/** Agent files the Hub does not dispatch (decision D2) and roles with no definition. */
+	let ignoredAgentDefinitions: IgnoredDefinition[] = [];
+	let missingRoleDefinitions: RoleName[] = [];
 	let allAgentDefs: AgentDef[] = [];
 	/** Installed personas dispatch_agent may target: research personas use spawn_research, and
 	 *  `kind: orchestrator` only documents the Hub role. */
@@ -768,6 +771,7 @@ export default function (pi: ExtensionAPI) {
 			setAgentDefs: value => { allAgentDefs = value; }, setTeams: value => { teams = value; },
 			setModelProfiles: value => { modelProfiles = value; }, setModelProfileErrors: errors => { modelProfileErrors=errors; }, setDispatchPolicy: value => { dispatchPolicy = value; },
 			setDispatchPolicyWarnings: value => { dispatchPolicyWarnings = value; },
+			setIgnoredDefinitions: (ignored, missing) => { ignoredAgentDefinitions = ignored; missingRoleDefinitions = missing; },
 		});
 		pruneEvidenceSessions(sessionDir, runHistoryKeep);
 	}
@@ -1247,7 +1251,7 @@ export default function (pi: ExtensionAPI) {
 	function triageInput(task: string, scope: string[], language: string, domain: string): TriageInput {
   const candidates = [...agentStates.values()].map(s => {
    const name = s.def.name.toLowerCase();
-   const research = ["researcher", "deep-researcher", ...researchPersonas.map(p => p.name.toLowerCase())].includes(name);
+   const research = isResearcherRole(name) || researchPersonas.some(p => p.name.toLowerCase() === name);
    const gate = processBlock() ?? processPreEffectGate(processState, "child", name) ?? (processAllowsPersona(processState,name) ? null : checkTierPersonaGate(taskTier,name)) ?? checkDocsLane(name, scope, undefined);
    return { name, description: s.def.description, ...(research ? { excluded: "research_persona" } : s.status === "running" ? { excluded: "busy" } : gate ? { excluded: gate.reason } : {}) };
   });
@@ -1404,7 +1408,7 @@ export default function (pi: ExtensionAPI) {
 				await terminated;
 			}
 			const access = { ...dispatchAccess(state.def), comsWriter: mayRouteToComs(key) };
-			const needsWriter = access.writable || access.comsWriter;
+			const needsWriter = isTrackedAccess(access) || access.comsWriter;
 			const otherWriter = [...activeWriters.values()].some(writer => !(restartingOwnChild && writer.agent.toLowerCase() === key));
 			if (needsWriter && otherWriter) {
 				ctx.ui.notify("Wait for the active writer to finish before restarting this dispatch.", "warning");
@@ -2455,6 +2459,8 @@ export default function (pi: ExtensionAPI) {
 
 			loadAgents(_ctx.cwd);
 			// Composition follows applyOverrides: approved roots and the shared service do not exist yet.
+			const roleNotice = roleDefinitionNotice(ignoredAgentDefinitions, missingRoleDefinitions);
+			if (roleNotice) _ctx.ui.notify(roleNotice, "warning");
 
 			// Surface non-fatal persona frontmatter warnings (skipped subagents roles,
 			// bad delegate_depth) once per session.

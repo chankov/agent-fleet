@@ -14,51 +14,50 @@ import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
 
 import { prepareDeps,gitDiagnosticsFixture,highRiskChangedFixture } from "./dispatch-execution.test-support.ts";
 
-test("unknown agent does not increment dispatch budget and lists available agents", () => {
-	const d = prepareDeps({ agents: ["builder"] });
+test("unknown agent does not increment dispatch budget and lists the dispatchable roles", () => {
+	const d = prepareDeps({ agents: ["editor"] });
 	const result = prepareDispatch(d as any, { agent: "not-a-real-agent", task: "do work" } as any, {} as any);
 	assert.equal("agent" in result && !("content" in result), false);
-	assert.equal((result as any).details.status, "unknown_agent");
-	assert.match((result as any).content[0].text, /Installed agents: builder/);
-	assert.match((result as any).content[0].text, /Do not invent a substitute dispatch/);
+	assert.equal((result as any).details.status, "unknown_role");
+	assert.match((result as any).content[0].text, /Unknown role "not-a-real-agent"\. Dispatch one of: researcher, reviewer, editor/);
 	assert.equal(d._turn(), 0);
 	assert.equal(d._task(), 0);
 });
 
 test("an admitted dispatch is recorded in the task brief with its scope; a refused one is not", () => {
-	const d = prepareDeps({ agents: ["builder"] });
+	const d = prepareDeps({ agents: ["editor"] });
 	const recorded: any[] = [];
 	(d.state as any).recordDelegation = (entry: any) => recorded.push(entry);
 	prepareDispatch(d as any, { agent: "not-a-real-agent", task: "do work" } as any, {} as any);
 	assert.deepEqual(recorded, [], "refusals never reach the brief");
-	const prepared = prepareDispatch(d as any, { agent: "builder", task: "Implement the parser", scope: ["package.json"] } as any, { cwd: process.cwd() } as any) as any;
-	assert.equal(prepared.agent, "builder", JSON.stringify(prepared.content ?? prepared.details ?? {}));
-	assert.deepEqual(recorded, [{ agent: "builder", kind: "specialist", task: "Implement the parser", scope: ["package.json"] }]);
+	const prepared = prepareDispatch(d as any, { agent: "editor", task: "Implement the parser", scope: ["package.json"] } as any, { cwd: process.cwd() } as any) as any;
+	assert.equal(prepared.agent, "editor", JSON.stringify(prepared.content ?? prepared.details ?? {}));
+	assert.deepEqual(recorded, [{ agent: "editor", kind: "specialist", task: "Implement the parser", scope: ["package.json"] }]);
 });
 
 test("dispatch_agent researcher redirects to spawn_research without consuming budget", () => {
-	const d = prepareDeps({ agents: ["builder"], research: ["researcher", "deep-researcher"] });
+	const d = prepareDeps({ agents: ["editor"], research: ["researcher"] });
 	const result = prepareDispatch(d as any, { agent: "researcher", task: "look around" } as any, {} as any);
 	assert.equal((result as any).details.status, "research_persona_via_dispatch");
-	assert.match((result as any).content[0].text, /spawn_research/);
-	assert.match((result as any).content[0].text, /Installed agents: builder/);
+	assert.match((result as any).content[0].text, /"researcher" is the research role\. Call spawn_research/);
 	assert.equal(d._turn(), 0);
 	assert.equal(d._task(), 0);
 });
 
-test("dispatch_agent deep-researcher redirects to spawn_research without consuming budget", () => {
-	const d = prepareDeps({ agents: ["builder"] });
+test("dispatch_agent deep-researcher is refused as a retired persona without consuming budget", () => {
+	const d = prepareDeps({ agents: ["editor"] });
 	const result = prepareDispatch(d as any, { agent: "deep-researcher", task: "trace paths" } as any, {} as any);
-	assert.equal((result as any).details.status, "research_persona_via_dispatch");
-	assert.match((result as any).content[0].text, /spawn_research/);
-	assert.match((result as any).content[0].text, /persona "deep-researcher"/);
+	assert.equal((result as any).details.status, "retired_persona");
+	assert.equal((result as any).details.started, false);
+	assert.match((result as any).content[0].text, /"deep-researcher" is a retired persona.*agent "researcher" with practices \["research"\]/);
 	assert.equal(d._turn(), 0);
+	assert.equal(d._task(), 0);
 });
 
 test("known roster agent still increments after validation", () => {
-	const d = prepareDeps({ agents: ["builder"] });
-	const result = prepareDispatch(d as any, { agent: "builder", task: "implement the guard" } as any, {} as any);
-	assert.equal((result as any).agent, "builder");
+	const d = prepareDeps({ agents: ["editor"] });
+	const result = prepareDispatch(d as any, { agent: "editor", task: "implement the guard" } as any, {} as any);
+	assert.equal((result as any).agent, "editor");
 	assert.equal(d._turn(), 1);
 	assert.equal(d._task(), 1);
 });
@@ -68,7 +67,7 @@ test("every tier machine-appends the minimal changed-task contract and verbatim 
   const d = prepareDeps({ tools: "read,write" });
   d.state.getTaskTier = () => tier;
   d.state.getAssertions = () => [{ id: "A1", tag: "test", text: "Use UTC calendar day", source: "user request", reference: "PLAN.md:42", criticalConditions: ["UTC day, not current instant"], status: "open" }];
-  const prepared = prepareDispatch(d as any, { agent: "builder", task: "Implement A1" } as any, { cwd: process.cwd() } as any) as any;
+  const prepared = prepareDispatch(d as any, { agent: "editor", task: "Implement A1" } as any, { cwd: process.cwd() } as any) as any;
   assert.match(prepared.task, /Runtime acceptance contract/); assert.match(prepared.task, /user request · PLAN\.md:42/);
   assert.match(prepared.task, /UTC day, not current instant/); assert.equal(prepared.requirements[0].source, "user request");
  }
@@ -78,7 +77,7 @@ test("low-tier PLAN54 and prose-free write operations derive minimal acceptance 
  for (const tier of ["trivial", "small"] as const) for (const task of ["fully implement PLAN54", "", "hello"] as const) {
   const d = prepareDeps({ tools: "read,edit" });
   d.state.getTaskTier = () => tier;
-  const prepared = prepareDispatch(d as any, { agent: "builder", task } as any, { cwd: process.cwd() } as any) as any;
+  const prepared = prepareDispatch(d as any, { agent: "editor", task } as any, { cwd: process.cwd() } as any) as any;
   assert.deepEqual(prepared.requirements.map((requirement: any) => requirement.id), ["AF-MIN-CHANGE"]);
   assert.match(prepared.task, /Runtime acceptance contract \(machine-appended\)/);
   assert.match(prepared.task, /AF-MIN-CHANGE \[test\]/);
@@ -89,7 +88,7 @@ test("genuine read-only operations stay lightweight regardless of task prose", (
  for (const task of ["Read PLAN54 and summarize it", "Провери критериите за приемане", "hello", ""] as const) {
   const d = prepareDeps({ tools: "read,grep,find,ls" });
   d.state.getTaskTier = () => "project";
-  const prepared = prepareDispatch(d as any, { agent: "builder", task } as any, { cwd: process.cwd() } as any) as any;
+  const prepared = prepareDispatch(d as any, { agent: "editor", task } as any, { cwd: process.cwd() } as any) as any;
   assert.deepEqual(prepared.requirements, []);
   assert.doesNotMatch(prepared.task, /Runtime acceptance contract/);
  }
@@ -108,7 +107,7 @@ test("busy dispatch refuses immediately before usage accounting and does not abo
 	const d = prepareDeps(); let runs = 0, aborts = 0; let release!: () => void;
 	const gate = new Promise<void>(resolve => { release = resolve; });
 	d.dispatchAgent = async () => { runs++; await gate; return { output: "done", exitCode: 0, elapsed: 1 }; };
-	const execute = createDispatchExecutor(d as any); const params = { agent: "builder", task: "same operation", scope: [] };
+	const execute = createDispatchExecutor(d as any); const params = { agent: "editor", task: "same operation", scope: [] };
 	const first = execute("one", params, undefined, undefined, { abort: () => { aborts++; } } as any);
 	await new Promise(resolve => setImmediate(resolve));
 	const busy = await execute("two", { ...params, task: "paraphrased" }, undefined, undefined, { abort: () => { aborts++; } } as any);
@@ -123,7 +122,7 @@ for (const operation of ["dispatch", "research"] as const) {
 		controller.abort();
 		d.dispatchAgent = async () => { runs++; return { output: "", exitCode: 0, elapsed: 0 }; };
 		const execute = operation === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
-		const params = operation === "dispatch" ? { agent: "builder", task: "work" } : { task: "work" };
+		const params = operation === "dispatch" ? { agent: "editor", task: "work" } : { task: "work" };
 		const result = await execute("cancel-after-ask", params as any, controller.signal, undefined, {} as any);
 		assert.equal((result.details as any).status, "cancelled"); assert.equal(runs, 0); assert.equal(d._task(), 0);
 		if (operation === "dispatch") assert.equal((d as any).noProgress.releaseUserInterrupts(), 1, "an aborted tool call is recorded as a human interrupt");
@@ -139,7 +138,7 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: indetermina
  d.dispatchAgent = failed;
  d.research = { anonymousDef: () => ({ name: "research" }), resolveModel: () => "local/model", createState: () => ({ id: 1 }), spawn: failed };
  const run = kind === "dispatch" ? createDispatchExecutor(d as any) : createResearchExecutor(d as any);
- const params: any = kind === "dispatch" ? { agent: "builder", task: "Fix original task" } : { task: "Investigate original failure" };
+ const params: any = kind === "dispatch" ? { agent: "editor", task: "Fix original task" } : { task: "Investigate original failure" };
  await run("first", params, undefined, undefined, {} as any);
  d.state.setTurnDispatchCount(0);
  const refused = await run("second", { ...params, task: "Completely different wording of the same bounded work" }, undefined, undefined, {} as any);
@@ -154,7 +153,7 @@ for (const kind of ["dispatch", "research"] as const) test(`${kind}: indetermina
 test("missing scope roots refuse before accounting or dispatch", async () => {
  const d = prepareDeps(); let invoked = false;
  d.dispatchAgent = async () => { invoked = true; return { output: "zero matches", exitCode: 0, elapsed: 0 }; };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "Clean files", scope: ["nonexistent-scope-regression/**/*.cs"] }, undefined, undefined, {} as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "Clean files", scope: ["nonexistent-scope-regression/**/*.cs"] }, undefined, undefined, {} as any);
  assert.equal((result.details as any).status, "scope_preflight_failed"); assert.equal(invoked, false); assert.equal(d._task(), 0);
 });
 
@@ -162,8 +161,8 @@ test("successful unverified completion permits a same-scope follow-up without pa
  const d = prepareDeps(); let runs = 0, aborts = 0;
  d.dispatchAgent = async () => { runs++; return { output: "completed work", exitCode: 0, elapsed: 0, dispatchId: `success-${runs}` }; };
  const run = createDispatchExecutor(d as any); const ctx = { abort: () => { aborts++; } } as any;
- await run("first", { agent: "builder", task: "Implement work" }, undefined, undefined, ctx);
- const followup = await run("second", { agent: "builder", task: "Address review feedback" }, undefined, undefined, ctx);
+ await run("first", { agent: "editor", task: "Implement work" }, undefined, undefined, ctx);
+ const followup = await run("second", { agent: "editor", task: "Address review feedback" }, undefined, undefined, ctx);
  assert.equal((followup.details as any).status, "completed_unverified"); assert.equal(runs, 2); assert.equal(aborts, 0);
 });
 
@@ -171,7 +170,7 @@ test("repeated failed-work refusals stop only the requested operation, not the p
  const d = prepareDeps(); let runs = 0, aborts = 0;
  d.dispatchAgent = async () => { runs++; return { output: "failure", exitCode: 1, elapsed: 0, dispatchId: "failure" }; };
  const run = createDispatchExecutor(d as any); const ctx = { abort: () => { aborts++; } } as any;
- const params = { agent: "builder", task: "Original work" };
+ const params = { agent: "editor", task: "Original work" };
  await run("first", params, undefined, undefined, ctx);
  const first = await run("second", { ...params, task: "Rephrased work" }, undefined, undefined, ctx);
  assert.equal((first.details as any).status, "no_progress_refused");
@@ -187,46 +186,51 @@ test("repeated failed-work refusals stop only the requested operation, not the p
 test("already-running agent rejected before prepare consumes usage or poisons the next task", async () => {
  const d = prepareDeps(); let runs = 0;
  d.dispatchAgent = async () => { runs++; return { output: "done", exitCode: 0, elapsed: 0 }; };
- d.state.getAgentStates().get("builder").status = "running";
- const result = await createDispatchExecutor(d as any)("busy", { agent: "builder", task: "work" }, undefined, undefined, {} as any);
+ d.state.getAgentStates().get("editor").status = "running";
+ const result = await createDispatchExecutor(d as any)("busy", { agent: "editor", task: "work" }, undefined, undefined, {} as any);
  assert.equal((result.details as any).status, "busy"); assert.equal(d.state.getTurnDispatchCount(), 0); assert.equal(runs, 0);
- d.state.getAgentStates().get("builder").status = "idle";
- const next = await createDispatchExecutor(d as any)("next", { agent: "builder", task: "new task after idle" }, undefined, undefined, {} as any);
+ d.state.getAgentStates().get("editor").status = "idle";
+ const next = await createDispatchExecutor(d as any)("next", { agent: "editor", task: "new task after idle" }, undefined, undefined, {} as any);
  assert.equal((next.details as any).exitCode, 0); assert.equal(d.state.getTurnDispatchCount(), 1); assert.equal(runs, 1);
 });
 
 test("an installed agent outside the active team is added on first dispatch and notified", async t => {
  const { d } = await highRiskChangedFixture(t);
+ // Only two roles are dispatchable, so the active team starts empty to exercise two first-dispatch adds.
  d.state.getAgentStates().clear();
- d.state.getAgentStates().set("builder", { def: { name: "builder" } });
  const added: string[] = [], notices: string[] = [];
- (d.state as any).getInstalledAgentNames = () => ["builder", "code-reviewer", "planner"];
+ (d.state as any).getInstalledAgentNames = () => ["editor", "reviewer"];
  (d.state as any).addInstalledAgent = (name: string) => {
-  if (!["code-reviewer", "planner"].includes(name)) return null;
+  if (!["editor", "reviewer"].includes(name)) return null;
   added.push(name); d.state.getAgentStates().set(name, { def: { name } });
   return { ok: true, message: `${name} added to the active team` };
  };
  const ctx = { ui: { notify: (text: string) => notices.push(text) } } as any;
- for (const role of ["planner", "code-reviewer"]) assert.equal(validateDispatchAgent(d as any, role, "required stage", ctx), null, role);
- assert.deepEqual(added, ["planner", "code-reviewer"]);
+ for (const role of ["editor", "reviewer"]) assert.equal(validateDispatchAgent(d as any, role, "required stage", ctx), null, role);
+ assert.deepEqual(added, ["editor", "reviewer"]);
  assert.ok(notices.every(text => /added to the active team/.test(text)) && notices.length === 2);
- assert.equal(validateDispatchAgent(d as any, "planner", "again", ctx), null, "already on the team: no second add");
+ assert.equal(validateDispatchAgent(d as any, "editor", "again", ctx), null, "already on the team: no second add");
  assert.equal(added.length, 2);
 });
 
 test("an agent that is not installed is refused with the installed list and no human slash recovery", async t => {
  const { d } = await highRiskChangedFixture(t);
  d.state.getAgentStates().clear();
- (d.state as any).getInstalledAgentNames = () => ["builder", "code-reviewer"];
+ (d.state as any).getInstalledAgentNames = () => ["editor"];
  (d.state as any).addInstalledAgent = () => null;
- const refusal = validateDispatchAgent(d as any, "made-up-reviewer", "review");
- assert.equal((refusal!.details as any).status, "unknown_agent");
- assert.match((refusal!.content[0] as any).text, /Installed agents: builder, code-reviewer/);
- assert.doesNotMatch((refusal!.content[0] as any).text, /\/af-agents-add/);
+ // A made-up name is not a role: it is refused with the role list, never a human install step.
+ const madeUp = validateDispatchAgent(d as any, "made-up-reviewer", "review");
+ assert.equal((madeUp!.details as any).status, "unknown_role");
+ assert.match((madeUp!.content[0] as any).text, /Dispatch one of: researcher, reviewer, editor/);
+ assert.doesNotMatch((madeUp!.content[0] as any).text, /\/af-agents-add/);
+ // A real role that is not installed lists what is installed.
+ const missing = validateDispatchAgent(d as any, "reviewer", "review");
+ assert.equal((missing!.details as any).status, "unknown_agent");
+ assert.match((missing!.content[0] as any).text, /The reviewer role is not installed\. Installed roles: editor\./);
 });
 
 function planningGateDeps(bound = true) {
- const d = prepareDeps({ agents: ["planner", "builder"] });
+ const d = prepareDeps({ agents: ["editor"] });
  let state = applyProcessClassification(createProcessState(), { scope: "wide", risk: "high", reason: "planning gate regression" }).state;
  if (bound) state = noteProcessStage(state, "plan", { evidenceRef: "plan:bound", revision: "input" });
  d.state.getProcessState = () => state;
@@ -242,12 +246,12 @@ for (const task of [
 ]) test(`post-plan-admission: bound wide/high plan admits explicit prohibitions: ${task}`, async () => {
  const d = planningGateDeps(); let runs = 0;
  d.dispatchAgent = async () => { runs++; return { output: "local work complete", exitCode: 0, elapsed: 1 }; };
- const result = await createDispatchExecutor(d as any)("build", { agent: "builder", task }, undefined, undefined, { cwd: tmpdir() } as any);
+ const result = await createDispatchExecutor(d as any)("build", { agent: "editor", task }, undefined, undefined, { cwd: tmpdir() } as any);
  assert.equal(runs, 1);
  assert.equal((result.details as any).exitCode, 0);
  assert.equal(d.state.getProcessState().review.evidenceRef, null);
  assert.equal(d.state.getProcessState().acceptance.evidenceRef, null);
- const handoff = activeOrchestrationHandoff({ agent: "builder", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk: "low", scopeBreadth: "narrow", sharedCode: false });
+ const handoff = activeOrchestrationHandoff({ agent: "editor", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk: "low", scopeBreadth: "narrow", sharedCode: false });
  assert.deepEqual(handoff.route.stages, ["builder", "reviewer"]);
 });
 
@@ -258,10 +262,10 @@ test("post-plan-admission: sensitive wording and missing plans do not require Pl
   "No need to avoid AWS", "No cloud calls unless needed", "Small change: rotate the cloud credential",
  ]) {
   const d = planningGateDeps(bound);
-  assert.ok(!("details" in (prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any)), task);
+  assert.ok(!("details" in (prepareDispatch(d as any, { agent: "editor", task }, { cwd: tmpdir() } as any) as any)), task);
  }
  const d = planningGateDeps(false);
- assert.ok(!("details" in (prepareDispatch(d as any, { agent: "builder", task: "no cloud/deploy/SQL/commits" }, { cwd: tmpdir() } as any) as any)));
+ assert.ok(!("details" in (prepareDispatch(d as any, { agent: "editor", task: "no cloud/deploy/SQL/commits" }, { cwd: tmpdir() } as any) as any)));
 });
 
 for (const scenario of ["complete", "gap", "compiler-failure", "compiler-skipped", "compiler-incomplete", "late-edit"] as const) test(`post-plan-admission: nested dispatch observes and compiles each declared repository: ${scenario}`, async t => {
@@ -287,7 +291,7 @@ for (const scenario of ["complete", "gap", "compiler-failure", "compiler-skipped
   for (const name of ["app", "docs"]) writeFileSync(join(cwd, name, "src/api.ts"), "export const value = 2;\n");
   return { output: "local changes complete", exitCode: 0, elapsed: 1, dispatchId: `nested-${scenario}` };
  };
- const result = await createDispatchExecutor(d as any)("nested", { agent: "builder", task: "Implement local changes", scope: scopes }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("nested", { agent: "editor", task: "Implement local changes", scope: scopes }, undefined, undefined, { cwd } as any);
  const details = result.details as any;
  assert.deepEqual(calls, [{ paths: ["src/api.ts"], cwd: join(cwd, "app") }, { paths: ["src/api.ts"], cwd: join(cwd, "docs") }]);
  assert.deepEqual(details.changeResult.paths, ["app/src/api.ts", "docs/src/api.ts"]);
@@ -316,7 +320,7 @@ for (const task of [
 ]) test(`planning-gate: bound wide/high plan permits negative-only or plain task: ${task}`, async () => {
  const d = planningGateDeps(); let runs = 0;
  d.dispatchAgent = async () => { runs++; return { output: "local work complete", exitCode: 0, elapsed: 1 }; };
- const result = await createDispatchExecutor(d as any)("build", { agent: "builder", task }, undefined, undefined, { cwd: tmpdir() } as any);
+ const result = await createDispatchExecutor(d as any)("build", { agent: "editor", task }, undefined, undefined, { cwd: tmpdir() } as any);
  assert.equal(runs, 1);
  assert.equal((result.details as any).exitCode, 0);
  assert.notEqual((result.details as any).status, "planner_required");
@@ -334,7 +338,7 @@ for (const task of [
  for (const classification of ["bound-high", "small-low"] as const) {
   const d = classification === "bound-high" ? planningGateDeps() : prepareDeps();
   if (classification === "small-low") d.state.setProcessState(noteProcessStage(d.state.getProcessState(), "plan", { evidenceRef: "plan:bound", revision: "input" }));
-  const result = prepareDispatch(d as any, { agent: "builder", task }, { cwd: tmpdir() } as any) as any;
+  const result = prepareDispatch(d as any, { agent: "editor", task }, { cwd: tmpdir() } as any) as any;
   assert.ok(!("details" in result), classification);
   assert.equal(d._task(), 1);
  }
@@ -344,14 +348,14 @@ test("planning-gate: missing plan does not add a pre-effect obligation", () => {
  for (const highRisk of [true, false]) {
   const d = planningGateDeps(false);
   if (!highRisk) d.state.setProcessState(applyTaskTriageAdditions(createProcessState(), { status: "applied", reasons: ["wide_change"] }, { taskId: "t", evaluationId: "e", inputRevision: "r" }));
-  const result = prepareDispatch(d as any, { agent: "builder", task: "Do not read secrets; no AWS operations" }, { cwd: tmpdir() } as any) as any;
+  const result = prepareDispatch(d as any, { agent: "editor", task: "Do not read secrets; no AWS operations" }, { cwd: tmpdir() } as any) as any;
   assert.ok(!("details" in result));
   assert.equal(d._task(), 1);
  }
 });
 
 test("planning-gate: handoff shares conservative signals without weakening general route policy", () => {
- const handoff = (task: string, risk: "low" | "high" = "low", scopeBreadth: "narrow" | "wide" = "narrow") => activeOrchestrationHandoff({ agent: "builder", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk, scopeBreadth, sharedCode: false });
+ const handoff = (task: string, risk: "low" | "high" = "low", scopeBreadth: "narrow" | "wide" = "narrow") => activeOrchestrationHandoff({ agent: "editor", task, scope: [], revision: "r", changes: [], exitCode: 0, questions: [], evidenceRefs: [], approvedPlan: true, risk, scopeBreadth, sharedCode: false });
  assert.deepEqual(handoff("Do not read secrets or credentials; no cloud or AWS operations").route.stages, ["builder", "reviewer"]);
  for (const task of ["Read secrets", "Do not expose credentials; rotate the cloud credential", "Do not avoid secrets", "No cloud operations and use AWS"]) assert.equal(handoff(task).route.stages[0], "builder");
  assert.equal(handoff("Do not read secrets", "high", "wide").route.stages[0], "builder");
@@ -369,7 +373,7 @@ test("planning-gate: real planner readback binds only a delivered plan before bu
    return { output: scenario === "refused" ? "Plan pending.\nrequires_user_decision: [Grant plan permission]" : "Plan: repair local routing, test, independently review.", exitCode: 0, elapsed: 1 };
   };
   const execute = createDispatchExecutor(d as any);
-  const result = await execute("plan", { agent: "planner", task: "Produce local repair plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
+  const result = await execute("plan", { agent: "editor", practices: ["planning"], task: "Produce local repair plan", deliverables: [planPath] }, undefined, undefined, { cwd } as any);
   assert.equal((result.details as any).accepted, false, "plan does not accept the task");
   assert.equal(d.state.getProcessState().review.evidenceRef, null);
   assert.equal(d.state.getProcessState().acceptance.evidenceRef, null);
@@ -377,22 +381,22 @@ test("planning-gate: real planner readback binds only a delivered plan before bu
    assert.equal((result.details as any).deliverableReadback[0].status, "read");
    assert.equal(d.state.getProcessState().plan.evidenceRef, (result.details as any).returnPath);
   } else assert.equal(d.state.getProcessState().plan.evidenceRef, null);
-  await execute("build", { agent: "builder", task: "Do not read secrets or credentials; no cloud or AWS operations" }, undefined, undefined, { cwd } as any);
+  await execute("build", { agent: "editor", task: "Do not read secrets or credentials; no cloud or AWS operations" }, undefined, undefined, { cwd } as any);
   assert.equal(runs, 2);
  }
 });
 
 test("high-risk work without an approved plan can execute directly", async () => {
- const d = prepareDeps({ agents: ["builder"] });
+ const d = prepareDeps({ agents: ["editor"] });
  let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive" }).state;
  d.state.getProcessState = () => process;
- const result = await createDispatchExecutor(d as any)("high", { agent: "builder", task: "change the boundary" }, undefined, undefined, { cwd: "/tmp" } as any);
+ const result = await createDispatchExecutor(d as any)("high", { agent: "editor", task: "change the boundary" }, undefined, undefined, { cwd: "/tmp" } as any);
  assert.notEqual((result.details as any).status, "planner_required");
 });
 
 test("sensitive wording does not require a planner", async () => {
- const d = prepareDeps({ agents: ["builder"] });
- const result = await createDispatchExecutor(d as any)("secret", { agent: "builder", task: "small change to the cloud credential" }, undefined, undefined, { cwd: "/tmp" } as any);
+ const d = prepareDeps({ agents: ["editor"] });
+ const result = await createDispatchExecutor(d as any)("secret", { agent: "editor", task: "small change to the cloud credential" }, undefined, undefined, { cwd: "/tmp" } as any);
  assert.notEqual((result.details as any).status, "planner_required");
 });
 
@@ -493,7 +497,7 @@ test("only a consumed continuation permit may repeat a same-turn watchdog-stoppe
 	const fingerprints = new Set<string>();
 	const d = prepareDeps();
 	d.state.getTurnDispatchFingerprints = () => fingerprints;
-	const params = { agent: "builder", task: "Implement plan step 2: finish the adapter.", scope: ["package.json"] } as any;
+	const params = { agent: "editor", task: "Implement plan step 2: finish the adapter.", scope: ["package.json"] } as any;
 	const first = prepareDispatch(d as any, params, { cwd: process.cwd() } as any) as any;
 	// finishDispatch records exit 124/125 (turn_timeout/drift_stop) fingerprints for this turn.
 	fingerprints.add(first.fingerprint);
@@ -528,14 +532,14 @@ test("an aborted dispatch tool call stops the running child, and only while it r
 	let release!: () => void; const running = new Promise<void>(resolve => { release = resolve; });
 	d.cancelRunningDispatch = (agent: string) => { stopped.push(agent); release(); };
 	d.dispatchAgent = async () => { await running; return { output: "", exitCode: 143, elapsed: 1 }; };
-	const pending = createDispatchExecutor(d)("esc", { agent: "builder", task: "Produce requested work" } as any, controller.signal, undefined, {} as any);
+	const pending = createDispatchExecutor(d)("esc", { agent: "editor", task: "Produce requested work" } as any, controller.signal, undefined, {} as any);
 	await new Promise(resolve => setTimeout(resolve, 20));
 	assert.deepEqual(stopped, []);
 	controller.abort();
 	await pending;
-	assert.deepEqual(stopped, ["builder"]);
+	assert.deepEqual(stopped, ["editor"]);
 	const later = new AbortController(); d.dispatchAgent = async () => ({ output: "", exitCode: 0, elapsed: 0 });
-	await createDispatchExecutor(d)("done", { agent: "builder", task: "Produce other work" } as any, later.signal, undefined, {} as any);
+	await createDispatchExecutor(d)("done", { agent: "editor", task: "Produce other work" } as any, later.signal, undefined, {} as any);
 	later.abort();
-	assert.deepEqual(stopped, ["builder"]);
+	assert.deepEqual(stopped, ["editor"]);
 });

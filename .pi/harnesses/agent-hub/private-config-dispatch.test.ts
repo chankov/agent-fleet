@@ -16,7 +16,7 @@ import { validateSpecialistResult } from './specialist-result.ts';
 function dispatchFixture(t: any, scenario = 'pass') {
  const f = privateFixture(t); let processState = applyProcessClassification(createProcessState(), { risk: 'high', scope: 'wide', reason: 'fixture' }).state;
  let overlap = 0, active = 0, count = 0, launches = 0;
- const agents = new Map([['code-reviewer', { def: { name: 'code-reviewer', tools: 'read,bash', readOnly: true }, runCount: 1, lastBackend: 'native' }]]);
+ const agents = new Map([['reviewer', { def: { name: 'reviewer', tools: 'read,bash', readOnly: true }, runCount: 1, lastBackend: 'native' }]]);
  const noProgress = createNoProgressGuard();
  const assertions = [{ id: 'A4', tag: 'test', text: 'private configuration current state', source: 'approved fixture', testCommand: 'fixture-offline-check', status: 'open' }];
  const d: any = {
@@ -49,8 +49,8 @@ function dispatchFixture(t: any, scenario = 'pass') {
   if (scenario === 'generation') processState.runtimeReceipts!.generation = 'foreign';
   if (scenario === 'epoch') processState.runtimeReceipts!.epoch++;
   if (scenario === 'pending') processState.runtimeReceipts!.pending = [];
-  if (scenario === 'backend') agents.get('code-reviewer')!.lastBackend = 'coms';
-  if (scenario === 'reviewer') agents.get('code-reviewer')!.def.tools = 'read,bash,write';
+  if (scenario === 'backend') agents.get('reviewer')!.lastBackend = 'coms';
+  if (scenario === 'reviewer') agents.get('reviewer')!.def.tools = 'read,bash,write';
   if (scenario === 'source-obligation') processState.changedFiles = ['unrelated.ts'];
   if (scenario === 'task') noProgress.reset();
   const report = validateSpecialistResult({ status: scenario === 'partial' ? 'partial' : 'completed', summary: 'Fixture semantic review', changed_files: [], assertions_proven: [], assertions_unproven: [], assertions_failed: scenario === 'assertion-failed' ? [{ id: 'A4', reason: 'not adequate' }] : [], tests_run: ['full scoped regression'], open_risks: [], requires_user_decision: scenario === 'question' ? ['Unresolved decision'] : [], evidence: [] }, f.cwd);
@@ -62,7 +62,7 @@ function dispatchFixture(t: any, scenario = 'pass') {
    ...(scenario === 'missing-capture' ? {} : { lifecycle: { launched: true, closeSeen: true, runtimeCaptureIntegrity: scenario === 'tainted' ? 'tainted' : 'complete' } }),
    runtimeTests: scenario === 'no-checks' ? [] : [record] };
  };
- const params: any = { agent: 'code-reviewer', task: 'Review private configuration and verifier semantics', backend: 'native', review_mode: 'private-config-current-state', private_config_files: [f.file], verifier_sources: [f.source] };
+ const params: any = { agent: 'reviewer', task: 'Review private configuration and verifier semantics', backend: 'native', review_mode: 'private-config-current-state', private_config_files: [f.file], verifier_sources: [f.source] };
  const use = () => ({ cwd: f.cwd, taskId: noProgress.taskId(), sessionDir: f.session, declarationHash: privateDeclarationHash(assertions as any), activeWriters: active, overlap });
  const prove = () => createActionExecutors({ ...d.state, artifacts: { ...d.artifacts, persistAssertions() {}, updateAssertionStatus() {}, evidencePathExists: () => true }, currentTaskId: () => noProgress.taskId(), currentRevision: () => worktreeRevision(f.cwd, []), privateProofUse: use } as any).executeUpdateAssertion('prove', { id: 'A4', status: 'proven', evidence: 'fixture-offline-check test passed (native receipt)' }, undefined, undefined, { cwd: f.cwd } as any);
  return { ...f, d, params, use, prove, state: () => processState, launches: () => launches, run: (patch = {}) => createDispatchExecutor(d)('private-' + launches, { ...params, ...patch }, undefined, undefined, { cwd: f.cwd } as any) };
@@ -111,9 +111,9 @@ test('private mode is explicit and never permits artifacts, Git scope, deliverab
 test('private mode requires independent read-only native reviewer and declarations',async t=>{
  for(const scenario of ['persona','write','no-bash','manual','ui','missing-command','unrelated-source']) {
   const f=dispatchFixture(t);
-  if(scenario==='persona'){ const value=f.d.state.getAgentStates().get('code-reviewer');f.d.state.getAgentStates().set('builder',value);f.params.agent='builder'; }
-  if(scenario==='write')f.d.state.getAgentStates().get('code-reviewer').def.tools='read,bash,write';
-  if(scenario==='no-bash')f.d.state.getAgentStates().get('code-reviewer').def.tools='read';
+  if(scenario==='persona'){ const value=f.d.state.getAgentStates().get('reviewer');f.d.state.getAgentStates().set('editor',value);f.params.agent='editor'; }
+  if(scenario==='write')f.d.state.getAgentStates().get('reviewer').def.tools='read,bash,write';
+  if(scenario==='no-bash')f.d.state.getAgentStates().get('reviewer').def.tools='read';
   if(['manual','ui'].includes(scenario))f.d.state.getAssertions()[0].tag=scenario==='ui'?'runtime-ui':'manual';
   if(scenario==='missing-command')delete f.d.state.getAssertions()[0].testCommand;
   if(scenario==='unrelated-source')f.state().changedFiles=['unrelated.ts'];
@@ -156,14 +156,14 @@ test('native transport preserves exact private capture through resume identity a
  assert.equal(bindResume({taskId:'fixture-task',instructions:'review',privateConfig:{...binding,captureId:'another'},previous:contract}).resumeAllowed,false);
  let seen:any;
  const run:any={
-  nativeAdmitted:()=>true,dispatchId:'transport-fixture',key:'code-reviewer',agentKey:'code-reviewer',personaKey:'code-reviewer',resumeContract:contract,
+  nativeAdmitted:()=>true,dispatchId:'transport-fixture',key:'reviewer',agentKey:'reviewer',personaKey:'reviewer',resumeContract:contract,
   deps:{displayName:(v:string)=>v,guardrailEnv:()=>({}),notifyProviderQueue(){},getSessionDir:()=>f.session,
    getWatchdogAgentOverride:()=>undefined,getWatchdogSetting:()=> 'off',getWorkMode:()=> 'operator',
    providerSemaphore:{run:async(_model:string,fn:any)=>fn()},runDriftJudge:async()=>({status:'unavailable',reason:'fixture'}),createDriftMonitor:()=>({}),
    updateWidget(){},appendTimelineText(){},appendTimelineEvent(){},shortModel:(v:string)=>v,getReconSearchTimeoutMs:()=>1,
    spawnPiAgentWithModelFallback:async(opts:any)=>{seen=opts;return {output:'',exitCode:0,stderr:'',toolCallsStarted:0,modelUsed:'fake/model',lifecycle:{launched:true,closeSeen:true,runtimeCaptureIntegrity:'complete'}};},
   },
-  state:{def:{name:'code-reviewer'},toolCount:0,timeline:[]},ctx:{cwd:f.cwd,ui:{notify(){}}},admittedCwd:f.cwd,
+  state:{def:{name:'reviewer'},toolCount:0,timeline:[]},ctx:{cwd:f.cwd,ui:{notify(){}}},admittedCwd:f.cwd,
   watchdogParam:false,scopeGlobs:[],task:'review',model:'fake/model',effectiveTools:'read,bash',thinkingLevel:'off',replacementSystemPrompt:'',agentSessionFile:join(f.session,'native.json'),runPrompt:'review',extensions:['/fixture/runtime-test-check.ts'],turnBudget:{},resumeAllowed:false,sessionRecycled:false,sessionReset:null,
  };
  await runPreparedNative(run);

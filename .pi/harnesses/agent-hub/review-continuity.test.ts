@@ -16,7 +16,7 @@ function fixture(t:any){
  execFileSync("git",["-c","user.name=Test","-c","user.email=test@example.com","commit","-m","fixture"],{cwd,stdio:"ignore"});
  writeFileSync(join(cwd,"a.ts"),"const a=2;\n");
  let state={...createProcessState(),changedFiles:["a.ts"]};
- const input=reviewInput(cwd,"task","code-reviewer",["a.ts"],state,[],[])!;
+ const input=reviewInput(cwd,"task","reviewer",["a.ts"],state,[],[])!;
  const baseline=captureReviewBaseline(cwd,input,state)!;
  writeFileSync(join(cwd,"review.md"),"REJECT: constant");
  writeFileSync(join(cwd,"baseline.json"),JSON.stringify(baseline));
@@ -52,7 +52,7 @@ function nestedFixture(t:any){
  for(const repo of ["rin-docs","ringithub"]){const dir=join(cwd,repo);mkdirSync(dir);git(dir,"init");writeFileSync(join(dir,"prd.md"),"# v1\n");git(dir,"add",".");git(dir,"commit","-m","base");}
  writeFileSync(join(cwd,"rin-docs/prd.md"),"# v2\n");
  let state={...createProcessState(),changedFiles:["rin-docs/prd.md"]};
- const input=reviewInput(cwd,"task","code-reviewer",["rin-docs/prd.md"],state,[],[])!;
+ const input=reviewInput(cwd,"task","reviewer",["rin-docs/prd.md"],state,[],[])!;
  assert.ok(input,"a nested scope has a review input");
  const baseline=captureReviewBaseline(cwd,input,state)!;
  assert.ok(baseline,"a nested scope has a baseline");

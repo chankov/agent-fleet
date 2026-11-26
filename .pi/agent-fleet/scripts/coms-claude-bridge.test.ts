@@ -105,3 +105,60 @@ test('hook changed during busy waiting is pre-request, not fresh completion', as
  f.d.readHook = () => ({ mtime: probes > 0 ? 2 : 1, raw: '{"text":"previous turn"}' });
  await f.run(); assert.equal(f.sent.length, 0); assert.equal(f.stats().submitted, 1);
 });
+
+// ── read-only launch (PLAN-11-01, decision D3) ──
+import {
+ bridgeRegistryEntry, bridgeRegistryIdentity, claudeArgvIsReadOnly, claudeReadOnlyArgv, parseBridgeArgs,
+ CLAUDE_READ_ONLY_DENIED_TOOLS, CLAUDE_READ_ONLY_TOOLS,
+} from './coms-claude-bridge.ts';
+
+const RESTRICTED = ['--tools', 'Read,Grep,Glob', '--disallowedTools', 'Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch', '--strict-mcp-config', '--permission-mode', 'dontAsk'];
+const REG = { sessionId: '01KYFW92KPDGDYT3MAAM6JA6JN', name: 'code-reviewer', purpose: 'Claude Code (bridged pane, read-only)', endpoint: '/x.sock', cwd: '/repo', startedAt: '2026-07-26T18:00:00.000Z' };
+
+test('the read-only claude argv keeps only Read/Grep/Glob, no MCP servers, mutating tools denied, nothing prompts', () => {
+ assert.deepEqual(claudeReadOnlyArgv(), RESTRICTED);
+ assert.deepEqual(claudeReadOnlyArgv({ model: 'opus', resume: 'abc-123' }), [...RESTRICTED, '--model', 'opus', '--resume', 'abc-123']);
+ assert.deepEqual([...CLAUDE_READ_ONLY_TOOLS], ['Read', 'Grep', 'Glob']);
+ for (const writer of ['Bash', 'Edit', 'Write', 'NotebookEdit']) assert.ok((CLAUDE_READ_ONLY_DENIED_TOOLS as readonly string[]).includes(writer), writer);
+ assert.throws(() => claudeReadOnlyArgv({ model: '--dangerously-skip-permissions' }), /plain value/);
+ assert.throws(() => claudeReadOnlyArgv({ resume: 'a\nb' }), /plain value/);
+});
+
+test('only --read-only makes the bridge launch Claude; the default bridge launches nothing', () => {
+ const plain = parseBridgeArgs(['--name', 'code-reviewer', '--project', 'af']);
+ assert.equal(plain.launch, null);
+ assert.equal(plain.project, 'af');
+ const ro = parseBridgeArgs(['--name', 'code-reviewer', '--project', 'af', '--read-only', '--model', 'opus']);
+ assert.deepEqual(ro.launch, { argv: [...RESTRICTED, '--model', 'opus'] });
+ assert.throws(() => parseBridgeArgs(['--name', 'x', '--model', 'opus']), /only with --read-only/);
+ assert.throws(() => parseBridgeArgs(['--read-only']), /--name/);
+});
+
+test('the bridge declares read_only only for a Claude it launched with the restricted argv', () => {
+ const recipeStarted = bridgeRegistryIdentity(REG);
+ assert.equal(Object.hasOwn(recipeStarted, 'read_only'), false, 'no launch → no claim (today\'s _claude-peer)');
+ assert.equal(Object.hasOwn(bridgeRegistryIdentity({ ...REG, launchedArgv: null }), 'read_only'), false);
+
+ const launched = bridgeRegistryIdentity({ ...REG, launchedArgv: parseBridgeArgs(['--name', 'x', '--read-only', '--resume', 's1']).launch!.argv });
+ assert.equal(launched.read_only, true);
+ for (const now of ['2026-07-26T18:00:30.000Z', '2026-07-26T20:00:00.000Z']) {
+  const entry = bridgeRegistryEntry(launched, { now, pid: 4242, queueDepth: 1 });
+  assert.equal(entry.read_only, true, 'keepalive rebuilds carry the claim');
+ }
+ assert.equal(Object.hasOwn(bridgeRegistryEntry(recipeStarted, { now: 't', pid: 1, queueDepth: 0 }), 'read_only'), false, 'keepalive never invents it');
+
+ // Anything short of the full restriction is not a claim.
+ const weaker = [
+  RESTRICTED.filter(arg => arg !== '--strict-mcp-config'),
+  ['--tools', 'Read,Grep,Glob,Bash', ...RESTRICTED.slice(2)],
+  [...RESTRICTED, '--dangerously-skip-permissions'],
+  [...RESTRICTED, '--model'],
+  [...RESTRICTED, '--model', 'a', '--model', 'b'],
+  [...RESTRICTED, '--mcp-config', 'servers.json'],
+  ['--model', 'opus'],
+ ];
+ for (const argv of weaker) {
+  assert.equal(claudeArgvIsReadOnly(argv), false, argv.join(' '));
+  assert.equal(Object.hasOwn(bridgeRegistryIdentity({ ...REG, launchedArgv: argv }), 'read_only'), false, argv.join(' '));
+ }
+});

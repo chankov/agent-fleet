@@ -1135,6 +1135,8 @@
             ".pi/harnesses/agent-hub/return-contract.js",
             ".pi/harnesses/agent-hub/run-namespace.js",
             ".pi/harnesses/agent-hub/config/agents.ts",
+            ".pi/harnesses/agent-hub/config/roles.ts",
+            ".pi/harnesses/agent-hub/config/practices.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",
             ".pi/harnesses/agent-hub/private-config-current-state.ts",
@@ -1623,6 +1625,31 @@
       }
     },
     {
+      "id": "persona:editor",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": null,
+      "title": "editor",
+      "summary": "Writing specialist that creates or changes code, tests, plans and documentation within the authorized write scope, la…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/editor.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/editor.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/editor.md"
+          ]
+        }
+      }
+    },
+    {
       "id": "persona:plan-reviewer",
       "kind": "persona",
       "group": "personas",
@@ -1703,7 +1730,7 @@
       "group": "personas",
       "subcategory": "ro",
       "title": "researcher",
-      "summary": "Read-only reconnaissance — searches code, reads files and docs, and reports findings with file:line citations.",
+      "summary": "Read-only investigator that answers a bounded question from the code, docs and sources it can read, scales its depth…",
       "recommended": false,
       "stability": "stable",
       "consent": "file",
@@ -1718,6 +1745,31 @@
           "strategy": "copy-file",
           "legacyTargets": [
             "agents/researcher.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "persona:reviewer",
+      "kind": "persona",
+      "group": "personas",
+      "subcategory": null,
+      "title": "reviewer",
+      "summary": "Independent read-only reviewer that assesses a named plan, code change or documentation revision against its task, th…",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "agents/reviewer.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/agents/personas/reviewer.md",
+          "strategy": "copy-file",
+          "legacyTargets": [
+            "agents/reviewer.md"
           ]
         }
       }

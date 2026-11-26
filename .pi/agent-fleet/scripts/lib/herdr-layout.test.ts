@@ -367,3 +367,66 @@ test("layout trees are deterministic (stable across calls)", () => {
 	const b = buildTeamLayout({ team: "full", peers: teams.full, repoRoot: "/r" });
 	assert.deepEqual(a, b);
 });
+
+// ── read_only peers (PLAN-11-01, decision D3) ──
+
+function recipe(justfile: string, name: string): { header: string; body: string } {
+	const lines = justfile.split("\n");
+	const i = lines.findIndex((line) => line.startsWith(`${name} `) || line.startsWith(`${name}:`));
+	assert.ok(i >= 0, `recipe ${name} exists`);
+	return { header: lines[i], body: lines[i + 1] };
+}
+
+test("read_only: true routes a pi peer through _peer-read-only and a claude-code peer through _claude-peer-read-only", () => {
+	const yaml = `review:\n  - name: code-reviewer\n    runner: claude-code\n    read_only: true\n  - name: researcher\n    persona: researcher\n    model: openai-codex/gpt-6-luna\n    read_only: true\n  - name: documenter\n    persona: documenter\n    read_only: false\n`;
+	const [claude, researcher, documenter] = parsePeersYaml(yaml).review;
+	assert.deepEqual(peerCommand(claude, "review"), ["just", "_claude-peer-read-only", "code-reviewer"]);
+	assert.deepEqual(peerCommand(researcher, "review"), ["just", "_peer-read-only", "researcher", "researcher", "openai-codex/gpt-6-luna"]);
+	assert.deepEqual(peerCommand(documenter, "review"), ["just", "_peer", "documenter", "documenter"], "false is the default route");
+	// Same positionals as the writable recipes: model/session/project stay aligned.
+	assert.deepEqual(peerCommand(researcher, "review", "/s/r.jsonl", "af"), ["just", "_peer-read-only", "researcher", "researcher", "openai-codex/gpt-6-luna", "/s/r.jsonl", "af"]);
+	assert.deepEqual(peerCommand(claude, "review", undefined, "af"), ["just", "_claude-peer-read-only", "code-reviewer", "", "", "af"]);
+	const layout = buildTeamLayout({ team: "review", peers: [claude, researcher], repoRoot: REPO_ROOT, project: "af" });
+	assert.deepEqual(panesOf(layout).map((pane) => pane.command?.[1]), ["_claude-peer-read-only", "_peer-read-only"]);
+});
+
+test("peers without read_only keep exactly their old argv, and bad read_only values are refused", () => {
+	const teams = parsePeersYaml(realPeersYaml);
+	for (const peers of Object.values(teams)) {
+		for (const peer of peers) assert.equal(peer.read_only, undefined, `shipped peer ${peer.name} makes no read-only claim`);
+	}
+	assert.deepEqual(peerCommand({ name: "r", persona: "researcher" }, "t"), ["just", "_peer", "researcher", "r"]);
+	assert.deepEqual(peerCommand({ name: "c", runner: "claude-code" }, "t", undefined, "af"), ["just", "_claude-peer", "c", "", "", "af"]);
+	for (const bad of ["yes", "TRUE", "1", ""]) {
+		assert.throws(() => peerCommand({ name: "r", persona: "researcher", read_only: bad }, "t"), /(Invalid|Unsafe value for) read_only/, JSON.stringify(bad));
+	}
+	assert.throws(
+		() => peerCommand({ name: "w", persona: "web-debugger", extensions: "chrome-devtools-mcp", read_only: "true" }, "web"),
+		/read_only: true cannot combine with extensions/,
+	);
+});
+
+test("the read-only recipes emit the enforced launch flags and the default recipes emit nothing new", async () => {
+	const justfile = readFileSync(join(REPO_ROOT, "justfile"), "utf-8");
+	const { READ_ONLY_TOOL_NAMES } = await import("../../../harnesses/lib/coms-core-io.ts");
+
+	const peer = recipe(justfile, "_peer");
+	const peerReadOnly = recipe(justfile, "_peer-read-only");
+	assert.equal(peerReadOnly.header.replace("_peer-read-only", "_peer"), peer.header, "same positionals as _peer");
+	const tools = peerReadOnly.body.match(/--coms-read-only --tools (\S+) --no-mcp --project \{\{project\}\}/);
+	assert.ok(tools, "pi gets --coms-read-only, the --tools allowlist and --no-mcp");
+	assert.deepEqual(tools[1].split(","), ["read", "grep", "find", "ls"], "inspection tools only — no coms_* (no asking a writable peer)");
+	for (const name of tools[1].split(",")) assert.ok(READ_ONLY_TOOL_NAMES.has(name), `${name} is in the coms read-only set`);
+	assert.deepEqual([...READ_ONLY_TOOL_NAMES].sort(), [...tools[1].split(",")].sort(), "the launch list and the declared set are the same set");
+	assert.equal(peerReadOnly.body.replace(/ --coms-read-only --tools \S+ --no-mcp/, ""), peer.body, "otherwise identical to _peer");
+	for (const name of ["_peer", "_peer-plus", "_claude-peer"]) {
+		assert.doesNotMatch(recipe(justfile, name).body, /--coms-read-only|--read-only|--no-mcp|--tools /, `${name} is unchanged`);
+	}
+
+	const claude = recipe(justfile, "_claude-peer");
+	const claudeReadOnly = recipe(justfile, "_claude-peer-read-only");
+	assert.equal(claudeReadOnly.header.replace("_claude-peer-read-only", "_claude-peer"), claude.header, "same positionals as _claude-peer");
+	assert.match(claudeReadOnly.body, /claude-code-preflight\.ts \|\| exit \$\?; /);
+	assert.match(claudeReadOnly.body, /coms-claude-bridge\.ts --name \{\{name\}\} --project \{\{project\}\} --read-only /);
+	assert.doesNotMatch(claudeReadOnly.body, /exec-at-target|&\s*bridge_pid/, "the bridge, not the recipe, starts Claude");
+});

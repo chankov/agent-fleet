@@ -51,6 +51,20 @@ bashToolPatterns:
   - pattern: '\bgit\s+push\s+\S+\s+:\S+'
     reason: Deletes remote branch (old syntax)
     ask: true
+  # Publication needs separate explicit permission (PLAN-11-01): the release
+  # practice prepares a release but never publishes on its own. One-call approval.
+  - pattern: '\bgit\s+push\b'
+    reason: Publishes commits or tags to a remote (needs separate explicit permission)
+    ask: true
+  - pattern: '\b(?:npm|pnpm|yarn|bun)\s+(?:[^\s|;&]+\s+)*publish\b'
+    reason: Publishes a package to a registry (needs separate explicit permission)
+    ask: true
+  - pattern: '\bchangeset\s+publish\b'
+    reason: Publishes packages through changesets (needs separate explicit permission)
+    ask: true
+  - pattern: '\bgh\s+release\s+(?:create|upload|edit)\b'
+    reason: Creates or changes a hosted release (needs separate explicit permission)
+    ask: true
   - pattern: '\bmkfs\.'
     reason: filesystem format command
   - pattern: '\bdd\s+.*of=/dev/'

@@ -154,7 +154,9 @@ test("coms serializes inbound turns, reports truthful state, and correlates repl
 	assert.equal(card?.status, "idle");
 	assert.equal(card?.queue_depth, 0);
 
-	for (const name of ['code-reviewer', 'plan-reviewer', 'security-auditor', 'security-auditor--p2']) await t.test(`P16 ${name} timeout preserves one Pi request until its correlated verdict`, async () => {
+	// PLAN-11-01: review protocol v1 now follows the `reviewer` role (isReviewPersona);
+	// two distinct reviewers are `reviewer` and its parallel instance `reviewer--p2`.
+	for (const name of ['reviewer', 'reviewer--p2']) await t.test(`P16 ${name} timeout preserves one Pi request until its correlated verdict`, async () => {
 		const { createDispatchComs } = await import("../agent-hub/dispatch-coms.ts");
 		const hub = createDispatchComs({
 			getIdentity: () => sender.peer.identity, resolveTarget: sender.peer.resolveTarget,
@@ -305,4 +307,109 @@ test('S6a native owner gate precedes enqueue; capability, terminal lookup and le
  rejectResponses=true;const secondWire='b'.repeat(64);await sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:secondWire,prompt:'second',instruction:{version:1,owner}});add({type:'message',message:{role:'assistant',content:[{type:'text',text:'second answer'}],stopReason:'stop'}});await peer.settleTurn(ctx);
  const second=await sendEnvelope(peer.identity.endpoint,{type:'response_read_request',version:1,msg_id:'read-second',owner,reference:responseReference(owner,secondWire),scope:responseHash('chat'),sender_session:'fake',sender_endpoint:''});assert.equal(second.page.text,'second answer');assert.ok(branch.some(e=>e.customType==='coms-response-notification'));
  await sendEnvelope(peer.identity.endpoint,{...base,type:'prompt',msg_id:'legacy',prompt:'legacy'});assert.equal(deliveries.at(-1),'legacy');
+});
+
+// ── read_only declaration (PLAN-11-01, decision D3) ──
+
+const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"];
+const COMS_TOOLS = ["coms_list", "coms_send", "coms_get", "coms_await"];
+const READ_ONLY_ARGV = ["node", "pi", "--no-extensions", "-e", "coms/index.ts", "--coms-read-only", "--tools", READ_ONLY_TOOLS.join(","), "--no-mcp"];
+const toolsPi = (active: string[], registered = active) => ({ getActiveTools: () => active, getAllTools: () => registered.map(name => ({ name })) });
+
+test("read-only evidence requires a plain --tools allowlist and read-only registered and active tools", async () => {
+	const { assessReadOnlyToolSet, launchToolAllowlist } = await import("./coms-core-io.ts");
+	assert.deepEqual(launchToolAllowlist(READ_ONLY_ARGV), READ_ONLY_TOOLS);
+	assert.deepEqual(launchToolAllowlist(["pi", "-t", "read", "--", "--tools", "bash"]), ["read"], "argv after -- is not pi's");
+	assert.equal(launchToolAllowlist(["pi", "--exclude-tools", "bash"]), null);
+
+	assert.equal(assessReadOnlyToolSet(toolsPi(READ_ONLY_TOOLS), READ_ONLY_ARGV).ok, true);
+	assert.equal(assessReadOnlyToolSet(toolsPi(["read", "ls"]), ["pi", "--tools", "read,ls"]).ok, true, "a narrower set is fine");
+	const refusals: Array<[string, ReturnType<typeof toolsPi> | object, string[], RegExp]> = [
+		["default pi tools", toolsPi(["read", "bash", "edit", "write"]), READ_ONLY_ARGV, /active|registered/],
+		["read-only active, bash still registered", toolsPi(["read"], ["read", "bash"]), READ_ONLY_ARGV, /registered: bash/],
+		["no launch allowlist", toolsPi(["read"]), ["node", "pi", "--coms-read-only"], /not launched with a --tools allowlist/],
+		["allowlist names a writer", toolsPi(["read"]), ["pi", "--tools", "read,bash"], /permits non-read-only tools: bash/],
+		["allowlist pattern", toolsPi(["read"]), ["pi", "--tools", "read,coms_*"], /not a plain name list/],
+		["allowlist modifier", toolsPi(["read"]), ["pi", "--tools", "+coms_send"], /not a plain name list/],
+		["MCP tool registered", toolsPi(["read"], ["read", "mcp__srv__write"]), READ_ONLY_ARGV, /mcp__srv__write/],
+		// A read-only peer must not ask a writable peer to act: coms tools disqualify too.
+		["coms tools active", toolsPi([...READ_ONLY_TOOLS, ...COMS_TOOLS]), READ_ONLY_ARGV, /registered: coms_await, coms_get, coms_list, coms_send/],
+		["allowlist names coms_send", toolsPi(READ_ONLY_TOOLS), ["pi", "--tools", "read,grep,find,ls,coms_send"], /permits non-read-only tools: coms_send/],
+		["no introspection", {}, READ_ONLY_ARGV, /does not expose getActiveTools/],
+	];
+	for (const [label, pi, argv, reason] of refusals) {
+		const evidence = assessReadOnlyToolSet(pi as any, argv);
+		assert.equal(evidence.ok, false, label);
+		assert.match((evidence as { reason: string }).reason, reason, label);
+	}
+});
+
+test("a pi peer declares read_only only when its own tool state proves it, and heartbeats keep it", async t => {
+	const root = fixtureComsRoot;
+	const previousComsDir = process.env.PI_COMS_DIR;
+	const previousHerdr = process.env.HERDR_ENV;
+	process.env.PI_COMS_DIR = root;
+	process.env.HERDR_ENV = "0";
+	const { createComsPeer } = await import(`./coms-core.ts?readonly=${Date.now()}`);
+	const { readFileSync } = await import("node:fs");
+	const project = `ro-${Date.now()}`;
+	const peers: any[] = [];
+
+	async function start(name: string, opts: { requested: boolean; active: string[]; registered?: string[]; argv?: string[] }) {
+		const pi = {
+			getFlag(flag: string) { return flag === "name" ? name : flag === "project" ? project : flag === "coms-read-only" ? opts.requested : undefined; },
+			getSessionName() { return undefined; },
+			appendEntry() {},
+			sendMessage() {},
+			...toolsPi(opts.active, opts.registered),
+		} as any;
+		const ctx = { cwd: root, model: { id: "test-model" }, hasUI: false, getContextUsage: () => ({ percent: 1 }), sessionManager: { getBranch: () => [] }, ui: { notify() {}, setWidget() {}, setStatus() {} } } as any;
+		const peer = createComsPeer({ pi, getContext: () => ctx, launchArgv: opts.argv ?? READ_ONLY_ARGV });
+		peers.push(peer);
+		await peer.connect({ ctx, defaultNamePrefix: "agent", defaultPurpose: "" });
+		return peer;
+	}
+	const onDisk = (peer: any) => JSON.parse(readFileSync(peer.identity.registryFile, "utf8"));
+	t.after(async () => {
+		await Promise.all(peers.map(peer => peer.shutdown()));
+		if (previousComsDir === undefined) delete process.env.PI_COMS_DIR;
+		else process.env.PI_COMS_DIR = previousComsDir;
+		if (previousHerdr === undefined) delete process.env.HERDR_ENV;
+		else process.env.HERDR_ENV = previousHerdr;
+		await rm(root, { recursive: true, force: true });
+	});
+
+	// Asked to be read-only, but the session kept pi's default tools.
+	const writable = await start("asked-ro", { requested: true, active: ["read", "bash", "edit", "write", ...COMS_TOOLS] });
+	assert.equal(Object.hasOwn(onDisk(writable), "read_only"), false, "a failed check publishes no claim");
+	assert.equal(writable.identity.read_only, undefined);
+	assert.match(writable.readOnlyRefusal ?? "", /bash/);
+
+	// Read-only active set, but launched without an allowlist: not fixed at launch.
+	const unfixed = await start("unfixed-ro", { requested: true, active: ["read"], argv: ["node", "pi", "--coms-read-only"] });
+	assert.equal(Object.hasOwn(onDisk(unfixed), "read_only"), false);
+	assert.match(unfixed.readOnlyRefusal ?? "", /--tools allowlist/);
+
+	// The earlier allowlist (inspection + coms tools) no longer qualifies.
+	const chatty = await start("chatty-ro", { requested: true, active: [...READ_ONLY_TOOLS, ...COMS_TOOLS], argv: ["pi", "--tools", [...READ_ONLY_TOOLS, ...COMS_TOOLS].join(",")] });
+	assert.equal(Object.hasOwn(onDisk(chatty), "read_only"), false);
+	assert.match(chatty.readOnlyRefusal ?? "", /coms_send/);
+
+	// Read-only tools without the request: default behavior, no field.
+	const quiet = await start("not-asked", { requested: false, active: READ_ONLY_TOOLS });
+	assert.equal(Object.hasOwn(onDisk(quiet), "read_only"), false);
+	assert.equal(quiet.readOnlyRefusal, null);
+
+	// Requested and proven.
+	const reviewer = await start("reviewer-ro", { requested: true, active: READ_ONLY_TOOLS });
+	assert.equal(onDisk(reviewer).read_only, true);
+	assert.equal(reviewer.readOnlyRefusal, null);
+	reviewer.writeLiveRegistry();
+	writable.writeLiveRegistry();
+	assert.equal(onDisk(reviewer).read_only, true, "the heartbeat carries the claim forward");
+	assert.equal(Object.hasOwn(onDisk(writable), "read_only"), false, "the heartbeat does not invent it");
+
+	// What the Hub reads: coms.peersInScope() entries.
+	const seen = Object.fromEntries(quiet.peersInScope().map((entry: any) => [entry.name, entry.read_only]));
+	assert.deepEqual(seen, { "asked-ro": undefined, "unfixed-ro": undefined, "chatty-ro": undefined, "reviewer-ro": true });
 });

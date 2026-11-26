@@ -1,4 +1,4 @@
-import { basePersonaName } from "./run-budget.js";
+import { basePersonaName, isReviewPersona } from "./run-budget.js";
 import { privateProcessProofCurrent, type PrivateProcessProof, type PrivateProofUse } from './private-config-review.ts';
 import { normalizeRuntimeReceipts, type RuntimeReceiptState } from "./runtime-receipts.ts";
 import { normalizeReviewEvidence, type ReviewEvidence } from "./review-reuse.ts";
@@ -99,9 +99,9 @@ export function processOpenObligations(state: ProcessObligationState, revision?:
 // Recovery guidance is derived from effective obligations, not roster size or model advice.
 export function missingProcessRoleRecoveryHints(state: ProcessObligationState, roster: ReadonlySet<string>, currentRevision?: CurrentRevision): string {
  const open = processOpenObligations(state, currentRevision);
- const missingReview = open.includes("review") && !["code-reviewer", "plan-reviewer", "security-auditor"].some(name => roster.has(name));
+ const missingReview = open.includes("review") && ![...roster].some(name => isReviewPersona(name));
  return [
-  missingReview ? "Review requires a reviewer: ask the human to run /af-agents-add code-reviewer (or plan-reviewer or security-auditor), or choose a roster with /af-agents-team." : "",
+  missingReview ? "Review requires the reviewer role: ask the human to install it (agent-fleet setup) or run /af-agents-add reviewer, or choose a roster with /af-agents-team." : "",
  ].filter(Boolean).join(" ");
 }
 
@@ -170,7 +170,7 @@ export function processPreEffectGate(state: ProcessObligationState, effect: "wri
  // coms cannot supply this boundary. All other child/peer
  // effects refuse an active confirmation addition as unsupported. Even read-only
  // bash is treated as an effect: no shell-content heuristic grants an exemption.
- const stageProducer = effect === "child" && ["code-reviewer", "plan-reviewer", "security-auditor"].includes(persona) && effectiveProcessStage(s, "review") && !s.review.evidenceRef;
+ const stageProducer = effect === "child" && isReviewPersona(persona) && effectiveProcessStage(s, "review") && !s.review.evidenceRef;
 
  if ((effect === "write" || effect === "child") && !stageProducer) { const confirmation = processActionGate(s); if (confirmation) return confirmation; }
  if (effect === "prove") { const open = processOpenObligations(s, revision, privateUse).filter(x => x !== "acceptance" && x !== "action_confirmation"); if (open.length) return { reason: "process_obligations_open", message: `Assertion cannot become proven while process obligations are open: ${open.join(", ")}.${open.includes("review") ? ` ${reviewRoute(s)}` : ""}` }; }
@@ -192,7 +192,7 @@ export function nestedRepositoriesInUse(state: Pick<ProcessObligationState, "acc
 export function reviewRoute(state: Pick<ProcessObligationState, "changedFiles">): string {
  const raw = "A reply to a raw coms_send is a message, not a review record.";
  if (state.changedFiles.length) return `Close it with an independent dispatch_agent review that covers the task's changed files (${state.changedFiles.slice(0, 5).join(", ")}${state.changedFiles.length > 5 ? ", …" : ""}). ${raw}`;
- return `No task change is registered, so no review can close it yet. For edits you made yourself, dispatch_agent code-reviewer with backend: native, review_mode: operator-current-state and scope: the exact edited files (it runs the automated assertion checks); or delegate the edit to a builder and then review that change. If such a review already ran, its result names the refused qualifier in operatorStateVerification.reason with the permitted next step; passing automated checks alone do not register the change. ${raw}`;
+ return `No task change is registered, so no review can close it yet. For edits you made yourself, dispatch_agent reviewer (practices: ["independent-review"]) with backend: native, review_mode: operator-current-state and scope: the exact edited files (it runs the automated assertion checks in the write-denying sandbox); or delegate the edit to an editor and then review that change. If such a review already ran, its result names the refused qualifier in operatorStateVerification.reason with the permitted next step; passing automated checks alone do not register the change. ${raw}`;
 }
 export function evaluateProcessObligations(state: ProcessObligationState, input: { writable: boolean; budgetTier: string; t2Accepted?: boolean; currentRevision?: CurrentRevision; privateUse?: PrivateProofUse }): ProcessVerdict {
  const s = normalizeProcessState(state); const additions = s.additions!.map(({ id, taskId, evaluationId, inputRevision, reason, status }) => ({ id, taskId, evaluationId, inputRevision, reason, status })); if (!input.writable) return { accepted: false, path: "read-only", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations: { risk: { status: "unsupported" }, acceptance: { status: "unsupported" }, review: { status: "unsupported" }, plan: { status: "unsupported" } }, additions, appliedRuleIds: rules(s.risk, "read-only"), currentStage: "acceptance", admissibleNextAction: "continue read-only research; changed-task acceptance is unavailable", auditScope: [], explanation: `Read-only source-traceable path; T2 acceptance is unsupported and fails closed. Budget tier ${input.budgetTier} controls per-run resources only.` };
@@ -213,7 +213,7 @@ export function evaluateProcessObligations(state: ProcessObligationState, input:
  const next = currentStage === "classify-risk" ? "set_task_tier with explicit risk and reason" : currentStage === "acceptance" ? "execute and verify the changed task" : currentStage === "review" ? "dispatch an independent reviewer over the current changed scope" : "report completion";
  return { accepted, path: privateCurrent ? 'private-config-current-state' : s.workOrigin ?? "changed-task", risk: s.risk, scope: s.scope, budgetTier: input.budgetTier, obligations, additions, appliedRuleIds: s.appliedRuleIds.length ? s.appliedRuleIds : rules(s.risk,s.scope), currentStage, admissibleNextAction: next, auditScope: s.changedFiles, explanation: `Risk ${s.risk} and scope ${s.scope} determine correctness obligations; budget tier ${input.budgetTier} controls per-run resources only.${open.length ? ` Open: ${open.join(", ")}.` : " All task-level obligations satisfied; source waivers remain waived, not satisfied."}${Object.values(obligations).some(value => value.status === "unverified") ? " Recorded evidence is unverified for the current revision." : ""}${obligations.confirmation?.status === "open" ? " Each future effect still requires exact one-use human confirmation." : ""}` };
 }
-export function processAllowsPersona(state: ProcessObligationState, persona: string): boolean { const name = basePersonaName(persona), s=normalizeProcessState(state); return effectiveProcessStage(s, "review") && ["code-reviewer","plan-reviewer","security-auditor"].includes(name); }
+export function processAllowsPersona(state: ProcessObligationState, persona: string): boolean { const s=normalizeProcessState(state); return effectiveProcessStage(s, "review") && isReviewPersona(persona); }
 export function processAuditRecord(state: ProcessObligationState, verdict: ProcessVerdict) { return { schema: PROCESS_OBLIGATIONS_SCHEMA, risk: verdict.risk, scope: verdict.scope, budgetTier: verdict.budgetTier, obligations: Object.fromEntries(Object.entries(verdict.obligations).map(([k,v])=>[k,{status:v.status}])), additions: verdict.additions, appliedRuleIds: verdict.appliedRuleIds, currentStage: verdict.currentStage, admissibleNextAction: verdict.admissibleNextAction, auditScope: verdict.auditScope, explanation: verdict.explanation, state: normalizeProcessState(state) }; }
 export function latestProcessState(entries: readonly unknown[]): ProcessObligationState { for(let i=entries.length-1;i>=0;i--){const row=entries[i] as any,type=row?.customType??row?.type;if(type!=="agent-hub-process-state")continue;const data=row?.data;if(data?.schema===PROCESS_OBLIGATIONS_SCHEMA)return normalizeProcessState(data.state??data);}return createProcessState(); }
 

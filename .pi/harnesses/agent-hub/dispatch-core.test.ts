@@ -7,6 +7,7 @@ import { PROFILE_ENV } from "./policy/profile-runtime.ts";
 import { buildProjectDocsProtocol, buildProjectRulesProtocol } from "../lib/context-budget-child-prompt.ts";
 import { createProjectPolicyFixture, FIXTURE_POLICY_MARKER } from "../../../bin/test/helpers/project-policy-fixture.js";
 import { parseAgentFile } from "./config/agents.ts";
+import { applyRoleCeiling, selectRoleDefinitions } from "./config/roles.ts";
 import { dispatchAccess } from "./dispatch-access.ts";
 import { bindResume } from "./task-resume-contract.ts";
 
@@ -189,24 +190,26 @@ function nativeDeps(state: NativeDispatchState, overrides: Record<string, unknow
 	} as any;
 }
 
-test("a declared reviewer launches with inspection tools, and shell verification is explicit and native", async t => {
+test("the reviewer role launches with inspection tools, runs checks only in the write-denying sandbox, and reaches only enforced read-only peers", { skip: process.platform === "linux" && !linuxUserNamespaceSandboxAvailable() }, async t => {
 	const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
 	const { tmpdir } = await import("node:os");
 	const { join } = await import("node:path");
 	const root = mkdtempSync(join(tmpdir(), "hub-native-read-only-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
-	const def = parseAgentFile("agents/code-reviewer.md");
-	assert.ok(def?.readOnly, "writes: [] is loaded from the persona");
-	assert.ok(parseAgentFile("agents/security-auditor.md")?.readOnly);
+	const def = applyRoleCeiling(parseAgentFile("agents/reviewer.md")!);
+	assert.ok(def?.readOnly, "the reviewer role is read-only by its code-owned ceiling");
+	assert.equal(def.tools, "read,bash,grep,find,ls");
 	const contract = { taskId: "audit", instructions: "review", scope: [], permissions: ["read", "bash", "edit"], model: "provider/model" };
 	const state = { ...nativeState(), def, sessionFile: join(root, "old.json"), resumeContract: bindResume(contract) };
 	writeFileSync(state.sessionFile, "{}\n");
-	const launches: Array<{ tools: string; extensions: string[]; resume: boolean }> = [];
+	const launches: Array<{ tools: string; extensions: string[]; resume: boolean; writeIsolation?: { enabled: boolean; allowlist: string[] } }> = [];
+	const notices: string[] = [];
 	let comsCalls = 0;
+	let peers: Array<{ name: string; read_only?: boolean }> = [{ name: def.name }];
 	const native = createDispatchNative(nativeDeps(state, {
 		getSessionDir: () => root,
 		getDispatchPolicy: () => ({ default: "coms", grace_s: 0, substitutions: {} }),
-		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => [{ name: def.name }],
+		isComsReady: () => true, getIdentity: () => ({}), peersInScope: () => peers,
 		dispatchViaComs: async () => { comsCalls++; return { output: "remote", exitCode: 0 }; },
 		currentBudget: () => ({ delegation: true, agentTurnMs: null }),
 		getDelegateExtensionPath: () => "/must-not-load-delegate.ts",
@@ -215,26 +218,37 @@ test("a declared reviewer launches with inspection tools, and shell verification
 			return { output: "done", exitCode: 0, stderr: "", toolCallsStarted: 0 };
 		},
 	}));
-	const ctx = { ...extensionContext, cwd: root };
+	const ctx = { ...extensionContext, cwd: root, ui: { notify: (text: string) => notices.push(text) } };
+	// Inspection: the policy prefers coms, but the live peer does not declare enforced read-only tools.
 	const audit = await native.dispatchAgent(def.name, "review", ctx, [], [], undefined, "auto", true, contract);
 	assert.equal(audit.exitCode, 0, audit.output);
+	assert.equal(comsCalls, 0, "an unenforced peer never receives read-only work");
+	assert.ok(notices.some(text => /does not declare enforced read-only tools/.test(text)), "the native fallback is announced");
 	assert.deepEqual(launches[0].tools.split(","), ["read", "grep", "find", "ls", "submit_result"]);
 	assert.equal(launches[0].resume, false);
 	assert.ok(launches[0].extensions.some(path => path.endsWith("/task-triage-stage-guard.ts")));
 	assert.ok(!launches[0].extensions.some(path => /must-not-load|runtime-test-check|filesystem-tool/.test(path)));
+	// An explicit coms request to an unenforced peer is refused before any launch.
 	const refused = await native.dispatchAgent(def.name, "review remotely", ctx, [], [], undefined, "coms");
-	assert.match(refused.output, /Read-only dispatch requires native/);
+	assert.match(refused.output, /read-only role; coms peer "reviewer" does not declare enforced read-only tools/);
 	assert.equal(launches.length, 1);
-	const verification = await native.dispatchAgent(def.name, "verify", ctx, [], [], undefined, "auto", false, undefined, [], dispatchAccess(def, "run-checks"));
+	// Active checks keep the shell, inside the sandbox with an empty repository write allowlist.
+	const verification = await native.dispatchAgent(def.name, "verify", ctx, [], ["src"], undefined, "auto", false, undefined, [], dispatchAccess(def, "run-checks"));
 	assert.equal(verification.exitCode, 0, verification.output);
 	assert.ok(launches[1].tools.split(",").includes("bash"));
+	assert.ok(!launches[1].tools.split(",").some(tool => ["write", "edit", "filesystem"].includes(tool)));
 	assert.ok(launches[1].extensions.some(path => path.endsWith("/runtime-test-check.ts")));
+	assert.equal(launches[1].writeIsolation?.enabled, true, "a read-only active check is always sandboxed");
+	assert.deepEqual(launches[1].writeIsolation?.allowlist, [], "the declared scope never becomes a write grant for a reader");
 	assert.equal(comsCalls, 0);
+	// A peer that declares enforced read-only tools may take inspection work.
+	peers = [{ name: def.name, read_only: true }];
 	for (const backend of ["auto", "coms"] as const) {
-		const peer = await native.dispatchAgent(def.name, "review through peer", ctx, [], [], undefined, backend, false, undefined, [], { ...dispatchAccess(def), comsWriter: true });
+		const peer = await native.dispatchAgent(def.name, "review through peer", ctx, [], [], undefined, backend, false, undefined, [], dispatchAccess(def));
 		assert.equal(peer.output, "remote");
 	}
 	assert.equal(comsCalls, 2);
+	assert.equal(launches.length, 2);
 });
 
 test("native dispatch refuses a same-persona race before history while distinct personas run in parallel", async () => {
@@ -534,7 +548,8 @@ test('local-full serializes every declared child locally without project overrid
  const {scanAgentDirs,parseModelProfilesYaml}=await import('./config/agents.ts');
  const {createModelPolicy}=await import('./policy/models.ts');
  const {setActiveProfile,PROFILE_ENV}=await import('./policy/profile-runtime.ts');
- const defs=scanAgentDirs(process.cwd());const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-full'] as any;
+ // Only the role definitions are dispatched (D2); retired persona files on disk are ignored.
+ const defs=selectRoleDefinitions(scanAgentDirs(process.cwd())).roles;const profile=parseModelProfilesYaml(readFileSync('.pi/agents/model-profiles.yaml','utf8'))['local-full'] as any;
  const policy=createModelPolicy({getAllDefs:()=>defs,getActiveDef:n=>defs.find(d=>d.name===n),getResearchDefs:()=>[],refreshUi(){}});
  policy.applyProfile(profile);
  const previous=process.env[PROFILE_ENV];setActiveProfile({name:'local-full',profile});
@@ -551,7 +566,7 @@ test('local-full serializes every declared child locally without project overrid
    const access = def.readOnly ? dispatchAccess(def, "run-checks") : undefined;
    assert.equal((await run.dispatchAgent(def.name,'task',extensionContext,[],[],undefined,"auto",false,undefined,[],access)).exitCode,0);
   }
-  assert.equal(roles,18);
+  assert.equal(roles,8,'editor (recon, verifier) and reviewer (six inspection children)');
  }finally{if(previous===undefined)delete process.env[PROFILE_ENV];else process.env[PROFILE_ENV]=previous;}
 });
 

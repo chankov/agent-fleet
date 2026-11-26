@@ -24,6 +24,7 @@ import {
 	MAX_HOPS,
 	PING_INTERVAL_MS,
 	TIMEOUT_MS,
+	assessReadOnlyToolSet,
 	bindEndpoint,
 	derivePeerStatus,
 	fallbackColor,
@@ -111,6 +112,8 @@ export interface CreateComsPeerDeps {
 	/** A true result transfers the socket and untouched trailing bytes to the
 	 * trusted handler. Ordinary COMS envelopes remain one-shot. */
 	handleCustomStream?: (socket: net.Socket, envelope: any, buffered: Buffer) => boolean;
+	/** pi's own argv, read for the `--tools` launch allowlist; defaults to process.argv. */
+	launchArgv?: readonly string[];
 }
 
 export interface ConnectComsOptions {
@@ -139,6 +142,9 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
  const responses = new SessionResponseReader();
 	const scope = { includeExplicit: false, displayProject: null as string | null };
 	let identity: ComsIdentity | null = null;
+	// Why a requested read-only declaration was withheld (null when it was not
+	// requested or was granted). The entry point surfaces it as a warning.
+	let readOnlyRefusal: string | null = null;
 	let currentInbound: InboundContext | null = null;
 	let server: net.Server | null = null;
 	let pingTimer: NodeJS.Timeout | null = null;
@@ -463,6 +469,16 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
   if(roots?.mode==='targeted'&&fs.realpathSync(cwd)!==roots.executionRoot)throw Error('coms_target_cwd_mismatch');
 		const model = options.ctx.model?.id ?? "unknown";
 		const purpose = flags.purpose || frontmatter.description || options.defaultPurpose;
+		// `--coms-read-only` only asks for the declaration; the session's own tool
+		// state must prove it. A failed proof still registers — as an ordinary
+		// peer without `read_only` — so the Hub falls back instead of trusting it.
+		let readOnly = false;
+		readOnlyRefusal = null;
+		if (flags.readOnly) {
+			const evidence = assessReadOnlyToolSet(pi, deps.launchArgv ?? process.argv);
+			if (evidence.ok) readOnly = true;
+			else readOnlyRefusal = evidence.reason;
+		}
 		try {
 			fs.mkdirSync(projectAgentsDir(project), { recursive: true });
 			if (process.platform !== "win32") {
@@ -484,6 +500,7 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			...(scopedProject ? { targetId: roots!.targetId } : {}),
 			session_id: sessionId, name, purpose, model, color,
 			endpoint, cwd, started_at: startedAt, explicit: flags.explicit === true,
+			...(readOnly ? { read_only: true } : {}),
 		}, { now: nowIso(), pid: process.pid, contextUsedPct, queueDepth: waitingInboundCount() });
 		let registryFile: string;
 		try { registryFile = writeRegistryAtomic(entry, project); }
@@ -496,10 +513,12 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 			session_id: sessionId, name, purpose, color, project, explicit: flags.explicit === true,
    ...(scopedProject?{baseProject:scopedProject.baseProject,targetId:roots!.targetId}:{}),
 			cwd, model, endpoint, registryFile, started_at: startedAt,
+			...(readOnly ? { read_only: true } : {}),
 		};
 		scope.includeExplicit = false;
 		scope.displayProject = project;
-		audit({ event: "boot", session_id: sessionId, name, project });
+		audit({ event: "boot", session_id: sessionId, name, project, ...(flags.readOnly ? { read_only: readOnly } : {}) });
+		if (readOnlyRefusal) audit({ event: "read_only_refused", session_id: sessionId, reason: readOnlyRefusal });
 
 		const useHerdr = await herdrPresenceAvailable();
 		if (useHerdr) {
@@ -765,6 +784,8 @@ export function createComsPeer(deps: CreateComsPeerDeps) {
 		peerCards, pendingReplies, inboundQueue, scope,
 		get identity() { return identity; },
 		get ready() { return identity !== null && server !== null; },
+		/** Reason a requested `--coms-read-only` declaration was withheld, else null. */
+		get readOnlyRefusal() { return readOnlyRefusal; },
 	};
 }
 

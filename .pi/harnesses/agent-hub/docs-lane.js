@@ -7,7 +7,7 @@
 // Everything here is data + pure functions so the policy is unit-testable away
 // from the harness.
 
-import { REVIEW_PERSONAS } from "./run-budget.js";
+import { basePersonaName, REVIEW_PERSONAS } from "./run-budget.js";
 
 // Extensions that are documentation by nature.
 const DOC_EXTENSIONS = new Set(["md", "mdx", "markdown", "rst", "adoc", "txt"]);
@@ -22,7 +22,7 @@ const DOC_BASENAMES = new Set(["readme", "license", "licence", "changelog", "con
 // Personas whose dispatch is a review GATE. test-engineer is included: asking
 // for tests on a markdown change is the same category error as asking for a
 // code review of it.
-export const DOCS_BLOCKED_PERSONAS = [...REVIEW_PERSONAS, "test-engineer"];
+export const DOCS_BLOCKED_PERSONAS = [...REVIEW_PERSONAS];
 
 /** Strip glob magic so a pattern can be judged by its literal shape. */
 function literalize(glob) {
@@ -95,7 +95,7 @@ export function isDocsOnlyScope(globs) {
  * must not be the default.
  */
 export function checkDocsLane(agent, scopeGlobs, reviewReason = "") {
-	const name = String(agent || "").trim().toLowerCase();
+	const name = basePersonaName(agent);
 	if (!DOCS_BLOCKED_PERSONAS.includes(name)) return null;
 	if (!isDocsOnlyScope(scopeGlobs)) return null;
 	if (String(reviewReason || "").trim()) return null;
@@ -115,7 +115,7 @@ export function checkDocsLane(agent, scopeGlobs, reviewReason = "") {
 /** Note appended to a non-review dispatch that runs in the docs lane. */
 export function docsLaneNotice(agent, scopeGlobs, requiredReview = false) {
 	if (!isDocsOnlyScope(scopeGlobs)) return null;
-	const name = String(agent || "").trim().toLowerCase();
+	const name = basePersonaName(agent);
 	if (DOCS_BLOCKED_PERSONAS.includes(name)) return null;
 	if (requiredReview) return `📝 Docs lane: this dispatch's scope is documentation only, but required process review remains open. Dispatch an allowed reviewer for the changed scope; the writer's own check cannot close it.`;
 	return `📝 Docs lane: this dispatch's scope is documentation only, so it needs no review gate. ` +

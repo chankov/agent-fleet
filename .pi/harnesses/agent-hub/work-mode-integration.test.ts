@@ -221,8 +221,8 @@ test("wiring contract: every fleet action assumes a tier before its persona gate
 	assert.match(executionOrchestrationSource, /export interface DispatchExecutionContext/);
 	assert.match(indexSource, /createToolExecutionOrchestration\(\{[\s\S]*?budget: budgetCtx, noProgress, artifacts: assertionsArtifactsCtx, research: researchRuntime/);
 	assert.doesNotMatch(indexSource, /async function executeDispatchAgent|async function executeSpawnResearch/);
-	assert.match(dispatchExecutionSource, /function prepareDispatch[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, agent\)/);
-	assert.match(dispatchExecutionSource, /createResearchExecutor[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, params\.persona \|\| ""\)/);
+	assert.match(dispatchExecutionSource, /function prepareDispatch[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, agent, assignmentPracticeIds\(assignment\)\)/);
+	assert.match(dispatchExecutionSource, /createResearchExecutor[\s\S]*?budget\.ensureTaskTier\(\);[\s\S]*?preflightGate\(d, "researcher", researchPractices\)/);
 });
 
 test("wiring contract: Hub applies extracted work mode tools at startup and on refresh", () => {

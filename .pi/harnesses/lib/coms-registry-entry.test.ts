@@ -89,3 +89,36 @@ test("every field a reader relies on is present, including on a self-heal write"
 	assert.equal(entry.pid, 4242, "the pid comes from the live process, not from registration");
 	assert.equal(entry.version, 1);
 });
+
+// ── read_only (PLAN-11-01, decision D3) ──
+// The Hub admits a read-only role to a peer only on `read_only: true`. The claim
+// is made at registration from checked launch evidence; the heartbeat rebuilds
+// the entry every 30s and must neither invent nor flip it.
+
+test("a registered read_only claim round-trips through the entry file shape", () => {
+	const entry = buildLiveRegistryEntry({ ...identity, read_only: true }, { now: "t", pid: 1 });
+	assert.equal(entry.read_only, true);
+	assert.equal(JSON.parse(JSON.stringify(entry)).read_only, true, "the JSON written to the registry keeps the claim");
+});
+
+test("a peer that claims nothing publishes no read_only field at all", () => {
+	const entry = buildLiveRegistryEntry(identity, { now: "t", pid: 1 });
+	assert.equal(Object.hasOwn(entry, "read_only"), false, "absent, not false: old and non-claiming entries read alike");
+	for (const value of [false, "true", 1, null] as unknown[]) {
+		const odd = buildLiveRegistryEntry({ ...identity, read_only: value as boolean }, { now: "t", pid: 1 });
+		assert.equal(Object.hasOwn(odd, "read_only"), false, `only literal true is a claim, not ${JSON.stringify(value)}`);
+	}
+});
+
+test("heartbeats never add or flip read_only — only the registration identity decides", () => {
+	// Whatever a caller smuggles into the live snapshot is ignored.
+	const forged = { now: "t", pid: 1, read_only: true } as unknown as Parameters<typeof buildLiveRegistryEntry>[1];
+	assert.equal(Object.hasOwn(buildLiveRegistryEntry(identity, forged), "read_only"), false, "a heartbeat cannot invent the claim");
+
+	const readOnly: ComsIdentity = { ...identity, read_only: true };
+	const revoke = { now: "t", pid: 1, read_only: false } as unknown as Parameters<typeof buildLiveRegistryEntry>[1];
+	for (const now of ["2026-07-26T18:00:30.000Z", "2026-07-26T18:01:00.000Z", "2026-07-26T20:00:00.000Z"]) {
+		assert.equal(buildLiveRegistryEntry(readOnly, { now, pid: 4242, queueDepth: 2, contextUsedPct: 40 }).read_only, true);
+	}
+	assert.equal(buildLiveRegistryEntry(readOnly, revoke).read_only, true, "a heartbeat cannot flip it either");
+});

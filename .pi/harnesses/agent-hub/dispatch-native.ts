@@ -12,7 +12,7 @@ import { effectiveProcessStage, processPreEffectGate } from "./process-obligatio
 import { runPreparedNative } from "./dispatch-native-spawn.ts";
 import { completeNativeRun } from "./dispatch-native-complete.ts";
 import type { TaskResumeInput } from "./task-resume-contract.ts";
-import { dispatchAccess, type DispatchAccess } from "./dispatch-access.ts";
+import { dispatchAccess, isInspectionAccess, type DispatchAccess } from "./dispatch-access.ts";
 import type {
 	DispatchInputArtifactPreview,
 	NativeBackend,
@@ -140,7 +140,9 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	const { deps, state, task, ctx, inputArtifacts, scopeGlobs, personaKey, monitorKey, startTime, histEntry } = run;
 	const livePeerNames = () => deps.isComsReady() && deps.getIdentity() ? deps.peersInScope().map(entry => entry.name) : [];
 	const isolationRequired = run.assistSnapshot['write-isolation'];
-	const inspection = run.access?.writable === false;
+	const inspection = isInspectionAccess(run.access);
+	// Researcher and reviewer: a coms route is admitted only to a peer that declares enforced read-only tools (D3).
+	const readOnlyRole = run.access?.writable === false;
 	const processState = deps.getProcessState?.();
 	const confirmationRequired = !!processState && effectiveProcessStage(processState, "confirmation");
 	if (confirmationRequired) {
@@ -148,9 +150,7 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 		if (gate) return run.finishRun(gate.message, 1);
 		if (requestedBackend === "coms") return run.finishRun("Confirmation-required stage production needs a guarded native child; coms has no exact effect binding.", 1);
 	}
-	const nativeInspection = inspection && !run.access?.comsWriter;
-	if (nativeInspection && requestedBackend === "coms") return run.finishRun("Read-only dispatch requires native execution.", 1);
-	const forceNative = nativeInspection || run.access?.reviewMode === "run-checks" || confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
+	const forceNative = (readOnlyRole && !inspection) || run.access?.reviewMode === "run-checks" || confirmationRequired || isolationRequired || (run.activeProfileSnapshot ? profileForcesNativePeers(run.activeProfileSnapshot) : false);
 	if (isolationRequired && requestedBackend === "coms") return run.finishRun("Write isolation is native-only; coms dispatch refused because remote isolation cannot be claimed.", 1);
 	if (forceNative && requestedBackend === 'coms') return run.finishRun('Active model profile requires native execution; coms dispatch refused.', 1);
 	const dispatchPolicy = forceNative ? { default: 'native', grace_s: 0, substitutions: {} } : deps.getDispatchPolicy();
@@ -174,7 +174,11 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 	}
 	if (route.backend === "coms") {
 		const peer = deps.peersInScope().find(entry => entry.name.toLowerCase() === String(route.peerName).toLowerCase());
-		const profileRefusal = run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
+		const enforcedReadOnly = (peer as { read_only?: boolean } | undefined)?.read_only === true;
+		const readOnlyRefusal = readOnlyRole && !enforcedReadOnly
+			? `${deps.displayName(state.def.name)} is a read-only role; coms peer "${route.peerName}" does not declare enforced read-only tools (peers.yaml read_only: true), so it cannot take this assignment.`
+			: null;
+		const profileRefusal = readOnlyRefusal ? { content: [{ type: "text" as const, text: readOnlyRefusal }] } : run.activeProfileSnapshot ? profilePeerGate({ peerModel: peer?.model, targetResolved: !!peer }, run.activeProfileSnapshot) : null;
 		if (profileRefusal) {
 			const allowNativeFallback = !route.explicit && (dispatchPolicy.substitutions[personaKey]?.fallback ?? "native") !== "none";
 			if (!allowNativeFallback) return run.finishRun(profileRefusal.content[0].text, 1);
@@ -209,15 +213,17 @@ async function routeDispatch(run: NativeRunBase, requestedBackend: NativeBackend
 async function dispatchNative(deps: NativeDispatchDeps, args: Omit<NativeDispatchArgs, "assistSnapshot" | "activeProfileSnapshot">): Promise<NativeDispatchResult> {
 	const activeProfileSnapshot = readActiveProfile();
 	const assist = resolveAssist(activeProfileSnapshot?.profile.assist);
-	// A parallel writer is sandboxed whatever the profile says; isolation forces native and refuses coms.
-	const assistSnapshot = deps.isolationRequested?.(args.agentName) === true ? { ...assist, "write-isolation": true } : assist;
-	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot };
 	const found = missingOrRunning(deps, args.agentName);
 	if (!("def" in found)) return found;
 	const access = (args.access || found.def.readOnly) ? dispatchAccess(found.def, args.access?.reviewMode) : undefined;
-	if (args.access && (args.access.writable !== access?.writable || args.access.tools !== access?.tools)) {
+	if (args.access && (args.access.writable !== access?.writable || args.access.tools !== access?.tools || args.access.activeCheck !== access?.activeCheck)) {
 		return { output: "Dispatch access changed before native admission.", exitCode: 1, elapsed: 0, lifecycle: { launched: false, closeSeen: false } };
 	}
+	// A parallel writer and a read-only active check are sandboxed whatever the profile says;
+	// isolation forces native and refuses coms.
+	const isolate = deps.isolationRequested?.(args.agentName) === true || access?.activeCheck === true;
+	const assistSnapshot = isolate ? { ...assist, "write-isolation": true } : assist;
+	const effectiveArgs: NativeDispatchArgs = { ...args, activeProfileSnapshot, assistSnapshot };
 	const run = beginNativeRun(deps, found, { ...effectiveArgs, access: access && { ...access, comsWriter: args.access?.comsWriter } });
 	const execute = async () => {
 		const routed = await routeDispatch(run, args.requestedBackend);

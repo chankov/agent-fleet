@@ -9,6 +9,7 @@ import { clampDelegateDepth, MAX_DELEGATE_DEPTH, PARALLEL_INSTANCE_SUFFIX_RE, sa
 import type { AgentDef, SubagentRole } from "../types.ts";
 import { normalizeThinkingLevel } from "./overrides.ts";
 import { PERSONA_DIRS } from "../../../agent-fleet/scripts/lib/persona-dirs.ts";
+import { selectRoleDefinitions, type IgnoredDefinition, type RoleName } from "./roles.ts";
 
 function parseInlineSubagentRole(value: string): { model?: string; tools?: string; thinking?: string } {
 	const input = value.trim();
@@ -127,6 +128,8 @@ export interface AgentConfigurationPorts {
 	setModelProfileErrors?(errors: string[]): void;
 	setDispatchPolicy(value: any): void;
 	setDispatchPolicyWarnings(value: string[]): void;
+	/** Definitions found on disk that are not one of the three roles (D2), and roles with no definition. */
+	setIgnoredDefinitions?(ignored: IgnoredDefinition[], missing: RoleName[]): void;
 }
 
 export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPorts): void {
@@ -134,8 +137,10 @@ export function loadAgentConfiguration(cwd: string, ports: AgentConfigurationPor
 	ports.setSessionDir(createEvidenceSession(cwd));
 	ports.ensureArtifactsLayout();
 	ports.resetAssertions();
-	const defs = scanAgentDirs(cwd);
+	const selection = selectRoleDefinitions(scanAgentDirs(cwd));
+	const defs = selection.roles;
 	ports.setAgentDefs(defs);
+	ports.setIgnoredDefinitions?.(selection.ignored, selection.missing);
 	const teamsPath = join(cwd, ".pi", "agents", "teams.yaml");
 	let teams: Record<string, string[]> = {};
 	if (existsSync(teamsPath)) try { teams = parseTeamsYaml(readFileSync(teamsPath, "utf-8")); } catch {}

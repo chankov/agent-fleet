@@ -159,7 +159,7 @@ function triageDocument(legacy: Record<string, unknown>) {
  const {version,provider,model,...section}=legacy;
  return {version:2,mode:"auto",provider:"typesafe",model:"jev-1.13.0",apiKeyEnv:"TYPESAFE_API_KEY",consumers:{taskTriage:section}};
 }
-function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; childProvider?: boolean } = {}): string {
+function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; childProvider?: boolean; readOnlyEditor?: boolean } = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "triage-real-pi-"));
   writeFileSync(join(dir, "package.json"), JSON.stringify({type:"module"}));
   const offlinePreloaded = process.execArgv.some(arg => arg.includes("system1-no-network.js")) ||
@@ -191,13 +191,13 @@ function setupWorkspace(t: any, opts: { team?: string; personas?: string[]; chil
     writeFileSync(join(dir, "bin/pi"), `#!/bin/sh\n[ "$PI_OFFLINE" = "1" ] || exit 88\ncase "$NODE_OPTIONS" in *system1-no-network.js*) ;; *) exit 89;; esac\nexec ${JSON.stringify(piExecutable)} -e ${JSON.stringify(childProvider)} "$@"\n`, { mode: 0o700 });
   }
   if (opts.team) {
-    const members = opts.personas ?? ["probe-builder"];
+    const members = opts.personas ?? ["editor"];
     mkdirSync(join(dir, ".pi/agents/personas"), { recursive: true });
     writeFileSync(join(dir, ".pi/agents/teams.yaml"), `${opts.team}:\n${members.map(m => `  - ${m}`).join("\n")}\n`);
     for (const member of members) {
-      const desc = member === "probe-builder" ? "Minimal fixture builder for real-Pi triage acceptance" : `Minimal fixture ${member} for real-Pi stage acceptance`;
+      const desc = member === "editor" ? "Minimal fixture editor for real-Pi triage acceptance" : `Minimal fixture ${member} for real-Pi stage acceptance`;
       writeFileSync(join(dir, `.pi/agents/personas/${member}.md`),
-        `---\nname: ${member}\ndescription: ${desc}\ntools: ${opts.childProvider && member === "probe-builder" ? "read,edit,bash" : "read"}\nmodel: triage-e2e/m\n---\n\n# ${member}\n`);
+        `---\nname: ${member}\ndescription: ${desc}\ntools: ${opts.childProvider && member === "editor" && !opts.readOnlyEditor ? "read,edit,bash" : "read"}\nmodel: triage-e2e/m\n---\n\n# ${member}\n`);
     }
   }
   return dir;
@@ -601,13 +601,13 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "real-pi adoption bind" } },
     { text: "first turn complete" },
     { tool: "get_assertions", args: {} },
-    { tool: "dispatch_agent", args: { agent: "planner", task: "Before binding" } },
+    { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], task: "Before binding" } },
     { tool: "get_assertions", args: {} },
     { text: "status only" },
     { tool: "edit", args: { path: fencedPath, oldText: "original", newText: "changed" } },
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "bind follow-up to same task" } },
     { tool: "write", args: { path: boundPath, content: "bound effect succeeded" } },
-    { tool: "dispatch_agent", args: { agent: "planner", task: "Attempt after binding" } },
+    { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], task: "Attempt after binding" } },
     { tool: "set_assertions", args: { assertions: [{ id: "A1", tag: "test", text: "Security change is independently reviewed", source: "real-Pi fixture", test_command: "node --test fixture" }] } },
     { tool: "update_assertion", args: { id: "A1", status: "proven", evidence: "fixture evidence" } },
     { text: "done" },
@@ -646,7 +646,7 @@ test("real Pi operator/empty-roster: production hooks evaluate, adoption binds, 
   assert.ok(session.contexts().length >= 13, "all three turns execute their scripted calls");
   // Use the actual tool result rather than a 30KB prefix of the whole growing transcript.
   const rosterRefusal = toolResult(session, 10)?.text ?? "";
-  assert.match(rosterRefusal, /Unknown agent "planner"/, "empty-roster refusal names the agent");
+  assert.match(rosterRefusal, /The editor role is not installed\. Installed roles: \(none\)\./, "empty-roster refusal names the role");
   assert.match(rosterRefusal, /\/af-agents-add/, "empty-roster refusal points at roster recovery");
 
   // Input transition: a changed follow-up fences direct effects; its fleet lease permits binding.
@@ -680,8 +680,8 @@ test("real Pi T4 wide-small empty-roster operator: direct effects proceed withou
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "retain small spend" } },
     { tool: "write", args: { path: change, content: "must not land before plan" } },
     { tool: "read", args: { path: join(dir, "README.md") } },
-    { tool: "dispatch_agent", args: { agent: "planner", task: "Produce a plan for the wide change" } },
-    { tool: "dispatch_agent", args: { agent: "code-reviewer", task: "Review the wide change" } },
+    { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], task: "Produce a plan for the wide change" } },
+    { tool: "dispatch_agent", args: { agent: "reviewer", task: "Review the wide change" } },
     { tool: "write", args: { path: change, content: "still must not land" } },
     { text: "done" },
   ]});
@@ -696,11 +696,11 @@ test("real Pi T4 wide-small empty-roster operator: direct effects proceed withou
   const firstWrite = toolResult(session, 2);
   assert.notEqual(firstWrite?.isError, true, "Pi executes the authorized direct write");
   assert.match(after(3), /inspection is allowed/, "read-only tool remained usable while plan was open");
-  assert.match(after(4), /Unknown agent "planner"/, "missing planner has an actionable human recovery path");
-  assert.match(after(5), /Unknown agent "code-reviewer"/, "missing reviewer is not silently added");
-  assert.match(after(5), /\/af-agents-add code-reviewer|\/af-agents-team/);
+  assert.match(after(4), /The editor role is not installed\..*Ask the human to install it \(agent-fleet setup/, "missing planning editor has an actionable human recovery path");
+  assert.match(after(5), /The reviewer role is not installed\./, "missing reviewer is not silently added");
+  assert.match(after(5), /\/af-agents-add reviewer|\/af-agents-team/);
   const secondWrite = toolResult(session, 6);
-  assert.notEqual(secondWrite?.isError, true, "missing optional Planner does not block later authoring");
+  assert.notEqual(secondWrite?.isError, true, "missing optional planning editor does not block later authoring");
   assert.equal(readFileSync(change, "utf8"), "still must not land", "the second authorized write executed");
 });
 
@@ -769,7 +769,7 @@ test("real Pi populated-roster, recover command, session switch and shutdown", {
   const dir = setupWorkspace(t, { team: "tiny" });
   const script: ScriptStep[] = [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator bind" } },
-    { tool: "dispatch_agent", args: { agent: "planner", task: "Plan the typo fix" } },
+    { tool: "dispatch_agent", args: { agent: "reviewer", task: "Review the typo fix" } },
     { text: "done" },
   ];
   const first = await startSession(t, dir, { fake: "plain", script, fleetArgs: ["--solo", "--agent-team", "tiny"] });
@@ -780,9 +780,9 @@ test("real Pi populated-roster, recover command, session switch and shutdown", {
   assert.ok(calls[0].tools.includes("bash") && calls[0].tools.includes("write"), "the operator keeps direct coding tools beside its roster");
   assert.ok(calls[0].tools.includes("dispatch_agent"), "roster turn keeps dispatch");
   const inbound = inboundText(first);
-  assert.match(inbound, /Unknown agent "planner"/, "populated roster without planner still refuses unknown agent");
-  // An installed persona is added on first dispatch; one that is not installed names the human install step.
-  assert.match(inbound, /install the planner persona/, "missing required role retains actionable recovery");
+  assert.match(inbound, /The reviewer role is not installed\. Installed roles: editor\./, "populated roster without reviewer still refuses the missing role");
+  // An installed role is added on first dispatch; one that is not installed names the human install step.
+  assert.match(inbound, /Ask the human to install it \(agent-fleet setup, or \/af-agents-add reviewer/, "missing required role retains actionable recovery");
 
   // Persistence recovery command is live in the real session and reports checked state.
   const rr = await first.request("/af-task-triage-recover");
@@ -804,17 +804,22 @@ test("real Pi populated-roster, recover command, session switch and shutdown", {
 });
 
 test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budget approval while review stays open", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "probe-second", "code-reviewer", "probe-correction"] });
+  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
   writeFileSync(join(dir, "README.md"), "synthetic security review scope\n");
+  // Only roles dispatch now, so the three editor attempts are one actor. The no-progress
+  // contract is actor + scope + inputs + deliverables (practices and prose are not part of
+  // it), so each attempt names its own existing scope to stay a distinct attempt, as the
+  // separate fixture personas were before.
+  for (const name of ["fixture-a.txt", "fixture-b.txt"]) writeFileSync(join(dir, name), `synthetic ${name}\n`);
   const session = await startSession(t, dir, { fake: "security", decisions: ["No — stop"],
     fleetArgs: ["--solo", "--agent-team", "stage"], script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "retain the small spend cap" } },
       { tool: "set_assertions", args: { assertions: [{ id: "A1", tag: "test", text: "Security change is independently reviewed", source: "real-Pi fixture", test_command: "node --test fixture" }] } },
       { tool: "update_assertion", args: { id: "A1", status: "proven", evidence: "fixture evidence" } },
-      { tool: "dispatch_agent", args: { agent: "probe-builder", backend: "native", task: "Inspect synthetic fixture A for the security change" } },
-      { tool: "dispatch_agent", args: { agent: "probe-second", backend: "native", task: "Independently inspect synthetic fixture B for the security change" } },
-      { tool: "dispatch_agent", args: { agent: "code-reviewer", backend: "native", task: "Review the security change", scope: ["README.md"] } },
-      { tool: "dispatch_agent", args: { agent: "probe-correction", backend: "native", task: "Apply one correction after review; this attempt is beyond the orchestrator floor" } },
+      { tool: "dispatch_agent", args: { agent: "editor", backend: "native", scope: ["fixture-a.txt"], task: "Inspect synthetic fixture A for the security change" } },
+      { tool: "dispatch_agent", args: { agent: "editor", backend: "native", scope: ["fixture-b.txt"], task: "Independently inspect synthetic fixture B for the security change" } },
+      { tool: "dispatch_agent", args: { agent: "reviewer", backend: "native", task: "Review the security change", scope: ["README.md"] } },
+      { tool: "dispatch_agent", args: { agent: "editor", backend: "native", scope: ["README.md"], task: "Apply one correction after review; this attempt is beyond the orchestrator floor" } },
       { text: "stopped" },
     ] });
   const response = await session.request("Review the high-risk security change and verify acceptance criteria in this synthetic workspace");
@@ -862,13 +867,13 @@ test("real Pi T4 spent orchestrator floor: fourth dispatch proceeds without budg
 });
 
 test("real Pi roster G3.1 irreversible refuses fixture-producer dispatch as unsupported", { timeout: 180_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "planner", "code-reviewer"] });
+  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
   for (const backend of ["coms", "native"] as const) {
     // A prior refused attempt is no-progress history for this actor; it must not
     // stand in for an independent action-gate observation on the other backend.
     const session = await startSession(t, dir, { fake: "irreversible", script: [
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator irreversible bind" } },
-      { tool: "dispatch_agent", args: { agent: "probe-builder", task: `Produce the fixture through ${backend}`, backend } },
+      { tool: "dispatch_agent", args: { agent: "editor", task: `Produce the fixture through ${backend}`, backend } },
       { text: "done" },
     ], fleetArgs: ["--solo", "--agent-team", "stage"] });
     const r = await session.request("run the production database migration now");
@@ -879,7 +884,7 @@ test("real Pi roster G3.1 irreversible refuses fixture-producer dispatch as unsu
     assert.ok(session.fakeCalls().length >= 1, `${backend}: irreversible input was evaluated through the real hooks`);
     const refusal = toolResult(session, 2);
     assert.equal(refusal?.details?.status, "action_confirmation_unsupported", `${backend}: actual independent action-gate refusal, not no-progress`);
-    assert.doesNotMatch(refusal.text, /\[probe-builder\] done in/, `${backend}: refused dispatch never reports a successful child/peer run`);
+    assert.doesNotMatch(refusal.text, /\[editor\] done in/, `${backend}: refused dispatch never reports a successful child/peer run`);
     const sessionsRoot = join(dir, ".pi/agent-sessions/sessions");
     const launched = existsSync(sessionsRoot) ? readdirSync(sessionsRoot).flatMap(id => {
       const path = join(sessionsRoot, id, "dispatches");
@@ -944,26 +949,27 @@ test("real Pi provider deadline preserves baseline tools without inventing S1 ob
   assert.ok(hookTypes(session).includes("before_agent_start"), "actual production assessment hook ran");
 });
 
-test("real Pi required wide plan closes through a runnable offline native planner", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["planner", "code-reviewer"], childProvider: true });
+test("real Pi required wide plan closes through a runnable offline native planning editor", { timeout: 240_000 }, async t => {
+  // The retired planner fixture declared read only; the planning editor keeps that inspection-only definition.
+  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"], childProvider: true, readOnlyEditor: true });
   writeFileSync(join(dir, "README.md"), "The wdiget renders a greeting.\n");
   const session = await startSession(t, dir, { fake: "wide", childProvider: true, script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "synthetic wide task requires a plan" } },
-    { tool: "dispatch_agent", args: { agent: "planner", backend: "native", task: "Read README.md and plan ONLY the wdiget to widget correction." } },
+    { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], backend: "native", task: "Read README.md and plan ONLY the wdiget to widget correction." } },
     { text: "plan stage observed" },
   ], fleetArgs: ["--solo", "--agent-team", "stage"] });
   assert.equal((await session.request("change the synthetic README fixture across the declared wide scope")).success, true);
   const planned = toolResult(session, 2);
-  assert.equal(planned?.details?.exitCode, 0, `a real native Pi planner must run: ${planned?.text}`);
-  assert.equal(planned?.details?.processVerdict?.obligations?.plan?.status, "satisfied", "the planner return is recorded as plan-stage evidence");
+  assert.equal(planned?.details?.exitCode, 0, `a real native Pi planning editor must run: ${planned?.text}`);
+  assert.equal(planned?.details?.processVerdict?.obligations?.plan?.status, "satisfied", "the planning editor return is recorded as plan-stage evidence");
   assert.deepEqual(session.childEvents().map(e => e.step), ["read", "return"], "the native child used real Pi read before returning a plan");
   assert.equal(session.childEvents()[1]?.readOk, true, "plan text follows a successful README read");
   assert.match(planned?.details?.fullOutput ?? "", /PLAN: Correct only wdiget renders to widget renders/, "the retained stage return is concrete, not empty status");
-  assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "The wdiget renders a greeting.\n", "the planner cannot author the change");
+  assert.equal(readFileSync(join(dir, "README.md"), "utf8"), "The wdiget renders a greeting.\n", "the inspection-only planning editor cannot author the change");
 });
 
-test("real Pi offline native planner, verified builder and read-only reviewer close required stages", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["planner", "probe-builder", "code-reviewer"], childProvider: true });
+test("real Pi offline native planning editor, verified editor and read-only reviewer close required stages", { timeout: 240_000 }, async t => {
+  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"], childProvider: true });
   const readme = join(dir, "README.md"), initial = "The wdiget renders a greeting.\n";
   writeFileSync(readme, initial);
   // Pi 1.1 enables Node's compile cache under TMPDIR, which these sessions point here.
@@ -979,11 +985,11 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
       { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "wide", reason: "bind clarified verification to same task" } },
       { tool: "set_assertions", args: { assertions: [assertion] } },
       { text: "assertion prepared" },
-      { tool: "dispatch_agent", args: { agent: "planner", backend: "native", task: "PLAN FIXTURE: Read README.md and plan the exact typo-only correction." } },
+      { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], backend: "native", task: "PLAN FIXTURE: Read README.md and plan the exact typo-only correction." } },
       { text: "plan returned" },
-      { tool: "dispatch_agent", args: { agent: "probe-builder", backend: "native", scope: ["README.md"], deliverables: ["README.md"], task: `BUILDER FIXTURE: Read README.md, edit only wdiget to widget, then run exactly ${README_CHECK}. No other changes. A1 [test] is declared.` } },
+      { tool: "dispatch_agent", args: { agent: "editor", backend: "native", scope: ["README.md"], deliverables: ["README.md"], task: `BUILDER FIXTURE: Read README.md, edit only wdiget to widget, then run exactly ${README_CHECK}. No other changes. A1 [test] is declared.` } },
       { text: "builder returned" },
-      { tool: "dispatch_agent", args: { agent: "code-reviewer", backend: "native", scope: ["README.md"], review_reason: "Explicit independent review required by the synthetic wide process stage", task: "REVIEW FIXTURE: Read README.md and reject unless the exact expected widget text is present. This scripted fixture verdict is NOT independent A1 evidence." } },
+      { tool: "dispatch_agent", args: { agent: "reviewer", backend: "native", scope: ["README.md"], review_reason: "Explicit independent review required by the synthetic wide process stage", task: "REVIEW FIXTURE: Read README.md and reject unless the exact expected widget text is present. This scripted fixture verdict is NOT independent A1 evidence." } },
       { text: "review returned" },
     ] });
   assert.equal((await session.request("correct the synthetic README typo within the declared wide scope")).success, true);
@@ -992,8 +998,8 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
   assert.equal(toolResult(session, 4)?.details?.count, 1, `A1 must be registered before dispatch: ${toolResult(session, 4)?.text}`);
   assert.equal((await session.request(request)).success, true);
   const plan = toolResult(session, 6);
-  assert.equal(plan?.details?.processVerdict?.obligations?.plan?.status, "satisfied", `native planner must satisfy the plan stage: ${plan?.text}`);
-  assert.equal(readFileSync(readme, "utf8"), initial, "planner did not preempt builder work");
+  assert.equal(plan?.details?.processVerdict?.obligations?.plan?.status, "satisfied", `native planning editor must satisfy the plan stage: ${plan?.text}`);
+  assert.equal(readFileSync(readme, "utf8"), initial, "the planning editor did not preempt the implementation work");
   assert.equal((await session.request(request)).success, true);
   const build = toolResult(session, 8);
   assert.equal(build?.details?.runtimeResult?.verification?.status, "passed", `native builder verification must pass: ${JSON.stringify(build?.details?.runtimeResult?.verification)}`);
@@ -1018,12 +1024,15 @@ test("real Pi offline native planner, verified builder and read-only reviewer cl
 });
 
 test("real Pi roster G3.2 wide work admits fixture without planning and preserves optional producer failures", { timeout: 240_000 }, async t => {
-  const dir = setupWorkspace(t, { team: "stage", personas: ["probe-builder", "planner", "code-reviewer"] });
+  const dir = setupWorkspace(t, { team: "stage", personas: ["editor", "reviewer"] });
+  // The planning dispatch is the same editor actor as the implementation attempts; its own
+  // existing scope keeps it a distinct no-progress contract (practices are not part of it).
+  writeFileSync(join(dir, "README.md"), "synthetic wide fixture\n");
   const session = await startSession(t, dir, { fake: "wide", script: [
     { tool: "set_task_tier", args: { tier: "small", risk: "low", scope: "small", reason: "orchestrator wide bind" } },
-    { tool: "dispatch_agent", args: { agent: "probe-builder", task: "Produce the fixture before planning" } },
-    { tool: "dispatch_agent", args: { agent: "planner", task: "Plan the wide fixture change" } },
-    { tool: "dispatch_agent", args: { agent: "probe-builder", task: "Produce the fixture after a failed plan" } },
+    { tool: "dispatch_agent", args: { agent: "editor", task: "Produce the fixture before planning" } },
+    { tool: "dispatch_agent", args: { agent: "editor", practices: ["planning"], scope: ["README.md"], task: "Plan the wide fixture change" } },
+    { tool: "dispatch_agent", args: { agent: "editor", task: "Produce the fixture after a failed plan" } },
     { text: "done" },
   ], fleetArgs: ["--solo", "--agent-team", "stage"] });
   const r = await session.request("rework the fleet workspace layout across components");
@@ -1036,10 +1045,10 @@ test("real Pi roster G3.2 wide work admits fixture without planning and preserve
     assert.ok(event, `registered tool result e2e-${call} exists`);
     return event;
   };
-  for (const call of [2, 4]) assert.notEqual(resultFor(call).details?.status, "process_plan_open", "wide implementation does not need a Planner");
+  for (const call of [2, 4]) assert.notEqual(resultFor(call).details?.status, "process_plan_open", "wide implementation does not need a plan");
   const planner = resultFor(3);
   assert.notEqual(planner.details?.status, "process_plan_open");
-  assert.equal(planner.details?.exitCode, 1, "optional planner still reports its real spawn failure");
+  assert.equal(planner.details?.exitCode, 1, "the optional planning editor still reports its real spawn failure");
   assert.match(planner.text, /triage-e2e\/m|error/i);
 });
 

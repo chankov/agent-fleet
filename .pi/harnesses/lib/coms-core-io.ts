@@ -141,6 +141,8 @@ export interface ComsIdentity {
 	endpoint: string;
 	registryFile: string;
 	started_at: string;
+	/** `true` only when registration verified the read-only tool evidence. */
+	read_only?: boolean;
 }
 
 interface CliFlags {
@@ -149,6 +151,91 @@ interface CliFlags {
 	project?: string;
 	color?: string;
 	explicit?: boolean;
+	/** `--coms-read-only`: a REQUEST to declare read-only, never the proof. */
+	readOnly?: boolean;
+}
+
+// ── Read-only declaration (PLAN-11-01, maintainer decision D3) ──
+//
+// The Hub admits a researcher/reviewer coms peer only when the peer declares
+// `read_only: true` in its registry entry. The flag below is only a request:
+// the claim is published when the session's own tool state proves it, so a
+// mistyped launch cannot advertise a writable peer as read-only.
+
+/** pi extension flag a launcher passes to request the read-only declaration. */
+export const COMS_READ_ONLY_FLAG = "coms-read-only";
+
+/**
+ * The only tools a read-only pi peer may have registered or active: pi's
+ * inspection built-ins, nothing else. Everything outside — bash, edit, write,
+ * MCP, codemode/tool_search, extension tools, AND the coms tools — disqualifies.
+ * coms_send is excluded on purpose (operator decision): a read-only peer must
+ * not ask a writable peer to act for it, matching native read-only children,
+ * which have no coms tools either. Answering an inbound request needs no tool:
+ * the coms runtime itself sends the reply (settleTurn → respond → sendEnvelope)
+ * when the turn settles.
+ */
+export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
+
+export type ReadOnlyEvidence =
+	| { ok: true; allowlist: string[]; active: string[]; registered: string[] }
+	| { ok: false; reason: string };
+
+/**
+ * The `--tools`/`-t` allowlist pi was launched with (last occurrence wins, as
+ * in pi's own parser; scanning stops at `--`). `null` when none was given.
+ */
+export function launchToolAllowlist(argv: readonly string[]): string[] | null {
+	let found: string[] | null = null;
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--") break;
+		if ((arg === "--tools" || arg === "-t") && i + 1 < argv.length) {
+			found = argv[++i].split(",").map(entry => entry.trim()).filter(entry => entry.length > 0);
+		}
+	}
+	return found;
+}
+
+type ToolIntrospection = { getActiveTools?: () => string[]; getAllTools?: () => Array<{ name: string }> };
+
+/**
+ * Decide from evidence the session can check itself whether it may declare
+ * `read_only: true`. All three must hold:
+ *   1. pi was launched with a plain `--tools` allowlist inside
+ *      READ_ONLY_TOOL_NAMES. pi drops every tool outside that list from its
+ *      registry (late extension tools included), so `setActiveTools()` can
+ *      never bring bash/edit/write back for the rest of the session — this is
+ *      what makes the tool set "fixed at launch". `+name`/`-name` entries
+ *      modify pi's defaults and `*` patterns are open-ended, so both refuse.
+ *   2. Every REGISTERED tool (`getAllTools()`) is in the read-only set —
+ *      registered-but-inactive tools could be activated later, and codemode/
+ *      deferred tools stay callable without being active.
+ *   3. Every ACTIVE tool (`getActiveTools()`) is in the read-only set.
+ */
+export function assessReadOnlyToolSet(pi: ToolIntrospection, argv: readonly string[] = process.argv): ReadOnlyEvidence {
+	if (typeof pi.getActiveTools !== "function" || typeof pi.getAllTools !== "function") {
+		return { ok: false, reason: "this pi build does not expose getActiveTools()/getAllTools(), so the tool set cannot be verified" };
+	}
+	const allowlist = launchToolAllowlist(argv);
+	if (allowlist === null) return { ok: false, reason: "pi was not launched with a --tools allowlist, so its tool set is not fixed at launch" };
+	const open = allowlist.filter(entry => entry.includes("*") || entry.startsWith("+") || entry.startsWith("-"));
+	if (open.length > 0) return { ok: false, reason: `the --tools allowlist is not a plain name list (${open.join(", ")})` };
+	const allowlistExtra = allowlist.filter(name => !READ_ONLY_TOOL_NAMES.has(name));
+	if (allowlistExtra.length > 0) return { ok: false, reason: `the --tools allowlist permits non-read-only tools: ${allowlistExtra.join(", ")}` };
+	let active: string[];
+	let registered: string[];
+	try {
+		active = [...pi.getActiveTools()];
+		registered = pi.getAllTools().map(tool => tool.name);
+	} catch (error) {
+		return { ok: false, reason: `tool introspection failed: ${error instanceof Error ? error.message : String(error)}` };
+	}
+	const registeredExtra = [...new Set(registered.filter(name => !READ_ONLY_TOOL_NAMES.has(name)))].sort();
+	if (registeredExtra.length > 0) return { ok: false, reason: `tools outside the read-only set are registered: ${registeredExtra.join(", ")}` };
+	const activeExtra = [...new Set(active.filter(name => !READ_ONLY_TOOL_NAMES.has(name)))].sort();
+	if (activeExtra.length > 0) return { ok: false, reason: `tools outside the read-only set are active: ${activeExtra.join(", ")}` };
+	return { ok: true, allowlist, active, registered };
 }
 
 export function ulid(): string {
@@ -222,12 +309,16 @@ export function readCliFlags(pi: ExtensionAPI): CliFlags {
 	const project = pi.getFlag("project") as string | undefined;
 	const color = pi.getFlag("color") as string | undefined;
 	const explicit = pi.getFlag("explicit") as boolean | undefined;
+	// Undefined in any extension that did not register the flag (agent-hub):
+	// pi.getFlag answers only for the calling extension's own flags.
+	const readOnly = pi.getFlag(COMS_READ_ONLY_FLAG) as boolean | undefined;
 	return {
 		name: name && name.length > 0 ? name : undefined,
 		purpose: purpose && purpose.length > 0 ? purpose : undefined,
 		project: project && project.length > 0 ? project : undefined,
 		color: color && color.length > 0 ? color : undefined,
 		explicit: explicit === true,
+		readOnly: readOnly === true,
 	};
 }
 

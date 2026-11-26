@@ -137,12 +137,13 @@ test("recovery refuses stale in-memory union and oversized additions without cle
 });
 test("partial roster yields exact missing-role recovery, not a substitute agent", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("wide_change"), binding);
- const hint = missingProcessRoleRecoveryHints(state, new Set(["builder"]));
- assert.doesNotMatch(hint, /\/af-agents-add planner/);
- assert.match(hint, /\/af-agents-add code-reviewer/);
+ const hint = missingProcessRoleRecoveryHints(state, new Set(["editor"]));
+ assert.doesNotMatch(hint, /\/af-agents-add (editor|planner)/, "planning is never a required stage, so no planning role is demanded");
+ assert.match(hint, /\/af-agents-add reviewer/);
+ assert.match(hint, /agent-fleet setup/);
  assert.match(hint, /\/af-agents-team/);
- assert.equal(missingProcessRoleRecoveryHints(state, new Set(["builder", "planner", "security-auditor"])), "");
- assert.match(missingProcessRoleRecoveryHints(state, new Set()), /\/af-agents-add code-reviewer/);
+ assert.equal(missingProcessRoleRecoveryHints(state, new Set(["editor", "reviewer"])), "");
+ assert.match(missingProcessRoleRecoveryHints(state, new Set()), /\/af-agents-add reviewer/);
 });
 test("active additions expose exact waiver IDs, plain obligations and transition instructions", () => {
  const state = applyTaskTriageAdditions(createProcessState(), assessment("security_change", "wide_change", "irreversible_execution"), binding);
@@ -214,16 +215,16 @@ test("waiver releases exactly one S1 source, never baseline or other S1 sources"
 });
 test("child dispatch and writes refuse unbound action even after plan; read-only proof cannot satisfy it", () => {
  let s = applyTaskTriageAdditions(createProcessState(), assessment("irreversible_execution"), binding);
- for (const persona of ["builder", ""]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported");
- for (const persona of ["planner", "code-reviewer"]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported", "a role name alone cannot bypass confirmation");
+ for (const persona of ["editor", ""]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported");
+ for (const persona of ["researcher", "reviewer"]) assert.equal(processPreEffectGate(s, "child", persona)?.reason, "action_confirmation_unsupported", "a role name alone cannot bypass confirmation");
  const withStages = applyTaskTriageAdditions(s, assessment("wide_change"), { ...binding, evaluationId: "eval-2", inputRevision: "input-2" });
- assert.equal(processPreEffectGate(withStages, "child", "planner")?.reason, "action_confirmation_unsupported", "optional planner cannot bypass exact action authorization");
+ assert.equal(processPreEffectGate(withStages, "child", "editor")?.reason, "action_confirmation_unsupported", "an optional planning editor cannot bypass exact action authorization");
  const planned = noteProcessStage(withStages, "plan", { evidenceRef: "plan", revision: "rev-1" });
- assert.equal(processPreEffectGate(planned, "child", "code-reviewer"), null, "required review producer remains executable");
- assert.equal(processPreEffectGate(planned, "child", "planner")?.reason, "action_confirmation_unsupported", "a completed plan cannot become a generic exemption");
+ assert.equal(processPreEffectGate(planned, "child", "reviewer"), null, "required review producer remains executable");
+ assert.equal(processPreEffectGate(planned, "child", "editor")?.reason, "action_confirmation_unsupported", "a completed plan cannot become a generic exemption");
  assert.equal(processPreEffectGate(s, "write")?.reason, "action_confirmation_unsupported");
  assert.equal(processPreEffectGate(s, "prove")?.reason, "process_obligations_open");
- assert.equal(processPreEffectGate(s, "child", "builder", "rev-1")?.reason, "action_confirmation_unsupported");
+ assert.equal(processPreEffectGate(s, "child", "editor", "rev-1")?.reason, "action_confirmation_unsupported");
 });
 test("stage child can inspect for plan/review without shell, writes or delegation", () => {
  assert.equal(stageProducerTools("read,grep,find,ls,bash,write,edit,delegate,filesystem"), "read,grep,find,ls");
@@ -234,7 +235,7 @@ test("confirmation is per-effect, not a task-level proof gate or a waiver", () =
  const s = applyTaskTriageAdditions(applyProcessClassification(createProcessState(), { risk: "low", scope: "small", reason: "declared" }).state, assessment("irreversible_execution"), binding);
  assert.deepEqual(pendingActionConfirmation(s).map(a => a.status), ["active"]);
  assert.equal(processPreEffectGate(s, "write")?.reason, "action_confirmation_unsupported");
- assert.equal(processPreEffectGate(s, "child", "builder")?.reason, "action_confirmation_unsupported");
+ assert.equal(processPreEffectGate(s, "child", "editor")?.reason, "action_confirmation_unsupported");
  assert.equal(processPreEffectGate(s, "prove"), null, "proof is not another unbound action");
  const verdict = evaluateProcessObligations(s, { writable: true, budgetTier: "small", t2Accepted: true });
  assert.equal(verdict.accepted, true, "a previously gated effect can close T2 without waiving future gates");
@@ -256,7 +257,7 @@ test("persistence overflow is refused rather than trimming an active final requi
  const full = { ...one, additions: Array.from({ length: 300 }, (_, i) => ({ ...one.additions![0], id: `id-${i}` })) };
  const overflowing = { ...full, additions: [...full.additions!, { ...one.additions![0], id: "last", reason: "irreversible_execution" as const }] };
  assert.throws(() => latestProcessState([{ customType: "agent-hub-process-state", data: { schema: one.schema, state: overflowing } }]), /persistence limit/);
- assert.equal(processPreEffectGate(overflowing, "child", "builder")?.reason, "process_state_corrupt");
+ assert.equal(processPreEffectGate(overflowing, "child", "editor")?.reason, "process_state_corrupt");
  assert.throws(() => applyTaskTriageAdditions(full, assessment("wide_change"), { ...binding, inputRevision: "expanded" }), /persistence limit/);
  const compact = { ...one.additions![0], taskId: "t", evaluationId: "e", inputRevision: "r", policyVersion: "p", questionVersion: "q", provider: "p", model: "m", reason: "wide_change" as const };
  const overCount = { ...one, additions: Array.from({ length: 301 }, (_, i) => ({ ...compact, id: `i${i}` })) };
@@ -282,7 +283,7 @@ test("large baseline acceptance evidence without additions still evaluates, gate
   assert.equal(verdict.obligations.acceptance.status, "satisfied");
   assert.deepEqual(verdict.auditScope, files);
   assert.equal(processPreEffectGate(restored, "write"), null);
-  assert.equal(processPreEffectGate(restored, "child", "builder"), null);
+  assert.equal(processPreEffectGate(restored, "child", "editor"), null);
   assert.equal(processPreEffectGate(restored, "prove", "", "rev-1"), null);
   assert.deepEqual(applyTaskTriageAdditions(restored, assessment(), binding), restored);
   assert.deepEqual(latestProcessState([{ customType: "agent-hub-process-state", data: processAuditRecord(restored, verdict) }]), restored);

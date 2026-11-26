@@ -16,15 +16,21 @@ test("review coverage persists and invalidates on code, contract or report chang
  let state=applyProcessClassification(createProcessState(),{risk:"high",scope:"small",reason:"review code"}).state;
  state={...state,changedFiles:["a.ts"]};state=noteProcessStage(state,"review",{evidenceRef:"review.md",revision:revisionOf(cwd)});
  const requirements=[{id:"A1",text:"UTC boundary",source:"user",criticalConditions:["UTC calendar day"]}];
- const input=reviewInput(cwd,"task","security-auditor",["a.ts"],state,requirements,[]);assert.ok(input);
+ const input=reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[]);assert.ok(input);
  state=normalizeProcessState(retainReview(state,input,"review.md",cwd));
  assert.ok(reusableReview(state,input,cwd));
  assert.equal(reusableReview({...state,review:{...state.review,evidenceRef:"another-review.md"}},input,cwd),null);
- assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,[{...requirements[0],compilerCommand:"tsc --noEmit"}],[]),cwd),null);
- assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,[{...requirements[0],criticalConditions:["different requirement"]}],[]),cwd),null);
+ // Practices belong to the review contract: a security review never reuses a plain review.
+ const plain=reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[],undefined,["independent-review"])!;
+ const plainState=normalizeProcessState(retainReview(state,plain,"review.md",cwd));
+ assert.ok(reusableReview(plainState,reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[],undefined,["Independent-Review"]),cwd),"the same practice set reuses");
+ assert.equal(reusableReview(plainState,reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[],undefined,["independent-review","security"]),cwd),null);
+ assert.notEqual(plain.contractHash,input.contractHash,"a recorded practice set changes the contract");
+ assert.equal(reusableReview(state,reviewInput(cwd,"task","reviewer",["a.ts"],state,[{...requirements[0],compilerCommand:"tsc --noEmit"}],[]),cwd),null);
+ assert.equal(reusableReview(state,reviewInput(cwd,"task","reviewer",["a.ts"],state,[{...requirements[0],criticalConditions:["different requirement"]}],[]),cwd),null);
  writeFileSync(join(cwd,"unrelated.txt"),"unrelated");
- assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,requirements,[]),cwd),null);
+ assert.equal(reusableReview(state,reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[]),cwd),null);
  rmSync(join(cwd,"unrelated.txt"));
- writeFileSync(join(cwd,"a.ts"),"export const value=3;\n");assert.equal(reusableReview(state,reviewInput(cwd,"task","security-auditor",["a.ts"],state,requirements,[]),cwd),null);
+ writeFileSync(join(cwd,"a.ts"),"export const value=3;\n");assert.equal(reusableReview(state,reviewInput(cwd,"task","reviewer",["a.ts"],state,requirements,[]),cwd),null);
  writeFileSync(join(cwd,"review.md"),"changed evidence");assert.equal(reusableReview(state,input,cwd),null);
 });

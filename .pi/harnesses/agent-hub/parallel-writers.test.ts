@@ -66,15 +66,16 @@ test("parallel writers need native, exact existing scopes, and disjoint scopes",
 	assert.equal(status(parallelWriterGate(lone.d, "builder", { agent: "builder", task: "t", parallel: true, scope: ["src/a"], backend: "coms" })), "parallel_requires_native");
 });
 
-test("declaring an audit read-only does not exempt its explicit shell verification from the writer gate", () => {
-	const active = gateDeps([{ agent: "builder", scope: ["src/a"], isolated: true }]);
-	active.d.state.getAgentStates().get("code-reviewer").def.readOnly = true;
-	const audit = { agent: "code-reviewer", task: "review", scope: ["src/a"] };
+test("a read-only reviewer's inspection takes no writer slot; its sandboxed checks stay sequential with writers", () => {
+	const active = gateDeps([{ agent: "editor", scope: ["src/a"], isolated: true }], { editor: "read,write,edit,bash", reviewer: "read,bash,grep" });
+	active.d.state.getAgentStates().get("reviewer").def.readOnly = true;
+	const audit = { agent: "reviewer", task: "review", scope: ["src/a"] };
 	assert.equal(parallelWriterGate(active.d, audit.agent, audit), null);
 	active.d.state.mayRouteToComs = () => true;
-	assert.equal(status(parallelWriterGate(active.d, audit.agent, audit)), "writer_active");
-	assert.equal(status(parallelWriterGate(active.d, audit.agent, { ...audit, backend: "coms" })), "writer_active");
-	assert.equal(parallelWriterGate(active.d, audit.agent, { ...audit, backend: "native" }), null);
+	assert.equal(parallelWriterGate(active.d, audit.agent, audit), null, "a coms route needs an enforced read-only peer (D3), never a writer slot");
+	assert.equal(parallelWriterGate(active.d, audit.agent, { ...audit, backend: "coms" }), null);
+	// Checks read a tree that a concurrent writer could change, so they keep the
+	// sequential slot and receipt tracking; D4 only removes their write tools.
 	const verification = { ...audit, review_mode: "run-checks" as const };
 	assert.equal(status(parallelWriterGate(active.d, audit.agent, verification)), "writer_active");
 	assert.equal(status(parallelWriterGate(active.d, audit.agent, { ...verification, parallel: true })), "scope_overlap");
@@ -194,11 +195,11 @@ test("a parallel instance passes the real agent-key, session and roster paths; p
 	assert.equal(parseAgentFile(join(personaDir, "real.md"))?.name, "real");
 });
 
-test("an instance keeps its base persona's review meaning and tier gate", () => {
-	assert.equal(basePersonaName("builder--p2"), "builder");
-	assert.equal(basePersonaName("Code-Reviewer--p3"), "code-reviewer");
+test("an instance keeps its base role's review meaning and tier gate", () => {
+	assert.equal(basePersonaName("editor--p2"), "editor");
+	assert.equal(basePersonaName("Reviewer--p3"), "reviewer");
 	assert.equal(basePersonaName("gpt-4"), "gpt-4", "a real name ending in a number is not an instance");
-	assert.equal(basePersonaName("web-debugger"), "web-debugger");
-	assert.equal(isReviewPersona("code-reviewer--p2"), true);
-	assert.ok(checkTierPersonaGate("small", "security-auditor--p2"), "an instance cannot bypass the tier gate");
+	assert.equal(basePersonaName("researcher"), "researcher");
+	assert.equal(isReviewPersona("reviewer--p2"), true);
+	assert.ok(checkTierPersonaGate("small", "reviewer--p2", ["security"]), "an instance cannot bypass the tier gate");
 });

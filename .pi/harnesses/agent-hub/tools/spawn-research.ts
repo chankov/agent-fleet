@@ -10,6 +10,7 @@ export function registerSpawnResearch(pi: ExtensionAPI, toolCtx: ToolContext): v
 		description: "Run a read-only (read/grep/find/ls) helper and return findings.",
 		parameters: Type.Object({
 			task: Type.String(),
+			practices: Type.Optional(Type.Array(Type.String(), { description: "As in dispatch_agent; default research." })),
 			persona: Type.Optional(Type.String({ description: "Research persona; omit for ad-hoc." })),
 			model: Type.Optional(Type.String({ description: "Anonymous-helper model; ignored with persona." })),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input artifact path." }))),
@@ -25,7 +26,8 @@ export function registerSpawnResearch(pi: ExtensionAPI, toolCtx: ToolContext): v
 		},
 
 		renderCall(args, theme) {
-			const persona = (args as any).persona;
+			const practices = Array.isArray((args as any).practices) && (args as any).practices.length ? `[${(args as any).practices.join(",")}]` : "";
+			const persona = (args as any).persona ? `${(args as any).persona}${practices}` : practices ? `researcher${practices}` : "";
 			const task = (args as any).task || "";
 			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
 			return new Text(

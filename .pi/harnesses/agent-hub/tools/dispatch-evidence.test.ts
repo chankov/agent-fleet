@@ -34,7 +34,7 @@ test("native writable finish uses one no-scope delta and compiler facts survive 
   writeFileSync(join(cwd, "src", "api.ts"), "export const value: number = 'bad';\n");
   return { output: `assertions_proven:\n- A1: current claim — evidence: focused test\n- A9: foreign claim — evidence: other test\nassertions_unproven: []\nassertions_failed: []\n${"specialist raw ".repeat(700)}`, exitCode: 0, elapsed: 1, dispatchId: "compiler-visible" };
  };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 implement diagnostics" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 implement diagnostics" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; const text = (result.content[0] as any).text;
  assert.equal(calls, 1); assert.deepEqual(observed, ["src/api.ts"]); assert.equal(details.scopeViolations, null, "no scope globs still snapshots without inventing a scope violation");
  assert.equal(details.accepted, false); assert.equal(details.changeResult.status, "changed"); assert.equal(details.verificationResult.status, "failed");
@@ -54,7 +54,7 @@ test("native writable finish uses one no-scope delta and compiler facts survive 
 test("T6b out-of-scope attempts remain an advisory and are not reported as sandbox confinement", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "outside.txt"), "attempted outside scope\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "scope-advisory" }; };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "edit one file", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "edit one file", scope: ["src/api.ts"] }, undefined, undefined, { cwd } as any);
  const details = result.details as any; const text = (result.content[0] as any).text;
  assert.deepEqual(details.scopeViolations.outOfScope, ["outside.txt"]);
  assert.match(text, /Scope advisory/); assert.match(text, /hub did not revert anything/);
@@ -69,7 +69,7 @@ test("runtime accepts a changed task only with a current recorded command and pa
   status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [],
   projects: [{ project: "/fixture/tsconfig.json", status: "passed", exitCode: 0, compilerVersion: "5.9.3", argv: ["node", "tsc", "-p", "tsconfig.json", "--noEmit"], stdout: "", stderr: "", diagnostics: [], changedFiles: [...paths] }],
  } as any);
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "change implementation" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "change implementation" }, undefined, undefined, { cwd } as any);
  const details = result.details as any;
  assert.equal(details.status, "accepted"); assert.equal(details.accepted, true); assert.equal(details.acceptanceStatus, "accepted");
  assert.equal(details.changeResult.status, "changed"); assert.equal(details.verificationResult.status, "passed");
@@ -83,7 +83,7 @@ test("T11 real dispatch consumer refuses unknown/high-risk acceptance independen
   d.state.getTaskTier = () => tier; d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
   d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), `export const value = ${tier === "trivial" ? 2 : 3};\n`); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: `unknown-${tier}` }; };
   d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
-  const unknown = await createDispatchExecutor(d as any)("unknown", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
+  const unknown = await createDispatchExecutor(d as any)("unknown", { agent: "editor", task: "change" }, undefined, undefined, { cwd } as any);
   assert.equal((unknown.details as any).accepted, false); assert.equal((unknown.details as any).processVerdict.obligations.risk.status, "open");
  }
  const { cwd, d } = await gitDiagnosticsFixture(t); let process = applyProcessClassification(createProcessState(), { risk: "high", scope: "small", reason: "sensitive boundary" }).state;
@@ -91,7 +91,7 @@ test("T11 real dispatch consumer refuses unknown/high-risk acceptance independen
  d.state.getTaskTier = () => "small"; d.state.getProcessState = () => process; d.state.setProcessState = (value: any) => { process = value; }; d.state.persistProcessVerdict = () => {};
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "export const value = 4;\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: "high-small" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => ({ status: "completed", changedFiles: [...paths], attribution: "no_observed_overlap", uncoveredFiles: [], projects: [{ status: "passed", exitCode: 0, argv: ["node", "tsc"], diagnostics: [], changedFiles: [...paths] }] } as any);
- const high = await createDispatchExecutor(d as any)("high", { agent: "builder", task: "high risk change" }, undefined, undefined, { cwd } as any);
+ const high = await createDispatchExecutor(d as any)("high", { agent: "editor", task: "high risk change" }, undefined, undefined, { cwd } as any);
  assert.equal((high.details as any).accepted, false); assert.equal((high.details as any).processVerdict.obligations.review.status, "open");
  assert.ok(process.acceptance.evidenceRef, "the valid T2 acceptance stage persists while independent review stays open");
 });
@@ -102,7 +102,7 @@ test("a missing submit_result is recovered by extraction only when the profile o
   d.dispatchAgent = async () => ({ output: "prose-only report", exitCode: 0, elapsed: 1, specialistResultTool: true, dispatchId: `missing-${optIn}` });
   d.runReturnExtraction = async () => { extracted++; return { changed_files: [], assertions_proven: [], assertions_unproven: [{ id: "A1", note: "report leaves it open" }], assertions_failed: [], tests_run: [], open_risks: [], requires_user_decision: [] }; };
   (d as any).returnExtractionAssist = () => optIn;
-  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 bounded work" }, undefined, undefined, {} as any);
+  const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 bounded work" }, undefined, undefined, {} as any);
   assert.equal(extracted, optIn ? 1 : 0);
   assert.equal((result.details as any).returnExtracted, optIn);
   assert.equal((result.details as any).resultProtocol, "submission_missing", "an extracted report is never relabelled as a submission");
@@ -114,7 +114,7 @@ test("compiler correction runs after return extraction", async t => {
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "broken\n"); return { output: "prose-only result", exitCode: 0, elapsed: 1, dispatchId: "compiler-extracted" }; };
  d.runReturnExtraction = async () => { extracted++; return { changed_files: [], assertions_proven: [{ id: "A1", note: "extracted", evidence: "report line" }], assertions_unproven: [], assertions_failed: [], tests_run: [], open_risks: [], requires_user_decision: [] }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => compilerErrors([...paths]);
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 extracted contract" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 extracted contract" }, undefined, undefined, { cwd } as any);
  assert.equal(extracted, 1); assert.equal((result.details as any).returnExtracted, true);
  assert.equal((result.details as any).structuredReturn.assertions_proven.length, 0);
  assert.equal((result.details as any).structuredReturn.assertions_unproven[0].reason, "compiler_diagnostics");
@@ -123,8 +123,8 @@ test("compiler correction runs after return extraction", async t => {
 for (const scenario of ["read-only", "remote", "failed", "cancelled", "pending", "stale", "no-change", "no-ts"] as const) {
  test(`compiler skips ineligible ${scenario} completion`, async t => {
   const writable = scenario !== "read-only"; const fixture = await gitDiagnosticsFixture(t); const { cwd, d } = fixture;
-  if (!writable) (d._agents.get("builder") as any).def.tools = "read";
-  if (scenario === "remote") (d._agents.get("builder") as any).lastBackend = "coms";
+  if (!writable) (d._agents.get("editor") as any).def.tools = "read";
+  if (scenario === "remote") (d._agents.get("editor") as any).lastBackend = "coms";
   let calls = 0; d.diagnoseChangedTypeScript = async () => { calls++; return compilerErrors(["src/api.ts"]); };
   d.dispatchAgent = async () => {
    if (!["no-change", "read-only"].includes(scenario)) {
@@ -134,7 +134,7 @@ for (const scenario of ["read-only", "remote", "failed", "cancelled", "pending",
    if (scenario === "stale") d.noProgress.reset();
    return { output: "completed output", exitCode: scenario === "failed" ? 1 : scenario === "cancelled" ? 125 : 0, pending: scenario === "pending", elapsed: 1, dispatchId: `skip-${scenario}` };
   };
-  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: `scenario ${scenario}` }, undefined, undefined, { cwd } as any);
+  const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: `scenario ${scenario}` }, undefined, undefined, { cwd } as any);
   assert.equal(calls, 0); assert.equal((result.details as any).compilerDiagnostics, null);
   if (scenario === "no-ts") { assert.equal((result.details as any).changeResult.status, "changed"); assert.equal((result.details as any).verificationResult.status, "missing"); assert.equal((result.details as any).accepted, false); }
  });
@@ -149,7 +149,7 @@ test("invalid non-git and changed-HEAD observations are incomplete and preserve 
    if (mode === "head-change") { execFileSync("git", ["add", "."], { cwd }); execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "head change"], { cwd, stdio: "ignore" }); }
    return { output: `specialist output ${mode}`, exitCode: 0, elapsed: 1, dispatchId: `invalid-${mode}` };
   };
-  const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: mode }, undefined, undefined, { cwd } as any);
+  const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: mode }, undefined, undefined, { cwd } as any);
   const details = result.details as any; assert.equal(calls, 0); assert.equal(details.compilerDiagnostics.status, "incomplete");
   assert.match(details.compilerDiagnostics.reason, /worktree observation unavailable/); assert.match(details.fullOutput, new RegExp(`specialist output ${mode}`));
   assert.ok(existsSync(details.compilerEvidencePath)); assert.match((result.content[0] as any).text, /Compiler diagnostics incomplete/);
@@ -161,15 +161,15 @@ test("pre-existing dirty paths trigger only when content changes during the disp
  const calls: string[][] = []; d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { calls.push([...paths]); return { status: "skipped", changedFiles: [...paths], attribution: "no_observed_overlap", projects: [] } as any; };
  d.dispatchAgent = async (_agent: string, task: string) => { if (task.includes("change-now")) writeFileSync(join(cwd, "src", "api.ts"), "changed during dispatch\n"); return { output: "done", exitCode: 0, elapsed: 1, dispatchId: task.includes("change-now") ? "dirty-two" : "dirty-one" }; };
  const run = createDispatchExecutor(d as any);
- await run("one", { agent: "builder", task: "leave-dirty" }, undefined, undefined, { cwd } as any); assert.equal(calls.length, 0);
- await run("two", { agent: "builder", task: "change-now" }, undefined, undefined, { cwd } as any); assert.deepEqual(calls, [["src/api.ts"]]);
+ await run("one", { agent: "editor", task: "leave-dirty" }, undefined, undefined, { cwd } as any); assert.equal(calls.length, 0);
+ await run("two", { agent: "editor", task: "change-now" }, undefined, undefined, { cwd } as any); assert.deepEqual(calls, [["src/api.ts"]]);
 });
 
 test("overlap observed during compiler checking makes attribution uncertain and prevents demotion", async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "overlap\n"); return { output: "assertions_proven: [A1: done — evidence: test]", exitCode: 0, elapsed: 1, dispatchId: "compiler-overlap" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { d._setOverlap(1); return compilerErrors([...paths]); };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 overlap" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 overlap" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; assert.equal(details.compilerDiagnostics.attribution, "uncertain");
  assert.equal(details.changeResult.status, "changed"); assert.equal(details.changeResult.attribution, "uncertain"); assert.equal(details.verificationResult.status, "unsupported"); assert.equal(details.accepted, false);
  assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]); assert.match((result.content[0] as any).text, /attribution is uncertain/);
@@ -179,7 +179,7 @@ test("task staleness arising during async compiler work prevents contract correc
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "late stale\n"); return { output: "assertions_proven: [A1: done — evidence: test]", exitCode: 0, elapsed: 1, dispatchId: "compiler-late-stale" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { await new Promise(resolve => setImmediate(resolve)); d.noProgress.reset(); return compilerErrors([...paths]); };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 late stale" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 late stale" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; assert.equal(details.staleTask, true); assert.equal(details.taskIdentity.current, false); assert.equal(details.verificationResult.status, "stale"); assert.equal(details.accepted, false); assert.deepEqual(details.structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]);
  assert.equal(d._report.dispatches.length, 0); assert.ok(existsSync(details.compilerEvidencePath), "old-task compiler evidence remains in the original namespace");
 });
@@ -191,7 +191,7 @@ test("auto-research continuation triggers one compiler check for the final logic
  (d.research as any).spawn = async () => ({ output: "finding", exitCode: 0, dispatchId: "finding-one" });
  d.dispatchAgent = async () => { dispatches++; if (dispatches === 1) { writeFileSync(join(cwd, "src", "api.ts"), "research change\n"); return { output: "NEEDS_RESEARCH: where is the type?", exitCode: 0, elapsed: 1, dispatchId: "research-initial" }; } return { output: "final delivered output", exitCode: 0, elapsed: 1, dispatchId: "research-final" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => { compilerCalls++; return compilerErrors([...paths]); };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "one logical run" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "one logical run" }, undefined, undefined, { cwd } as any);
  assert.equal(dispatches, 2); assert.equal(compilerCalls, 1); assert.equal((result.details as any).dispatchId, "research-final");
 });
 
@@ -199,7 +199,7 @@ test("downstream-only compiler errors remain visible without demoting current cl
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "api changed\n"); return { output: "assertions_proven: [A1: done — evidence: test]", exitCode: 0, elapsed: 1, dispatchId: "compiler-downstream" }; };
  d.diagnoseChangedTypeScript = async (paths: readonly string[]) => compilerErrors([...paths], { projects: [{ project: "/fixture/tsconfig.json", status: "errors", exitCode: 2, argv: ["node", "tsc"], stdout: "consumer output", stderr: "", diagnostics: [{ file: "src/consumer.ts", line: 4, code: 2339, message: "consumer broke" }] }] });
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 downstream" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 downstream" }, undefined, undefined, { cwd } as any);
  assert.deepEqual((result.details as any).structuredReturn.assertions_proven.map((entry: any) => entry.id), ["A1"]); assert.match((result.content[0] as any).text, /Elsewhere:/); assert.match((result.content[0] as any).text, /consumer broke/);
 });
 
@@ -207,7 +207,7 @@ test("unexpected diagnostics failure becomes incomplete without losing delivered
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src", "api.ts"), "changed\n"); return { output: "valuable delivered output", exitCode: 0, elapsed: 1, dispatchId: "compiler-throws" }; };
  d.diagnoseChangedTypeScript = async () => { throw new Error("synthetic diagnostics failure"); };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "safe failure" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "safe failure" }, undefined, undefined, { cwd } as any);
  const details = result.details as any; assert.equal(details.compilerDiagnostics.status, "incomplete"); assert.match(details.compilerDiagnostics.reason, /synthetic diagnostics failure/);
  assert.equal(details.fullOutput, "valuable delivered output"); assert.match((result.content[0] as any).text, /Compiler diagnostics incomplete/);
 });
@@ -226,7 +226,7 @@ test("a writable dispatch observes the worktree once before and once after the r
  assert.equal((prepare.match(/snapshotWorktree\(|worktreeRevision\(/g) ?? []).length, 1, "revision baseline and delta base share one snapshot");
  assert.match(source, /tracking\.snapshot = prepared\.beforeSnapshot \?\?/);
  assert.match(evidence, /compilerInspectedRevision = observation && !observation\.skipped && observation\.snapshot \? snapshotRevision\(observation\.snapshot\)/);
- assert.match(evidence, /repositoryAfterRevision = isSourceReview \|\| p\.revisionScopes\.length \? revisionOf\(cwd, p\.revisionScopes\) : compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "reviews re-observe before approval; builders share the existing root snapshot unless the compiler ran");
+ assert.match(evidence, /repositoryAfterRevision = isSourceReview \|\| p\.revisionScopes\.length \? revisionOf\(cwd, p\.revisionScopes\) : compilerRan \? worktreeRevision\(cwd, \[\], p\.scopeGlobs\) : compilerInspectedRevision/, "reviews re-observe before approval; editors share the existing root snapshot unless the compiler ran");
  assert.match(prepare, /const basisFor=\(snapshot:any\):string\[\]=>snapshot\?\.nested\?nestedRevisionScopes\(/, "the basis is read off the dispatch's own snapshot, so a root repository costs no extra git call");
  assert.match(evidence, /const afterRevision = p\.privateConfig \? privateConfigRevision\(cwd, repositoryAfterRevision, p\.privateConfig\) : repositoryAfterRevision/, "old modes retain the repository observation unchanged");
 });
@@ -246,18 +246,18 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  execFileSync("git", ["init", "-q"], { cwd: repo }); execFileSync("git", ["add", "."], { cwd: repo }); execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: repo });
  const target = join(workflowDir, "wf-quality.ts"); const original = readFileSync(target);
  const sessionDir = mkdtempSync(join(tmpdir(), "finish-hook-")); t.after(() => rmSync(sessionDir, { recursive: true, force: true }));
- const d = prepareDeps({ agents: ["checkpoint-timer"], tools: "read,write" });
+ const d = prepareDeps({ agents: ["editor"], tools: "read,write" });
  d.budget.currentBudget = () => ({ maxDispatches: 8, maxResearch: 2 });
  d.state.getSessionDir = () => sessionDir;
  const assertions = [{ id: "A1", status: "open" }];
  const { createAssertionsArtifactsContext } = await import("../context/assertions-artifacts.ts");
  d.artifacts = createAssertionsArtifactsContext({ getSessionDir: () => sessionDir, getAssertions: () => assertions as any, getRunHistoryKeep: () => 2, setStatus() {} }) as any;
- (d._agents.get("checkpoint-timer") as any).lastBackend = "native";
+ (d._agents.get("editor") as any).lastBackend = "native";
  const timings: Array<Record<string, unknown>> = [];
  async function run(label: string, mutate: () => void, output: string) {
   d.dispatchAgent = async () => { mutate(); return { output, exitCode: 0, elapsed: 1, dispatchId: `finish-${label}` }; };
   const t0 = performance.now();
-  const result = await createDispatchExecutor(d as any)("call", { agent: "checkpoint-timer", task: `A1 finish-path compiler ${label}` }, undefined, undefined, { cwd: repo } as any);
+  const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: `A1 finish-path compiler ${label}` }, undefined, undefined, { cwd: repo } as any);
   const wallMs = performance.now() - t0;
   const details = result.details as any;
   const project = details.compilerDiagnostics?.projects?.[0];
@@ -277,7 +277,7 @@ test("real native executor finishDispatch times workflows compiler and demotes o
  assert.match(cacheParts[0], /^[a-f0-9]{16}$/);
  assert.match(cacheParts[1], /^[a-f0-9]{16}$/);
  assert.equal(cacheParts[2], `typescript-${compilerVersion}`);
- assert.equal(cacheParts[3], "checkpoint-timer.tsbuildinfo");
+ assert.equal(cacheParts[3], "editor.tsbuildinfo");
  assert.match(String(cold.project.argv), /scripts\/workflows\/tsconfig\.json/);
  const warm = await run("warm", () => writeFileSync(target, Buffer.concat([original, Buffer.from("\n// finish-path-warm\n")])), "assertions_proven: [A1: clean — evidence: comment]\nassertions_unproven: []\nassertions_failed: []");
  assert.equal(warm.project.status, "passed");
@@ -305,7 +305,7 @@ for (const tag of ["test", "code-grep"]) test(`explicit ${tag} runtime evidence 
   const revision = worktreeRevision(cwd, []);
   return { output: "This prose grants nothing", exitCode: 0, elapsed: 1, dispatchId: "semantic", lifecycle: nativeCleanLifecycle, runtimeTests: [{ command: "node --test utc.test.js", exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
  };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "A1 semantic check" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "A1 semantic check" }, undefined, undefined, { cwd } as any);
  const details = result.details as any;
  assert.equal(details.accepted, true);
  assert.equal(details.verificationResult.checks[0].kind, tag);
@@ -331,7 +331,7 @@ test("T4 check evidence separates observed command, declared coverage, and evalu
     afterRevision: revision,
    }] };
   };
-  const result = await createDispatchExecutor(d as any)(scenario, { agent: "builder", task: `A1 check ${scenario}`, scope: ["README.md"] }, undefined, undefined, { cwd } as any);
+  const result = await createDispatchExecutor(d as any)(scenario, { agent: "editor", task: `A1 check ${scenario}`, scope: ["README.md"] }, undefined, undefined, { cwd } as any);
   const details = result.details as any;
   const assessment = JSON.parse(readFileSync(details.assessmentPath, "utf8"));
   const requirement = assessment.verification.requirements.find((item: any) => item.id === "A1");
@@ -373,14 +373,14 @@ test("compiler evidence cannot be relabelled with a revision changed during veri
  const { cwd, d } = await gitDiagnosticsFixture(t);
  d.dispatchAgent = async () => { writeFileSync(join(cwd, "src/api.ts"), "export const value = 2;\n"); return { output: "done", exitCode: 0, elapsed: 1 }; };
  d.diagnoseChangedTypeScript = async () => { writeFileSync(join(cwd, "src/api.ts"), "later unverified state\n"); return { status: "completed", projects: [{ argv: ["node", "tsc"], exitCode: 0, status: "passed", diagnostics: [] }], changedFiles: ["src/api.ts"], uncoveredFiles: [], attribution: "no_observed_overlap" } as any; };
- const result = await createDispatchExecutor(d as any)("call", { agent: "builder", task: "change" }, undefined, undefined, { cwd } as any);
+ const result = await createDispatchExecutor(d as any)("call", { agent: "editor", task: "change" }, undefined, undefined, { cwd } as any);
  assert.equal((result.details as any).accepted, false); assert.equal((result.details as any).verificationResult.status, "stale");
 });
 
 test('receipt recovery: test-pass then guard-timeout then compiler-pass across two dispatches and journal reload', async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  writeFileSync(join(cwd, 'README.md'), 'current dirty candidate\n');
- d._agents.get('builder').def.tools = 'read,bash';
+ d._agents.get('editor').def.tools = 'read,bash';
  const testCommand = 'node --test harness-only.test.js', compilerCommand = 'tsc --noEmit harness-only.ts';
  d.state.getAssertions = () => [
   { id: 'A1', tag: 'test', text: 'both exact producers', source: 'approved', testCommand, compilerCommand, status: 'open' },
@@ -393,11 +393,11 @@ test('receipt recovery: test-pass then guard-timeout then compiler-pass across t
   return { output: 'report', exitCode: 0, elapsed: 1, dispatchId: `recovery-${launches}`, lifecycle: nativeCleanLifecycle, runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision }, ...(launches === 1 ? [{ producer: 'agent-fleet.runtime-test/v1', command: compilerCommand, exitCode: null, beforeRevision: 'unavailable', afterRevision: 'unavailable' }] : [])] };
  };
  const execute = createDispatchExecutor(d as any);
- const first: any = await execute('one', { agent: 'builder', task: 'A1 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ const first: any = await execute('one', { agent: 'editor', task: 'A1 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
  assert.equal(first.details.accepted, false);
  const journal = processAuditRecord(d.state.getProcessState(), evaluateProcessObligations(d.state.getProcessState(), { writable: true, budgetTier: 'small' }));
  d.state.setProcessState(latestProcessState([{ customType: 'agent-hub-process-state', data: JSON.parse(JSON.stringify(journal)) }]));
- const second: any = await execute('two', { agent: 'builder', task: 'A1 finish compiler only', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ const second: any = await execute('two', { agent: 'editor', task: 'A1 finish compiler only', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
  const requirements = second.details.verificationResult.requirements;
  assert.equal(requirements.filter((r: any) => r.id === 'AF-MIN-CHANGE').length, 1);
  assert.ok(requirements.find((r: any) => r.id === 'AF-MIN-CHANGE').criticalConditions.includes('Historical logs are not imported as current runtime checks.'));
@@ -415,7 +415,7 @@ test('receipt recovery: test-pass then guard-timeout then compiler-pass across t
 for (const negative of ['revision', 'scope', 'task', 'declaration', 'compiler-declaration', 'coverage', 'accepted-input', 'input-artifact', 'backend', 'overlap', 'child-overlap', 'integrity', 'legacy', 'origin', 'unknown', 'failure'] as const) test(`receipt continuation refuses ${negative}`, async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  writeFileSync(join(cwd, 'README.md'), 'dirty candidate\n');
- d._agents.get('builder').def.tools = 'read,bash';
+ d._agents.get('editor').def.tools = 'read,bash';
  let requirement = { id: 'A1', tag: 'test', text: 'exact', source: 'request', testCommand: 'test-exact', compilerCommand: 'compile-exact', criticalConditions: ['preserve'], status: 'open' };
  d.state.getAssertions = () => [requirement];
  const inputFile = join(d.state.getSessionDir(), 'input.md');
@@ -427,7 +427,7 @@ for (const negative of ['revision', 'scope', 'task', 'declaration', 'compiler-de
   return { output: 'report', exitCode: 0, elapsed: 1, dispatchId: negative === 'origin' && run === 1 ? undefined : `negative-${negative}-${run}`, lifecycle: nativeCleanLifecycle, runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command, exitCode: 0, beforeRevision: revision, afterRevision: revision, ...(negative === 'child-overlap' && run === 1 ? { exclusive: false } : {}) }] };
  };
  const execute = createDispatchExecutor(d as any);
- const invoke = (name: string, scope = ['README.md']) => execute(name, { agent: 'builder', task: `A1 ${name}`, scope }, undefined, undefined, { cwd } as any) as Promise<any>;
+ const invoke = (name: string, scope = ['README.md']) => execute(name, { agent: 'editor', task: `A1 ${name}`, scope }, undefined, undefined, { cwd } as any) as Promise<any>;
  await invoke('capture');
  const receipts = d.state.getProcessState().runtimeReceipts;
  if (negative === 'revision') writeFileSync(join(cwd, 'README.md'), 'new revision\n');
@@ -440,7 +440,7 @@ for (const negative of ['revision', 'scope', 'task', 'declaration', 'compiler-de
  if (negative === 'integrity') writeFileSync(receipts.records[0].check.evidenceRef, 'forged same filename');
  if (negative === 'legacy') d.state.setProcessState({ ...d.state.getProcessState(), runtimeReceipts: undefined });
  if (negative === 'overlap') d.state.setActiveWritableDispatches(1);
- if (negative === 'backend') d._agents.get('builder').lastBackend = 'coms';
+ if (negative === 'backend') d._agents.get('editor').lastBackend = 'coms';
  if (negative === 'unknown' || negative === 'failure') {
   const { runtimeTestObservationFromResult } = await import('../runtime-test-check.ts');
   const original = d.dispatchAgent;
@@ -458,7 +458,7 @@ for (const negative of ['revision', 'scope', 'task', 'declaration', 'compiler-de
 for (const integrity of ['complete', 'tainted', 'missing'] as const) test(`fresh runtime-test check is eligible for acceptance only on a complete capture stream: ${integrity}`, async t => {
  const { cwd, d } = await gitDiagnosticsFixture(t);
  writeFileSync(join(cwd, 'README.md'), 'fresh candidate\n');
- d._agents.get('builder').def.tools = 'read,bash';
+ d._agents.get('editor').def.tools = 'read,bash';
  const testCommand = 'node --test fresh-only.test.js';
  d.state.getAssertions = () => [{ id: 'A1', tag: 'test', text: 'exact producer', source: 'approved', testCommand, status: 'open' }];
  d.dispatchAgent = async () => {
@@ -467,7 +467,7 @@ for (const integrity of ['complete', 'tainted', 'missing'] as const) test(`fresh
    ...(integrity === 'missing' ? {} : { lifecycle: { launched: true, closeSeen: true, runtimeCaptureIntegrity: integrity } }),
    runtimeTests: [{ producer: 'agent-fleet.runtime-test/v1', command: testCommand, exitCode: 0, beforeRevision: revision, afterRevision: revision }] };
  };
- const result: any = await createDispatchExecutor(d as any)(`fresh-${integrity}`, { agent: 'builder', task: 'A1 fresh check', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
+ const result: any = await createDispatchExecutor(d as any)(`fresh-${integrity}`, { agent: 'editor', task: 'A1 fresh check', scope: ['README.md'] }, undefined, undefined, { cwd } as any);
  const check = result.details.verificationResult.checks.find((c: any) => c.command[0] === testCommand);
  assert.ok(check, 'fresh observation is still reported as a check');
  const requirement = result.details.verificationResult.requirements.find((r: any) => r.id === 'A1');
@@ -491,7 +491,7 @@ test('operator same-task recovery combines only anchored producers and leaves ma
   response.runtimeTests=runs===1?[{producer:'agent-fleet.runtime-test/v1',command:'node --test candidate.test.js',exitCode:0,beforeRevision:revision,afterRevision:revision},{producer:'agent-fleet.runtime-test/v1',command:'compile-exact',exitCode:null,beforeRevision:'unavailable',afterRevision:'unavailable'}]:[{producer:'agent-fleet.runtime-test/v1',command:'compile-exact',exitCode:0,beforeRevision:revision,afterRevision:revision}];
   return response;
  };
- const params:any={agent:'code-reviewer',task:'A2 inspect candidate',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'};
+ const params:any={agent:'reviewer',task:'A2 inspect candidate',scope:['a.ts'],backend:'native',review_mode:'operator-current-state'};
  const one:any=await f.run('first',params,undefined,undefined,{cwd:f.cwd} as any);
  assert.equal(one.details.operatorStateVerification.status,'unproven');assert.equal(f.state().acceptance.evidenceRef,null);
  const journal=processAuditRecord(f.state(),evaluateProcessObligations(f.state(),{writable:true,budgetTier:'small'}));
@@ -507,8 +507,8 @@ test('operator same-task recovery combines only anchored producers and leaves ma
 /** Production transport: native spawn settlement -> completion adapter -> dispatcher. A test that spreads the raw spawn result skips the adapter and cannot prove end-to-end integrity propagation. */
 async function throughNativeCompletion(native:any,dispatchId:string){
  const {completeNativeRun}=await import('../dispatch-native-complete.ts');
- const state:any={def:{name:'builder'},status:'running',killedByOperator:false,restarting:false,timeline:[]};
- const run:any={deps:{displayName:(n:string)=>n,finalizeMonitorChild:async()=>{},updateWidget(){},appendTimelineText(){},flushTimelineStore(){},executionHistory:{end(){}},bumpDriftStop(){}},state,ctx:{ui:{notify(){}}},histEntry:{id:'hist'},monitorStart:undefined,startTime:Date.now(),key:'builder',agentKey:'builder',effectiveTools:'read,bash',evidenceDir:'/tmp',dispatchId,transcriptPath:'/tmp/transcript.jsonl',resumeContract:{},agentSessionFile:'/tmp/session.json'};
+ const state:any={def:{name:'editor'},status:'running',killedByOperator:false,restarting:false,timeline:[]};
+ const run:any={deps:{displayName:(n:string)=>n,finalizeMonitorChild:async()=>{},updateWidget(){},appendTimelineText(){},flushTimelineStore(){},executionHistory:{end(){}},bumpDriftStop(){}},state,ctx:{ui:{notify(){}}},histEntry:{id:'hist'},monitorStart:undefined,startTime:Date.now(),key:'editor',agentKey:'editor',effectiveTools:'read,bash',evidenceDir:'/tmp',dispatchId,transcriptPath:'/tmp/transcript.jsonl',resumeContract:{},agentSessionFile:'/tmp/session.json'};
  return completeNativeRun(run,{res:native,runBilled:0,runOut:0,sessionRecycled:false,sessionReset:null,driftStop:null,driftAdvisories:[]});
 }
 
@@ -532,7 +532,7 @@ for(const scenario of ['serial','overlap','unfinished','stale'] as const) test(`
   completed=await throughNativeCompletion(native,`interval-${scenario}`);
   return {...completed,elapsed:1,output:JSON.stringify({changed_files:['README.md'],assertions_proven:ids.map(id=>({id,evidence:'untrusted claim'})),assertions_unproven:[{id:'AF-MIN-CHANGE'}],assertions_failed:[],tests_run:[],open_risks:[],requires_user_decision:[]})};
  };
- const result:any=await createDispatchExecutor(d as any)(scenario,{agent:'builder',task:'B1 A1 A4 R2 verify',scope:['README.md']},undefined,undefined,{cwd} as any);
+ const result:any=await createDispatchExecutor(d as any)(scenario,{agent:'editor',task:'B1 A1 A4 R2 verify',scope:['README.md']},undefined,undefined,{cwd} as any);
  assert.ok(captured);
  assert.equal(completed.lifecycle?.runtimeCaptureIntegrity,scenario==='unfinished'?'tainted':'complete','completion adapter must forward parser-owned integrity');
  const requirements=result.details.verificationResult.requirements;
@@ -546,11 +546,11 @@ for(const scenario of ['serial','overlap','unfinished','stale'] as const) test(`
 test("dispatch binding distinguishes an absent parent ledger from an exact parent contract", () => {
  for (const tools of ["read", "read,write"]) {
   const legacy = prepareDeps({ tools });
-  const legacyPrepared = prepareDispatch(legacy as any, { agent: "builder", task: "A1 legacy compiler claim" }, { cwd: process.cwd() } as any) as any;
+  const legacyPrepared = prepareDispatch(legacy as any, { agent: "editor", task: "A1 legacy compiler claim" }, { cwd: process.cwd() } as any) as any;
   assert.equal(legacyPrepared.resumeContract.boundAssertionIds, undefined);
   const bound = prepareDeps({ tools });
   bound.state.getAssertions = () => [{ id: "B1", tag: "manual", text: "parent-owned", source: "fixture", status: "open" }] as any;
-  const boundPrepared = prepareDispatch(bound as any, { agent: "builder", task: "B1 exact parent contract; A1 is not a member" }, { cwd: process.cwd() } as any) as any;
+  const boundPrepared = prepareDispatch(bound as any, { agent: "editor", task: "B1 exact parent contract; A1 is not a member" }, { cwd: process.cwd() } as any) as any;
   assert.deepEqual(boundPrepared.resumeContract.boundAssertionIds, tools === "read" ? [] : ["B1", "AF-MIN-CHANGE"]);
   assert.ok(Object.isFrozen(boundPrepared.resumeContract.boundAssertionIds));
  }
@@ -560,7 +560,7 @@ for (const scenario of ['clean-empty', 'clean-read', 'open-read', 'open-write', 
  const {cwd,d}=await gitDiagnosticsFixture(t);
  const {spawnPiAgent}=await import('../spawn.ts');
  const command='test-exact';
- d._agents.get('builder').def.tools='read,bash';
+ d._agents.get('editor').def.tools='read,bash';
  d.state.getAssertions=()=>[{id:'B1',tag:'test',text:'exact parent obligation',source:'fixture',testCommand:command,status:'open'},...['A1','A4','R2'].map(id=>({id,tag:'manual',text:'manual stays open',source:'fixture',status:'open'}))] as any;
  const bin=mkdtempSync(join(tmpdir(),'receipt-stream-'));t.after(()=>rmSync(bin,{recursive:true,force:true}));
  const start=(toolName:string,id:any='x',args:any={})=>({type:'tool_execution_start',toolName,toolCallId:id,args});
@@ -584,7 +584,7 @@ for (const scenario of ['clean-empty', 'clean-read', 'open-read', 'open-write', 
   return {...completed,elapsed:1,output:'report'};
  };
  const execute=createDispatchExecutor(d as any);
- const invoke=()=>execute('inspect',{agent:'builder',task:'B1 A1 A4 R2 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
+ const invoke=()=>execute('inspect',{agent:'editor',task:'B1 A1 A4 R2 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
  const first=await invoke();
  assert.equal(first.details.verificationResult.requirements.find((r:any)=>r.id==='B1').status,'passed');
  assert.equal(d.state.getProcessState().runtimeReceipts.records.length,1,'seed is eligible');
@@ -608,7 +608,7 @@ test('native completion without an explicit capture integrity fails closed for r
  const {cwd,d}=await gitDiagnosticsFixture(t);
  const {spawnPiAgent}=await import('../spawn.ts');
  const command='test-exact';
- d._agents.get('builder').def.tools='read,bash';
+ d._agents.get('editor').def.tools='read,bash';
  d.state.getAssertions=()=>[{id:'B1',tag:'test',text:'exact parent obligation',source:'fixture',testCommand:command,status:'open'}] as any;
  const bin=mkdtempSync(join(tmpdir(),'receipt-absent-'));t.after(()=>rmSync(bin,{recursive:true,force:true}));
  let run=0;
@@ -622,7 +622,7 @@ test('native completion without an explicit capture integrity fails closed for r
   return {...completed,elapsed:1,output:'report'};
  };
  const execute=createDispatchExecutor(d as any);
- const invoke=()=>execute('inspect',{agent:'builder',task:'B1 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
+ const invoke=()=>execute('inspect',{agent:'editor',task:'B1 inspect',scope:['README.md']},undefined,undefined,{cwd} as any) as Promise<any>;
  const first=await invoke();
  assert.equal(first.details.verificationResult.requirements.find((r:any)=>r.id==='B1').status,'passed');
  assert.equal(d.state.getProcessState().runtimeReceipts.records.length,1,'seed is eligible');
@@ -643,7 +643,7 @@ for (const scenario of ['missing', 'early', 'legacy', 'tainted', 'no-integrity',
  const bin = mkdtempSync(join(tmpdir(), 'check-reporting-')); t.after(() => rmSync(bin, { recursive: true, force: true }));
  const revision = () => worktreeRevision(cwd, [], ['README.md']);
  writeFileSync(join(cwd, 'README.md'), 'current dirty candidate\n');
- d._agents.get('builder').def.tools = 'read,bash';
+ d._agents.get('editor').def.tools = 'read,bash';
  d.state.getAssertions = () => [{ id: 'A7', tag: 'test', text: 'exact check', source: 'fixture', testCommand: command, status: 'open' }] as any;
  let run = 0;
  d.dispatchAgent = async () => {
@@ -668,7 +668,7 @@ for (const scenario of ['missing', 'early', 'legacy', 'tainted', 'no-integrity',
   return { ...await throughNativeCompletion(native, `reporting-${scenario}-${run}`), elapsed: 1, output: 'report' };
  };
  const execute = createDispatchExecutor(d as any);
- const invoke = () => execute('inspect', { agent: 'builder', task: 'A7 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any) as Promise<any>;
+ const invoke = () => execute('inspect', { agent: 'editor', task: 'A7 inspect', scope: ['README.md'] }, undefined, undefined, { cwd } as any) as Promise<any>;
  const first = await invoke();
  assert.equal(first.details.verificationResult.requirements.find((r: any) => r.id === 'A7').status, 'passed');
  assert.equal(d.state.getProcessState().runtimeReceipts.records.length, 1);
@@ -739,8 +739,8 @@ async function composedFixture(t: any) {
  const cwd = mkdtempSync(join(tmpdir(), 'composed-review-')); t.after(() => rmSync(cwd, { recursive: true, force: true }));
  execFileSync('git', ['init', '-q'], { cwd });
  writeFileSync(join(cwd, 'a.ts'), 'export const a=1;\n');
- const d = prepareDeps({ agents: ['code-reviewer'], tools: 'read,bash' });
- d._agents.get('code-reviewer')!.lastBackend = 'native';
+ const d = prepareDeps({ agents: ['reviewer'], tools: 'read,bash' });
+ d._agents.get('reviewer')!.lastBackend = 'native';
  const session = mkdtempSync(join(tmpdir(), 'composed-session-')); t.after(() => rmSync(session, { recursive: true, force: true }));
  d.state.getSessionDir = () => session;
  const { createAssertionsArtifactsContext } = await import('../context/assertions-artifacts.ts');
@@ -782,7 +782,7 @@ async function composedFixture(t: any) {
    return state;
   },
   run: createDispatchExecutor(d as any),
-  params: { agent: 'code-reviewer', task: COMPOSED_TASK, scope: ['a.ts'], backend: 'native', review_mode: 'operator-current-state' } as any,
+  params: { agent: 'reviewer', task: COMPOSED_TASK, scope: ['a.ts'], backend: 'native', review_mode: 'operator-current-state' } as any,
  };
 }
 

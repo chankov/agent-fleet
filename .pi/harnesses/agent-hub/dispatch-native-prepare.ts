@@ -37,7 +37,7 @@ import { bindResume, type TaskResumeInput } from "./task-resume-contract.ts";
 import { confineNativeChild, type WriteIsolationRequest } from "./write-isolation.ts";
 import { effectiveProcessStage } from "./process-obligations.ts";
 import { stageProducerTools } from "./task-triage-stage-guard.ts";
-import { dispatchAccess } from "./dispatch-access.ts";
+import { ACTIVE_CHECK_SANDBOX_REFUSAL, dispatchAccess, isInspectionAccess } from "./dispatch-access.ts";
 
 export function sessionObserverAssignment(config: ProactiveConfig | null | undefined, personaKey: string, assignment: Omit<ObserverAssignment, "config">): ObserverAssignment | undefined {
 	return isProactiveSpecialist(personaKey) && config && isCaptureEnabled(config) ? { ...assignment, config } : undefined;
@@ -53,7 +53,9 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
    return base.finishRun("Dispatch access changed during native routing; no child started.", 1);
   }
  }
- const inspection = base.access?.writable === false;
+ const inspection = isInspectionAccess(base.access);
+ // A read-only role running checks: shell yes, writes no (sandbox below, decision D4).
+ const activeCheck = base.access?.activeCheck === true;
  const declaredToolList = base.access?.tools ?? state.def.tools;
  const permissions = inspection ? declaredToolList : requestedContract?.permissions ?? declaredToolList;
  const admittedCwd=ctx.cwd||process.cwd();
@@ -170,7 +172,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  const assist = base.assistSnapshot;
  const boundedOutput = assist['bounded-output'];
  const declaredTools = declaredToolList.split(",").map(tool => tool.trim()).filter(Boolean);
- const deterministicTools = !inspection && assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
+ const deterministicTools = !inspection && !activeCheck && assist['deterministic-tools'] && (state.def.toolsExplicit !== true || declaredTools.includes("filesystem"));
  if (boundedOutput) extensions.push(fileURLToPath(new URL("./bounded-output.ts", import.meta.url)));
  if (deterministicTools) extensions.push(fileURLToPath(new URL("./filesystem-tool.ts", import.meta.url)));
  if (!stageConfirmation && declaredTools.includes("bash")) extensions.push(fileURLToPath(new URL("./runtime-test-check.ts", import.meta.url)));
@@ -231,7 +233,8 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 	state.specialistManifest = manifest;
 	const replacementSystemPrompt = nativeSpecialistSystemPrompt({ manifest, userLanguage: deps.getUserLanguage(), agentKey, runNumber, artifactRoot: safePathWithin(base.sessionDir, "artifacts"), dispatchId: base.dispatchId })
 		+ (stageConfirmation ? "\n\nActive exact-action confirmation: this stage run has inspection tools only. Return the full plan/review in your final response; the Hub saves that response as the stage artifact. Do not use bash, write, edit, delegate or remote execution. No stage result authorizes a later effect."
-			: inspection ? "\n\nRead-only dispatch. Inspect the supplied scope and evidence with the available tools. Return your findings through submit_result. Report checks you could not run as unverified." : "");
+			: inspection ? "\n\nRead-only dispatch. Inspect the supplied scope and evidence with the available tools. Return your findings through submit_result. Report checks you could not run as unverified."
+			: activeCheck ? "\n\nRead-only active-check dispatch inside a write-denying sandbox. Run the requested checks with bash; writes outside the session temp and evidence directories fail by design. Do not modify files. A check that needs to write to the working tree belongs to an editor: report it as unverified and say so. Return your findings through submit_result." : "");
 	const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
 	const wantThinking = thinkingLevel !== "off";
 	extensions.push(fileURLToPath(new URL("./specialist-result.ts", import.meta.url)));
@@ -239,7 +242,7 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
  let runPrompt = deps.appendDeclaredScope(deps.appendInputArtifacts(task, inputArtifacts), scopeGlobs) + "\n\n" + SPECIALIST_RESULT_INSTRUCTION;
 	let writeIsolation: WriteIsolationRequest | undefined;
 	let writeIsolationPolicy;
-	if (assist['write-isolation']) {
+	if (assist['write-isolation'] || activeCheck) {
 		const artifactRoot = safePathWithin(base.sessionDir, "artifacts");
 		const tempRoot = safePathWithin(base.evidenceDir, "runtime-tmp");
 		mkdirSync(artifactRoot, { recursive: true, mode: 0o700 });
@@ -247,14 +250,14 @@ export async function prepareNativeRun(base: NativeRunBase, _resumeRequested: bo
 		writeIsolation = {
 			enabled: true,
 			cwd: ctx.cwd || process.cwd(),
-			allowlist: inspection ? [] : [...scopeGlobs],
+			allowlist: inspection || activeCheck ? [] : [...scopeGlobs],
 			runtimePaths: [base.evidenceDir],
 			artifactPaths: [artifactRoot],
 			tempPaths: [tempRoot],
 			...piStateGrants(ctx.cwd || process.cwd()),
 		};
 		writeIsolationPolicy = confineNativeChild(writeIsolation);
-		if (!writeIsolationPolicy.applied) return base.finishRun(`Write isolation refused: ${writeIsolationPolicy.reason ?? "native backend unavailable"}. No unsandboxed child was started.`, 1);
+		if (!writeIsolationPolicy.applied) return base.finishRun(`Write isolation refused: ${writeIsolationPolicy.reason ?? "native backend unavailable"}. No unsandboxed child was started.${activeCheck ? ` ${ACTIVE_CHECK_SANDBOX_REFUSAL}` : ""}`, 1);
 		writeIsolation.backend = writeIsolationPolicy.mechanism;
 		writeIsolation.backendPath = writeIsolationPolicy.command;
 		delegateEnv = { ...delegateEnv, TMPDIR: tempRoot, TMP: tempRoot, TEMP: tempRoot };

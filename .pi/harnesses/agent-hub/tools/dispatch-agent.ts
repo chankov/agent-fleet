@@ -2,16 +2,18 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import type { DispatchAgentParams, ToolContext } from "./context.ts";
+import { PRACTICE_IDS } from "../config/practices.ts";
 
 export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, triage?: { disposition(id: string, persona: string, reason: string): boolean; submitted(id: string, persona: string, status: string): void }): void {
 	pi.registerTool({
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
-		description: "Dispatch one specialist task for evidence.",
+		description: "Dispatch one role assignment for evidence.",
 		parameters: Type.Object({
    triage_id: Type.Optional(Type.String({ description: "Triage trace ID; not authorization." })),
    triage_reason: Type.Optional(Type.Union([Type.Literal("used"), Type.Literal("better_fit"), Type.Literal("changed_scope"), Type.Literal("independent_judgment")])),
-			agent: Type.String({ description: "Agent, case-insensitive" }),
+			agent: Type.String({ description: "Role: reviewer|editor" }),
+			practices: Type.Optional(Type.Array(Type.String(), { description: `Method, not authority: ${PRACTICE_IDS.join("|")}` })),
 			task: Type.String({ description: "English task; paths, not bodies." }),
 			artifacts: Type.Optional(Type.Array(Type.String({ description: "Input path." }))),
 			scope: Type.Optional(Type.Array(Type.String({ description: "Globs advisory; isolation: exact existing relative files/dirs." }))),
@@ -40,7 +42,8 @@ export function registerDispatchAgent(pi: ExtensionAPI, toolCtx: ToolContext, tr
 		},
 
 		renderCall(args, theme) {
-			const agentName = (args as any).agent || "?";
+			const practiceList = Array.isArray((args as any).practices) && (args as any).practices.length ? `[${(args as any).practices.join(",")}]` : "";
+			const agentName = `${(args as any).agent || "?"}${practiceList}`;
 			const task = (args as any).task || "";
 			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
 			return new Text(

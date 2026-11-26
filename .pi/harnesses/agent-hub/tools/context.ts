@@ -8,6 +8,8 @@ export interface DispatchAgentParams {
  triage_id?: string;
  triage_reason?: "used" | "better_fit" | "changed_scope" | "independent_judgment";
 	agent: string;
+	/** Practice ids from config/practices.ts; empty takes the role default. */
+	practices?: string[];
 	task: string;
 	artifacts?: string[];
 	scope?: string[];
@@ -25,6 +27,8 @@ export interface DispatchAgentParams {
 
 export interface SpawnResearchParams {
 	task: string;
+	/** Practice ids for the researcher role; empty takes the role default (research). */
+	practices?: string[];
 	persona?: string;
 	model?: string;
 	artifacts?: string[];

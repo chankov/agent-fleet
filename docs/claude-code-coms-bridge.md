@@ -108,6 +108,39 @@ its context across review rounds. A peer can write to the workspace, so its revi
 exclusive writer slot. Choose native read-only inspection for review alongside an active builder. See
 "Coms-backed dispatch" in `.pi/harnesses/agent-hub/README.md`.
 
+## Read-only peers
+
+A peer normally runs with its own full tools; the Hub only sends it a prompt.
+Researcher and reviewer roles may use a peer only when it declares
+`read_only: true` in its coms registry entry
+(`~/.pi/coms/projects/<project>/agents/<name>.json`, the entries
+`peersInScope()` returns). Peers without the field behave as before.
+
+Request it with `read_only: true` on the peer in `.pi/agents/peers.yaml` (or
+`just fleet peer <name> --read-only`). The launch enforces the restriction and
+the peer declares it only from evidence it checks itself:
+
+| Runner | Launch | Declared when |
+|---|---|---|
+| `claude-code` | `_claude-peer-read-only`: the bridge runs in the foreground and starts `claude --tools Read,Grep,Glob --disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch --strict-mcp-config --permission-mode dontAsk` itself | the bridge spawned exactly that argv; it deregisters when that Claude exits |
+| pi persona | `_peer-read-only`: pi `--tools read,grep,find,ls --no-mcp --coms-read-only` | coms sees a plain `--tools` allowlist inside `read,grep,find,ls`, and every registered and active tool is inside it |
+
+`--strict-mcp-config` is required: `--tools` alone keeps every MCP tool
+(plugins and claude.ai connectors). With all four flags, Claude Code 2.1.330
+reports exactly `Glob`, `Grep`, `Read` and no MCP servers. pi drops every
+tool outside a `--tools` allowlist from its registry, so the set cannot grow
+later in the session. When the pi check fails, the peer registers **without**
+`read_only` and shows a warning. The Hub then falls back to a native
+specialist. `extensions:` cannot combine with `read_only`.
+
+Neither runner can message other peers: the pi peer has no `coms_*` tools
+and the Claude pane has no Bash for `coms-cli`. A read-only peer therefore
+cannot ask a writable peer to act for it, like a native read-only child. It
+still answers inbound requests, because the coms runtime sends the reply
+when the turn ends; the Claude bridge reads it from the pane or Stop hook.
+The guarantee covers the model's tools; a human at the pane can still start
+another process.
+
 ## Migrating legacy CLI spools
 
 Current releases isolate CLI queues by project at:

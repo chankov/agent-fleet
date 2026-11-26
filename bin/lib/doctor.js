@@ -54,12 +54,13 @@ import { planTaskTriageConfig } from "./task-triage-setup.js";
 export const AGENT_FLEET_PACKAGE_NAME = "@chankov/agent-fleet";
 const AGENT_FLEET_PACKAGE_PATTERN = /(^|[/:])@chankov\/agent-fleet(@[^/]*)?$/;
 
-// Known canonical replacements for personas renamed during the merge.
+// Known canonical replacements for old one-word aliases. `reviewer` is a runtime
+// role now (PLAN-11-01), so it is no longer an alias; retired personas get the
+// role-and-practice mapping instead of a token rewrite.
 const PERSONA_RENAMES = {
-  "reviewer":      "code-reviewer",
-  "red-team":      "security-auditor",
-  "tester":        "test-engineer",
-  "qa":            "test-engineer",
+  "red-team":      "reviewer",
+  "tester":        "editor",
+  "qa":            "editor",
 };
 
 // Install-target directories the scanner walks, when present.

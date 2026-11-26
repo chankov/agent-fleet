@@ -167,6 +167,17 @@ _fleet-lifecycle command *args:
 _peer persona name="" model="" session="" project="default":
     d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} .pi/agent-fleet/scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/{{persona}}.md" ]; then persona_path="$pd/{{persona}}.md"; break; fi; done; if [ -z "$persona_path" ]; then persona_path=".pi/agents/personas/{{persona}}.md"; fi; {{node_ts}} .pi/agent-fleet/scripts/pi-session.ts --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
 
+# Read-only sibling of `_peer` (peers.yaml `read_only: true` on a pi persona
+# peer). Same positionals and Fleet Core runtime; pi's `--tools` allowlist fixes
+# the tool set at launch to read,grep,find,ls (pi drops every other tool from
+# its registry — extension tools and coms_* included, so the peer cannot ask a
+# writable peer to act), `--no-mcp` keeps MCP servers out, and `--coms-read-only`
+# asks coms to declare `read_only: true` — which it does only after verifying
+# that tool set itself at registration. Inbound requests are still answered:
+# the coms runtime sends the reply when the turn settles, without a tool call.
+_peer-read-only persona name="" model="" session="" project="default":
+    d="${AGENT_FLEET_SPAWN_DELAY:-0}"; if [ "$d" != "0" ]; then echo "⏳ waiting ${d}s for the pi auth pre-warm (stale OAuth token)"; sleep "$d"; fi; {{node_ts}} .pi/agent-fleet/scripts/peer-banner.ts {{persona}} {{name}} 2>/dev/null || true; persona_path=""; for pd in agents .claude/agents .pi/agents/personas .pi/agents; do if [ -f "$pd/{{persona}}.md" ]; then persona_path="$pd/{{persona}}.md"; break; fi; done; if [ -z "$persona_path" ]; then persona_path=".pi/agents/personas/{{persona}}.md"; fi; {{node_ts}} .pi/agent-fleet/scripts/pi-session.ts --no-extensions {{fleet_core_extensions}} -e .pi/harnesses/coms/index.ts --coms-read-only --tools read,grep,find,ls --no-mcp --project {{project}} --append-system-prompt "$persona_path" {{ if name != "" { "--name " + name } else { "" } }} {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--session " + session } else { "" } }}
+
 # Guarded peer plus comma-separated explicit extras from .pi/extensions/.
 # Example peers.yaml entry:
 #   extensions: chrome-devtools-mcp
@@ -181,6 +192,14 @@ _peer-plus extensions persona name="" model="" session="" project="default":
 # positional maps to `claude --resume <id>` for `just fleet resume`.
 _claude-peer name model="" session="" project="default":
     {{node_ts}} .pi/agent-fleet/scripts/claude-code-preflight.ts || exit $?; {{node_ts}} .pi/agent-fleet/scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} & bridge_pid=$!; trap 'kill $bridge_pid 2>/dev/null' EXIT; {{node_ts}} .pi/agent-fleet/scripts/exec-at-target.ts claude {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
+
+# Read-only sibling of `_claude-peer` (peers.yaml `runner: claude-code` +
+# `read_only: true`). The bridge runs in the FOREGROUND and launches Claude Code
+# itself with enforced inspection-only tools (Read/Grep/Glob, no MCP servers,
+# mutating tools denied); it declares `read_only: true` only because it chose
+# that argv, and it deregisters when that Claude process exits.
+_claude-peer-read-only name model="" session="" project="default":
+    {{node_ts}} .pi/agent-fleet/scripts/claude-code-preflight.ts || exit $?; {{node_ts}} .pi/agent-fleet/scripts/coms-claude-bridge.ts --name {{name}} --project {{project}} --read-only {{ if model != "" { "--model " + model } else { "" } }} {{ if session != "" { "--resume " + session } else { "" } }}
 
 # The hidden team implementations take the team as a positional arg (default "full")
 # and pass everything after it straight to the script.

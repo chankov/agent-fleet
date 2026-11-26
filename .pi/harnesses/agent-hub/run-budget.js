@@ -265,8 +265,11 @@ export function resetTaskClock(clock, now) {
 // plan), so at trivial/small tiers they are refused in code. The escape hatch is
 // the honest one: raise the tier with a reason.
 
-export const HEAVY_PERSONAS = ["architect", "security-auditor", "deep-researcher"];
-export const REVIEW_PERSONAS = ["code-reviewer", "plan-reviewer", "security-auditor"];
+// Roles replaced personas (PLAN-11-01): weight now comes from the practices an
+// assignment opens, and the only reviewer is the `reviewer` role.
+export const HEAVY_PRACTICES = ["architecture"];
+export const HEAVY_REVIEW_PRACTICES = ["security"];
+export const REVIEW_PERSONAS = ["reviewer"];
 const GATED_TIERS = new Set(["trivial", "small"]);
 
 /**
@@ -274,19 +277,22 @@ const GATED_TIERS = new Set(["trivial", "small"]);
  * { reason, message }. Unknown/absent tier never gates here; the harness assumes
  * DEFAULT_TASK_TIER before calling.
  */
-export function checkTierPersonaGate(tier, persona) {
+export function checkTierPersonaGate(tier, persona, practices = []) {
 	const t = normalizeTaskTier(tier);
 	if (!t || !GATED_TIERS.has(t)) return null;
 	const name = basePersonaName(persona);
-	if (!HEAVY_PERSONAS.includes(name)) return null;
+	const ids = (practices || []).map(id => String(id).trim().toLowerCase());
+	const heavy = ids.filter(id => HEAVY_PRACTICES.includes(id) || (name === "reviewer" && HEAVY_REVIEW_PRACTICES.includes(id)));
+	if (!heavy.length) return null;
+	const label = `${name} with ${heavy.join(", ")}`;
 	return {
 		reason: "tier_persona_gate",
-		message: `⚠ ${name} is not available at tier "${t}" — and this dispatch was NOT counted against any budget.\n` +
+		message: `⚠ ${label} is not available at tier "${t}" — and this dispatch was NOT counted against any budget.\n` +
 			`At trivial/small tiers the apparatus is one specialist plus its own evidence: no planning pipeline, ` +
 			`no plan review, no separate audit pass. Each of those personas opens a document/finding loop whose ` +
 			`output then has to be executed and re-reviewed.\n` +
-			`Either dispatch the specialist that does the actual work (builder, test-engineer, code-reviewer, ` +
-			`documenter), or — if the ask really is bigger than "${t}" — call set_task_tier with a higher tier ` +
+			`Either dispatch the assignment that does the actual work (an editor with implementation, testing or ` +
+			`documentation, or a reviewer with independent-review), or — if the ask really is bigger than "${t}" — call set_task_tier with a higher tier ` +
 			`AND a reason naming what it turned out to contain. Do not raise the tier merely to unlock a persona.`,
 	};
 }

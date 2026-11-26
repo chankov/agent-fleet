@@ -18,6 +18,9 @@
 //   env_file values — secrets stay out of terminals and logs.
 // - A split pane gets its argv TYPED at the shell prompt: herdr's pane.split
 //   takes no command and silently ignores one (see spawned-peers.js).
+// - --read-only (or `read_only: true` in peers.yaml) only selects the enforced
+//   read-only launch argv; the peer itself decides whether it may declare
+//   `read_only` in its registry entry, from evidence it checks at registration.
 
 import { spawnSync } from "node:child_process";
 import {workspaceRoot,sessionRootsFromEnv} from "../../harnesses/lib/workspace-context.ts";
@@ -42,7 +45,7 @@ const PEERS_YAML = path.join(REPO_ROOT, ".pi", "agents", "peers.yaml");
 const USAGE =
 	"usage: just fleet peer <name> [--runner pi|claude-code] [--persona <p>] [--model <m>] [--project <p>]\n" +
 	"                             [--extensions a,b] [--browser] [--all-extensions]\n" +
-	"                             [--direction right|down] [--here] [--dry-run] [-- PI_ARGS…]";
+	"                             [--direction right|down] [--read-only] [--here] [--dry-run] [-- PI_ARGS…]";
 
 function die(msg: string): never {
 	console.error(msg);

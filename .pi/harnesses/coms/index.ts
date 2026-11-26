@@ -14,6 +14,7 @@ import {
 	ComsConnectError,
 	createComsPeer,
 	hexFg,
+	COMS_READ_ONLY_FLAG,
 	readAllRegistryEntries,
 	readAllRegistryEntriesAcrossProjects,
 	type ComsIdentity,
@@ -32,6 +33,11 @@ export default function (pi: ExtensionAPI) {
 	pi.registerFlag("project", { description: "Project namespace for peer discovery", type: "string", default: "default" });
 	pi.registerFlag("color", { description: "Hex color #RRGGBB (otherwise from frontmatter or palette fallback)", type: "string", default: undefined });
 	pi.registerFlag("explicit", { description: "Hide this agent from auto-discovery; only addressable by exact name", type: "boolean", default: false });
+	pi.registerFlag(COMS_READ_ONLY_FLAG, {
+		description: "Request the read_only coms declaration; granted only when this session was launched with a --tools allowlist inside read,grep,find,ls",
+		type: "boolean",
+		default: false,
+	});
 
 	let currentCtx: ExtensionContext | null = null;
 	const peer = createComsPeer({
@@ -294,10 +300,17 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui?.notify?.(`📡 coms: ${label} — ${error instanceof Error ? error.message : String(error)}`, "error");
 			return;
 		}
+		const readOnlyLabel = identity.read_only === true ? " · read-only" : "";
+		const refusal = peer.readOnlyRefusal;
+		const refusalText = refusal
+			? `📡 coms: read-only declaration refused — ${refusal}. Registered WITHOUT read_only, so the Hub will not route read-only roles to this peer.`
+			: null;
+		if (refusalText && !ctx.hasUI) console.error(refusalText);
 		try {
-			ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}`);
+			ctx.ui.setStatus("coms", `📡 ${identity.name}@${identity.project}${readOnlyLabel}`);
 			installPoolWidget(ctx);
-			ctx.ui.notify(`📡 coms ready · ${identity.name}@${identity.project} · ${peer.scope.displayProject ?? identity.project} pool`, "info");
+			ctx.ui.notify(`📡 coms ready · ${identity.name}@${identity.project} · ${peer.scope.displayProject ?? identity.project} pool${readOnlyLabel}`, "info");
+			if (refusalText) ctx.ui.notify(refusalText, "warning");
 		} catch { /* UI is optional */ }
 	});
 	pi.on("agent_start", () => { peer.setTurnState("working"); });

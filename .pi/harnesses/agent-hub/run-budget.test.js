@@ -12,7 +12,7 @@ import {
 	shouldRecycleSession,
 	budgetStatusLine,
 	TIER_RANK,
-	HEAVY_PERSONAS,
+	HEAVY_PRACTICES,
 	DEFAULT_TASK_TIER,
 	addTaskClockWait,
 	closeTaskClock,
@@ -178,37 +178,38 @@ test("TIER_RANK orders every declared tier", () => {
 
 // ── Tier persona gate (B3) ───────────────────────────────────────────────────
 
-test("checkTierPersonaGate blocks heavy personas at trivial and small", () => {
+test("checkTierPersonaGate blocks heavy assignments at trivial and small", () => {
 	for (const tier of ["trivial", "small"]) {
-		for (const persona of HEAVY_PERSONAS) {
-			const gate = checkTierPersonaGate(tier, persona);
-			assert.ok(gate, `${persona} should be gated at ${tier}`);
+		for (const [role, practices] of [["researcher", ["architecture"]], ["editor", ["architecture", "documentation"]], ["reviewer", ["independent-review", "security"]], ["reviewer--p2", ["security"]]]) {
+			const gate = checkTierPersonaGate(tier, role, practices);
+			assert.ok(gate, `${role} ${practices} should be gated at ${tier}`);
 			assert.equal(gate.reason, "tier_persona_gate");
 			assert.match(gate.message, /NOT counted against any budget/);
 		}
 	}
+	assert.deepEqual(HEAVY_PRACTICES, ["architecture"]);
 });
 
-test("checkTierPersonaGate lets the working personas through at every tier", () => {
+test("checkTierPersonaGate lets the working assignments through at every tier", () => {
 	for (const tier of [...TASK_TIERS, null, "nonsense"]) {
-		for (const persona of ["builder", "test-engineer", "code-reviewer", "documenter", "researcher", "web-debugger"]) {
-			assert.equal(checkTierPersonaGate(tier, persona), null);
+		for (const [role, practices] of [["editor", ["implementation", "testing"]], ["editor", ["security"]], ["editor", ["documentation"]], ["reviewer", ["independent-review"]], ["researcher", ["research"]], ["editor", []]]) {
+			assert.equal(checkTierPersonaGate(tier, role, practices), null, `${role} ${practices}`);
 		}
 	}
 });
 
 test("checkTierPersonaGate does not gate feature/project or an unset tier", () => {
-	assert.equal(checkTierPersonaGate("feature", "planner"), null);
-	assert.equal(checkTierPersonaGate("project", "security-auditor"), null);
-	assert.equal(checkTierPersonaGate(null, "planner"), null, "the function itself does not assume; the harness does");
+	assert.equal(checkTierPersonaGate("feature", "editor", ["architecture"]), null);
+	assert.equal(checkTierPersonaGate("project", "reviewer", ["security"]), null);
+	assert.equal(checkTierPersonaGate(null, "researcher", ["architecture"]), null, "the function itself does not assume; the harness does");
 });
 
 test("checkTierPersonaGate is case- and whitespace-insensitive", () => {
-	assert.ok(checkTierPersonaGate("small", " Architect "));
+	assert.ok(checkTierPersonaGate("small", " Reviewer ", [" Security "]));
 });
 
 test("the gate names the escape hatch instead of just refusing", () => {
-	const gate = checkTierPersonaGate("trivial", "architect");
+	const gate = checkTierPersonaGate("trivial", "researcher", ["architecture"]);
 	assert.match(gate.message, /set_task_tier/);
 	assert.match(gate.message, /reason/);
 	assert.match(gate.message, /Do not raise the tier merely to unlock a persona/);
@@ -224,30 +225,31 @@ test("blockingFindingCap tightens with the tier and lifts for project/unset", ()
 	assert.equal(blockingFindingCap(null), null);
 });
 
-test("reviewBudgetClause is emitted only for review personas at a capped tier", () => {
-	assert.equal(reviewBudgetClause("small", "builder"), null);
-	assert.equal(reviewBudgetClause("project", "code-reviewer"), null);
-	assert.equal(reviewBudgetClause(null, "code-reviewer"), null);
-	const clause = reviewBudgetClause("small", "code-reviewer");
+test("reviewBudgetClause is emitted only for the reviewer role at a capped tier", () => {
+	assert.equal(reviewBudgetClause("small", "editor"), null);
+	assert.equal(reviewBudgetClause("project", "reviewer"), null);
+	assert.equal(reviewBudgetClause(null, "reviewer"), null);
+	const clause = reviewBudgetClause("small", "reviewer");
 	assert.ok(clause);
 	assert.match(clause, /at most 2 BLOCKING findings/);
 	assert.match(clause, /Non-blocking \(optional\)/);
 });
 
 test("reviewBudgetClause forbids a finding that invents a new invariant", () => {
-	const clause = reviewBudgetClause("feature", "plan-reviewer");
+	const clause = reviewBudgetClause("feature", "reviewer--p2");
 	assert.match(clause, /may NOT introduce a new invariant/);
 	assert.match(clause, /manifest\/fixture/);
 });
 
 test("reviewBudgetClause uses the singular for a one-finding cap", () => {
-	assert.match(reviewBudgetClause("trivial", "security-auditor"), /at most 1 BLOCKING finding\./);
+	assert.match(reviewBudgetClause("trivial", "reviewer"), /at most 1 BLOCKING finding\./);
 });
 
-test("isReviewPersona covers exactly the gate personas", () => {
-	assert.equal(isReviewPersona("code-reviewer"), true);
-	assert.equal(isReviewPersona("Plan-Reviewer"), true);
-	assert.equal(isReviewPersona("builder"), false);
+test("isReviewPersona covers exactly the reviewer role", () => {
+	assert.equal(isReviewPersona("reviewer"), true);
+	assert.equal(isReviewPersona("Reviewer--p3"), true);
+	assert.equal(isReviewPersona("editor"), false);
+	assert.equal(isReviewPersona("code-reviewer"), false, "a retired persona name is no reviewer");
 });
 
 test("budgetStatusLine appends whole-task usage", () => {
@@ -345,8 +347,8 @@ test("PLAN38-shaped wall time reports only the active work", () => {
 
 test("the assumed tier is small, so a skipped triage cannot unlock the apparatus", () => {
 	assert.equal(DEFAULT_TASK_TIER, "small");
-	for (const persona of HEAVY_PERSONAS) {
-		assert.ok(checkTierPersonaGate(DEFAULT_TASK_TIER, persona), `${persona} must stay gated on a skipped triage`);
+	for (const [role, practices] of [["researcher", ["architecture"]], ["reviewer", ["security"]]]) {
+		assert.ok(checkTierPersonaGate(DEFAULT_TASK_TIER, role, practices), `${role} ${practices} must stay gated on a skipped triage`);
 	}
 	assert.equal(resolveTurnBudget(DEFAULT_TASK_TIER).delegation, false);
 	assert.equal(blockingFindingCap(DEFAULT_TASK_TIER), 2);

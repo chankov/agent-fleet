@@ -61,34 +61,36 @@ test("checkDocsLane refuses every review persona on a docs-only scope", () => {
 	}
 });
 
-test("checkDocsLane lets the writer personas through", () => {
-	for (const persona of ["builder", "documenter", "researcher"]) {
+test("checkDocsLane lets the writer and research roles through", () => {
+	assert.deepEqual(DOCS_BLOCKED_PERSONAS, ["reviewer"]);
+	assert.ok(checkDocsLane("reviewer--p2", ["Docs/**"]), "a parallel reviewer instance is still a reviewer");
+	for (const persona of ["editor", "researcher"]) {
 		assert.equal(checkDocsLane(persona, ["Docs/**"]), null);
 	}
 });
 
 test("checkDocsLane does not fire when the scope also covers code", () => {
-	assert.equal(checkDocsLane("code-reviewer", ["Docs/**", "RIN.Live/Startup.cs"]), null);
-	assert.equal(checkDocsLane("code-reviewer", []), null, "an unknown scope keeps the normal gate");
+	assert.equal(checkDocsLane("reviewer", ["Docs/**", "RIN.Live/Startup.cs"]), null);
+	assert.equal(checkDocsLane("reviewer", []), null, "an unknown scope keeps the normal gate");
 });
 
 test("an explicit review_reason always opens the gate", () => {
-	assert.equal(checkDocsLane("code-reviewer", ["Docs/**"], "the doc publishes a connection string"), null);
-	assert.ok(checkDocsLane("code-reviewer", ["Docs/**"], "   "), "whitespace is not a reason");
+	assert.equal(checkDocsLane("reviewer", ["Docs/**"], "the doc publishes a connection string"), null);
+	assert.ok(checkDocsLane("reviewer", ["Docs/**"], "   "), "whitespace is not a reason");
 });
 
 test("the docs-lane refusal names both escape hatches", () => {
-	const gate = checkDocsLane("code-reviewer", ["Docs/**"]);
+	const gate = checkDocsLane("reviewer", ["Docs/**"]);
 	assert.match(gate.message, /review_reason/);
 	assert.match(gate.message, /also touches code/);
 });
 
 test("docsLaneNotice tells the dispatcher not to open a review gate", () => {
-	const notice = docsLaneNotice("documenter", ["Docs/**"]);
+	const notice = docsLaneNotice("editor", ["Docs/**"]);
 	assert.match(notice, /Docs lane/);
 	assert.match(notice, /do not dispatch a reviewer/i);
-	assert.equal(docsLaneNotice("documenter", ["src/**"]), null);
-	assert.equal(docsLaneNotice("code-reviewer", ["Docs/**"]), null, "reviewers are refused, not notified");
+	assert.equal(docsLaneNotice("editor", ["src/**"]), null);
+	assert.equal(docsLaneNotice("reviewer", ["Docs/**"]), null, "reviewers are refused, not notified");
 });
 
 test("docsLaneNotice defers to a required process review instead of advising premature closure", () => {

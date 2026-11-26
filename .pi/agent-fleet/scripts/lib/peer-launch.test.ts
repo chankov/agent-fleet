@@ -215,6 +215,53 @@ test("peer args reject typos instead of dropping them", () => {
 	assert.throws(() => parsePeerArgs(["r", "--direction", "sideways"]), /--direction expects right or down/);
 });
 
+// ━━ read-only peers (PLAN-11-01, decision D3) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const READ_ONLY_YAML = `
+review:
+  - name: code-reviewer
+    runner: claude-code
+    read_only: true
+  - name: researcher
+    persona: researcher
+    model: openai-codex/gpt-6-luna
+    read_only: true
+`;
+
+test("a read_only declaration selects the read-only launch for both runners", () => {
+	const claude = buildPeerLaunchPlan({ name: "code-reviewer", project: "af" }, ctx({ peersYaml: READ_ONLY_YAML }));
+	assert.equal(claude.readOnly, true);
+	assert.deepEqual(claude.command, ["just", "_claude-peer-read-only", "code-reviewer", "", "", "af"]);
+	const pi = buildPeerLaunchPlan({ name: "researcher" }, ctx({ peersYaml: READ_ONLY_YAML }));
+	assert.equal(pi.readOnly, true);
+	assert.deepEqual(pi.command, ["just", "_peer-read-only", "researcher", "researcher", "openai-codex/gpt-6-luna"]);
+});
+
+test("--read-only requests the same launch for an undeclared peer; without it nothing changes", () => {
+	assert.deepEqual(parsePeerArgs(["r", "--read-only"]), { name: "r", readOnly: true, dryRun: false });
+	const pi = buildPeerLaunchPlan({ name: "researcher", readOnly: true }, ctx());
+	assert.deepEqual(pi.command, ["just", "_peer-read-only", "researcher", "researcher"]);
+	const claude = buildPeerLaunchPlan({ name: "scratch", runner: "claude-code", readOnly: true }, ctx());
+	assert.deepEqual(claude.command, ["just", "_claude-peer-read-only", "scratch"]);
+
+	const plain = buildPeerLaunchPlan({ name: "researcher" }, ctx());
+	assert.equal(Object.hasOwn(plain, "readOnly"), false, "the default plan keeps its old shape");
+	assert.deepEqual(plain.command, ["just", "_peer", "researcher", "researcher"]);
+	assert.deepEqual(buildPeerLaunchPlan({ name: "code-reviewer", project: "af" }, ctx()).command, ["just", "_claude-peer", "code-reviewer", "", "", "af"]);
+});
+
+test("read-only refuses shapes that cannot carry an enforced tool set", () => {
+	assert.throws(() => buildPeerLaunchPlan({ name: "architect", readOnly: true }, ctx()), /read-only launches exist for persona peers/);
+	assert.throws(
+		() => buildPeerLaunchPlan({ name: "web-debugger", readOnly: true }, ctx()),
+		/read_only: true cannot combine with extensions/,
+	);
+	assert.throws(
+		() => buildPeerLaunchPlan({ name: "researcher" }, ctx({ peersYaml: "t:\n  - name: researcher\n    persona: researcher\n    read_only: yes\n" })),
+		/Invalid read_only/,
+	);
+});
+
 // ━━ Claude Code executable preflight ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 test("Claude Code preflight accepts a runnable version command", () => {
