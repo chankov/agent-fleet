@@ -776,7 +776,7 @@ export default function (pi) {
 			assert.doesNotMatch(result.stdout, /Native roster|teams\.yaml/);
 			assert.match(`${result.stdout}\n${result.stderr}`, /--work-mode .* is ignored/);
 			const active = JSON.parse(readFileSync(capturePath, "utf8"));
-			for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(active.includes(tool), `${tool} should be active (${workMode})`);
+			for (const tool of ["read", "bash", "edit", "write", "dispatch_agent", "spawn_research", "poll_panel", "debate_panel"]) assert.ok(active.includes(tool), `${tool} should be active (${workMode})`);
 			for (const tool of ["set_assertions"]) assert.ok(!active.includes(tool), `${tool} should be inactive on greeting`);
 		}
 	} finally {
@@ -808,7 +808,7 @@ export default function (pi) {
 		}
 
 		const operator = await rpc.activeTools();
-		for (const tool of ["read", "bash", "edit", "write", "ask_user", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
+		for (const tool of ["read", "bash", "edit", "write", "ask_user", "dispatch_agent", "spawn_research", "poll_panel", "debate_panel"]) assert.ok(operator.includes(tool), `${tool} should be active for operator`);
 		for (const tool of ["set_assertions"]) assert.ok(!operator.includes(tool), `${tool} should be inactive for operator greeting`);
 		for (const gated of ["coms_send", "herdr_spawn_peer", "herdr_spawn_pane"]) {
 			assert.ok(!operator.includes(gated), `${gated} should stay gated when unavailable`);

@@ -21,7 +21,7 @@ test("the Hub has one work mode: the operator keeps direct tools and its fleet, 
 	assert.equal(f.policy.getWorkMode(), "operator");
 	f.policy.resolveIncomingCapabilities("");
 	f.policy.applyWorkModeTools();
-	for (const tool of ["read", "edit", "dispatch_agent", "spawn_research", "poll_panel"]) assert.ok(f.tools().includes(tool), tool);
+	for (const tool of ["read", "edit", "dispatch_agent", "spawn_research", "poll_panel", "debate_panel"]) assert.ok(f.tools().includes(tool), tool);
 	assert.equal(f.catalogChanges.at(-1).toMode, "operator");
 	assert.match(f.policy.statusText(), /Work Mode: operator\nDirect tools: enabled/);
 	assert.match(f.policy.statusText(), /Specialists: \d+ \(editor, reviewer/);

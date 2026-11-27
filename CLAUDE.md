@@ -47,7 +47,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
-**Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
+**Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), debate (operator guidance for `debate_panel` / `/af-debate`: frame one decision, read positions and dissent, decide or escalate — no judge; required by the Hub), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching an `editor` with the `documentation` practice)
 **Meta:** drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
 

@@ -142,6 +142,7 @@
         "pi-harness:damage-control-continue",
         "skill:code-review-and-quality",
         "skill:compound-learning",
+        "skill:debate",
         "skill:debugging-and-error-recovery",
         "skill:git-workflow-and-versioning",
         "skill:incremental-implementation",
@@ -1729,7 +1730,8 @@
         "persona:researcher",
         "persona:reviewer",
         "pi-harness:ask-user-remote",
-        "pi-harness:damage-control-continue"
+        "pi-harness:damage-control-continue",
+        "skill:debate"
       ]
     },
     {
@@ -2348,6 +2350,31 @@
       },
       "companions": [
         "reference:prompting-patterns"
+      ]
+    },
+    {
+      "id": "skill:debate",
+      "kind": "skill",
+      "group": "skills",
+      "subcategory": "orchestrate",
+      "title": "debate",
+      "summary": "Guides the Hub operator through a model-panel Debate — choosing it over research or a Poll, framing one self-containe…",
+      "recommended": true,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "skills/debate"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/skills/debate",
+          "strategy": "copy-tree"
+        }
+      },
+      "pinnedBy": [
+        "pi-harness:agent-hub"
       ]
     },
     {

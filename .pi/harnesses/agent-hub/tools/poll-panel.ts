@@ -30,7 +30,7 @@ export function registerPollPanel(pi: ExtensionAPI, deps: PollPanelDeps): void {
 		parameters: Type.Object({
 			question: Type.String({ minLength: 1, description: "Self-contained English question with options; paths, not bodies." }),
 			panel: Type.Optional(Type.String({ description: POLL_PANEL_PARAM_HELP })),
-			persona: Type.Optional(Type.String({ description: "Voice persona; default researcher." })),
+			persona: Type.Optional(Type.String({ description: "researcher (default) | reviewer" })),
 		}, { additionalProperties: false }),
 		execute(_toolCallId, raw, _signal, onUpdate, ctx) {
 			return executePollPanel(deps, raw as PollPanelParams, onUpdate as any, ctx);

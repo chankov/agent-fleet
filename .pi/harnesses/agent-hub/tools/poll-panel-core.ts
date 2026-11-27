@@ -12,7 +12,7 @@ export interface PollPanelDeps {
 }
 
 export const POLL_PANEL_DESCRIPTION =
-	"Ask the model panel one decision question in parallel; an integrator merges the opinions. For decisions, not facts. Read-only.";
+	"Ask the model panel one decision question in parallel; an integrator merges the opinions. Decisions, not facts; read-only.";
 /** Parameter help states the same precedence `/af-poll --panel` uses. */
 export const POLL_PANEL_PARAM_HELP = "Panel name. Omitted: configured poll-panel, else the panel named default. Unknown names fail.";
 /** How the tool names a panel in selection diagnostics. */

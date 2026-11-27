@@ -21,5 +21,6 @@ create	reference:security-checklist
 create	skill:test-driven-development
 create	reference:testing-patterns
 create	skill:compound-learning
+create	skill:debate
 create	skill:debugging-and-error-recovery
 create	skill:git-workflow-and-versioning

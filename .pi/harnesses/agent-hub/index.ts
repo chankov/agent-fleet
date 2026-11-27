@@ -120,7 +120,9 @@ import type { CommandContext } from "./commands/context.ts";
 import { presentAfPollCommand, runAfPoll, type AfPollHandleInput } from "./poll-command.ts";
 import { hubPollWorkflowPorts } from "./poll-runtime.ts";
 import { pollBlockWidget, POLL_PANEL_SELECT, registerPollPanel } from "./tools/poll-panel.ts";
-import { formatAfDebateStarted, formatAfDebateVoiceProgress, handleAfDebate } from "./debate-command.ts";
+import { presentAfDebateCommand, runAfDebate, type AfDebateHandleInput } from "./debate-command.ts";
+import { hubDebateWorkflowPorts } from "./debate-runtime.ts";
+import { DEBATE_PANEL_ROUNDS, DEBATE_PANEL_SELECT, debateBlockWidget, registerDebatePanel } from "./tools/debate-panel.ts";
 import { registerDispatchAgent } from "./tools/dispatch-agent.ts";
 import { registerSpawnResearch } from "./tools/spawn-research.ts";
 import { registerRunFlow } from "./tools/run-flow.ts";
@@ -1285,12 +1287,11 @@ export default function (pi: ExtensionAPI) {
 			return { charged: true, operation: "research", owner: "hub" };
 		},
 	});
-	/** Panel poll ports shared by `/af-poll` and `poll_panel`; target, roster and workers live in poll-runtime.ts. */
-	function hubPollPorts(ctx: ExtensionContext, command: "/af-poll" | "poll_panel"): Omit<AfPollHandleInput, "args"> {
+	/** What Poll and Debate share: the working directory, the configured panel and one dispatch charge per run. */
+	function hubPanelPorts(ctx: ExtensionContext): Pick<AfPollHandleInput, "cwd" | "configuredPanel" | "checkBudget" | "chargeBudget"> {
 		return {
 			cwd: ctx.cwd || process.cwd(),
 			configuredPanel: workspace => readActiveProfile()?.name ?? parseAgentTeamOverrides(workspace).pollPanel,
-			...hubPollWorkflowPorts({ command }),
 			checkBudget: async () => {
 				ensureTaskTier();
 				return null;
@@ -1303,10 +1304,22 @@ export default function (pi: ExtensionAPI) {
 			},
 		};
 	}
+	/** Panel poll ports shared by `/af-poll` and `poll_panel`; target, roster and workers live in poll-runtime.ts. */
+	function hubPollPorts(ctx: ExtensionContext, command: "/af-poll" | "poll_panel"): Omit<AfPollHandleInput, "args"> {
+		return { ...hubPanelPorts(ctx), ...hubPollWorkflowPorts({ command }) };
+	}
 
 	registerPollPanel(pi, {
 		blocked: () => provisionalCapabilityRefusal("fleet")?.content[0]?.text ?? null,
 		run: (params, ctx, onProgress) => withProfileWork(() => runAfPoll({ ...params, ...hubPollPorts(ctx, "poll_panel"), selectHint: POLL_PANEL_SELECT, onProgress })),
+	});
+	/** Debate ports shared by `/af-debate` and `debate_panel`; target, roster and rounds live in debate-runtime.ts. */
+	function hubDebatePorts(ctx: ExtensionContext, command: "/af-debate" | "debate_panel"): AfDebateHandleInput {
+		return { ...hubPanelPorts(ctx), ...hubDebateWorkflowPorts({ command }) };
+	}
+	registerDebatePanel(pi, {
+		blocked: () => provisionalCapabilityRefusal("fleet")?.content[0]?.text ?? null,
+		run: (params, ctx, onProgress) => withProfileWork(() => runAfDebate({ ...params, ...hubDebatePorts(ctx, "debate_panel"), selectHint: DEBATE_PANEL_SELECT, roundsHint: DEBATE_PANEL_ROUNDS, onProgress })),
 	});
 	registerSetTaskTier(pi, toolCtx);
 	registerVerificationContract(pi, toolCtx);
@@ -1681,98 +1694,11 @@ export default function (pi: ExtensionAPI) {
 			}));
 		},
 		handleDebate: async (args, ctx) => {
-			return withProfileWork(async () => {
-			const cwd = ctx.cwd || process.cwd();
-			const result = await handleAfDebate({
-				args: args ?? "",
-				cwd,
-				pollPanelOverride: readActiveProfile()?.name ?? parseAgentTeamOverrides(cwd).pollPanel,
-				listPanels: async dir => {
-					const { listPanelNames } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-					return listPanelNames(dir);
-				},
-				preflight: async ({ panel, persona, cwd: root }) => {
-					const [{ resolvePersona }, { resolvePanel }, { checkChildVisibility }] = await Promise.all([
-						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/voices.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/model-visibility.ts"),
-					]);
-					try { resolvePersona(persona, root); }
-					catch (error) { return error instanceof Error ? error.message : String(error); }
-					let voices;
-					try { voices = resolvePanel(panel, root); }
-					catch (error) { return error instanceof Error ? error.message : String(error); }
-					const report = checkChildVisibility(voices.map(voice => voice.model));
-					if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
-					const hidden = report.models.filter(model => !model.ok);
-					if (hidden.length) {
-						return `panel "${panel}" has models not visible to a clean-room child: ${hidden.map(model => model.reasons[0] ?? model.model).join("; ")}`;
-					}
-					return null;
-				},
-				checkBudget: async () => {
-					ensureTaskTier();
-					return null;
-				},
-				chargeBudget: () => {
-					turnDispatchCount += 1;
-					taskDispatchCount += 1;
-					sessionTotals.dispatches += 1;
-					updateModeStatus();
-				},
-				onAccepted: async ({ panel, persona, question, rounds }) => {
-					let voices: { name: string; model: string }[] = [];
-					try {
-						const { resolvePanel } = await import("../../agent-fleet/scripts/workflows/lib/voices.ts");
-						voices = resolvePanel(panel, cwd).map(voice => ({ name: voice.name, model: voice.model }));
-					} catch { /* names are decorative */ }
-					const started = formatAfDebateStarted({ panel, persona, question, rounds, voices });
-					ctx.ui.setStatus("hub-poll", `Debate: ${panel} (${rounds} rounds) running…`);
-					ctx.ui.notify(`Debate started — panel ${panel}, ${rounds} rounds.`, "info");
-					pi.sendMessage({ customType: "af-debate-started", content: started, display: true }, { deliverAs: "followUp", triggerTurn: false });
-				},
-				execute: async ({ panel, persona, question, rounds }) => {
-					const [{ Run }, { runDebate }, { resolvePersona }] = await Promise.all([
-						import("../../agent-fleet/scripts/workflows/lib/run.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/debate.ts"),
-						import("../../agent-fleet/scripts/workflows/lib/personas.ts"),
-					]);
-					const run = new Run({ cwd, command: ["/af-debate", "--panel", panel, "--rounds", String(rounds), question] });
-					const personaDef = resolvePersona(persona, cwd);
-					const debate = await runDebate({
-						run, cwd, persona: personaDef, panel, task: question, rounds,
-						onVoice: (result, round) => {
-							const voice = result.ok
-								? { name: result.voice.name, model: result.voice.model, ok: true as const, round, position: result.report.position, changed: result.report.changed }
-								: { name: result.voice.name, model: result.voice.model, ok: false as const, round, reason: result.reason };
-							ctx.ui.setStatus("hub-poll", `Debate: ${panel} round ${round}…`);
-							pi.sendMessage({ customType: "af-debate-voice", content: formatAfDebateVoiceProgress(voice), display: true }, { deliverAs: "followUp", triggerTurn: false });
-						},
-					});
-					const last = debate.roundsRun.at(-1)?.results ?? [];
-					const directory = path.relative(cwd, debate.directory) || debate.directory;
-					return {
-						panel, rounds: debate.rounds,
-						directory: directory.endsWith(path.sep) ? directory : `${directory}${path.sep}`,
-						voices: last.map(item => item.ok
-							? { name: item.voice.name, model: item.voice.model, ok: true as const, round: item.round, position: item.report.position, changed: item.report.changed }
-							: { name: item.voice.name, model: item.voice.model, ok: false as const, round: item.round, reason: item.reason }),
-					};
-				},
-			});
-			ctx.ui.setStatus("hub-poll", "");
-			if (!result.ok) {
-				ctx.ui.notify(result.message, "error");
-				pi.sendMessage({ customType: "af-debate-failed", content: `DEBATE FAILED\n\n${result.message}`, display: true }, { deliverAs: "followUp", triggerTurn: false });
-				return;
-			}
-			ctx.ui.notify(result.digest ?? result.message, "info");
-			pi.sendMessage({
-				customType: "af-debate",
-				content: result.dispatcherNote ?? result.message,
-				display: true,
-			}, { deliverAs: "followUp", triggerTurn: true });
-			});
+			// Same presentation as /af-poll: a live widget redrawn in place, then one outcome entry.
+			await withProfileWork(() => presentAfDebateCommand({ args: args ?? "", ...hubDebatePorts(ctx, "/af-debate") }, {
+				show: debateBlockWidget(ctx.ui),
+				send: (message, options) => pi.sendMessage(message, options),
+			}));
 		},
 		getAgentsKillCompletions: prefix => completions.agentsKill(prefix),
 		getZoomCompletions: prefix => completions.zoom(prefix),

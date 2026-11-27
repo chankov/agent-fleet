@@ -6,6 +6,7 @@
     "coms_get",
     "coms_list",
     "coms_send",
+    "debate_panel",
     "dispatch_agent",
     "dispatch_triage",
     "filesystem",

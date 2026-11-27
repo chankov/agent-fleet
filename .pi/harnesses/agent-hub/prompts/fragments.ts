@@ -7,23 +7,21 @@ export function askUserFragment(askUserAvailable: boolean, userLanguage: string)
 	return `## Decision routing
 ${DECISION_ROUTING}
 ${askUserAvailable
- ? `Use \`ask_user\` for human decisions in ${userLanguage}. Read its current schema and give 2–6 options when enumerable.`
- : `Ask in chat in ${userLanguage}.`}
-Ask one focused question with context and options when useful. Wait for an explicit human answer before dependent work. Silence is not approval.`;
+ ? `Use \`ask_user\` for human decisions in ${userLanguage}: one focused question with context and 2–6 options when enumerable.`
+ : `Ask in chat in ${userLanguage}: one focused question with context and options when useful.`}
+Wait for an explicit human answer before dependent work. Silence is not approval.`;
 }
 
 export function dispatchFragment(fleetActive: boolean): string {
 	if (!fleetActive) return "";
-	return `- Missing repository facts are not ambiguities: use \`spawn_research\` or listed \`filesystem\` stat/inventory/excerpt/readback. Use stat and bounded excerpts of large files with offset/max_bytes; the 64 KiB aggregate turn limit still applies. Choose a research helper when it adds value, not merely because the file is large. Never invent constraints. ${ORCHESTRATOR_CLARIFICATION}
-- Reuse completed independent review of unchanged scope and requirements. A new review focus needs an explicit review_reason; rewording alone is not a reason for another auditor. Older successful coordination results and inspection pages become references to exact originals. Recent working pages, questions and failures remain complete; retrieve originals when details matter. Requirements stay in the current task capsule.
-- Planning and plan review are optional at every task size and risk. Follow an existing plan directly and use Decision routing for unresolved material decisions. Never start a planning/review pipeline merely because the task is wide, high-risk or lacks a plan.
+	return `- Missing repository facts are not ambiguities: use \`spawn_research\` or listed \`filesystem\` stat/inventory/excerpt/readback. Choose a research helper when it adds value, not merely because the file is large. Never invent constraints. ${ORCHESTRATOR_CLARIFICATION}
+- Reuse completed independent review of unchanged scope and requirements. A new review focus needs an explicit review_reason; rewording alone is not a reason for another auditor. Older results become references to exact originals; retrieve them when details matter. Requirements stay in the current task capsule.
+- Planning and plan review are optional at every size and risk: follow an existing plan directly, and never start a planning/review pipeline merely because the task is wide, high-risk or lacks a plan.
 - Trivial/small refuses architecture and security-review assignments without charging. Use the working assignment, or raise tier with an honest reason first. Never repeat an unchanged refusal.
 - Only use an assertion ledger/proven status when \`set_assertions\` is active; its absence means the tier has not opened verification, not acceptance.
 - Use \`dispatch_agent\` for one focused task; clarification/research and file-deliverable protocols are added automatically. Pass optional \`artifacts\` paths, never full plan/review/inventory bodies.
-- Returns: parsed \`details.structuredReturn\`/\`details.contractNotices\`, raw \`details.returnPath\`/\`details.fullOutput\`. Read via a helper only if digest/path is insufficient. Check every return for questions. specialistCompletion describes the worker report; taskAccepted is the independent runtime verdict. A submitted report alone never proves completion.`;
+- Returns: parsed \`details.structuredReturn\`/\`contractNotices\`, raw \`details.returnPath\`/\`fullOutput\`; read the path only if the digest is insufficient. Check every return for questions. specialistCompletion is the worker's report; taskAccepted is the runtime verdict, and a report alone never proves completion.`;
 }
-
-export const AMBIGUITY_RULE = "- For unresolved material decisions, follow Decision routing and wait for the human answer before dependent work.";
 
 export function languageFragment(userLanguage: string, fleetActive: boolean): string {
 	const language = `- Use **${userLanguage}** for all user-facing messages, including question text and context.`;

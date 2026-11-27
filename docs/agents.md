@@ -219,6 +219,37 @@ routes:
 See [claude-code-coms-bridge.md](claude-code-coms-bridge.md) for a Claude Code
 reviewer peer.
 
+## Roles as panel voices
+
+Poll and Debate ask every voice of a model panel (`.pi/agents/voices.yaml`, or the
+active model profile's panel) the same decision question. Both are the operator's,
+never a delegate's: Poll through `poll_panel` or `/af-poll`, Debate through
+`debate_panel` or `/af-debate`.
+
+```js
+debate_panel({ question: "Decision: … Alternatives: (A) … (B) … Objection to test: … Evidence: src/a.ts, docs/adr/0007.md. Constraints: …",
+  persona: "reviewer", rounds: 3 })
+```
+
+- A voice runs as `researcher` (the default) or `reviewer`, always read-only.
+  `editor` is refused because a voice never writes, and a retired persona name is
+  refused with its mapping. The rule is the same for both entry points of Poll and
+  Debate.
+- Both select the panel the same way: an explicit name, then the configured panel,
+  then a panel named `default`. Voices inspect the session's assigned checkout
+  (`just fleet --worktree <path>` from a non-Git Fleet workspace). A preflight
+  refusal starts no voice.
+- Debate runs 2–5 rounds (default 3). Round 1 positions are independent; later
+  rounds show each voice the others' labelled positions. The result lists each
+  final position, which voice changed in which round and the evidence that moved
+  it, the open disagreements, failed voices and incomplete rounds, and the round
+  artifacts. There is no judge: the operator decides, records the decision in the
+  task brief, and refers a reserved decision to the human.
+
+The [debate](../skills/debate/SKILL.md) skill is the operator's guidance for
+choosing between research, Poll and Debate and for acting on the result. It is
+not a practice. The Hub requires it, so it installs with the roles.
+
 ## Customizing a role
 
 Only the three role names are dispatched. A workspace file with a role's name

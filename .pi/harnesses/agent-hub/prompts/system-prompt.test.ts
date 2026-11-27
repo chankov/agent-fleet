@@ -104,7 +104,8 @@ test("full extracted Hub prompt preserves exact text, ordering, and ledger", () 
 	assert.ok(built.systemPrompt.indexOf("## Language") < built.systemPrompt.indexOf("## Hard Rules"));
 	assert.match(built.systemPrompt, /`dispatch_triage`, when listed, is optional advice; never a gate or permission/);
 	assert.match(built.systemPrompt, /For actual human answers use USER_ANSWER: <dispatchId> :: <question>/);
-	assert.match(built.systemPrompt, /bounded excerpts of large files/);
+	// The filesystem tool's own description carries the stat/offset/max_bytes excerpt rule.
+	assert.match(built.systemPrompt, /Choose a research helper when it adds value, not merely because the file is large/);
 	assert.match(built.systemPrompt, /Never repeat an unchanged refusal/);
 	assert.match(built.systemPrompt, /absence means the tier has not opened verification, not acceptance/);
 	assert.match(built.systemPrompt, /Inspect|Check every return for questions/);

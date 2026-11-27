@@ -36,7 +36,7 @@ manifest; they are declarations to maintain, not a separate source of truth.
 Two kinds of native skills exist:
 
 - **Fleet-original skills** with no upstream counterpart:
-  `_internal/`, `compound-learning/`, `designing-agents/`,
+  `_internal/`, `compound-learning/`, `debate/`, `designing-agents/`,
   `orchestration-verification/`, `peer-coms/`.
 - **Forked-and-customized skills** that shadow an upstream name. These
   carry deliberate Agent Fleet policy edits (agent operating rules, review

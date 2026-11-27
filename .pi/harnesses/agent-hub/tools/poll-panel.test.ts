@@ -86,9 +86,9 @@ type Update = { content: { type: "text"; text: string }[]; details: { status: st
 
 test("poll_panel is a fleet tool described for decisions, not facts, with the panel precedence in its help", () => {
 	assert.ok((FLEET_TOOLS as readonly string[]).includes("poll_panel"));
-	assert.match(POLL_PANEL_DESCRIPTION, /decisions, not facts/);
+	assert.match(POLL_PANEL_DESCRIPTION, /Decisions, not facts/);
 	assert.match(OPERATOR_DELEGATION_GUIDE, /poll_panel/);
-	assert.match(OPERATOR_DELEGATION_GUIDE, /Never poll facts/);
+	assert.match(OPERATOR_DELEGATION_GUIDE, /Never poll or debate facts/);
 	assert.match(POLL_PANEL_PARAM_HELP, /configured poll-panel, else the panel named default\. Unknown names fail/);
 });
 

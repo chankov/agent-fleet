@@ -8,8 +8,8 @@ import {
 	HUB_POLL_DEFAULT_PERSONA,
 	parseAfPollArgs,
 	presentAfPollCommand,
-	resolveAfPollPanel,
 	resolvePollPanel,
+	resolveVoicePersona,
 	type AfPollHandleInput,
 	type AfPollMessage,
 } from "./poll-command.ts";
@@ -32,14 +32,6 @@ test("parseAfPollArgs refuses a missing question and a dangling flag", () => {
 	assert.match(parseAfPollArgs("--panel").error ?? "", /--panel requires a panel name/);
 	assert.match(parseAfPollArgs("--panel --persona builder q").error ?? "", /--panel requires a panel name/);
 	assert.match(parseAfPollArgs("").error ?? "", /Usage: \/af-poll/);
-});
-
-test("resolveAfPollPanel keeps Debate's selection for this slice: explicit, then configured, else a refusal", () => {
-	assert.deepEqual(resolveAfPollPanel("default", "other", ["default", "cheap"]), { panel: "default" });
-	assert.deepEqual(resolveAfPollPanel(undefined, "cheap", ["default", "cheap"]), { panel: "cheap" });
-	assert.match(resolveAfPollPanel(undefined, undefined, ["default"]).error ?? "", /--panel is required/);
-	assert.match(resolveAfPollPanel(undefined, undefined, ["default"]).error ?? "", /Available panels: default/);
-	assert.match(resolveAfPollPanel("missing", undefined, ["default"]).error ?? "", /Unknown panel "missing"/);
 });
 
 test("resolvePollPanel: explicit beats configured, configured beats default, default fills in alone", () => {
@@ -306,4 +298,26 @@ test("runAfPoll refuses a target failure as one diagnostic before roster, prefli
 	assert.equal(sent.length, 1);
 	assert.match(sent[0].message.content, /no assigned worktree/);
 	assert.equal(shown.filter(Boolean).length >= 1, true);
+});
+
+test("voice persona (D25): only the read-only roles speak; a retired name shows its mapping", () => {
+	assert.deepEqual(resolveVoicePersona(undefined), { persona: "researcher" });
+	assert.deepEqual(resolveVoicePersona(" REVIEWER "), { persona: "reviewer" });
+	assert.match((resolveVoicePersona("code-reviewer") as { error: string }).error, /"code-reviewer" is a retired persona \(now agent "reviewer" with practices \["independent-review"\]/);
+	assert.match((resolveVoicePersona("editor") as { error: string }).error, /cannot be a panel voice/);
+	assert.match((resolveVoicePersona("x") as { error: string }).error, /Unknown persona "x"\. A panel voice is read-only: use persona "researcher" \(default\) or "reviewer"\./);
+});
+
+test("/af-poll refuses a retired or editor persona before anything runs", async () => {
+	for (const persona of ["builder", "editor"]) {
+		const calls: string[] = [];
+		const result = await handleAfPoll({
+			args: `--persona ${persona} which cache?`, cwd: "/repo", listPanels: () => { calls.push("list"); return ["default"]; },
+			checkBudget: () => null, chargeBudget: () => { calls.push("charge"); },
+			execute: async () => { calls.push("execute"); throw new Error("unreachable"); },
+		});
+		assert.equal(result.ok, false);
+		assert.match(result.message, /panel voice is read-only/);
+		assert.deepEqual(calls, []);
+	}
 });

@@ -339,7 +339,7 @@ See **[native MCP setup](docs/codex-local-mcp.md)**, **[text/voice workflow](doc
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to three runtime roles — `researcher`, `reviewer`, `editor` — embedded `coms`, and `damage-control-continue` guardrails. Each assignment combines practices (`planning`, `implementation`, `testing`, `security`, …) that add method and evidence, never authority. The operator decides when to delegate: distinct research questions run in parallel, non-trivial changes get an independent review, `poll_panel` asks the model panel for decisions, and editors can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The `release` practice prepares a release; publishing needs separate explicit permission. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
+Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to three runtime roles — `researcher`, `reviewer`, `editor` — embedded `coms`, and `damage-control-continue` guardrails. Each assignment combines practices (`planning`, `implementation`, `testing`, `security`, …) that add method and evidence, never authority. The operator decides when to delegate: distinct research questions run in parallel, non-trivial changes get an independent review, `poll_panel` asks the model panel for independent opinions on a decision, `debate_panel` cross-examines a decision across that panel for 2–5 rounds (no judge; the operator decides), and editors can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The `release` practice prepares a release; publishing needs separate explicit permission. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 
@@ -408,7 +408,7 @@ Slash commands map to the development lifecycle; each activates the right skills
 | Orchestrate agents | *agent-hub harness* | The operator dispatches roles with practices |
 | Capture session lessons | `/af-compound` *(agent-hub)* | Every session improves the next |
 
-Under the hood are **30 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
+Under the hood are **31 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
 - **Define:** [interview-me](skills/interview-me/SKILL.md) · [idea-refine](skills/idea-refine/SKILL.md) · [spec-driven-development](skills/spec-driven-development/SKILL.md)
 - **Plan:** [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) · [constraint-driven-development](skills/constraint-driven-development/SKILL.md)
@@ -416,7 +416,7 @@ Under the hood are **30 skills** — each a structured workflow with steps, veri
 - **Verify:** [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) · [debugging-and-error-recovery](vendor/agent-skills-upstream/skills/debugging-and-error-recovery/SKILL.md)
 - **Review:** [code-review-and-quality](skills/code-review-and-quality/SKILL.md) · [code-simplification](vendor/agent-skills-upstream/skills/code-simplification/SKILL.md) · [security-and-hardening](skills/security-and-hardening/SKILL.md) · [performance-optimization](skills/performance-optimization/SKILL.md)
 - **Ship:** [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) · [ci-cd-and-automation](vendor/agent-skills-upstream/skills/ci-cd-and-automation/SKILL.md) · [deprecation-and-migration](skills/deprecation-and-migration/SKILL.md) · [documentation-and-adrs](vendor/agent-skills-upstream/skills/documentation-and-adrs/SKILL.md) · [observability-and-instrumentation](vendor/agent-skills-upstream/skills/observability-and-instrumentation/SKILL.md) · [shipping-and-launch](vendor/agent-skills-upstream/skills/shipping-and-launch/SKILL.md)
-- **Orchestrate:** [orchestration-verification](skills/orchestration-verification/SKILL.md) · [peer-coms](skills/peer-coms/SKILL.md)
+- **Orchestrate:** [orchestration-verification](skills/orchestration-verification/SKILL.md) · [debate](skills/debate/SKILL.md) · [peer-coms](skills/peer-coms/SKILL.md)
 - **Learn:** [compound-learning](skills/compound-learning/SKILL.md) · **Meta:** [using-agent-skills](skills/using-agent-skills/SKILL.md) · [designing-agents](skills/designing-agents/SKILL.md)
 
 Workspace onboarding uses the deterministic `setup`, `doctor`, and `uninstall` CLI lifecycle.
@@ -458,7 +458,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) | Canonical project direction: deterministic methodology, proportional workflows, adaptive model assistance, and evidence-based completion |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime layers, fleet hierarchy, module map, external dependencies |
 | [docs/getting-started.md](docs/getting-started.md) | First session walkthrough |
-| [docs/skills-catalog.md](docs/skills-catalog.md) | All 29 skills with descriptions and triggers |
+| [docs/skills-catalog.md](docs/skills-catalog.md) | All 31 skills with descriptions and triggers |
 | [docs/agents.md](docs/agents.md) | The three runtime roles and eleven practices: dispatch examples, models, peers, migration mapping |
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-role and per-practice models, dispatcher language, rules/docs targets |

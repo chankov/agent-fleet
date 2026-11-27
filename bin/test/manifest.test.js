@@ -260,6 +260,19 @@ test("the Hub requires all three roles, and each role is pinned by it (D7)", () 
   assert.deepEqual(manifest.items.find((i) => i.id === "skill:compound-learning").recommendsWith, ["command:compound", "persona:editor"]);
 });
 
+test("the Hub requires the debate skill, which it pins like a role (D28)", () => {
+  const hub = manifest.items.find((i) => i.id === "pi-harness:agent-hub");
+  const debate = manifest.items.find((i) => i.id === "skill:debate");
+  assert.ok(hub.requires.includes("skill:debate"), "pi-harness:agent-hub requires skill:debate");
+  assert.deepEqual(debate.pinnedBy, ["pi-harness:agent-hub"]);
+  assert.equal(debate.subcategory, "orchestrate");
+  assert.equal(debate.recommended, true);
+  assert.equal(debate.agents.pi.target, ".pi/skills/debate");
+  assert.ok(manifest.presets.default.items.includes("skill:debate"), "the default preset installs it");
+  const { selected } = resolveSelection(manifest, "pi", { items: ["pi-harness:agent-hub"] });
+  assert.ok(selected.includes("skill:debate"), "selecting the Hub installs skill:debate");
+});
+
 test("roles are copied verbatim — agents/*.md is already pi's own dialect", () => {
   const item = manifest.items.find((i) => i.id === "persona:editor");
   assert.deepEqual(Object.keys(item.agents), ["pi"]);

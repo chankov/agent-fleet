@@ -158,14 +158,14 @@ zombie runners after the race (tear down explicitly); racing where lanes share s
 **Protocol:** resolve a named panel from `.pi/agents/voices.yaml` → spawn every voice read-only in parallel → write each full opinion to disk → return only a bounded digest upward. Debate additionally feeds the previous round's labeled packet into the next turn of the same per-voice session. There is no judge. Voices never write to each other. With `--apply`, only the poll integrator may write, and only while holding a cross-process writer lease.
 
 **In this repo (live):**
-- `/af-poll` and `just flow poll --panel default "…"` — independent opinions plus integrator merge.
-- `/af-debate` and `just flow debate --panel default --rounds 3 "…"` — harness-mediated rounds, no merge.
+- `/af-poll`, the operator's `poll_panel` tool and `just flow poll --panel default "…"` — independent opinions plus integrator merge.
+- `/af-debate`, the operator's `debate_panel` tool and `just flow debate --panel default --rounds 3 "…"` — harness-mediated rounds, no merge; the Hub result names who changed position, on what evidence, and the open disagreements. See [the Debate skill](../skills/debate/SKILL.md).
 - Artifacts under `.pi/agent-sessions/artifacts/polls/<runId>/` (debate rounds in `debate/round-<n>/`).
 - Optional communication contract via `append-prompt: references/communication-contract.md` — not loaded automatically.
 
 **Not:** Claude Code Agent Teams. Live teammate messaging is a different composition-layer pattern; see [orchestration-patterns.md](orchestration-patterns.md).
 
-**Failure modes:** missing `--panel` (refusal listing available names); a foreign-opinion packet over the hard byte cap (refusal with the named size, never truncation); fewer than two successful voices; `--apply` while another live owner holds the writer lease (refusal naming that owner's command).
+**Failure modes:** no resolvable panel (refusal listing available names; the Hub entry points fall back to the configured panel, then `default`, while `just flow` requires `--panel`); a foreign-opinion packet over the hard byte cap (refusal with the named size, never truncation); fewer than two successful voices; `--apply` while another live owner holds the writer lease (refusal naming that owner's command).
 
 ---
 

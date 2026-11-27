@@ -197,6 +197,7 @@
     "skill:code-review-and-quality",
     "skill:git-workflow-and-versioning",
     "skill:orchestration-verification",
+    "skill:debate",
     "skill:compound-learning",
     "skill:using-agent-skills",
     "persona:editor",
@@ -234,6 +235,7 @@
     "skill:observability-and-instrumentation": "ship",
     "skill:shipping-and-launch": "ship",
     "skill:orchestration-verification": "orchestrate",
+    "skill:debate": "orchestrate",
     "skill:compound-learning": "learn",
     "skill:using-agent-skills": "meta",
     "skill:designing-agents": "meta",
@@ -433,6 +435,7 @@
         "persona:editor",
         "persona:researcher",
         "persona:reviewer",
+        "skill:debate",
         "pi-harness:damage-control-continue",
         "pi-harness:ask-user-remote"
       ],
@@ -450,6 +453,12 @@
       ]
     },
     "persona:reviewer": {
+      "pinnedBy": [
+        "pi-harness:agent-hub"
+      ]
+    },
+    "_debate_comment": "The Hub's debate_panel tool and /af-debate are operated by the guidance in skills/debate (PLAN-11-01, D28), so the skill is wired like the roles: `requires` on the Hub and `pinnedBy` on the skill, so uninstall refuses to take it out from under an installed Hub.",
+    "skill:debate": {
       "pinnedBy": [
         "pi-harness:agent-hub"
       ]
@@ -993,6 +1002,7 @@
         "pi-harness:damage-control-continue",
         "skill:code-review-and-quality",
         "skill:compound-learning",
+        "skill:debate",
         "skill:debugging-and-error-recovery",
         "skill:git-workflow-and-versioning",
         "skill:incremental-implementation",

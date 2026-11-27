@@ -18,8 +18,8 @@ from the **`pi-vs-claude-code`** project:
 Ported files retain their original authorship; this repo adapts them to its layout and
 conventions. Runtime design specs for the imported harnesses live in `docs/pi-specs/`.
 
-The model-poll / debate / merge mechanism (`.pi/agents/voices.yaml`, `/af-poll`,
-`/af-debate`, `just flow poll`, `just flow debate`) follows the *form* of
+The model-poll / debate / merge mechanism (`.pi/agents/voices.yaml`, `/af-poll` and
+`poll_panel`, `/af-debate` and `debate_panel`, `just flow poll`, `just flow debate`) follows the *form* of
 [disler/fusion-harness](https://github.com/disler/fusion-harness) (MIT). This repo does
 not vendor that code; the mechanisms are rebuilt on Agent Fleet seams.
 

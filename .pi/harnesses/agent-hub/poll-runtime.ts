@@ -15,7 +15,7 @@ import { Run } from "../../agent-fleet/scripts/workflows/lib/run.ts";
 import { integratorVoice, listPanelNames, resolvePanel } from "../../agent-fleet/scripts/workflows/lib/voices.ts";
 import type { AfPollHandleInput, AfPollTargetResolution, AfPollVoiceDigest } from "./poll-command.ts";
 
-const REFUSED = "Poll refused before any voice started:";
+const refused = (label: PanelRunLabel) => `${label} refused before any voice started:`;
 const START_SELECTED = "Start a new Hub session from the Fleet workspace with `just fleet --worktree <path>` naming the checkout the voices should inspect.";
 
 function message(error: unknown): string {
@@ -43,7 +43,15 @@ function childCheckouts(root: string): string[] {
  * the legacy workspace when it is itself a Git checkout. Missing, invalid, out-of-scope or ambiguous targets
  * return one actionable refusal; child repositories of a non-Git workspace are never guessed.
  */
+export type PanelRunLabel = "Poll" | "Debate";
+
 export function resolvePollTarget(cwd: string): AfPollTargetResolution {
+	return resolvePanelTarget(cwd, "Poll");
+}
+
+/** The same Git target rule for Debate; only the wording of the refusal names the entry point. */
+export function resolvePanelTarget(cwd: string, label: PanelRunLabel): AfPollTargetResolution {
+	const REFUSED = refused(label);
 	let roots: ReturnType<typeof sessionRootsFromEnv>;
 	try { roots = sessionRootsFromEnv(); }
 	catch (error) {
@@ -53,7 +61,7 @@ export function resolvePollTarget(cwd: string): AfPollTargetResolution {
 	try { current = realpathSync(cwd); }
 	catch (error) { return { error: `${REFUSED} the working directory ${cwd} is unavailable (${message(error)}).` }; }
 	if (roots && current !== roots.executionRoot) {
-		return { error: `${REFUSED} the working directory ${current} is outside this session's assigned worktree ${roots.executionRoot}. Poll from the assigned worktree, or start a separate session with \`just fleet --worktree <path>\` for the other checkout.` };
+		return { error: `${REFUSED} the working directory ${current} is outside this session's assigned worktree ${roots.executionRoot}. Run it from the assigned worktree, or start a separate session with \`just fleet --worktree <path>\` for the other checkout.` };
 	}
 	if (roots?.mode === "targeted") {
 		// resolveSessionRoots/validateSessionRoots already proved a registered, non-bare checkout root.
@@ -64,7 +72,7 @@ export function resolvePollTarget(cwd: string): AfPollTargetResolution {
 	if (!children.length) {
 		return { error: `${REFUSED} the Fleet workspace ${current} is not a Git repository and this session has no assigned worktree. ${START_SELECTED}` };
 	}
-	return { error: `${REFUSED} the Fleet workspace ${current} is not a Git repository and this session has no assigned worktree; Poll never chooses among its repositories (${children.join(", ")}). ${START_SELECTED} For example: \`just fleet --worktree ${children[0]}\`.` };
+	return { error: `${REFUSED} the Fleet workspace ${current} is not a Git repository and this session has no assigned worktree; ${label} never chooses among its repositories (${children.join(", ")}). ${START_SELECTED} For example: \`just fleet --worktree ${children[0]}\`.` };
 }
 
 function voiceDigest(result: PollVoiceResult): AfPollVoiceDigest {

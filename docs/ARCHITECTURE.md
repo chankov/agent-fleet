@@ -154,7 +154,7 @@ harness. Three independent axes shape that runtime:
 
 | Axis | Choices | What it controls |
 | --- | --- | --- |
-| **Operator** | one | The main agent always keeps the captured `read`/`bash`/`edit`/`write` and approved extension surface plus delegation to the three roles, `poll_panel`, and available coms/Herdr tools. Whether to delegate is its judgment (PHILOSOPHY, 2026-11-11); the former delegate-only `orchestrator` work mode was removed. |
+| **Operator** | one | The main agent always keeps the captured `read`/`bash`/`edit`/`write` and approved extension surface plus delegation to the three roles, `poll_panel`, `debate_panel`, and available coms/Herdr tools. Whether to delegate is its judgment (PHILOSOPHY, 2026-11-11); the former delegate-only `orchestrator` work mode was removed. |
 | **Roles** | always `researcher`, `reviewer` and `editor`, with any of the eleven practices | What a delegate may do. The role's code-owned ceiling decides authority (read-only researcher and reviewer, an editor inside its declared scope); practices add method and expected evidence, never authority. A busy reader gets an automatic instance (`reviewer--p2`); concurrent editors need `parallel: true` and disjoint exact scopes. |
 | **Peer topology** | current terminal or a one-pane Herdr Hub workspace, plus peers started one at a time | Which separate, addressable Pi/Claude processes occupy sibling panes (`just fleet peer <name>` or `herdr_spawn_peer`). A peer can serve a role through a dispatch route; starting one does not change the roles. |
 

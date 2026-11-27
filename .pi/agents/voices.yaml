@@ -1,4 +1,5 @@
-# Named model panels for poll/debate. There is no implicit default; pass --panel <name>.
+# Named model panels for poll/debate. In the Hub an explicit panel wins, then the configured
+# poll-panel: (or the active model profile), then the panel named default. `just flow` takes --panel.
 # One voice = name + fully-qualified provider/id. At most one integrator per panel.
 default:
   - name: sol

@@ -134,6 +134,24 @@ test("uninstall refuses a role the Hub still needs, and --all leaves the user's 
   assert.equal(readFileSync(join(ws, OVERRIDES_REL_PATH), "utf8"), OVERRIDES);
 });
 
+test("a clean setup installs the debate skill the Hub requires, and uninstall keeps it while the Hub stays (D28)", (t) => {
+  const ws = mkdtempSync(join(tmpdir(), "af-debate-skill-"));
+  t.after(() => rmSync(ws, { recursive: true, force: true }));
+  const setup = run(["setup", "--workspace", ws, "--yes", "--json"]);
+  assert.equal(setup.status, 0, setup.stderr);
+  const byId = Object.fromEntries(JSON.parse(setup.stdout).results.map((entry) => [entry.id, entry]));
+  assert.equal(byId["pi-harness:agent-hub"]?.status, "applied");
+  assert.equal(byId["skill:debate"]?.status, "applied");
+  assert.equal(readFileSync(join(ws, ".pi/skills/debate/SKILL.md"), "utf8"), readFileSync(join(root, "skills/debate/SKILL.md"), "utf8"));
+
+  const single = run(["uninstall", "--workspace", ws, "--items", "skill:debate", "--dry-run", "--json"]);
+  assert.equal(single.status, 0, single.stderr);
+  const plan = JSON.parse(single.stdout).plan ?? JSON.parse(single.stdout);
+  assert.ok(plan.notes.some((note) => note.type === "pinned" && /skill:debate is kept — still required by pi-harness:agent-hub/.test(note.detail)), JSON.stringify(plan.notes));
+  assert.equal(plan.actions.some((action) => action.kind === "remove"), false);
+  assert.ok(existsSync(join(ws, ".pi/skills/debate/SKILL.md")));
+});
+
 // ── doctor scans ─────────────────────────────────────────────────────────────
 
 function workspaceWith(files) {

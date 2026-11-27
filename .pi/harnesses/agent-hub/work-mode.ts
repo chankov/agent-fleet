@@ -11,7 +11,7 @@ export const RETIRED_WORK_MODE = "orchestrator";
 export const WORK_MODE_ENTRY_TYPE = "agent-hub-work-mode";
 const LEGACY_POSTURE_ENTRY_TYPE = "agent-hub-posture";
 
-export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "recover_task", "poll_panel", "set_task_tier"] as const;
+export const FLEET_TOOLS = ["dispatch_agent", "dispatch_triage", "spawn_research", "recover_task", "poll_panel", "debate_panel", "set_task_tier"] as const;
 export const VERIFICATION_TOOLS = ["set_assertions", "update_assertion", "get_assertions"] as const;
 /** Compatibility export for callers that need every orchestration-owned tool. */
 export const ORCHESTRATION_TOOLS = [...FLEET_TOOLS, ...VERIFICATION_TOOLS] as const;
@@ -75,8 +75,8 @@ Delegation is your judgment, not an obligation.
 - Research: delegate by default with \`spawn_research\`; start independent questions in parallel in one turn and work from the findings.
 - Build: make a small, focused change yourself. Delegate a larger coherent change to one editor.
 - Review: a non-trivial change gets an independent \`reviewer\` via \`dispatch_agent\`. Review your own edits with native \`review_mode: "operator-current-state"\`. With parallel editors, audit each finished area and run one final review of the whole change after the writers finish.
-- Decisions: for an architectural choice, uncertain diagnosis, choice between approaches or risky change, call \`poll_panel\` with one self-contained question. Never poll facts; deep research stays one model.
-- Read-only audits, research and polls can run beside an editor. Use \`review_mode: "run-checks"\` only when the reviewer needs its configured shell. Write-capable runs execute one at a time unless each gets \`parallel: true\` and a sandboxed, disjoint scope of exact existing paths. Edit shared files and run full checks after writers finish.
+- Decisions: for an architectural choice, uncertain diagnosis, choice between approaches or risky change, call \`poll_panel\` with one self-contained question; \`debate_panel\` when a known objection could change it or a poll disagrees. Never poll or debate facts; deep research stays one model.
+- Read-only audits, research, polls and debates can run beside an editor. Use \`review_mode: "run-checks"\` only when the reviewer needs its configured shell. Write-capable runs execute one at a time unless each gets \`parallel: true\` and a sandboxed, disjoint scope of exact existing paths. Edit shared files and run full checks after writers finish.
 - Every delegate receives the task brief (\`artifacts/briefs/\`). Keep its "Operator notes" current with decisions and open questions. Read a delegate's return path instead of dispatching again.`;
 
 /** The operator prompt. The removed orchestrator variant had no direct tools. */

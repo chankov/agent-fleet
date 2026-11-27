@@ -1,9 +1,12 @@
 /** Pure `/af-poll` argument, panel, digest and presentation helpers. The hub command is a thin consumer. */
 
 import { VOICES_REL } from "../../agent-fleet/scripts/workflows/lib/voices.ts";
+import { formatRetiredMapping, retiredAssignments } from "./config/roles.ts";
 import { applyPollEvent, failedPollBlock, initialPollBlock, type PollBlock, type PollEvent, type PollPanelSource } from "./poll-progress.ts";
 
 export const HUB_POLL_DEFAULT_PERSONA = "researcher";
+/** A panel voice never writes, so only the read-only roles can speak (D25). */
+export const VOICE_PERSONAS = ["researcher", "reviewer"] as const;
 /** Selected when neither an explicit nor a configured panel names one, and only if the roster has it. */
 export const POLL_DEFAULT_PANEL = "default";
 /** How `/af-poll` names a panel in diagnostics. */
@@ -77,7 +80,11 @@ export interface AfPollHandleResult {
 	block?: PollBlock;
 }
 
-function tokenize(args: string): string[] {
+/**
+ * Slash-command arguments shared by `/af-poll` and `/af-debate`: whitespace splits tokens, and a quote
+ * opens a quoted span only at the start of a token, so an apostrophe inside a word ("don't") stays literal.
+ */
+export function tokenizePanelArgs(args: string): string[] {
 	const tokens: string[] = [];
 	const input = args.trim();
 	let current = "";
@@ -89,7 +96,7 @@ function tokenize(args: string): string[] {
 			else current += ch;
 			continue;
 		}
-		if (ch === "\"" || ch === "'") { quote = ch; continue; }
+		if ((ch === "\"" || ch === "'") && !current) { quote = ch; continue; }
 		if (/\s/.test(ch)) {
 			if (current) { tokens.push(current); current = ""; }
 			continue;
@@ -101,7 +108,7 @@ function tokenize(args: string): string[] {
 }
 
 export function parseAfPollArgs(args: string): ParsedAfPollArgs {
-	const tokens = tokenize(args ?? "");
+	const tokens = tokenizePanelArgs(args ?? "");
 	let panel: string | undefined;
 	let persona: string | undefined;
 	const rest: string[] = [];
@@ -125,23 +132,24 @@ export function parseAfPollArgs(args: string): ParsedAfPollArgs {
 	if (!question) {
 		return {
 			panel, persona: persona ?? HUB_POLL_DEFAULT_PERSONA, question: "",
-			error: "Usage: /af-poll [--panel NAME] [--persona NAME] <question>",
+			error: "Usage: /af-poll [--panel NAME] [--persona researcher|reviewer] <question>",
 		};
 	}
 	return { panel, persona: persona ?? HUB_POLL_DEFAULT_PERSONA, question };
 }
 
-/** Debate's selection for this slice: explicit, then configured, else a refusal (task 11 adopts the Poll fallback). */
-export function resolveAfPollPanel(flag: string | undefined, override: string | null | undefined, available: string[]): { panel: string } | { error: string } {
-	const named = flag?.trim() || override?.trim() || "";
-	const list = available.length ? available.join(", ") : "(none)";
-	if (!named) {
-		return { error: `--panel is required (or set poll-panel: in ## agent-hub). Available panels: ${list}` };
-	}
-	if (available.length > 0 && !available.includes(named)) {
-		return { error: `Unknown panel "${named}". Available panels: ${list}` };
-	}
-	return { panel: named };
+/**
+ * The voice persona of Poll and Debate (D25): `researcher` (default) or `reviewer`. A retired persona
+ * name shows its role mapping; `editor` and any other name are refused, because voices are read-only.
+ */
+export function resolveVoicePersona(name: string | undefined): { persona: string } | { error: string } {
+	const persona = name?.trim().toLowerCase() || HUB_POLL_DEFAULT_PERSONA;
+	if ((VOICE_PERSONAS as readonly string[]).includes(persona)) return { persona };
+	const choice = `A panel voice is read-only: use persona "researcher" (default) or "reviewer".`;
+	const retired = retiredAssignments(persona);
+	if (retired) return { error: `"${persona}" is a retired persona (now ${formatRetiredMapping(retired)}). ${choice}` };
+	if (persona === "editor") return { error: `Persona "editor" cannot be a panel voice. ${choice}` };
+	return { error: `Unknown persona "${name?.trim()}". ${choice}` };
 }
 
 /**
@@ -149,8 +157,9 @@ export function resolveAfPollPanel(flag: string | undefined, override: string | 
  * Poll panel, then a panel named `default` when the roster has one. The chosen name must be in the roster;
  * an unknown explicit name fails even when a fallback would be valid.
  */
-export function resolvePollPanel(input: { explicit?: string; configured?: string | null; available: readonly string[]; select?: string }): { panel: string; source: PollPanelSource } | { error: string } {
+export function resolvePollPanel(input: { explicit?: string; configured?: string | null; available: readonly string[]; select?: string; label?: "Poll" | "Debate" }): { panel: string; source: PollPanelSource } | { error: string } {
 	const select = input.select ?? AF_POLL_PANEL_FLAG;
+	const label = input.label ?? "Poll";
 	const available = [...input.available];
 	const roster = available.length
 		? `Available panels: ${available.join(", ")}.`
@@ -163,13 +172,13 @@ export function resolvePollPanel(input: { explicit?: string; configured?: string
 	const configured = input.configured?.trim();
 	if (configured) {
 		if (available.includes(configured)) return { panel: configured, source: "configured" };
-		return { error: `The configured Poll panel "${configured}" (poll-panel: in ## agent-hub, or the active model profile) is not in the roster. ${roster} Correct poll-panel: or select a panel with ${select}.` };
+		return { error: `The configured ${label} panel "${configured}" (poll-panel: in ## agent-hub, or the active model profile) is not in the roster. ${roster} Correct poll-panel: or select a panel with ${select}.` };
 	}
 	if (available.includes(POLL_DEFAULT_PANEL)) return { panel: POLL_DEFAULT_PANEL, source: "default" };
 	if (!available.length) {
-		return { error: `No Poll panel is available. ${roster} Add a panel named "${POLL_DEFAULT_PANEL}" with 2–5 voices, or add any panel and select it with ${select}.` };
+		return { error: `No ${label} panel is available. ${roster} Add a panel named "${POLL_DEFAULT_PANEL}" with 2–5 voices, or add any panel and select it with ${select}.` };
 	}
-	return { error: `No Poll panel was selected and none is named "${POLL_DEFAULT_PANEL}". ${roster} Select one with ${select}, or set poll-panel: NAME in ## agent-hub of .ai/agent-fleet-overrides.md.` };
+	return { error: `No ${label} panel was selected and none is named "${POLL_DEFAULT_PANEL}". ${roster} Select one with ${select}, or set poll-panel: NAME in ## agent-hub of .ai/agent-fleet-overrides.md.` };
 }
 
 export function formatAfPollDigest(input: AfPollDigestInput): string {
@@ -208,7 +217,7 @@ export async function handleAfPoll(input: AfPollHandleInput): Promise<AfPollHand
 
 /**
  * Shared by `/af-poll` (parsed slash arguments) and the operator's `poll_panel` tool (typed parameters).
- * Order: question, Git target, panel, preflight, budget. Any refusal there starts no voice.
+ * Order: question, persona, Git target, panel, preflight, budget. Any refusal there starts no voice.
  */
 export async function runAfPoll(input: Omit<AfPollHandleInput, "args"> & { panel?: string; persona?: string; question: string }): Promise<AfPollHandleResult> {
 	const question = String(input.question ?? "").trim();
@@ -218,7 +227,9 @@ export async function runAfPoll(input: Omit<AfPollHandleInput, "args"> & { panel
 	const fail = (message: string): AfPollHandleResult => { publish({ type: "failed", reason: message }); return { ok: false, message, block }; };
 	show();
 	if (!question) return fail("A poll needs a non-empty question.");
-	const persona = input.persona?.trim() || HUB_POLL_DEFAULT_PERSONA;
+	const voicePersona = resolveVoicePersona(input.persona);
+	if ("error" in voicePersona) return fail(voicePersona.error);
+	const persona = voicePersona.persona;
 	let target: AfPollTarget;
 	let selection: { panel: string; source: PollPanelSource };
 	try {

@@ -757,7 +757,7 @@ compound pass writes lessons to.
 | `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
 | `watchdog-system1` | `off` | Native specialist consumer only: `off`, `shadow`, or explicitly opted-in experimental `active` for advisory `scope` only (0.95/0.05; not G2-validated). Requires the separate selected feature and shared config; no automatic outbound request from setup/doctor. |
 | `watchdog-judge-model` | researcher role's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-6-luna`). Falls back to the researcher role's resolved model, then the dispatcher's. |
-| `poll-panel` | none | Configured panel for `/af-poll` and `poll_panel` when no panel is named. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, Poll uses the panel named `default` if `voices.yaml` has one, otherwise it refuses and lists the panels. `/af-debate` still requires `--panel` or this key. |
+| `poll-panel` | none | Configured panel for Poll (`/af-poll`, `poll_panel`) and Debate (`/af-debate`, `debate_panel`) when no panel is named; an active complete model profile's panel takes precedence. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, both use the panel named `default` if `voices.yaml` has one, otherwise they refuse and list the panels. An explicitly named unknown panel is refused even when a fallback exists. |
 | `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched role. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |
 
 Example — switch the dispatcher to Bulgarian, pin the editor to sonnet and its
@@ -1174,9 +1174,10 @@ local-full:
   outside `allowed-models`; that list still applies to workers and peers.
 - `services` sets the watchdog and structured-return extractor independently;
   unspecified services use defaults. `panel` supplies 2–5 poll/debate voices and
-  an optional single integrator. `/af-poll` and `/af-debate` select the active
-  profile's panel automatically. Explicit other panel names are refused while
-  the complete profile is active. Without `panel`, two default-model voices are used.
+  an optional single integrator. Poll and Debate (`/af-poll`, `poll_panel`,
+  `/af-debate`, `debate_panel`) select the active profile's panel automatically.
+  Explicit other panel names are refused while the complete profile is active.
+  Without `panel`, two default-model voices are used.
 - `routing: native` (default) keeps Hub-owned work on native Pi subprocesses.
   Without `allowed-models` it still refuses explicit coms dispatch, handoff,
   `coms_send` and peer spawning. With `allowed-models`, those peer actions are

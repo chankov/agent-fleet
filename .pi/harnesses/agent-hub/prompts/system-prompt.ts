@@ -9,7 +9,6 @@ import type { HubPromptContext } from "./context.ts";
 import {
 	ASK_SYSTEM1_RECOMMENDED_FRAGMENT,
  FILE_DISCOVERY_FRAGMENT,
-	AMBIGUITY_RULE,
 	askUserFragment,
 	COMPACTION_FRAGMENT,
 	comsFragment,
@@ -76,7 +75,7 @@ export function buildHubSystemPrompt(ctx: HubPromptContext): BuiltHubSystemPromp
 	const practices = fleetActive ? practiceCatalog() : "";
 	const providerLimits = fleetActive ? ctx.getProviderLimits?.() ?? [] : [];
 	const providerLimitLine = providerLimits.length
-		? `\n- Local model concurrency: ${providerLimits.map(limit => `\`${limit.provider}/\` at most ${limit.limit} parallel run${limit.limit === 1 ? "" : "s"}`).join("; ")}. Extra dispatches or research on a capped provider queue behind the running ones; choose another agent or model when waiting would stall the task.`
+		? `\n- Local model concurrency: ${providerLimits.map(limit => `\`${limit.provider}/\` at most ${limit.limit} parallel run${limit.limit === 1 ? "" : "s"}`).join("; ")}. Extra runs queue; choose another model when waiting would stall the task.`
 		: "";
 	const activeTools = ctx.getActiveTools();
 	const askUserAvailable = activeTools.includes("ask_user");
@@ -120,7 +119,6 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 		herdrSection,
 		compactionSection,
 		hardRules: workModeText.hardRules,
-		ambiguityRule: AMBIGUITY_RULE,
 		roleCatalog,
 		practiceCatalog: practices,
 		delegationGuide: workModeText.delegationGuide,

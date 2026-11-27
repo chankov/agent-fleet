@@ -28,6 +28,8 @@ export interface DebateOptions {
 	rounds?: number; voices?: Voice[];
 	spawn?: SpawnAgent; runAgent?: typeof runAgentPhase<DebateReport>;
 	onVoice?: (result: DebateVoiceResult, round: number) => void | Promise<void>;
+	/** Called as each round starts, with the voices taking part in it. */
+	onRound?: (round: number, voices: Voice[]) => void | Promise<void>;
 }
 
 export function resolveDebateRounds(value?: number): number {
@@ -126,6 +128,7 @@ export async function runDebate(options: DebateOptions): Promise<DebateResult> {
 	let previousSuccesses: DebateVoiceSuccess[] = [];
 	for (let round = 1; round <= rounds; round++) {
 		if (active.length < 2) break;
+		try { await options.onRound?.(round, active); } catch { /* progress is best-effort */ }
 		const results = await Promise.all(active.map(async voice => {
 			const others = previousSuccesses.filter(item => item.voice.name !== voice.name);
 			assertForeignPacketSize(formatForeignPacket(others));

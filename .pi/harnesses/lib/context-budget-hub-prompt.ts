@@ -17,7 +17,8 @@ export interface HubPromptParts {
 	herdrSection: string;
 	compactionSection?: string;
 	hardRules: string;
-	ambiguityRule: string;
+	/** Optional extra hard rule; the Hub relies on Decision routing instead (one copy of the rule). */
+	ambiguityRule?: string;
 	/** The three runtime roles with their authority (one line each). */
 	roleCatalog: string;
 	/** The code-owned practice catalog: id and one-line expected result. */
@@ -54,7 +55,7 @@ export function assembleHubSystemPrompt(parts: HubPromptParts): string {
 ${parts.delegationGuide ? `\n${parts.delegationGuide}\n` : ""}
 ## How to Work
 ${parts.dispatchSection}
-- Choose \`backend: native\` only for an explicitly requested local Pi specialist, \`backend: coms\` only for an explicitly requested live coms peer, and \`backend: auto\` otherwise. Never substitute an explicit backend.
+- Choose \`backend: native\` or \`backend: coms\` only when the human asked for a local Pi specialist or a live coms peer; otherwise \`backend: auto\`. Never substitute an explicit backend.
 
 ## Roles and practices
 An assignment is one role (its authority) plus \`practices\` (combinable; empty: role default) that add method and evidence, never authority. Specialists cannot spawn helpers; pass them findings or artifact paths.
@@ -73,8 +74,7 @@ ${parts.modeSection}${verification}${parts.projectPolicySection ?? ""}
 ${parts.comsSection}${parts.herdrSection}${parts.compactionSection ?? ""}
 ## Hard Rules
 ${parts.hardRules}
-${parts.ambiguityRule}
-- Keep each dispatch focused; check its returned evidence and follow up on gaps before reporting completion.`;
+${parts.ambiguityRule ? `${parts.ambiguityRule}\n` : ""}- Keep each dispatch focused; check its returned evidence and follow up on gaps before reporting completion.`;
 	return policy + stateSection(parts.stateCapsule);
 }
 

@@ -139,7 +139,7 @@ Agent Fleet runs on pi; Claude Code joins a fleet only as a coms peer ([claude-c
 
 ### Subagents vs. Agent Teams
 
-Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with merge) maps to **subagents**. If you need teammates that talk to each other *live* (shared task list, mid-turn messaging), use **Agent Teams**. If you need the same question answered by several models with labeled cross-examination between rounds, use `/af-debate` / `just flow debate` — the harness mediates; the voices stay read-only and never message each other. That Fleet debate mechanism is not Agent Teams.
+Claude Code has two parallelism primitives. Pattern 3 (parallel fan-out with merge) maps to **subagents**. If you need teammates that talk to each other *live* (shared task list, mid-turn messaging), use **Agent Teams**. If you need the same question answered by several models with labeled cross-examination between rounds, use `debate_panel` / `/af-debate` / `just flow debate` — the harness mediates; the voices stay read-only and never message each other. That Fleet debate mechanism is not Agent Teams.
 
 | | Subagents | Agent Teams |
 |--|-----------|-------------|
