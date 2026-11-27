@@ -354,6 +354,12 @@ The `release` practice prepares a release and never publishes. `git push`,
 rules in every session that loads them: the Hub, its native children and pi peers. Scripts that relied on an unattended push from a Hub
 session must approve each publish or run it outside the session.
 
+### Poll, Debate and Ask System 1
+
+- A Poll or Debate voice takes the persona `researcher` (default) or `reviewer`; `editor` and retired persona names are refused. Debate is also the operator's `debate_panel` tool, with Poll's panel precedence.
+- `consumers.agenticAsk.mode` in `.ai/system1.json` is `on` or `off`. The earlier `advisory` and `recommended` still work and read as `on`, with consent, scope and limits unchanged; `agent-fleet doctor` names them and suggests writing `on`. An `advisory` workspace now gets the recommended prompt guidance whenever the tool is active.
+- System 1 still calls TypeSafe through Fleet's own adapter (`transport: direct`), with the credential from the environment variable `apiKeyEnv` names; Pi's `auth.json` and `models.json` are not used for it.
+
 ---
 
 ## Retired surfaces

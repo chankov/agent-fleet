@@ -74,7 +74,7 @@ export function projectCoordinationHistory(messages:ContextEvent["messages"],ses
   if(!inspection.has(message.toolName)&&details.exitCode!==0&&!/^(?:ok|complete|completed|accepted|completed_unverified|review_reused)$/.test(String(details.status??"")))return;
   if(details.historicalReference||details.error||object(details.result).error||details.pending||details.exitCode!=null&&details.exitCode!==0||failure.test(String(details.status??""))||details.protocolDiagnostic||decisions(details.questions)||decisions(structured.requires_user_decision)||failure.test(String(verification.status??"")))return;
   const text=message.content.map(p=>p.type==="text"?p.text:"").join("\n");
-  if(/ASK_USER:|NEEDS_RESEARCH:|DECISION_QUESTION/i.test(text)||coordination.has(message.toolName)&&text.includes("?")&&!Object.hasOwn(structured,"requires_user_decision"))return;
+  if(/ASK_USER:|NEEDS_RESEARCH:|DECISION_QUESTION|SYSTEM1_QUESTION/i.test(text)||coordination.has(message.toolName)&&text.includes("?")&&!Object.hasOwn(structured,"requires_user_decision"))return;
   try{
    const original=JSON.stringify(message);
    const hash=createHash("sha256").update(original).digest("hex");

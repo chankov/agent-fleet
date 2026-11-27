@@ -85,6 +85,20 @@ reviewer's verdict stays its own. A worker that cannot continue without the
 decision still raises `ASK_USER`. Facts go to research (`NEEDS_RESEARCH`), never to
 a Poll or a Debate.
 
+**Ask System 1 suggestions.** `research`, `planning`, `independent-review` and
+`security` also name one optional Ask System 1 question each: which candidate
+file likely enforces a rule, which unsettled assumption would invalidate the
+first step, which acceptance claim is least supported, which data flow most needs
+an authorization check. A worker never calls `ask_system1`. It may end its report
+with at most two `SYSTEM1_QUESTION: {"uncertainty":…,"input":{…},"verify":…}`
+lines, where `input` is exactly the tool's arguments. The Hub validates them with
+the tool's own validator and shows the operator a ready input when `ask_system1`
+is active in the parent Hub, or the verification to do directly when it is not
+(`details.system1Questions`). Nothing is called until the operator calls it, and
+an answer is advice that never satisfies evidence, review, security or decision
+gates. The shared rule is
+[references/system1-consultation.md](../references/system1-consultation.md).
+
 ## Dispatch examples
 
 One editor with combined practices plans, implements and tests in one assignment:

@@ -1133,6 +1133,7 @@
             ".pi/harnesses/agent-hub/config/agents.ts",
             ".pi/harnesses/agent-hub/config/roles.ts",
             ".pi/harnesses/agent-hub/decision-questions.ts",
+            ".pi/harnesses/agent-hub/system1-question-format.ts",
             ".pi/harnesses/agent-hub/config/practices.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",
@@ -2110,6 +2111,34 @@
       ]
     },
     {
+      "id": "reference:system1-consultation",
+      "kind": "reference",
+      "group": "references",
+      "subcategory": null,
+      "title": "system1-consultation",
+      "summary": "",
+      "recommended": false,
+      "stability": "stable",
+      "consent": "file",
+      "platform": "any",
+      "agents": {
+        "pi": {
+          "source": [
+            "references/system1-consultation.md"
+          ],
+          "sourceMode": "first",
+          "target": ".pi/references/system1-consultation.md",
+          "strategy": "copy-file"
+        }
+      },
+      "parents": [
+        "skill:code-review-and-quality",
+        "skill:context-engineering",
+        "skill:planning-and-task-breakdown",
+        "skill:security-and-hardening"
+      ]
+    },
+    {
       "id": "reference:testing-patterns",
       "kind": "reference",
       "group": "references",
@@ -2250,7 +2279,8 @@
       },
       "companions": [
         "reference:performance-checklist",
-        "reference:security-checklist"
+        "reference:security-checklist",
+        "reference:system1-consultation"
       ]
     },
     {
@@ -2350,7 +2380,8 @@
         }
       },
       "companions": [
-        "reference:prompting-patterns"
+        "reference:prompting-patterns",
+        "reference:system1-consultation"
       ]
     },
     {
@@ -2797,7 +2828,8 @@
       "companions": [
         "companion:skills-internal-grilling",
         "reference:communication-contract",
-        "reference:definition-of-done"
+        "reference:definition-of-done",
+        "reference:system1-consultation"
       ]
     },
     {
@@ -2845,7 +2877,8 @@
         }
       },
       "companions": [
-        "reference:security-checklist"
+        "reference:security-checklist",
+        "reference:system1-consultation"
       ]
     },
     {

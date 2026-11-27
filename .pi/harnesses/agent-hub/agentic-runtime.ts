@@ -7,7 +7,7 @@ export function createAgenticRuntime(options:{ config?:AgenticConfig; service?:S
  const budget=createAgenticBudget(options.sessionId,options.persist,options.restored);
  const lifetime=new AbortController();
  const config=options.config;
- const enabled=options.parent!==false&&(config?.mode==='advisory'||config?.mode==='recommended')&&config.remoteContextApproved===true;
+ const enabled=options.parent!==false&&config?.mode==='on'&&config.remoteContextApproved===true;
  return { get enabled(){return enabled&&!lifetime.signal.aborted;}, get mode():AgenticConfig['mode']{return enabled&&!lifetime.signal.aborted&&config?config.mode:'off';}, get calls(){return budget.calls;}, dispose(){lifetime.abort();},
  async evaluate(value:unknown,signal?:AbortSignal):Promise<AgenticResult>{
   const evaluationId=randomUUID(); let sourceSummary:SourceSummary[]=[];

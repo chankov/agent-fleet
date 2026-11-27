@@ -11,6 +11,7 @@ import { intersectToolLists } from "../helpers.ts";
 import type { AgentDef } from "../types.ts";
 import {
 	DECISION_QUESTION_GUIDANCE,
+	SYSTEM1_QUESTION_GUIDANCE,
 	isPracticeId,
 	normalizePracticeInput,
 	PRACTICE_IDS,
@@ -296,8 +297,10 @@ export function formatAssignmentBlock(assignment: ResolvedAssignment): string {
 		if (found.length) lines.push(`Read before starting: ${found.join(", ")}`);
 		if (missing.length) lines.push(`Not installed (use the method above): ${missing.join(", ")}`);
 		if (practice.decisions) lines.push(`Decision questions: ${practice.decisions}`);
+		if (practice.system1) lines.push(`Ask System 1 (optional): ${practice.system1}`);
 	}
 	if (assignment.practices.some(entry => entry.practice.decisions)) lines.push("", DECISION_QUESTION_GUIDANCE);
+	if (assignment.practices.some(entry => entry.practice.system1)) lines.push("", SYSTEM1_QUESTION_GUIDANCE);
 	return lines.join("\n");
 }
 

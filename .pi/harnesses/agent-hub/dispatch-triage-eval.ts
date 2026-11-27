@@ -69,7 +69,7 @@ export async function runTriageEvaluator(argv=process.argv.slice(2)) {
   if (!workspace) throw new Error("Live requires explicit --workspace");
   // Consent and budget validation happens before constructing the provider or reading its key.
   if (config.mode === "off" || !config.remoteContextApproved || corpus.some(e=>!e.remoteApproved) || !Number.isSafeInteger(Number(value("--max-calls"))) || Number(value("--max-calls"))<=0 || !Number.isSafeInteger(Number(value("--max-ms"))) || Number(value("--max-ms"))<=0) throw new Error("Live consent or budgets missing");
-  const runtime=createSystem1Runtime({selected:readSystem1Selected(workspace),config:providerDocument(snapshot!),env:process.env});
+  const runtime=createSystem1Runtime({selected:readSystem1Selected(workspace),config:providerDocument(snapshot!),env:process.env,caller:"dispatch-triage-eval"});
   if (runtime.readiness.status!=="ready") throw new Error("System 1 unavailable"); service=runtime.service;
  }
  console.log(JSON.stringify(await evaluateCorpus(corpus,config,{service,maxCalls:Number(value("--max-calls")),maxMs:Number(value("--max-ms"))}),null,2));

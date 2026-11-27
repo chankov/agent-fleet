@@ -47,6 +47,21 @@ A smaller provider-only starting point is:
 
 The key value belongs only in the process environment, never JSON. There is no provider fallback. Consumers share one service and one immutable configuration snapshot per session; edits take effect in a new session, not through hot reload.
 
+## Transport and credentials
+
+Two settings live in two places, and neither replaces the other:
+
+- **Fleet policy** is `.ai/system1.json`: whether System 1 runs (`mode`), the provider and the exact model pin, the name of the credential variable (`apiKeyEnv`), and each consumer's mode, consent, scope and limits. It never holds a credential value.
+- **The credential** is the variable that `apiKeyEnv` names (`TYPESAFE_API_KEY` for TypeSafe), read from the Hub's process environment. Fleet does not read Pi's `auth.json`, `models.json` or credential commands, and setup edits no global file.
+
+Every System 1 call uses Fleet's own TypeSafe adapter (`transport: direct` in `agent-fleet doctor`). Pi's native classifier (`ctx.modelRegistry.classify`) was checked against Pi 1.1.0 and the managed 1.6.1 and is not used:
+
+- Pi's built-in catalog lists only `typesafe/jev-latest`, and a `models.json` entry (in `~/.pi/agent/models.json`, or the directory `PI_CODING_AGENT_DIR` names) cannot declare a classifier, so the pin `jev-1.13.0` does not resolve.
+- The native result reports the requested model instead of the one the provider returned, and ordinal answers lose their probability distribution and level legend.
+- The native transport retries after a timeout or unknown outcome, reads bodies without a size bound, and may resolve credentials from Pi's own stores.
+
+The direct adapter checks the returned model against the pin, keeps ordinal distributions, bounds request and response size, makes at most two attempts inside one deadline, and reports a reason code for each failure. A working direct adapter is locally ready even though native classification is unavailable. Doctor checks only local configuration and whether the variable is set; it contacts no provider and makes no claim about live availability. The decision and its reasons per caller are in `.pi/harnesses/lib/system1/transport.js`.
+
 ## Consumers
 
 Each optional section under `consumers` has its own permissions and budgets. Missing sections are off. Consumer file `version: 1` wrappers are not included in v2; semantic policy, question, profile and local-binding versions remain.
@@ -57,7 +72,7 @@ Each optional section under `consumers` has its own permissions and budgets. Mis
 | `proactiveReview` | `mode: off`, `shadow`, or `advisory`; `remoteContext`, explicit `include`, `maxEvaluationsPerSession`, optional reviewed `localBindings` |
 | `dispatchTriage` | `mode: off`, `shadow`, or `advisory`; explicit `remoteContextApproved`, positive `maxCalls`, `maxStateBytes`, `maxTaskBytes`, `maxRoleBytes`; optional `profile`, `orchestratorBeforeDispatch` |
 | `taskTriage` | `mode: off` or `experimental`; explicit `remoteContextApproved`, pinned `questionVersion`, `policyVersion`, `limits`; inherits root provider/model |
-| `agenticAsk` (D10) | `mode: off`, `advisory`, or `recommended`; independent `remoteContextApproved`, `include` (repo-relative prefixes or explicit `git:tracked` selector), `allowToolOutputs`, `limits`; parent-only typed judgment tool |
+| `agenticAsk` (D10) | `mode: off` or `on` (legacy `advisory`/`recommended` read as `on`; a missing mode is `off`); independent `remoteContextApproved`, `include` (repo-relative prefixes or explicit `git:tracked` selector), `allowToolOutputs`, `limits`; parent-only typed judgment tool |
 | `fileDiscovery` (D9/D8) | `mode: off` or `active`; independent `remoteContextApproved`, nonempty `include` for approved active use, bounded `limits`; optional `semanticReads: {mode: off | active}` (default off); automatic full-list ranking and opt-in orientation |
 | `damageGuard` (D6) | `mode: off` or `active`; independent boolean `remoteScopes.commands/edits/results`, explicit `include`, bounded `limits`; optional semantic checks over mandatory baseline, not permission authority |
 | `contextCompaction` (D7) | `mode: off` or `automatic`; independent `remoteContextApproved`, `earlyOpportunityPercent` (default 60, below 80), `limits.timeoutMs` (maximum/default 1000), `limits.maxStateBytes` (maximum/default 8192); automatic early-boundary advice, not a compact tool |
@@ -86,7 +101,7 @@ Those task limits are a pinned compatibility contract, not adjustable knobs. Pro
 ```json
 {
   "agenticAsk": {
-    "mode": "recommended",
+    "mode": "on",
     "remoteContextApproved": true,
     "include": [".pi/harnesses", "bin", "docs"],
     "allowToolOutputs": false
@@ -132,7 +147,7 @@ that change consent. Keep other sections off if you do not need them.
 | Proactive review | `proactiveReview.mode: shadow` or `advisory`, nonempty approved `include` such as `["docs/**"]`, `maxEvaluationsPerSession` such as 20; `remoteContext: selected-excerpts` only for approved export | A normally authorized edit triggers local turn capture/review. `shadow` observes; `advisory` can deliver findings. `remoteContext: disabled` retains permitted local capture/checks without exporting excerpts. |
 | Dispatch triage | `dispatchTriage.mode: shadow` or `advisory`, `remoteContextApproved: true`; review the explicit call/byte budgets | Ask the Hub operator to use `dispatch_triage(task, scope, language, domain)` before independently dispatching. Without a matching approved `profile`, expect `uncalibrated`, not a calibrated role recommendation. `orchestratorBeforeDispatch: true` adds instructions, not an automatic launch hook. |
 | Task triage | `taskTriage.mode: experimental`, `remoteContextApproved: true`, unchanged pinned question/policy/limits | Submit a normal user task; runtime assesses the accepted input before model work. Process obligations remain authoritative even after inference is turned off. |
-| Agentic Ask (D10) | `agenticAsk.mode: advisory` or `recommended`, `remoteContextApproved: true`, reviewed `include`; keep `allowToolOutputs: false` unless separately approved | Ask a focused typed question, e.g. `ask_system1` with a choice about the relevance of a selected `docs/` range. `recommended` encourages first-use routing; answers never execute work or satisfy gates. |
+| Agentic Ask (D10) | `agenticAsk.mode: on`, `remoteContextApproved: true`, reviewed `include`; keep `allowToolOutputs: false` unless separately approved | Ask a focused typed question, e.g. `ask_system1` with a choice about the relevance of a selected `docs/` range. Use is at the operator's discretion; answers never execute work or satisfy gates. |
 | File discovery (D9) | `fileDiscovery.mode: active`, `remoteContextApproved: true`, approved nonempty prefix `include` | Use normal permitted `filesystem` inventory/find/ls/grep or native pre-spawn discovery. Runtime ranks candidates while retaining every display-permitted result, not only top-K. |
 | Semantic reads (D8) | Additionally `fileDiscovery.semanticReads.mode: active` | Normal eligible single-file stat/discovery receives orientation through the same D9 service/consent. It is not another root consumer or a replacement for reading evidence. |
 | Context compaction (D7) | `contextCompaction.mode: automatic`, `remoteContextApproved: true`; keep 60% early opportunity and bounded limits initially | Continue a normal long task. Runtime asks System1 at eligible changed turn boundaries; a safe/confident retained answer can request early compact. Deterministic 70% recovery (80% ceiling) does not require System1. |

@@ -81,6 +81,8 @@ export interface DispatchExecutorDeps {
 	extractNeedsResearch(output: string): string[];
 	extractAskUserQuestions(output: string): string[];
 	contextPressure(percent: number): boolean;
+	/** Whether ask_system1 is active in this parent Hub, for SYSTEM1_QUESTION notices (task 18). Absent means inactive. */
+	isAskSystem1Active?(): boolean;
 	displayName(name: string): string;
 	getToolCatalogVersion?(): string;
 	resolvedAgentModel?(def: AgentState["def"], ctx: ExtensionContext, practices?: readonly string[]): string | undefined;

@@ -7,7 +7,7 @@ test('D8 on/off coexists with D9/D10, absent service and provider failure withou
  try{
   for(const semantic of ['off','active'])for(const agentic of ['off','recommended'])for(const failure of [false,true]){
    const snapshot=normalizeSystem1Config({...rootDocument,consumers:{fileDiscovery:{mode:'active',remoteContextApproved:true,include:['docs'],semanticReads:{mode:semantic}},agenticAsk:{mode:agentic,remoteContextApproved:true,include:['git:tracked']}}});
-   assert.equal(snapshot.consumers.fileDiscovery.status,'ready');assert.equal(snapshot.consumers.agenticAsk.config.mode,agentic);
+   assert.equal(snapshot.consumers.fileDiscovery.status,'ready');assert.equal(snapshot.consumers.agenticAsk.config.mode,agentic==='off'?'off':'on');
    const runtime=createDiscoveryRuntime({root,sessionId:'s',config:snapshot.consumers.fileDiscovery.config,context:()=> 't',persist(){},service:failure?undefined:{evaluate:async r=>({status:'ok',evaluation:{answers:r.questions.map(q=>({questionId:q.id,type:q.type,uncertainty:{provenance:'provider'},...(q.type==='ordinal'?{value:0,levels:q.levels}:q.type==='choice'?{value:Object.keys(q.options)[0]}:{probabilityTrue:0.5})})),metadata:{}}}) as any}});
    try{const result=await runtime.rank({owner:'hub',foreground:true,paths:['docs/a'],task:'task',query:'q',discoveryComplete:true,canRead:()=>true,canDisplay:()=>true,permissionIdentity:()=> 'p'});assert.equal(result.rows.length,1);assert.equal(result.rows[0].answers?.length,failure?undefined:semantic==='active'?5:2);assert.equal(result.rows[0].status,failure?'unscored':'scored');}finally{runtime.dispose();}
   }

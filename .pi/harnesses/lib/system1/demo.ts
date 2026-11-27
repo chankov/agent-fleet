@@ -52,7 +52,7 @@ export async function runSystem1Demo(options: RunSystem1DemoOptions = {}) {
   }
   const live = argv.includes("--live");
   const { selected, config } = workspaceInputs(resolve(options.cwd ?? process.cwd()));
-  const runtime = createSystem1Runtime({ selected, config, env: options.env ?? process.env, transport: options.transport });
+  const runtime = createSystem1Runtime({ selected, config, env: options.env ?? process.env, transport: options.transport, caller: "demo" });
   const write = options.write ?? console.log;
 
   if (!live) {

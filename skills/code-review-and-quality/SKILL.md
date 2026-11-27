@@ -202,6 +202,8 @@ Check the author's verification story:
 - Is there a before/after comparison?
 ```
 
+**Optional Ask System 1 (Hub operator only).** When several acceptance criteria cite evidence and you are unsure which claim has the weakest support, a reviewer may suggest a choice among the criterion IDs — which claim is least supported by the supplied evidence excerpts? — with one `SYSTEM1_QUESTION:` line; only the operator decides whether to ask. Either way, the independent reviewer checks the original evidence against the named revision and owns the verdict. Shared rule: [`../../references/system1-consultation.md`](../../references/system1-consultation.md).
+
 ## Multi-Model Review Pattern
 
 Use different models for different review perspectives:

@@ -66,7 +66,7 @@ test("System 1 assistance is optional across modes and tiers, with bounded fallb
 			ctx.getPromptState = () => ({ ...state, taskTier: tier });
 			ctx.getWorkMode = () => mode;
 			ctx.getActiveTools = () => ["ask_system1", "ask_user"];
-			ctx.getAgenticAskMode = () => "recommended";
+			ctx.getAgenticAskMode = () => "on";
 			const built = buildHubSystemPrompt(ctx);
 			assert.match(built.systemPrompt, /## Recommended System 1 usage/);
 			assert.match(built.systemPrompt, /Use `ask_system1` only for a concrete/i);
@@ -87,9 +87,10 @@ test("System 1 assistance is optional across modes and tiers, with bounded fallb
 test("recommended instructions track current mode and active tool availability", () => {
 	const ctx = fixture();
 	ctx.getActiveTools = () => ["ask_system1"];
-	for (const mode of ["off", "advisory", "recommended"] as const) {
+	// Ask System 1 is on or off (task 17); "advisory" and "recommended" are read as "on" by the config loader.
+	for (const mode of ["off", "on"] as const) {
 		ctx.getAgenticAskMode = () => mode;
-		assert.equal(buildHubSystemPrompt(ctx).systemPrompt.includes("## Recommended System 1 usage"), mode === "recommended");
+		assert.equal(buildHubSystemPrompt(ctx).systemPrompt.includes("## Recommended System 1 usage"), mode === "on");
 	}
 	ctx.getActiveTools = () => [];
 	assert.doesNotMatch(buildHubSystemPrompt(ctx).systemPrompt, /## Recommended System 1 usage/);
@@ -189,7 +190,7 @@ test("trusted tool catalog producer and refusal state survive the production pro
 for (const fleet of [true, false]) for (const askUser of [true, false]) {
 	test(`Hub questions follow the active catalog with fleet ${fleet ? "active" : "inactive"} and ask_user ${askUser ? "listed" : "unlisted"}`, () => {
 		const ctx = fixture({ active: fleet ? ALL_PACKS : ["core"], language: fleet ? "Bulgarian" : "German" });
-		ctx.getAgenticAskMode = () => "recommended";
+		ctx.getAgenticAskMode = () => "on";
 		const tools = ["ask_system1", ...(fleet ? ["dispatch_agent", "spawn_research", "herdr_notify"] : []), ...(askUser ? ["ask_user"] : [])];
 		ctx.getActiveTools = () => tools;
 		const { systemPrompt } = buildHubSystemPrompt(ctx);

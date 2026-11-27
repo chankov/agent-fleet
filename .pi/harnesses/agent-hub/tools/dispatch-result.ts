@@ -3,6 +3,7 @@ import type { DispatchEvidence, DispatchReceipts } from "./dispatch-evidence.ts"
 import { formatAdvisory } from "../../lib/changed-file-diagnostics.ts";
 import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
 import { decisionQuestionNotice, extractDecisionQuestions } from "../decision-questions.ts";
+import { extractSystem1Questions, system1QuestionNotice } from "../system1-questions.ts";
 import { docsLaneNotice } from "../docs-lane.js";
 import { safePathWithin } from "../helpers.ts";
 import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
@@ -26,7 +27,7 @@ interface DispatchPresentation {
 	blockers: string[];
 }
 
-type PresentationPorts = Pick<DispatchExecutorDeps, "contextPressure" | "displayName"> & {
+type PresentationPorts = Pick<DispatchExecutorDeps, "contextPressure" | "displayName" | "isAskSystem1Active"> & {
 	state: Pick<DispatchExecutionState, "getUserLanguage" | "getSessionDir" | "getTaskTier" | "getProcessState">;
 };
 
@@ -65,6 +66,9 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 	const decisionQuestions = extractDecisionQuestions(result.output);
 	const decisionNotice = sameTask ? decisionQuestionNotice(p.agent, decisionQuestions) : null;
 	if (decisionNotice) notices.push(decisionNotice);
+	const system1Questions = extractSystem1Questions(result.output);
+	const system1Notice = sameTask ? system1QuestionNotice(p.agent, system1Questions, d.isAskSystem1Active?.() === true) : null;
+	if (system1Notice) notices.push(system1Notice);
 	notices.push("Orchestration handoff is in details.orchestration. Start from its manifest; reread a file only when it is missing, stale, or conflicting. A wide review closes only with a full regression marker. Model routing was not changed.");
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
@@ -158,6 +162,7 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 			contractNotices,
 			questions,
 			decisionQuestions,
+			system1Questions,
 			orchestration: activeOrchestrationHandoff({
 				agent: p.agent,
 				task: p.task,

@@ -2,7 +2,7 @@ import type { JsonText, System1Question, System1Result } from '../lib/system1/co
 import { AGENTIC_LIMITS } from '../lib/system1/config-agentic.js';
 import { containsCommunicationSecret } from './system1-communication-store.ts';
 export const AGENTIC_VERSION = 'agentic-ask/v1';
-export interface AgenticConfig { mode: 'off' | 'advisory' | 'recommended'; remoteContextApproved: boolean; include: string[]; allowToolOutputs: boolean; limits: Record<keyof typeof AGENTIC_LIMITS, number>; }
+export interface AgenticConfig { mode: 'off' | 'on'; /** The legacy value read as `on`, for diagnostics. */ legacyMode?: 'advisory' | 'recommended'; remoteContextApproved: boolean; include: string[]; allowToolOutputs: boolean; limits: Record<keyof typeof AGENTIC_LIMITS, number>; }
 export interface AgenticInput { state?: JsonText; paths?: { path: string; startLine?: number; endLine?: number }[]; evidenceRefs?: string[]; questions: System1Question[]; }
 export interface SourceSummary { kind: 'file' | 'output'; ref: string; hash: string; bytes: number; path?: string; startLine?: number; endLine?: number; totalLines?: number; complete: boolean; toolCallId?: string; exitCode?: number; isError?: boolean; truncation?: 'complete' | 'partial' | 'unknown'; readbackHandle?: string; sourcePathsKnown?: boolean; }
 export type AgenticReason = 'consumer_off' | 'not_approved' | 'budget_exhausted' | 'invalid_input' | 'source_denied' | 'source_changed' | 'evidence_incomplete' | 'evidence_unavailable' | 'state_too_large' | 'counter_restore_ambiguous' | 'persistence_failed' | 'collection_timeout';

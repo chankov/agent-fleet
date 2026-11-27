@@ -18,6 +18,7 @@ create	reference:fleet-coordination-patterns
 create	skill:code-review-and-quality
 create	reference:performance-checklist
 create	reference:security-checklist
+create	reference:system1-consultation
 create	skill:test-driven-development
 create	reference:testing-patterns
 create	skill:compound-learning

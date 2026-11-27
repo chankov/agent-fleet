@@ -9,6 +9,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DECISION_QUESTION_FORMAT } from "../decision-questions.ts";
+import { SYSTEM1_QUESTION_FORMAT } from "../system1-question-format.ts";
 
 export type PracticeRole = "researcher" | "reviewer" | "editor";
 
@@ -41,7 +42,21 @@ export interface PracticeRecord {
 	readonly method: string;
 	/** When this practice should propose a Poll or a Debate to the operator (PLAN-11-01 task 13). */
 	readonly decisions?: string;
+	/** When an optional Ask System 1 suggestion may help, its typed question, and the next verification (task 18). */
+	readonly system1?: string;
 }
+
+/**
+ * Shared by the research, planning, independent-review and security practices, once per assignment
+ * block. Workers suggest; only the parent Hub operator may call an active `ask_system1` (D34–D35).
+ */
+export const SYSTEM1_QUESTION_GUIDANCE = [
+	"### Ask System 1 suggestions",
+	"You never call ask_system1; only the parent Hub operator may, at its discretion and only when the tool is active there (shared rule: `references/system1-consultation.md`, installed as `.pi/references/system1-consultation.md`).",
+	"When one specific uncertainty over a few named candidates blocks your next step, you may add at most two lines, each one JSON object:",
+	SYSTEM1_QUESTION_FORMAT,
+	"`input` is exactly the ask_system1 arguments: repo-relative paths or minimal non-secret state, and choice (with an \"other\" or \"unknown\" option), predicate or ordinal questions; never secrets or pasted bodies. Do not wait for an answer: do the verification you named. An answer is advice and never counts as evidence, a verdict, a finding or a decision.",
+].join("\n");
 
 /**
  * Shared by the planning, architecture, independent-review and security practices, and added to an
@@ -71,6 +86,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"Trace call paths and data flow to their ends when behavior spans files. Cite every claim as `path:line` or a URL.",
 			"Report gaps and conflicting evidence plainly instead of guessing.",
 		].join("\n"),
+		system1: "When several candidate files could own an access rule, suggest an ordinal question per candidate file (low, medium or high likelihood of containing the enforcing rule). Next, read the highest-ranked candidate and trace its caller to the enforcing check; continue with the others if the evidence is inconclusive.",
 	}),
 	architecture: record({
 		id: "architecture",
@@ -96,6 +112,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"An editor saves the plan as one document (alone, or before implementing when the assignment also carries implementation): resolve the directory from `.ai/agent-fleet-overrides.md` → `## planning-and-task-breakdown` → `plan-dir` (default `docs/plans/{area}`) and the name from its `naming` key (default `PLAN-{prd-name}.md`), then end the final response with `PLAN_FILE: <repo-relative path>` on its own line.",
 			"A researcher or reviewer returns planning advice or plan critique and writes nothing.",
 		].join("\n"),
+		system1: "When the first step depends on two unsettled assumptions and either could change the sequence, suggest a choice among the listed dependency IDs: which assumption, if false, would invalidate the first step? Next, inspect that dependency's contract or fixture and validate the assumption before ordering tasks.",
 		decisions: "Where several task sequences, scopes or migration paths stay viable, propose a Poll for independent theses. Where a dependency or rollback objection could change the chosen plan, propose a Debate of that objection.",
 	}),
 	implementation: record({
@@ -120,6 +137,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"Plans: challenge assumptions against the codebase, ordering, hidden dependencies, missing steps and proportionality to the request. Code: correctness, readability, architecture, security, performance and parity across sibling cases. Documentation: accuracy against the code it describes.",
 			"Attribute every finding to evidence. The author of the reviewed work is never eligible to approve it.",
 		].join("\n"),
+		system1: "When several acceptance criteria cite evidence and you are unsure which claim has the weakest support, suggest a choice among the criterion IDs: which claim is least supported by the supplied evidence excerpts? Next, check the original evidence against the named revision yourself; the verdict stays yours.",
 		decisions: "For a substantial finding in a plan, code or documentation, propose a Poll for independent judgments tied to the named revision, or a Debate when the remedies are incompatible. Keep the evidence references and any dissent. The verdict stays yours; a proposal never changes or replaces it.",
 	}),
 	testing: record({
@@ -143,6 +161,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"Threat-model first: name the trust boundaries and data flows, then check input validation, authorization, secrets handling and dependencies along them.",
 			"Each finding carries severity, evidence and the exploit path. Never print secret values. A reviewer recommends fixes; an editor applies a scoped fix and verifies it.",
 		].join("\n"),
+		system1: "When a request crosses several trust boundaries and the permission check on one data flow is unclear, suggest a choice among the listed flow IDs: which crossing most needs inspection for a missing authorization check? Next, trace that flow from input to destination and verify the effective permissions against code and configuration before recording a finding.",
 		decisions: "Establish the risk with evidence first, then compare the plausible mitigations. Propose a Debate when a disputed threat-model assumption or residual risk could change the choice.",
 	}),
 	performance: record({

@@ -3,11 +3,11 @@ import {createAgenticRuntime} from './agentic-runtime.ts';import {parseAgenticCo
 const config=parseAgenticConfig({mode:'advisory',remoteContextApproved:true,limits:{maxCallsPerSession:1}});
 const input={state:'State',questions:[{id:'q',type:'predicate',instructions:'Is it clear?'}]};
 const base={sessionId:'s',context:()=> 'task',persist:()=>{},config};
-test('recommended accepts repeated useful batches while preserving advisory authority and session bounds',async()=>{
- const recommended=parseAgenticConfig({mode:'recommended',remoteContextApproved:true,limits:{maxCallsPerSession:3}});
+test('on accepts repeated useful batches while preserving advisory authority and session bounds',async()=>{
+ const recommended=parseAgenticConfig({mode:'on',remoteContextApproved:true,limits:{maxCallsPerSession:3}});
  let calls=0;
  const runtime=createAgenticRuntime({...base,config:recommended,service:{evaluate:async()=>{calls++;return {status:'ok',evaluation:{answers:[],metadata:{provider:'fake',requestedModel:'fake',returnedModel:'fake',questionSetVersion:'agentic-ask/v1',latencyMs:0,attempts:1}}};}}});
- assert.equal(runtime.enabled,true);assert.equal(runtime.mode,'recommended');
+ assert.equal(runtime.enabled,true);assert.equal(runtime.mode,'on');
  for(let i=0;i<3;i++) {
   const result=await runtime.evaluate({...input,state:`Distinct task context ${i}`});
   assert.equal(result.status,'ok');assert.equal(result.advisory,true);

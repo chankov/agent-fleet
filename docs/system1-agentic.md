@@ -15,7 +15,7 @@ The default install does not enable this consumer. The existing System 1 feature
   "apiKeyEnv": "TYPESAFE_API_KEY",
   "consumers": {
     "agenticAsk": {
-      "mode": "recommended",
+      "mode": "on",
       "remoteContextApproved": true,
       "include": ["src", ".pi/harnesses"],
       "allowToolOutputs": false
@@ -30,19 +30,22 @@ This is an opt-in example, **not** an installed default. The provider credential
 
 | `consumers.agenticAsk.mode` | Behavior |
 |---|---|
-| `off` (or absent section) | No capture or evaluation; tool unavailable. Installed default. |
-| `advisory` | Available when approved; the Hub chooses when an optional consultation helps. |
-| `recommended` | Available when approved; the Hub is reminded to use it when a concrete unresolved question benefits from bounded semantic assistance. |
+| `off`, no `mode`, or no section | No capture or evaluation; tool unavailable. Installed default. |
+| `on` | Available to the parent Hub once `remoteContextApproved` is `true` and System 1 is otherwise ready. The operator decides whether and when a consultation helps. |
 
-`recommended` actively favors `ask_system1` for classification, selected-file relevance/scope, risk and assumptions, request clarity and failure interpretation. These are examples, not an exhaustive allowlist. It applies to **all task tiers, including trivial/small**, in both work modes, without waiting for the user to request a call. The model selects permitted paths/ranges directly when that avoids reading whole files into its own context just to make the same judgment.
+`on` and `off` are the canonical values. The earlier `advisory` and `recommended` values are still accepted and read as `on`; `agent-fleet doctor` shows the canonical mode, names a legacy value and suggests writing `on`. Reading a legacy value as `on` changes nothing else: `remoteContextApproved` (including `false` or absent), `include`, `allowToolOutputs`, `limits` and every other consumer stay as written. Setup never rewrites this section.
+
+Delegated workers never get the tool; with the research, planning, independent-review or security practice they may suggest a question with a `SYSTEM1_QUESTION:` line, which the Hub shows the operator as a ready input when the tool is active, and which causes no call by itself ([shared rule](../references/system1-consultation.md)).
+
+When the tool is active, the Hub prompt carries the recommended guidance for every `on` workspace, including one that was set to `advisory`. It suits classification, selected-file relevance/scope, risk and assumptions, request clarity and failure interpretation at any task tier, but use is discretionary: only a concrete unresolved question warrants a call. The model selects permitted paths/ranges directly when that avoids reading whole files into its own context just to make the same judgment.
 
 No preliminary helper call is required before independent reasoning, search or bounded reads. Exact lookup/search/calculation, gathering missing facts, required reading before editing, tests, independent review and user decisions use their appropriate tools. Dedicated task/dispatch triage and review workflows remain separate; advice cannot satisfy their gates.
 
 Choose among configured helper profiles using measured task accuracy, latency and tool reliability. Provider names, parameter counts and unmeasured claims of speed or price are not evidence. If measurements are unavailable, keep configuration unchanged and suitability unknown. Batch related questions and reuse current answers. Technical session caps, timeouts and input bounds remain in force.
 
-Refusal, unavailable service, missing evidence, stale/inconclusive advice or an exhausted budget falls back to ordinary reading, research or independent reasoning without automatic retries. Modes do not expand consent, file scope, output capture or process authority. Results in both enabled modes retain `advisory: true`.
+Refusal, unavailable service, missing evidence, stale/inconclusive advice or an exhausted budget falls back to ordinary reading, research or independent reasoning without automatic retries. The mode does not expand consent, file scope, output capture or process authority. Every result retains `advisory: true`.
 
-The recommendation is injected only when this consumer is in `recommended` mode **and the tool is active in the parent Hub catalog**. It is a prompt policy, not an automatic call hook or a guarantee of model compliance. Configuration is snapshotted at session initialization: start a new Hub session after changing the mode.
+The guidance is injected only when this consumer is `on` **and the tool is active in the parent Hub catalog** (consent, root mode and local readiness included). It is a prompt policy, not an automatic call hook or a guarantee of model compliance: enabling the setting, building the prompt or refreshing the catalog makes no call. Configuration is snapshotted at session initialization: start a new Hub session after changing the mode.
 
 ## Inputs and example uses
 
@@ -78,7 +81,7 @@ For A/B, explicitly opt into `allowToolOutputs: true`. Only new completed normal
 
 ```json
 "agenticAsk": {
-  "mode": "recommended",
+  "mode": "on",
   "remoteContextApproved": true,
   "include": ["git:tracked"],
   "allowToolOutputs": false

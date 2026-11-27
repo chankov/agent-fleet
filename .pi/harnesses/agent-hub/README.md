@@ -454,6 +454,12 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   `debate_panel` and a ready question (`details.decisionQuestions`; rejected lines are reported with
   their reason). A proposal starts nothing and never blocks, fails or accepts the run; the operator
   decides (see `skills/debate/SKILL.md`). Blocking forks still use `ASK_USER:`.
+- **Ask System 1 suggestions (`SYSTEM1_QUESTION:`)** — a worker with the `research`, `planning`,
+  `independent-review` or `security` practice never calls `ask_system1`; it may end its report with at
+  most two `SYSTEM1_QUESTION: {"uncertainty":…,"input":{…},"verify":…}` lines. The hub validates `input`
+  with the tool's own validator and adds one notice: a ready input when `ask_system1` is active in this
+  Hub, otherwise the verification to do directly (`details.system1Questions`). Nothing is called until
+  the operator calls it; an answer is advice. Shared rule: `references/system1-consultation.md`.
 - **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
   acceptance assertions built from the request *before* any editor runs, so a clearly stated
   requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions
@@ -1657,7 +1663,7 @@ D9 `consumers.fileDiscovery` is separately consented and off by default. At all 
 
 ## Agentic System 1 advisory tool
 
-`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `recommended` reminds the operator to consult it for a concrete unresolved question when useful; `advisory` keeps optional consultation. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
+`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `mode` is `on` or `off` (the legacy `advisory` and `recommended` read as `on`); when the tool is active the prompt carries the recommended guidance, and the operator decides whether to call it for a concrete unresolved question. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
 
 ### Clarification routing
 

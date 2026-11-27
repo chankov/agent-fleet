@@ -59,6 +59,7 @@ import { readInstallationState, assertLocalInstallation, RETIRED_INSTALLATION_OW
 import { readState, STATE_REL_PATH } from "./state.js";
 import { runtimeDependencyFindings } from "../../.pi/agent-fleet/scripts/lib/runtime-dependencies.js";
 import { resolveSystem1Readiness } from "../../.pi/harnesses/lib/system1/config.js";
+import { SYSTEM1_DIRECT_TRANSPORT, system1TransportSummary } from "../../.pi/harnesses/lib/system1/transport.js";
 import { system1SelectedByDesired } from "../../.pi/harnesses/lib/system1/selection.js";
 import { planTaskTriageConfig } from "./task-triage-setup.js";
 
@@ -256,10 +257,12 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     invalid_config: ".ai/system1.json is invalid",
     ready: "configuration and current environment are locally ready",
   }[readinessName];
+  // A working direct adapter is locally ready even though Pi's native classifier is unavailable (D32).
+  const enabled = !["disabled", "missing_config"].includes(readinessName);
   return [{
     type: "system1",
     path: ".ai/system1.json",
-    issue: `System 1: ${detail}; API validity is unverified`,
+    issue: `System 1: ${detail}; API validity is unverified${enabled ? `; ${system1TransportSummary()}` : ""}`,
     fix: readinessName === "ready" || readinessName === "disabled"
       ? "no automatic action"
       : "review the operator-owned System 1 configuration and process environment",
@@ -269,9 +272,49 @@ export function scanSystem1Readiness({ workspace, env = process.env }) {
     environmentPresent,
     apiValidity: "unverified",
     consumerEvidence: "unverified",
+    ...(enabled ? { transport: SYSTEM1_DIRECT_TRANSPORT, nativeClassifier: "not used" } : {}),
     consumers: Object.fromEntries(Object.entries(snapshot.consumers).map(([name, section]) => [name, section.status])),
-  }, ...proactiveBindingDiagnostics(snapshot, policyRoots), ...legacyMarkdown, ...retainedBackups, ...snapshot.errors.map(error => ({ type: "system1-config", path: error.path, classification: "advisory", issue: `${error.path}: ${error.code}`, fix: "review the human-owned .ai/system1.json; no automatic changes" })),
+  }, ...agenticAskDiagnostics(snapshot, readinessName), ...proactiveBindingDiagnostics(snapshot, policyRoots), ...legacyMarkdown, ...retainedBackups, ...snapshot.errors.map(error => ({ type: "system1-config", path: error.path, classification: "advisory", issue: `${error.path}: ${error.code}`, fix: "review the human-owned .ai/system1.json; no automatic changes" })),
   ...legacyPaths.map(path => ({ type: 'system1-legacy', path, classification: 'advisory', issue: snapshot.status === 'missing' ? 'consumer-only legacy configuration has no provider document; runtime ignores it, and migration will not choose provider/model' : snapshot.document ? 'stale legacy file is not used by runtime' : 'legacy file requires explicit migration; not used by runtime', fix: snapshot.status === 'missing' ? 'review docs/system1-config.md#consumer-only-legacy-workspaces; manually author v2 with mode: off and reviewed consumer sections; preserve a private backup' : 'review setup --migrate-system1-config --dry-run; conflicts are never deleted automatically' }))];
+}
+
+/**
+ * Ask System 1 (PLAN-11-01 task 17): the canonical configured mode and whether the parent Hub's
+ * `ask_system1` tool is actually available, with the first missing prerequisite. Offline: local
+ * configuration and environment presence only; no provider or catalog call.
+ */
+export function agenticAskDiagnostics(snapshot, readinessName) {
+  const raw = snapshot.document?.consumers?.agenticAsk;
+  if (!raw) return [];
+  const section = snapshot.consumers?.agenticAsk;
+  const config = section?.config;
+  if (!config) return [];
+  const legacy = config.legacyMode;
+  const configured = `${config.mode}${legacy ? ` (legacy "${legacy}", read as "on")` : ""}`;
+  const blocker = config.mode === "off" ? "the consumer is off"
+    : !config.remoteContextApproved ? "remoteContextApproved is not true"
+    : snapshot.status === "off" ? "root System 1 mode is off"
+    : readinessName === "disabled" ? "the system1 feature is not enabled for this workspace (.ai/agent-fleet.json)"
+    : readinessName !== "ready" ? `System 1 is not locally ready (${readinessName})`
+    : null;
+  return [{
+    type: "system1-agentic-ask",
+    path: ".ai/system1.json#consumers.agenticAsk",
+    classification: "advisory",
+    configuredMode: config.mode,
+    ...(legacy ? { legacyMode: legacy } : {}),
+    effective: config.mode === "off" ? "off" : blocker ? "unavailable" : "available",
+    issue: config.mode === "off"
+      ? "Ask System 1: configured off"
+      : blocker
+      ? `Ask System 1: configured ${configured}; ask_system1 is unavailable because ${blocker}`
+      : `Ask System 1: configured ${configured}; ask_system1 is available to the parent Hub only, used at the operator's discretion; API validity is unverified`,
+    fix: legacy
+      ? `write "on" instead of "${legacy}" when you next edit .ai/system1.json; the Hub now shows the recommended guidance for any "on" consumer`
+      : blocker && config.mode !== "off"
+        ? "review the operator-owned .ai/system1.json and process environment; consent is never granted automatically"
+        : "no automatic action",
+  }];
 }
 
 export function scanTaskTriageReadiness({ workspace, env = process.env }) {

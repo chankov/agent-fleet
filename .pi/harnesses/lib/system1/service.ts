@@ -12,6 +12,7 @@ import type {
 } from "./contracts.ts";
 import { resolveSystem1Readiness, validateSystem1Config } from "./config.js";
 import { createJevProvider, type JevTransport } from "./jev.ts";
+import { selectSystem1Transport, SYSTEM1_DIRECT_TRANSPORT } from "./transport.js";
 
 export const DEFAULT_SYSTEM1_TIMEOUT_MS = 2_000;
 
@@ -186,6 +187,8 @@ export interface CreateSystem1RuntimeOptions {
   config: unknown;
   env?: Record<string, string | undefined>;
   transport?: JevTransport;
+  /** The caller in the transport decision table (lib/system1/transport.js); defaults to the Hub. */
+  caller?: string;
 }
 
 export interface System1Runtime {
@@ -204,6 +207,8 @@ export function createSystem1Runtime(options: CreateSystem1RuntimeOptions): Syst
     const unavailable = { status: "unavailable", reason: "invalid_config" } as const;
     return { readiness: unavailable, service: createSystem1Service({ availability: unavailable }) };
   }
+  // One transport, chosen before any request (D32): Fleet's direct adapter for every caller.
+  if (selectSystem1Transport(options.caller).transport !== SYSTEM1_DIRECT_TRANSPORT) throw new Error("unsupported System 1 transport");
   const apiKey = env[validated.config.apiKeyEnv];
   const provider = createJevProvider({ apiKey: typeof apiKey === "string" ? apiKey : "", transport: options.transport });
   return { readiness, service: createSystem1Service({ provider, availability: readiness }) };

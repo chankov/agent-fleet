@@ -95,7 +95,7 @@ If triage abstains, fails, is unavailable, stale, or reaches its budget, use ord
 	const stateCapsule = stateCapsuleFragment(ctx.getPromptState(), resolution, askUserAvailable)
 		+ (busyProviders.length ? `\n- local model slots in use: ${busyProviders.map(limit => `${limit.provider} ${limit.inFlight}/${limit.limit}${limit.queued ? ` (+${limit.queued} queued)` : ""}`).join(", ")}` : "")
 		+ (catalogNotice ? `\n\n${catalogNotice}` : "");
-	const agenticRecommended = activeTools.includes("ask_system1") && ctx.getAgenticAskMode?.() === "recommended";
+	const agenticRecommended = activeTools.includes("ask_system1") && ctx.getAgenticAskMode?.() === "on";
 	const stableModeSection = [fleetActive ? TASK_TRIAGE_FRAGMENT : "", agenticRecommended ? ASK_SYSTEM1_RECOMMENDED_FRAGMENT : "", activeTools.includes('ask_system1_files') ? FILE_DISCOVERY_FRAGMENT : ""].filter(Boolean).join("\n\n");
 	const artifactRoot = ctx.getArtifactRoot?.();
 	const verificationSection = (verificationActive ? verificationFragment(MAX_OPEN_ASSERTIONS) : "") +

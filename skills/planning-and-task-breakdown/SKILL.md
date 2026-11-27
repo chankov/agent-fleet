@@ -117,6 +117,8 @@ Database schema
 
 Implementation order follows the dependency graph bottom-up: build foundations first.
 
+**Optional Ask System 1 (Hub operator only).** When the first step depends on two unsettled assumptions and either could change the sequence, a delegate may suggest a choice among the listed dependency IDs — which assumption, if false, would invalidate the first step? — with one `SYSTEM1_QUESTION:` line; only the operator decides whether to ask. Either way, inspect that dependency's contract or fixture and validate the assumption before ordering tasks. Shared rule: [`../../references/system1-consultation.md`](../../references/system1-consultation.md).
+
 ### Step 3: Slice Vertically
 
 Instead of building all the database, then all the API, then all the UI — build one complete feature path at a time:

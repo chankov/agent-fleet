@@ -39,6 +39,8 @@ Controls bolted on without a threat model are guesses. Before hardening, spend f
 
 If you can't name the trust boundaries for a feature, you're not ready to secure it. This is OWASP **A04: Insecure Design** — most breaches begin in design, not code.
 
+**Optional Ask System 1 (Hub operator only).** When a request crosses several trust boundaries and the permission check on one data flow is unclear, a delegate may suggest a choice among the listed flow IDs — which crossing most needs inspection for a missing authorization check? — with one `SYSTEM1_QUESTION:` line; only the operator decides whether to ask. Either way, trace that flow from input to destination and verify the effective permissions against code and configuration before recording a finding. Shared rule: [`../../references/system1-consultation.md`](../../references/system1-consultation.md).
+
 ## The Three-Tier Boundary System
 
 ### Always Do (No Exceptions)

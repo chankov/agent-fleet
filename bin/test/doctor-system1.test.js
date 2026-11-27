@@ -249,3 +249,67 @@ test("CLI JSON/text and --fix keep System 1 advisory with zero outstanding work"
   assert.equal(readFileSync(join(ws, ".ai", "system1.json"), "utf8"), before);
   assert.equal(existsSync(join(ws, ".env")), false, "doctor never creates or loads .env");
 });
+
+test("doctor shows Ask System 1's canonical mode and why the tool is or is not available, offline and without secrets (task 17)", t => {
+  const secret = "synthetic-agentic-doctor-key";
+  const cases = [
+    ["advisory", true, "auto", { TYPESAFE_API_KEY: secret }, "available", /configured on \(legacy "advisory", read as "on"\); ask_system1 is available to the parent Hub only/],
+    ["recommended", false, "auto", { TYPESAFE_API_KEY: secret }, "unavailable", /configured on \(legacy "recommended", read as "on"\); ask_system1 is unavailable because remoteContextApproved is not true/],
+    ["on", true, "off", { TYPESAFE_API_KEY: secret }, "unavailable", /because root System 1 mode is off/],
+    ["on", true, "auto", {}, "unavailable", /because System 1 is not locally ready \(missing_key\)/],
+    ["off", true, "auto", { TYPESAFE_API_KEY: secret }, "off", /^Ask System 1: configured off$/],
+  ];
+  for (const [mode, consent, rootMode, env, effective, issue] of cases) {
+    const ws = workspace(t); mkdirSync(join(ws, ".ai"));
+    writeFileSync(join(ws, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
+    const document = { ...validConfig, mode: rootMode, consumers: { agenticAsk: { mode, remoteContextApproved: consent, include: ["docs"] }, taskTriage: { mode: "advisory", remoteContextApproved: false } } };
+    const text = JSON.stringify(document);
+    writeFileSync(join(ws, ".ai/system1.json"), text);
+    const finding = scanSystem1Readiness({ workspace: ws, env }).find(f => f.type === "system1-agentic-ask");
+    assert.ok(finding, mode);
+    assert.equal(finding.effective, effective, `${mode}/${rootMode}`);
+    assert.equal(finding.configuredMode, mode === "off" ? "off" : "on");
+    assert.match(finding.issue, issue);
+    if (["advisory", "recommended"].includes(mode)) assert.match(finding.fix, new RegExp(`write "on" instead of "${mode}"`));
+    assert.doesNotMatch(JSON.stringify(finding), new RegExp(secret), "no secret values");
+    assert.equal(readFileSync(join(ws, ".ai/system1.json"), "utf8"), text, "doctor never edits the configuration");
+  }
+  const ws = workspace(t); mkdirSync(join(ws, ".ai"));
+  writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify(validConfig));
+  assert.equal(scanSystem1Readiness({ workspace: ws, env: {} }).some(f => f.type === "system1-agentic-ask"), false, "no consumer section, no finding");
+  writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify({ ...validConfig, consumers: { agenticAsk: { mode: "on", remoteContextApproved: true } } }));
+  assert.match(scanSystem1Readiness({ workspace: ws, env: { TYPESAFE_API_KEY: secret } }).find(f => f.type === "system1-agentic-ask").issue, /because the system1 feature is not enabled for this workspace/);
+});
+
+test("doctor names the direct transport for enabled System 1, stays clean when disabled, and never reads Pi's agent directory (task 16)", t => {
+  const secret = "synthetic-pi-agent-dir-secret";
+  for (const agentDir of ["default", "override"]) {
+    const ws = workspace(t); mkdirSync(join(ws, ".ai"));
+    const home = join(ws, "home"), dir = agentDir === "default" ? join(home, ".pi", "agent") : join(ws, "custom-agent");
+    mkdirSync(dir, { recursive: true });
+    const models = JSON.stringify({ providers: { typesafe: { apiKey: `!echo ${secret}`, models: [{ id: "jev-1.13.0" }] } } });
+    const auth = JSON.stringify({ typesafe: { type: "api_key", key: secret } });
+    writeFileSync(join(dir, "models.json"), models);
+    writeFileSync(join(dir, "auth.json"), auth);
+    writeFileSync(join(ws, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
+    writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify({ ...validConfig, consumers: { agenticAsk: { mode: "on", remoteContextApproved: true } } }));
+    const env = { HOME: home, ...(agentDir === "override" ? { PI_CODING_AGENT_DIR: dir } : {}) };
+    const enabled = scanSystem1Readiness({ workspace: ws, env: { ...env, TYPESAFE_API_KEY: "synthetic-env-key" } });
+    const main = enabled.find(f => f.type === "system1");
+    assert.equal(main.readiness, "ready", "the direct adapter is locally ready without native classification");
+    assert.equal(main.transport, "direct");
+    assert.match(main.issue, /transport: direct \(Fleet's TypeSafe adapter\); Pi's native classifier is not used because Pi's catalog has no classifier typesafe\/jev-1\.13\.0/);
+    const missing = scanSystem1Readiness({ workspace: ws, env }).find(f => f.type === "system1");
+    assert.equal(missing.readiness, "missing_key", "Pi's auth.json and models.json never count as Fleet credentials");
+    const output = JSON.stringify([enabled, missing]);
+    assert.doesNotMatch(output, new RegExp(secret));
+    assert.doesNotMatch(output, /synthetic-env-key/);
+    assert.equal(readFileSync(join(dir, "models.json"), "utf8"), models, "user configuration untouched");
+    assert.equal(readFileSync(join(dir, "auth.json"), "utf8"), auth);
+    writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify({ ...validConfig, mode: "off" }));
+    const disabled = scanSystem1Readiness({ workspace: ws, env: { ...env, TYPESAFE_API_KEY: "synthetic-env-key" } }).find(f => f.type === "system1");
+    assert.equal(disabled.readiness, "disabled");
+    assert.equal(Object.hasOwn(disabled, "transport"), false, "a disabled configuration is reported cleanly");
+    assert.doesNotMatch(disabled.issue, /transport/);
+  }
+});

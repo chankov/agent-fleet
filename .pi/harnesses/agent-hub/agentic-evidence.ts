@@ -11,7 +11,7 @@ import type {AgenticSources} from './agentic-runtime.ts';
 interface RecordOutput {ref:string;sessionId:string;context:string;taskId:string;cwd:string;toolCallId:string;path:string;handle:string;hash:string;bytes:number;sourcePaths:string[];summary:SourceSummary;}
 export function createAgenticEvidence(options:{config?:AgenticConfig;sessionId:string;sessionDir:string;context():string;taskId?():string;canRead(path:string):boolean;parent?:boolean}) {
  const records=new Map<string,RecordOutput>();let total=0,disposed=false;
- const enabled=()=>!disposed&&options.parent!==false&&(options.config?.mode==='advisory'||options.config?.mode==='recommended')&&options.config.remoteContextApproved&&options.config.allowToolOutputs;
+ const enabled=()=>!disposed&&options.parent!==false&&options.config?.mode==='on'&&options.config.remoteContextApproved&&options.config.allowToolOutputs;
  const dir=join(options.sessionDir,'artifacts/evidence/agentic');
  const remove=(r:RecordOutput)=>{records.delete(r.ref);total-=r.bytes;try{checkedSourcePath(options.sessionDir,r.path);rmSync(r.path);}catch{/* never follow a replaced parent */}};
  const check=(r:RecordOutput)=>{

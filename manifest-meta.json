@@ -276,7 +276,8 @@
       "companions": [
         "companion:skills-internal-grilling",
         "reference:definition-of-done",
-        "reference:communication-contract"
+        "reference:communication-contract",
+        "reference:system1-consultation"
       ]
     },
     "_references_comment": "A reference is the long-form half of a skill that cites it by path — never a standalone choice. Declaring it here as a companion means selecting the skill brings its checklists, and uninstall refuses to strand a skill without them. Keep this in step with the `references/…` citations in the SKILL.md bodies (both skills/ and the vendored copies under vendor/agent-skills-upstream/).",
@@ -312,7 +313,8 @@
     },
     "skill:security-and-hardening": {
       "companions": [
-        "reference:security-checklist"
+        "reference:security-checklist",
+        "reference:system1-consultation"
       ]
     },
     "skill:performance-optimization": {
@@ -323,12 +325,14 @@
     "skill:code-review-and-quality": {
       "companions": [
         "reference:performance-checklist",
-        "reference:security-checklist"
+        "reference:security-checklist",
+        "reference:system1-consultation"
       ]
     },
     "skill:context-engineering": {
       "companions": [
-        "reference:prompting-patterns"
+        "reference:prompting-patterns",
+        "reference:system1-consultation"
       ]
     },
     "skill:designing-agents": {
@@ -832,6 +836,7 @@
             ".pi/harnesses/agent-hub/config/agents.ts",
             ".pi/harnesses/agent-hub/config/roles.ts",
             ".pi/harnesses/agent-hub/decision-questions.ts",
+            ".pi/harnesses/agent-hub/system1-question-format.ts",
             ".pi/harnesses/agent-hub/config/practices.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",

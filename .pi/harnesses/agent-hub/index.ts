@@ -1178,7 +1178,7 @@ export default function (pi: ExtensionAPI) {
    },
    runReturnExtraction,
 			returnExtractionAssist: () => resolveAssist(readActiveProfile()?.profile.assist)['return-extraction'],
-			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName,
+			extractNeedsResearch, extractAskUserQuestions, contextPressure: percent => percent >= CONTEXT_WARN_THRESHOLD, displayName, isAskSystem1Active: () => agenticHubEnabled(pi),
 			resolvedAgentModel: (def, ctx, practices) => resolvedModel(def as AgentDef, practices) ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 			getToolCatalogVersion: () => toolCatalogRuntime.catalogForMessage().catalogVersion,
 		},
