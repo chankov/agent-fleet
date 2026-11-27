@@ -8,7 +8,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +76,7 @@ test("the manifest's Fleet Core closure matches what the justfile loads", () => 
 test("uninstall refuses to take a Fleet Core member out from under a harness", () => {
   const manifest = loadManifest(root);
   const workspace = mkdtempSync(join(tmpdir(), "af-core-"));
+  test.after?.(() => rmSync(workspace, { recursive: true, force: true }));
 
   // A workspace with agent-hub and the whole Core recorded as installed.
   const { selected } = resolveSelection(manifest, "pi", { items: ["pi-harness:agent-hub"] });
@@ -109,6 +110,7 @@ test("a retired harness is removed only when recorded and unmodified", () => {
 
   const setup = (contents, { record = true } = {}) => {
     const workspace = mkdtempSync(join(tmpdir(), "af-retired-"));
+    test.after?.(() => rmSync(workspace, { recursive: true, force: true }));
     mkdirSync(join(workspace, dirname(target)), { recursive: true });
     writeFileSync(join(workspace, target), contents, "utf8");
     const state = emptyState({

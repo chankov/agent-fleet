@@ -1,13 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as net from "node:net";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { socketTempRoot } from "./monitor-env.ts";
 import { MonitorStore } from "./hermes-monitor-store.ts";
 import { MonitorRegistry } from "./hermes-monitor-registry.ts";
 import { MonitorSocketServer } from "./hermes-monitor-socket.ts";
 import { readFileSync } from "node:fs";
+
+// Removed at file end: each test's socket.close() hook needs its socket dir, and
+// node:test runs a test's after hooks in registration order.
+const tempRoots: string[] = [];
+test.after(() => { for (const root of tempRoots) rmSync(root, { recursive: true, force: true }); });
+function tempRoot(prefix: string): string {
+	const root = mkdtempSync(join(socketTempRoot(), prefix));
+	tempRoots.push(root);
+	return root;
+}
 
 function request(socketPath: string, frame: unknown): Promise<unknown> {
 	return new Promise((resolve, reject) => { const client = net.createConnection(socketPath); let body = ""; client.setTimeout(500, () => client.destroy(new Error("UDS response timed out"))); client.on("connect", () => client.end(JSON.stringify(frame) + "\n")); client.on("data", chunk => { body += chunk; }); client.on("error", reject); client.on("close", () => resolve(body ? JSON.parse(body) : null)); });
@@ -24,7 +34,7 @@ test("store transition/update produces timestamped parent-child snapshot with co
 });
 
 test("typed UDS output request returns only cursor-new bounded output and caps output/cancel responses", async (t) => {
-	const root = mkdtempSync(join(socketTempRoot(), "monitor-output-route-")); const profile = join(root, "profile"); mkdirSync(profile);
+	const root = tempRoot("monitor-output-route-"); const profile = join(root, "profile"); mkdirSync(profile);
 	const store = new MonitorStore(); store.createParent({ id: "task", generation: 1, hubInstanceId: "hub", checkoutId: "checkout" }); store.appendPublicOutput("task", 1, "one"); store.appendPublicOutput("task", 1, "two");
 	const registration = new MonitorRegistry({ runtimeDir: join(root, "runtime") }).register({ profilePath: profile, hubInstanceId: "hub", snapshot: () => ({}) }) as any;
 	registration.output = ({ taskId, generation, afterSequence }: any) => store.readOutput(taskId, generation, afterSequence);

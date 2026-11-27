@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -17,7 +17,12 @@ import {
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(repoRoot, "bin/cli.js");
 
-const workspace = () => mkdtempSync(join(tmpdir(), "af-stt-"));
+const temp = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
+const workspace = () => temp("af-stt-");
 const azureOpenAiFixture = `{
   "language": "bg-BG",
   "capture": {
@@ -192,7 +197,7 @@ test("rendered STT config contains env names but never secret values", () => {
 });
 
 function isolatedHome() {
-  return mkdtempSync(join(tmpdir(), "af-stt-home-"));
+  return temp("af-stt-home-");
 }
 
 function loadRuntimeConfig(workspaceRoot) {

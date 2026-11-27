@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadManifest } from "../lib/manifest.js";
@@ -10,7 +10,11 @@ import { buildPlan } from "../lib/plan.js";
 
 const root = process.cwd();
 const manifest = loadManifest(root);
-const workspace = () => mkdtempSync(join(tmpdir(), "af-reconcile-"));
+const workspace = () => {
+  const dir = mkdtempSync(join(tmpdir(), "af-reconcile-"));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 
 function legacyWorkspace() {
   const dir = workspace();

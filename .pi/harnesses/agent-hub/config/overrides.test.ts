@@ -44,7 +44,7 @@ language: Bulgarian
 	}
 });
 
-test("legacy watchdog-system1 Markdown is ignored; v2 owns runtime configuration", () => {
+test("legacy watchdog-system1 Markdown is ignored; v2 owns runtime configuration", t => {
 	const dir = mkdtempSync(join(tmpdir(), "overrides-watchdog-system1-"));
 	try {
 		mkdirSync(join(dir, ".ai"), { recursive: true });
@@ -62,7 +62,9 @@ test("legacy watchdog-system1 Markdown is ignored; v2 owns runtime configuration
 		const shadow = parseAgentTeamOverrides(dir);
 		assert.equal(shadow.watchdogSystem1Mode, "off");
 		assert.equal(shadow.warnings.length, 0);
-		assert.equal(parseAgentTeamOverrides(mkdtempSync(join(tmpdir(), "overrides-watchdog-system1-default-"))).watchdogSystem1Mode, "off");
+		const fresh = mkdtempSync(join(tmpdir(), "overrides-watchdog-system1-default-"));
+		t.after(() => rmSync(fresh, { recursive: true, force: true }));
+		assert.equal(parseAgentTeamOverrides(fresh).watchdogSystem1Mode, "off");
 		assert.equal(normalizeWatchdogSystem1Mode(" Shadow ").mode, "shadow");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

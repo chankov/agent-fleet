@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -63,6 +63,12 @@ function parseDryLayout(stdout: string): any {
 	return JSON.parse(stdout.slice(stdout.indexOf("{")));
 }
 
+function teamUpDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 function paneCommands(node: any): string[][] {
 	return node.type === "pane"
 		? [node.command]
@@ -70,7 +76,7 @@ function paneCommands(node: any): string[][] {
 }
 
 test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pane", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: b\n    persona: documenter\n");
 
@@ -85,7 +91,7 @@ test("dry run: hub mode labels the workspace <tag>-hub-* and includes the hub pa
 });
 
 test("dry run: hub project labels workspace and sends the project to hub plus every peer", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: b\n    persona: documenter\n    model: m/x\n");
 
@@ -102,7 +108,7 @@ test("dry run: hub project labels workspace and sends the project to hub plus ev
 });
 
 test("dry run: unified Hub topology threads work mode, native roster, capabilities, and no-coms", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, [
 		"base:",
@@ -139,7 +145,7 @@ test("dry run: unified Hub topology threads work mode, native roster, capabiliti
 });
 
 test("dry run: legacy team roster marker selects matching roster and falls back to default", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, [
 		"security:",
@@ -166,7 +172,7 @@ test("dry run: legacy team roster marker selects matching roster and falls back 
 });
 
 test("dry run: non-hub project sends the project to every peer without a hub pane", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n  - name: c\n    runner: claude-code\n");
 
@@ -180,7 +186,7 @@ test("dry run: non-hub project sends the project to every peer without a hub pan
 });
 
 test("dry run: Hermes conductor uses a distinct shared-layout root", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
 
@@ -193,7 +199,7 @@ test("dry run: Hermes conductor uses a distinct shared-layout root", () => {
 });
 
 test("dry run: invalid conductor backend, duplicate flag, and hub combination refuse", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
 	for (const [args, message] of [
@@ -209,7 +215,7 @@ test("dry run: invalid conductor backend, duplicate flag, and hub combination re
 });
 
 test("dry run: env_file values are redacted (path only), and layout carries no env", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	// env_file is repo-relative; point at a path that does NOT exist — dry-run
 	// must still work (existence is checked only at spawn).
@@ -226,7 +232,7 @@ test("dry run: env_file values are redacted (path only), and layout carries no e
 });
 
 test("dry run: unsafe env_file refuses before printing anything", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n    env_file: ../../etc/secrets\n");
 	const r = dryRun(["--team", "t"], peersYaml);
@@ -235,7 +241,7 @@ test("dry run: unsafe env_file refuses before printing anything", () => {
 });
 
 test("dry run: invalid or missing project/team values are rejected before JSON output", () => {
-	const dir = mkdtempSync(join(tmpdir(), "team-up-test-"));
+	const dir = teamUpDir();
 	const peersYaml = join(dir, "peers.yaml");
 	writeFileSync(peersYaml, "t:\n  - name: a\n    persona: researcher\n");
 

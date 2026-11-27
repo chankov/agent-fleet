@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -34,6 +34,7 @@ function fakeHerdr(existing = []) {
 
 function hermesFixture(t, options = {}) {
 	const root = mkdtempSync(join(tmpdir(), "set-hermes-telegram-"));
+	test.after?.(() => rmSync(root, { recursive: true, force: true }));
 	const profilePath = join(root, "profile");
 	const sourceDir = join(root, "source", "hub-liaison");
 	mkdirSync(sourceDir, { recursive: true });

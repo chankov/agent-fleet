@@ -40,7 +40,10 @@ interface MockState {
 }
 
 function mockServer(): MockState & { socketPath: string; close: () => Promise<void> } {
-	const socketPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "herdr-presence-")), "herdr.sock");
+	const socketDir = fs.mkdtempSync(path.join(os.tmpdir(), "herdr-presence-"));
+	// Removed when the current test (or the file) finishes, even on failure.
+	test.after?.(() => fs.rmSync(socketDir, { recursive: true, force: true }));
+	const socketPath = path.join(socketDir, "herdr.sock");
 	const state: MockState = {
 		agents: [],
 		reports: [],

@@ -28,7 +28,11 @@ const VERSION = "1.1.0";
 
 // ── synthetic world ─────────────────────────────────────────────────────────
 
-const tmp = (label) => mkdtempSync(join(tmpdir(), `af-apply-${label}-`));
+const tmp = (label) => {
+  const dir = mkdtempSync(join(tmpdir(), `af-apply-${label}-`));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 
 // Symlink mode exists only inside an agent-fleet checkout, so a test of symlink
 // mode has to be one. The marker is the package name, same as in production.

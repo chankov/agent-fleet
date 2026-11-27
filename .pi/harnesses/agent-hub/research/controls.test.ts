@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResearchControls } from "./controls.ts";
@@ -11,8 +11,9 @@ const state = (id: number, status: "running" | "done" = "running") => ({
 	contextTokens: 0, timeline: [],
 } as any);
 
-test("research controls kill and clear live helpers without deleting session files", async () => {
+test("research controls kill and clear live helpers without deleting session files", async t => {
 	const dir = mkdtempSync(join(tmpdir(), "research-controls-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const states = new Map([[1, state(1)], [2, state(2)]]);
 	const calls: string[] = [];
 	const runtime: any = {

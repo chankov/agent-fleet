@@ -22,7 +22,13 @@ function fakePiListingScript() {
   return `#!/bin/sh\ncat <<'EOF'\n${rows.join("\n")}\nEOF\n`;
 }
 const cli = join(root, "bin", "cli.js");
-const workspace = () => mkdtempSync(join(tmpdir(), "af-setup-cli-"));
+// Every fixture is removed after the test that made it, including when it fails.
+const temp = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
+const workspace = () => temp("af-setup-cli-");
 const run = (args, input = undefined) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", input });
 const setup = (ws, ...args) => run(["setup", "--workspace", ws, ...args]);
 const azureOpenAiConfig = '{\n  "language": "bg-BG",\n  "capture": {\n    "inputFormat": "pulse",\n    "input": "alsa_input.usb-0c76_Razer_Seiren_Mini-00.mono-fallback",\n    "maxSeconds": 300\n  },\n  "provider": {\n    "type": "azure-openai",\n    "endpoint": "https://fd-ai-credits.openai.azure.com",\n    "deployment": "gpt-4o-transcribe",\n    "apiVersion": "2025-03-01-preview",\n    "apiKeyEnv": "AZURE_SPEECH_KEY"\n  }\n}\n';
@@ -337,7 +343,7 @@ test("STT CLI previews and applies only explicit supported changes without guess
 });
 
 test("primary setup rollback removes partial files and does not commit desired or state", () => {
-  const sourceRoot = mkdtempSync(join(tmpdir(), "af-setup-failure-src-"));
+  const sourceRoot = temp("af-setup-failure-src-");
   const ws = workspace();
   mkdirSync(join(sourceRoot, "skills", "alpha"), { recursive: true });
   mkdirSync(join(sourceRoot, "skills", "beta"), { recursive: true });
@@ -393,7 +399,7 @@ test("setup and deprecated upgrade publish verb-specific conflict guidance", () 
 test("setup --on-conflict resolves real both-changed conflicts under ours and theirs", () => {
   // Fixture mirrors plan three-way conflict: base v1, package v2, local edit.
   // buildReconcilePlan is the accept path setup uses after CLI validation.
-  const pkg = mkdtempSync(join(tmpdir(), "af-on-conflict-pkg-"));
+  const pkg = temp("af-on-conflict-pkg-");
   mkdirSync(join(pkg, "skills", "alpha"), { recursive: true });
   writeFileSync(join(pkg, "skills", "alpha", "SKILL.md"), "alpha v2\n");
   mkdirSync(join(pkg, ".versions", "0.0.1", "skills", "alpha"), { recursive: true });

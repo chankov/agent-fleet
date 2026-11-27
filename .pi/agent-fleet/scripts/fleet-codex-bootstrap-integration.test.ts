@@ -23,11 +23,15 @@ const A={hostProfile:'desktop',principal:'synthetic-only',threadId:'11111111-111
 const OWNER={project:'af-test',peer:'synthetic',sessionId:'33333333-3333-4333-8333-333333333333',startedAt:'2026-11-12T00:00:00.000Z'};
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
 async function until(check:()=>boolean){for(let i=0;i<1000&&!check();i++)await tick();assert.ok(check(),'owned synthetic operation did not settle');}
+// A late bootstrap write can recreate a root after its test's own rm; sweep every
+// fixture root again when the process exits, outside any test's deadlines.
+const fixtureRoots:string[]=[];process.once('exit',()=>{for(const root of fixtureRoots)try{rmSync(root,{recursive:true,force:true});}catch{}});
 /** No real Codex, /proc, transcript or existing endpoint is used. Both protocols
  * use owned temp sockets; Desktop executable bytes/proc and model output are
  * explicit fixtures, never production identity/qualification evidence. */
 async function fixture(t:any,options:{confirm?:boolean;loaded?:boolean;missingPath?:boolean;cancelProbe?:AbortController;contract?:boolean;holdProbeAfter?:number;legacyRoot?:boolean;badEventEcho?:boolean;automatic?:boolean;confirmEffect?:(root:string)=>void}={}){
  const root=mkdtempSync(join(SOCKET_BASE,'af-full-')),policyRoot=join(root,'policy'),registryRoot=join(root,'r'),procRoot=join(root,'fake-proc'),home=join(root,'home');
+ fixtureRoots.push(root);
  mkdirSync(join(registryRoot,'sockets'),{recursive:true,mode:0o700});mkdirSync(join(procRoot,'123'),{recursive:true,mode:0o700});mkdirSync(join(home,'sessions'),{recursive:true,mode:0o700});mkdirSync(join(root,'d'),{mode:0o700});
  const desktop=join(root,'SYNTHETIC-NOT-EXECUTED');writeFileSync(desktop,'OWNED FAKE DESKTOP BYTES',{mode:0o700});writeFileSync(join(procRoot,'123','stat'),'123 (synthetic) '+['S',...Array(18).fill('0'),'55555',...Array(5).fill('0')].join(' ')+'\n',{mode:0o600});symlinkSync(desktop,join(procRoot,'123','exe'));
  if(options.automatic){mkdirSync(join(root,'resources'),{mode:0o700});const body=Buffer.from(JSON.stringify({name:'openai-codex-electron',version:'0.167.0-alpha.3.2'})),json=Buffer.from(JSON.stringify({files:{'package.json':{size:body.length,offset:'0'}}})),header=Buffer.alloc(8+json.length),size=Buffer.alloc(8);header.writeUInt32LE(json.length+4,0);header.writeUInt32LE(json.length,4);json.copy(header,8);size.writeUInt32LE(4,0);size.writeUInt32LE(header.length,4);writeFileSync(join(root,'resources','app.asar'),Buffer.concat([size,header,body]),{mode:0o600});}

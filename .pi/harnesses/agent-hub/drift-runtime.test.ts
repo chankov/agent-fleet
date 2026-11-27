@@ -263,8 +263,9 @@ test("A2 physical fallback and corruption retry get isolated attempt and judge i
 	drift.dispose();
 });
 
-test("A2 judge sessions stay unique across overlapping checks and finally deletes only its own file", async () => {
+test("A2 judge sessions stay unique across overlapping checks and finally deletes only its own file", async t => {
 	const dir = mkdtempSync(join(tmpdir(), "drift-judge-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const entered: string[] = [];
 	let release!: () => void;
 	const gate = new Promise<void>(resolve => { release = resolve; });
@@ -294,7 +295,6 @@ test("A2 judge sessions stay unique across overlapping checks and finally delete
 	assert.equal(outcomes.every(item => item.status === "verdict"), true);
 	assert.equal(existsSync(entered[0]), false);
 	assert.equal(existsSync(entered[1]), false);
-	rmSync(dir, { recursive: true, force: true });
 });
 
 test("A2 cancellation is a typed outcome and aborts before a judge child launch", async () => {
@@ -459,7 +459,7 @@ test("operator fence disposes the session-owned attempt synchronously", () => {
 	fenceOperatorCancel(undefined);
 });
 
-test("MI-8 operator fence stays sticky across the next physical launch", async () => {
+test("MI-8 operator fence stays sticky across the next physical launch", async t => {
 	let calls = 0;
 	const drift = runtime(async () => { calls++; return { status: "verdict", verdict: "drifting", reason: "late" }; });
 	drift.attemptLifecycle.beforePhysicalSpawn({ generation: 1 });
@@ -473,6 +473,7 @@ test("MI-8 operator fence stays sticky across the next physical launch", async (
 	assert.equal(calls, 0);
 
 	const dir = mkdtempSync(join(tmpdir(), "mi8-fence-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	writeFileSync(join(dir, "pi"), "#!/usr/bin/env node\nprocess.exit(0);\n", { mode: 0o755 });
 	chmodSync(join(dir, "pi"), 0o755);
 	let processes = 0;
@@ -492,7 +493,6 @@ test("MI-8 operator fence stays sticky across the next physical launch", async (
 	assert.equal(blocked.termination?.reason, "cancelled");
 	assert.equal(blocked.toolCallsStarted, 0);
 	drift.dispose();
-	rmSync(dir, { recursive: true, force: true });
 });
 
 test("T1 a disposed attempt's in-flight judge does not block the replacement check", async () => {

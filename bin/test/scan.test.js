@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject } from "../lib/scan.js";
-const ws = () => mkdtempSync(join(tmpdir(), "af-scan-"));
+const ws = () => {
+  const dir = mkdtempSync(join(tmpdir(), "af-scan-"));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 test("scan omits empty detections and orders bounded conventional paths", () => {
  const root=ws(); assert.deepEqual(scanProject(root), {rules:[],docs:[]});
  mkdirSync(join(root,"rules")); mkdirSync(join(root,".cursor/rules"),{recursive:true}); mkdirSync(join(root,".ai/rules"),{recursive:true}); mkdirSync(join(root,"docs")); writeFileSync(join(root,"README.md"),"x");

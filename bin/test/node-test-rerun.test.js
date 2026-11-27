@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configuredRetries, retriedPasses, runNodeTestWithRerun } from "./helpers/node-test-rerun.js";
+import { configuredConcurrency, configuredRetries, retriedPasses, runNodeTestWithRerun } from "./helpers/node-test-rerun.js";
 
 test("retries default to one under CI, zero locally, and accept a bounded override", () => {
   assert.equal(configuredRetries({}), 0);
@@ -13,6 +13,15 @@ test("retries default to one under CI, zero locally, and accept a bounded overri
   assert.equal(configuredRetries({ AF_TEST_RETRIES: "2" }), 2);
   assert.throws(() => configuredRetries({ AF_TEST_RETRIES: "9" }), /0-3/);
   assert.throws(() => configuredRetries({ AF_TEST_RETRIES: "x" }), /0-3/);
+});
+
+test("runner concurrency defaults to four, CI included, and accepts a bounded override", () => {
+  assert.equal(configuredConcurrency({}), 4);
+  assert.equal(configuredConcurrency({ CI: "true" }), 4);
+  assert.equal(configuredConcurrency({ AF_TEST_CONCURRENCY: "" }), 4);
+  assert.equal(configuredConcurrency({ AF_TEST_CONCURRENCY: "1" }), 1);
+  assert.equal(configuredConcurrency({ AF_TEST_CONCURRENCY: "8" }), 8);
+  for (const raw of ["0", "-1", "1.5", "x", "65"]) assert.throws(() => configuredConcurrency({ AF_TEST_CONCURRENCY: raw }), /1-64/);
 });
 
 test("only tests that passed after the first attempt are reported as retried", () => {

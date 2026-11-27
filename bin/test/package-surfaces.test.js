@@ -692,6 +692,7 @@ test("the relocated harness runtime closure is a manifest companion of every har
 test("removing the last harness strips the justfile region and keeps user recipes", () => {
   const installManifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
   const workspace = mkdtempSync(join(tmpdir(), "af-justfile-"));
+  test.after?.(() => rmSync(workspace, { recursive: true, force: true }));
 
   const install = buildPlan({
     workspace, sourceRoot: root, packageVersion: installManifest.packageVersion,

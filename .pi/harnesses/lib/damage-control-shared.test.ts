@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as net from "node:net";
@@ -16,8 +16,15 @@ import {
  requestAccessReceiptFromHub,
 } from "./damage-control-shared.ts";
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure.
+function tempDir(prefix = "dc-shared-") {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 function tempFile() {
-	return join(mkdtempSync(join(tmpdir(), "dc-shared-")), "exemptions.json");
+	return join(tempDir(), "exemptions.json");
 }
 
 function exemption(pattern, agent) {
@@ -30,7 +37,7 @@ test("readExemptionsFile: missing/malformed file yields []", () => {
 });
 
 test("appendExemptionToFile: creates parent dir, appends, dedupes", () => {
-	const file = join(mkdtempSync(join(tmpdir(), "dc-shared-")), "nested", "exemptions.json");
+	const file = join(tempDir(), "nested", "exemptions.json");
 	appendExemptionToFile(file, exemption(".env"));
 	appendExemptionToFile(file, exemption(".env")); // duplicate
 	appendExemptionToFile(file, exemption(".env", "builder")); // same pattern, agent-scoped → distinct
@@ -116,7 +123,7 @@ function request(pattern = ".env") {
 }
 
 test("requestAccessFromHub: receives the hub's decision", async () => {
-	const sock = join(mkdtempSync(join(tmpdir(), "dc-shared-")), "hub.sock");
+	const sock = join(tempDir(), "hub.sock");
 	const server = await fakeHub(sock, (req, socket) => {
 		assert.equal(req.type, "access_request");
 		assert.equal(req.pattern, ".env");
@@ -139,14 +146,14 @@ test('requestAccessFromHub: expired or malformed deadlines fail closed before co
 });
 
 test('requestAccessFromHub: original shorter deadline is not extended by transport timeout', async () => {
- const sock=join(mkdtempSync(join(tmpdir(),'dc-shared-')),'hub.sock');
+ const sock=join(tempDir(),'hub.sock');
  const server=await fakeHub(sock,()=>{});
  try { assert.equal(await requestAccessFromHub(sock,{...request(),deadline:Date.now()+40},2000),'timeout'); }
  finally { server.close(); }
 });
 
 test('requestAccessFromHub: wrong message ID cannot authorize the waiting call', async () => {
- const sock=join(mkdtempSync(join(tmpdir(),'dc-shared-')),'hub.sock');
+ const sock=join(tempDir(),'hub.sock');
  const server=await fakeHub(sock,(_req,socket)=>{
   socket.end(JSON.stringify({type:'access_decision',msg_id:'wrong',decision:'allow_once'})+'\n');
  });
@@ -155,20 +162,20 @@ test('requestAccessFromHub: wrong message ID cannot authorize the waiting call',
 });
 
 for(const [decision,outcome,expected] of [['deny',undefined,'machine_deny'],['allow_all',undefined,'error'],['deny','expired','timeout']] as const)test(`machine reply ${decision}/${outcome??'decided'} retains origin and cannot grant broad scopes`,async()=>{
- const sock=join(mkdtempSync(join(tmpdir(),'dc-machine-reply-')),'hub.sock');
+ const sock=join(tempDir('dc-machine-reply-'),'hub.sock');
  const req={...request(),actionDigest:'a'.repeat(64)};
  const server=await fakeHub(sock,(_req,socket)=>socket.end(JSON.stringify({type:'access_decision',msg_id:req.msg_id,decision,decisionSource:'codex_machine',actionDigest:req.actionDigest,...(outcome?{outcome}:{})})+'\n'));
  try{assert.equal(await requestAccessFromHub(sock,req,2000),expected);}finally{server.close();}
 });
 
 for(const outcome of ['cancelled','stale','unsupported','audit_failed'] as const)test(`detailed receipt preserves ${outcome}, not human denial`,async()=>{
- const sock=join(mkdtempSync(join(tmpdir(),'dc-receipt-')),'hub.sock');const req=request();
+ const sock=join(tempDir('dc-receipt-'),'hub.sock');const req=request();
  const server=await fakeHub(sock,(_,socket)=>socket.end(JSON.stringify({type:'access_decision',msg_id:req.msg_id,decision:'deny',outcome})+'\n'));
  try{const r=await requestAccessReceiptFromHub(sock,req,1000);assert.equal(r.status,outcome);assert.equal(r.decision,undefined);}finally{server.close();}
 });
 
 test("requestAccessFromHub: times out fail-closed when the hub stays silent", async () => {
-	const sock = join(mkdtempSync(join(tmpdir(), "dc-shared-")), "hub.sock");
+	const sock = join(tempDir(), "hub.sock");
 	const server = await fakeHub(sock, () => { /* never answer */ });
 	try {
 		assert.equal(await requestAccessFromHub(sock, request(), 200), "timeout");
@@ -180,7 +187,7 @@ test("requestAccessFromHub: times out fail-closed when the hub stays silent", as
 test("requestAccessFromHub: unreachable endpoint or nack resolves error", async () => {
 	assert.equal(await requestAccessFromHub("/nonexistent/hub.sock", request(), 500), "error");
 
-	const sock = join(mkdtempSync(join(tmpdir(), "dc-shared-")), "hub.sock");
+	const sock = join(tempDir(), "hub.sock");
 	// an older hub without escalation support nacks unknown envelope types
 	const server = await fakeHub(sock, (req, socket) => {
 		socket.write(JSON.stringify({ type: "nack", msg_id: req.msg_id, error: "unknown type" }) + "\n");

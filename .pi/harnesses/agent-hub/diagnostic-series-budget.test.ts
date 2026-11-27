@@ -46,8 +46,9 @@ test("T12 shared v2 ledger enforces diagnostic 12, benchmark 48, per-unit 2/4, a
 	} finally { releaseOwnedCompletionSeriesLock(lockPath, lock.ownerId); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("completion-series lock refuses a concurrent process immediately and requires explicit dead-owner release", () => {
+test("completion-series lock refuses a concurrent process immediately and requires explicit dead-owner release", t => {
 	const dir = fixture(), budget = join(dir, "budget.json"), lockPath = completionSeriesLockPath(budget);
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	writeCompletionSeriesState(budget, createCompletionSeriesState("series"));
 	const lock = acquireCompletionSeriesLock(lockPath);
 	try {
@@ -58,7 +59,6 @@ test("completion-series lock refuses a concurrent process immediately and requir
 	} finally { releaseOwnedCompletionSeriesLock(lockPath, lock.ownerId); }
 	writeFileSync(lockPath, JSON.stringify({ schema: "agent-fleet.completion-series-lock/v1", ownerId: "crashed", pid: 99999999, acquiredAt: new Date().toISOString() }));
 	assert.equal(releaseCrashedCompletionSeriesLock(lockPath), "released");
-	rmSync(dir, { recursive: true, force: true });
 });
 
 

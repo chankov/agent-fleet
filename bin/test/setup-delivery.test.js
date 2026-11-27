@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -42,6 +42,7 @@ test("installed package resolves the catalogue with no source checkout", () => {
   // resolver touches only that subtree, never sibling checkout paths.
   assert.equal(requirePackageCatalogue(root), join(root, "catalog"));
   const bare = mkdtempSync(join(tmpdir(), "af-bare-package-"));
+  test.after?.(() => rmSync(bare, { recursive: true, force: true }));
   assert.throws(
     () => requirePackageCatalogue(bare),
     /missing catalog/,

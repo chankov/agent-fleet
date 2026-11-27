@@ -47,8 +47,15 @@ noDeletePaths:
   - "README.md"
 `;
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure.
+function tempDir() {
+	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 function fixtureCwd() {
-	const cwd = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const cwd = tempDir();
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
 	writeFileSync(join(cwd, ".pi", "damage-control-rules.yaml"), RULES_YAML);
 	return cwd;
@@ -153,7 +160,7 @@ test("continue: /af-allow <pattern> turn exempts until agent_end", async () => {
 });
 
 test("continue: /af-allow session persists across turns and mirrors to the shared file", async () => {
-	const file = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "exemptions.json");
+	const file = join(tempDir(), "exemptions.json");
 	process.env.AGENT_HUB_EXEMPTIONS_FILE = file;
 	const cwd = fixtureCwd();
 	const h = await boot(continueExt, cwd);
@@ -268,7 +275,7 @@ function fakeHubServer(socketPath, decision) {
 }
 
 test("continue: headless child escalates to the hub — approval lets the call through", async () => {
-	const sock = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "hub.sock");
+	const sock = join(tempDir(), "hub.sock");
 	const { server, seen } = await fakeHubServer(sock, "allow_agent");
 	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
 	process.env.AGENT_HUB_AGENT_ID = "researcher-r1";
@@ -289,7 +296,7 @@ test("continue: headless child escalates to the hub — approval lets the call t
 });
 
 for (const decision of ["allow_once", "allow_all"]) test(`continue: headless destructive ask pattern escalates one exact call to the hub (${decision})`, async () => {
-	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const dir = tempDir();
 	const sock = join(dir, "hub.sock");
 	const { server, seen } = await fakeHubServer(sock, decision);
 	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
@@ -313,7 +320,7 @@ for (const decision of ["allow_once", "allow_all"]) test(`continue: headless des
 });
 
 test("continue: headless protected deletion requests one-call approval without persisting an exemption", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const dir = tempDir();
 	const sock = join(dir, "hub.sock");
 	const exemptionsFile = join(dir, "exemptions.json");
 	const { server, seen } = await fakeHubServer(sock, "allow_once");
@@ -333,7 +340,7 @@ test("continue: headless protected deletion requests one-call approval without p
 });
 
 test("continue: denied protected deletion returns actionable feedback without aborting the child", async () => {
-	const sock = join(mkdtempSync(join(tmpdir(), "dc-exemptions-")), "hub.sock");
+	const sock = join(tempDir(), "hub.sock");
 	const denyHub = await fakeHubServer(sock, "deny");
 	process.env.AGENT_HUB_ASK_ENDPOINT = sock;
 	process.env.AGENT_HUB_AGENT_ID = "builder";
@@ -352,7 +359,7 @@ test("continue: denied protected deletion returns actionable feedback without ab
 });
 
 test("continue: hub denial and timeout fail closed without re-asking", async () => {
-	const dir = mkdtempSync(join(tmpdir(), "dc-exemptions-"));
+	const dir = tempDir();
 	process.env.AGENT_HUB_AGENT_ID = "researcher-r1";
 
 	const denySock = join(dir, "deny.sock");

@@ -260,8 +260,9 @@ test("unterminated reservation refusal reports its real operation and attempt in
 	assert.equal(calls, 0);
 });
 
-test("production re-dispatch resumes only with a USER_ANSWER marker", async () => {
+test("production re-dispatch resumes only with a USER_ANSWER marker", async t => {
 	const cwd = mkdtempSync(join(tmpdir(), "user-answer-"));
+	t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	execFileSync("git", ["init", cwd], { stdio: "ignore" });
 	writeFileSync(join(cwd, "a.ts"), "a");
 	let calls = 0;

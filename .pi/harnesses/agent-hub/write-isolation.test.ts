@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -10,8 +10,16 @@ import { piStateGrants } from "./dispatch-native-prepare.ts";
 
 const hasLinuxSandbox = linuxUserNamespaceSandboxAvailable();
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure;
+// retries cover a sandboxed descendant that is still exiting.
+function tempDir(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+	return dir;
+}
+
 function fixture() {
-	const root = mkdtempSync(join(tmpdir(), "fleet-t6c-"));
+	const root = tempDir("fleet-t6c-");
 	mkdirSync(join(root, "allowed-dir"));
 	mkdirSync(join(root, "blocked-dir"));
 	mkdirSync(join(root, "runtime"));
@@ -147,7 +155,7 @@ test("T6c Darwin confineNativeChild uses production pipe stdio and denies extra 
 
 test("T6c Darwin kernel boundary uses Hub confineNativeChild/sandbox-exec and blocks shell, node descendants and symlink escape", { skip: process.platform !== "darwin" }, () => {
 	const root = fixture();
-	const outside = mkdtempSync(join(tmpdir(), "fleet-t6c-outside-"));
+	const outside = tempDir("fleet-t6c-outside-");
 	writeFileSync(join(outside, "secret"), "outside-before");
 	symlinkSync(join(outside, "secret"), join(root, "allowed-dir", "escape"));
 	const script = [
@@ -188,7 +196,7 @@ test("T6c Darwin cancellation stops sandbox descendants writing the allowlisted 
 
 test("T6c Linux kernel boundary blocks shell, python/indirect descendants and symlink escape while allowing exact files/new directory files/support roots", { skip: !hasLinuxSandbox }, () => {
 	const root = fixture();
-	const outside = mkdtempSync(join(tmpdir(), "fleet-t6c-outside-"));
+	const outside = tempDir("fleet-t6c-outside-");
 	writeFileSync(join(outside, "secret"), "outside-before");
 	symlinkSync(join(outside, "secret"), join(root, "allowed-dir", "escape"));
 	const script = [
@@ -269,7 +277,7 @@ test("T6c actual spawnPiAgent transport wraps the fake Pi process and reports ap
 test("Pi lock directories accept new lock entries while their existing code, prompts and settings stay read-only", { skip: !hasLinuxSandbox }, () => {
 	// Real Pi 1.5 takes <file>.lock directories beside trust/auth/settings at startup; without
 	// this grant every sandboxed child failed with EROFS before doing any work.
-	const root = realpathSync(mkdtempSync(join(tmpdir(), "fleet-pi-locks-")));
+	const root = realpathSync(tempDir("fleet-pi-locks-"));
 	const agent = join(root, "agent"), project = join(root, "project");
 	for (const dir of ["runtime", "artifacts", "temp", "agent/extensions", "project/.pi/harnesses", "project/src"]) mkdirSync(join(root, dir), { recursive: true });
 	for (const [file, body] of [["agent/AGENTS.md", "global\n"], ["agent/settings.json", "{}\n"], ["agent/auth.json", "{}\n"], ["project/.pi/settings.json", "{}\n"], ["project/.pi/harnesses/code.ts", "// code\n"]]) writeFileSync(join(root, file), body);

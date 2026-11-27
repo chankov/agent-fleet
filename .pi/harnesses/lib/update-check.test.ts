@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -19,8 +19,15 @@ function enabled(extra: FleetUpdateCheckDeps = {}): FleetUpdateCheckDeps {
 	return { env: {}, ...extra };
 }
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure.
+function tempDir(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 function workspace(version?: string) {
-	const dir = mkdtempSync(join(tmpdir(), "af-update-check-"));
+	const dir = tempDir("af-update-check-");
 	if (version) {
 		mkdirSync(join(dir, ".ai"), { recursive: true });
 		writeFileSync(join(dir, ".ai", "agent-fleet-setup.md"), `version: ${version}\n`, "utf8");
@@ -84,7 +91,7 @@ test("runFleetUpdateCheck skips hub children", async () => {
 
 test("runFleetUpdateCheck skips when CI=true even if a cache shows an upgrade", async () => {
 	const cwd = workspace("0.1.0");
-	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
+	const cacheFile = join(tempDir("af-update-cache-"), "latest-version.json");
 	writeFileSync(cacheFile, JSON.stringify({ latest: "0.2.0", checkedAt: Date.now() }), "utf8");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
@@ -106,7 +113,7 @@ test("runFleetUpdateCheck skips when the install record is missing", async () =>
 
 test("runFleetUpdateCheck notifies from a fresh cache without fetching", async () => {
 	const cwd = workspace("0.1.0");
-	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
+	const cacheFile = join(tempDir("af-update-cache-"), "latest-version.json");
 	writeFileSync(cacheFile, JSON.stringify({ latest: "0.2.0", checkedAt: Date.now() }), "utf8");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
@@ -126,7 +133,7 @@ test("runFleetUpdateCheck notifies from a fresh cache without fetching", async (
 
 test("runFleetUpdateCheck fetches and caches when the cache is stale", async () => {
 	const cwd = workspace("1.0.0");
-	const cacheDir = mkdtempSync(join(tmpdir(), "af-update-cache-"));
+	const cacheDir = tempDir("af-update-cache-");
 	const cacheFile = join(cacheDir, "latest-version.json");
 	writeFileSync(cacheFile, JSON.stringify({ latest: "1.0.0", checkedAt: 1 }), "utf8");
 	const { ctx: c, calls } = ctx();
@@ -145,7 +152,7 @@ test("runFleetUpdateCheck fetches and caches when the cache is stale", async () 
 
 test("runFleetUpdateCheck stays silent when published equals recorded", async () => {
 	const cwd = workspace("2.0.0");
-	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
+	const cacheFile = join(tempDir("af-update-cache-"), "latest-version.json");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
 	assert.equal(await runFleetUpdateCheck(c, enabled({ cacheFile, fetchLatest: async () => "2.0.0" })), null);
@@ -154,7 +161,7 @@ test("runFleetUpdateCheck stays silent when published equals recorded", async ()
 
 test("runFleetUpdateCheck swallows fetch failures", async () => {
 	const cwd = workspace("0.1.0");
-	const cacheFile = join(mkdtempSync(join(tmpdir(), "af-update-cache-")), "latest-version.json");
+	const cacheFile = join(tempDir("af-update-cache-"), "latest-version.json");
 	const { ctx: c, calls } = ctx();
 	c.cwd = cwd;
 	assert.equal(await runFleetUpdateCheck(c, enabled({

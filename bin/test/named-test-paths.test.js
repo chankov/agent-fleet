@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 
 test("F-17 a missing named test is not a pass when a sibling exists", () => {
   const dir = mkdtempSync(join(tmpdir(), "af-named-tests-"));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
   const present = join(dir, "present.test.js");
   const missing = join(dir, "missing.test.js");
   const helper = fileURLToPath(new URL("./helpers/assert-named-tests.js", import.meta.url));

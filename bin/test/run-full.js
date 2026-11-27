@@ -3,6 +3,7 @@ import { globSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fastTestFiles } from "./run-fast.js";
+import { configuredConcurrency } from "./helpers/node-test-rerun.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const fullTestPatterns = [
@@ -262,11 +263,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   ]);
   const phases = [
     { name: "bounded tarball integrations", concurrency: 1, files: files.filter(file => boundedTarballTests.has(file)) },
-    { name: "remaining default-environment tests", concurrency: 4, files: files.filter(file => !boundedTarballTests.has(file)) },
+    // AF_TEST_CONCURRENCY lowers (or raises) this phase only; the default is 4.
+    { name: "remaining default-environment tests", concurrency: configuredConcurrency(), files: files.filter(file => !boundedTarballTests.has(file)) },
   ];
   for (const phase of phases) {
     if (phase.files.length === 0) continue;
-    console.log(`Full lane phase: ${phase.name} (${phase.files.length} files)`);
+    console.log(`Full lane phase: ${phase.name} (${phase.files.length} files, concurrency ${phase.concurrency})`);
     const result = spawnSync(process.execPath, ["--test", `--test-concurrency=${phase.concurrency}`, "--test-timeout=120000", ...phase.files], {
       cwd: root,
       stdio: "inherit",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -14,6 +14,8 @@ import {
 
 function fixture() {
 	const root = mkdtempSync(join(tmpdir(), "agent-hub-artifacts-"));
+	// Removed when the current test (or the file) finishes, even on failure.
+	test.after?.(() => rmSync(root, { recursive: true, force: true }));
 	const repoDir = join(root, "repo");
 	const sessionDir = join(repoDir, ".pi", "agent-sessions");
 	const artifactRoot = join(sessionDir, "artifacts");
