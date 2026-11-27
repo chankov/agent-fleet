@@ -8,6 +8,7 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { DECISION_QUESTION_FORMAT } from "../decision-questions.ts";
 
 export type PracticeRole = "researcher" | "reviewer" | "editor";
 
@@ -38,7 +39,21 @@ export interface PracticeRecord {
 	readonly roles: readonly PracticeRole[];
 	/** Method and evidence conventions carried over from the retired persona prompts. */
 	readonly method: string;
+	/** When this practice should propose a Poll or a Debate to the operator (PLAN-11-01 task 13). */
+	readonly decisions?: string;
 }
+
+/**
+ * Shared by the planning, architecture, independent-review and security practices, and added to an
+ * assignment block once however many of them it carries. Workers propose; the operator decides (D29–D31).
+ */
+export const DECISION_QUESTION_GUIDANCE = [
+	"### Decision questions",
+	"You never start a Poll or a Debate; the operator decides whether to run one (operator guidance: the `debate` skill). A fact is never a decision question: look it up, or report NEEDS_RESEARCH.",
+	"When a choice between viable alternatives remains and independent theses (Poll) or a test of a named objection (Debate) could change it, add at most two lines, each one JSON object with evidence as paths:",
+	DECISION_QUESTION_FORMAT,
+	"A proposal never blocks you: finish the assignment with your own recommendation and its evidence. If your work cannot continue without the decision, also raise ASK_USER and stop before the dependent part.",
+].join("\n");
 
 const ALL_ROLES: readonly PracticeRole[] = Object.freeze(["researcher", "reviewer", "editor"]);
 
@@ -68,6 +83,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"State the constraints and the interface contract (signatures, formats, compatibility) that independent consumers need.",
 			"Flag a question that hides a bigger decision than it appears. A decision significant enough to record becomes an ADR, written only by an editor with the documentation practice.",
 		].join("\n"),
+		decisions: "Give each trade-off estimate with its assumptions and evidence. Propose a Poll when several designs stay viable; propose a Debate when conflicting assumptions could change the interface or the design choice.",
 	}),
 	planning: record({
 		id: "planning",
@@ -80,6 +96,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"An editor saves the plan as one document (alone, or before implementing when the assignment also carries implementation): resolve the directory from `.ai/agent-fleet-overrides.md` → `## planning-and-task-breakdown` → `plan-dir` (default `docs/plans/{area}`) and the name from its `naming` key (default `PLAN-{prd-name}.md`), then end the final response with `PLAN_FILE: <repo-relative path>` on its own line.",
 			"A researcher or reviewer returns planning advice or plan critique and writes nothing.",
 		].join("\n"),
+		decisions: "Where several task sequences, scopes or migration paths stay viable, propose a Poll for independent theses. Where a dependency or rollback objection could change the chosen plan, propose a Debate of that objection.",
 	}),
 	implementation: record({
 		id: "implementation",
@@ -103,6 +120,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"Plans: challenge assumptions against the codebase, ordering, hidden dependencies, missing steps and proportionality to the request. Code: correctness, readability, architecture, security, performance and parity across sibling cases. Documentation: accuracy against the code it describes.",
 			"Attribute every finding to evidence. The author of the reviewed work is never eligible to approve it.",
 		].join("\n"),
+		decisions: "For a substantial finding in a plan, code or documentation, propose a Poll for independent judgments tied to the named revision, or a Debate when the remedies are incompatible. Keep the evidence references and any dissent. The verdict stays yours; a proposal never changes or replaces it.",
 	}),
 	testing: record({
 		id: "testing",
@@ -125,6 +143,7 @@ export const PRACTICES: Readonly<Record<PracticeId, PracticeRecord>> = Object.fr
 			"Threat-model first: name the trust boundaries and data flows, then check input validation, authorization, secrets handling and dependencies along them.",
 			"Each finding carries severity, evidence and the exploit path. Never print secret values. A reviewer recommends fixes; an editor applies a scoped fix and verifies it.",
 		].join("\n"),
+		decisions: "Establish the risk with evidence first, then compare the plausible mitigations. Propose a Debate when a disputed threat-model assumption or residual risk could change the choice.",
 	}),
 	performance: record({
 		id: "performance",

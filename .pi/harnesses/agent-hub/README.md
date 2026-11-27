@@ -447,6 +447,13 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   2 pauses per dispatch), writes each helper's findings to `.pi/agent-sessions/findings/*.md`, and
   resumes the specialist's session with the file paths. The dispatcher LLM sees only a one-line
   notice — raw findings never enter its context. Findings files are wiped at session start.
+- **Decision questions (`DECISION_QUESTION:`)** — a worker with the `planning`, `architecture`,
+  `independent-review` or `security` practice never starts a Poll or a Debate; it may end its report
+  with at most two `DECISION_QUESTION: {"method":"poll"|"debate",…}` lines. The hub validates each one
+  in code and adds a single notice to the dispatch or research result with `poll_panel` or
+  `debate_panel` and a ready question (`details.decisionQuestions`; rejected lines are reported with
+  their reason). A proposal starts nothing and never blocks, fails or accepts the run; the operator
+  decides (see `skills/debate/SKILL.md`). Blocking forks still use `ASK_USER:`.
 - **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
   acceptance assertions built from the request *before* any editor runs, so a clearly stated
   requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions

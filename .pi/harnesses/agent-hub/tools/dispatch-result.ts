@@ -2,6 +2,7 @@ import type { DispatchDecision, DispatchOutcome } from "./dispatch-decisions.ts"
 import type { DispatchEvidence, DispatchReceipts } from "./dispatch-evidence.ts";
 import { formatAdvisory } from "../../lib/changed-file-diagnostics.ts";
 import { ORCHESTRATOR_CLARIFICATION } from "../../lib/clarification-policy.ts";
+import { decisionQuestionNotice, extractDecisionQuestions } from "../decision-questions.ts";
 import { docsLaneNotice } from "../docs-lane.js";
 import { safePathWithin } from "../helpers.ts";
 import { activeOrchestrationHandoff } from "../orchestration-activation.ts";
@@ -61,6 +62,9 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 	if (readback.some(file => file.changed === false)) notices.push("Some deliverables already existed unchanged. Do not attribute their creation to this execution.");
 	if (sameTask && blockers.length) notices.push(`⛔ ${p.agent} reported an EXTERNAL BLOCKER — something outside the fleet's reach is missing:\n${blockers.map((w, i) => `  ${i + 1}. ${w}`).join("\n")}\nThe next dispatch/research call is refused until you escalate this to the human. Do not build a substitute for the missing fact.`);
 	if (questions.length) notices.push(`⚠ ${questions.length} ASK_USER question(s) raised by ${p.agent}. Orchestrator triage required. ${ORCHESTRATOR_CLARIFICATION} Dispatch ID: ${result.dispatchId ?? "<dispatchId>"}. Human escalation language: ${s.getUserLanguage()}. Questions:\n${questions.map((q, i) => `  ${i + 1}. ${q}`).join("\n")}`);
+	const decisionQuestions = extractDecisionQuestions(result.output);
+	const decisionNotice = sameTask ? decisionQuestionNotice(p.agent, decisionQuestions) : null;
+	if (decisionNotice) notices.push(decisionNotice);
 	notices.push("Orchestration handoff is in details.orchestration. Start from its manifest; reread a file only when it is missing, stale, or conflicting. A wide review closes only with a full regression marker. Model routing was not changed.");
 	if (researchRounds.length) notices.push(`ℹ ${p.agent} auto-paused for research ${researchRounds.length} round(s); ${answered} question(s) answered by read-only helpers. Findings were saved under ${safePathWithin(s.getSessionDir(), "findings")} and read by the agent directly — they are NOT inlined here.`);
 	if (unresolved.length && researchRounds.length >= MAX_AUTO_RESEARCH_ROUNDS) notices.push(`⚠ ${p.agent} still requests research (${unresolved.length} question(s)) but the auto-research budget is exhausted. Run spawn_research yourself and re-dispatch with the findings, or simplify the task.`);
@@ -153,6 +157,7 @@ export function renderDispatchResult(d: PresentationPorts, p: PreparedDispatch, 
 			failurePath,
 			contractNotices,
 			questions,
+			decisionQuestions,
 			orchestration: activeOrchestrationHandoff({
 				agent: p.agent,
 				task: p.task,

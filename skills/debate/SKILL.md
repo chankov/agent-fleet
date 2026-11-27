@@ -23,6 +23,8 @@ This skill is operator guidance. It confers no tool, permission or capability, a
 - Several options look viable but no specific objection is known. A Poll collects independent theses at lower cost.
 - A routine technical choice inside approved scope, or anything that needs acceptance evidence. A debate is not a test, a runtime observation or an independent review.
 
+**Proposals from delegates.** A delegate with the planning, architecture, independent-review or security practice never starts a Poll or a Debate. It may propose one with a `DECISION_QUESTION:` line, which the dispatch or research result shows as a notice with the tool and a ready question (details in `details.decisionQuestions`). A proposal never blocks or accepts the run. Treat it as step 2 already drafted: check it against step 1, then run it, run the other method, or decline with a reason in the Operator notes.
+
 ## Process
 
 1. **Choose the method.** Research establishes missing facts. Poll collects independent theses when several options are viable. Debate tests a known objection, or the disagreement a Poll surfaced. Independent work continues in parallel under the existing dependency and write-isolation rules; only work that depends on this decision waits for it.

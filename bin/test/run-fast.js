@@ -139,6 +139,7 @@ export const fastTestFiles = [
   ".pi/harnesses/agent-hub/tools/debate-panel.test.ts",
   ".pi/harnesses/agent-hub/debate-progress.test.ts",
   ".pi/harnesses/agent-hub/debate-skill.test.ts",
+  ".pi/harnesses/agent-hub/decision-questions.test.ts",
   ".pi/harnesses/agent-hub/task-brief.test.ts",
   ".pi/harnesses/agent-hub/scope-overlap.test.ts",
   ".pi/harnesses/agent-hub/parallel-writers.test.ts",

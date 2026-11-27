@@ -831,6 +831,7 @@
             ".pi/harnesses/agent-hub/run-namespace.js",
             ".pi/harnesses/agent-hub/config/agents.ts",
             ".pi/harnesses/agent-hub/config/roles.ts",
+            ".pi/harnesses/agent-hub/decision-questions.ts",
             ".pi/harnesses/agent-hub/config/practices.ts",
             ".pi/harnesses/agent-hub/config/overrides.ts",
             ".pi/harnesses/agent-hub/backend-policy.js",

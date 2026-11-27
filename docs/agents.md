@@ -63,6 +63,28 @@ whatever the role or practice.
 At the trivial and small task tiers, `architecture` on any role and `security` on a
 reviewer are refused without charging. Raise the tier with an honest reason first.
 
+**Decision questions.** `planning`, `architecture`, `independent-review` and
+`security` also say when a worker should propose a Poll or a Debate: planning for
+viable sequences, scopes or migration paths and for a dependency or rollback
+objection; architecture for trade-offs with their assumptions and evidence;
+independent review for a substantial finding or incompatible remedies, tied to the
+named revision; security for mitigations once the risk is established, and for a
+disputed threat-model assumption or residual risk. A worker never starts either.
+It ends its report with at most two lines such as
+
+```text
+DECISION_QUESTION: {"method":"debate","decision":"Where should the retry limit live","alternatives":["the shared client","each job"],"objection":"a client default also retries the non-idempotent POST in src/billing/charge.ts","evidence":["src/http/client.ts","src/billing/charge.ts"]}
+```
+
+The Hub validates each line (`method` poll or debate, 2–5 `alternatives`, an
+`objection` for a debate, `evidence` as paths) and adds one notice to the dispatch
+or research result with the tool and a ready question; the parsed proposals are in
+`details.decisionQuestions`, and a rejected line is reported with its reason. A
+proposal starts nothing and never blocks, fails or accepts the run, and a
+reviewer's verdict stays its own. A worker that cannot continue without the
+decision still raises `ASK_USER`. Facts go to research (`NEEDS_RESEARCH`), never to
+a Poll or a Debate.
+
 ## Dispatch examples
 
 One editor with combined practices plans, implements and tests in one assignment:
@@ -224,7 +246,8 @@ reviewer peer.
 Poll and Debate ask every voice of a model panel (`.pi/agents/voices.yaml`, or the
 active model profile's panel) the same decision question. Both are the operator's,
 never a delegate's: Poll through `poll_panel` or `/af-poll`, Debate through
-`debate_panel` or `/af-debate`.
+`debate_panel` or `/af-debate`. A delegate proposes one with a
+[decision question](#practices).
 
 ```js
 debate_panel({ question: "Decision: … Alternatives: (A) … (B) … Objection to test: … Evidence: src/a.ts, docs/adr/0007.md. Constraints: …",

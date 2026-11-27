@@ -10,6 +10,7 @@ import { basePersonaName } from "../run-budget.js";
 import { intersectToolLists } from "../helpers.ts";
 import type { AgentDef } from "../types.ts";
 import {
+	DECISION_QUESTION_GUIDANCE,
 	isPracticeId,
 	normalizePracticeInput,
 	PRACTICE_IDS,
@@ -294,7 +295,9 @@ export function formatAssignmentBlock(assignment: ResolvedAssignment): string {
 		const missing = skills.filter(skill => !skill.path).map(skill => skill.name);
 		if (found.length) lines.push(`Read before starting: ${found.join(", ")}`);
 		if (missing.length) lines.push(`Not installed (use the method above): ${missing.join(", ")}`);
+		if (practice.decisions) lines.push(`Decision questions: ${practice.decisions}`);
 	}
+	if (assignment.practices.some(entry => entry.practice.decisions)) lines.push("", DECISION_QUESTION_GUIDANCE);
 	return lines.join("\n");
 }
 
