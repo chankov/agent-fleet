@@ -36,7 +36,7 @@ npx @chankov/agent-fleet install --agent pi --allow-exec --yes \
   --items pi-extension:mcp-bridge,pi-extension:chrome-devtools-mcp
 ```
 
-Select both: `mcp-bridge` is a sibling library that `chrome-devtools-mcp` imports via a relative path, so it must sit beside it under `.pi/extensions/`. Runtime dependencies live in `.pi/extensions/package.json`, which is copied in with the extensions; `--allow-exec` runs `npm ci --prefix .pi/extensions` as part of the install, and without it that step is printed and left for you (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)). They are also root production dependencies of the published package, so a pi-package install resolves them from the package root.
+`mcp-bridge` is a sibling library that `chrome-devtools-mcp` imports via a relative path, so it must sit beside it under `.pi/extensions/`: selecting `chrome-devtools-mcp` (or the `browser` feature of `setup`) brings it along, and uninstall keeps it while `chrome-devtools-mcp` stays. Runtime dependencies live in `.pi/extensions/package.json`, which is copied in with the extensions; `--allow-exec` runs `npm ci --prefix .pi/extensions` as part of the install, and without it that step is printed and left for you (see [docs/pi-setup.md](../../../docs/pi-setup.md#optional-pi-extensions)). They are also root production dependencies of the published package, so a pi-package install resolves them from the package root.
 
 ## Verify
 

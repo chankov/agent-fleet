@@ -1616,6 +1616,9 @@
       "companions": [
         "companion:pi-extension-deps",
         "companion:pi-extension-manifests"
+      ],
+      "requires": [
+        "pi-extension:mcp-bridge"
       ]
     },
     {
@@ -1674,6 +1677,9 @@
       "companions": [
         "companion:pi-extension-deps",
         "companion:pi-extension-manifests"
+      ],
+      "pinnedBy": [
+        "pi-extension:chrome-devtools-mcp"
       ]
     },
     {

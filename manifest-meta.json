@@ -381,16 +381,23 @@
       ]
     },
     "_fleet_core_comment": "Fleet Core is the set the justfile's `fleet_core_extensions` loads into every pi session and every Herdr peer: two harnesses (damage-control-continue, ask-user-remote) plus compact-and-continue and btw. The package update check is not a standalone extension; damage-control-continue runs `.pi/harnesses/lib/update-check.ts` once per session. The launcher set is encoded twice on purpose — `requires`, so installing any harness pulls the whole set, and `pinnedBy`, so uninstall refuses to break a harness by taking a member out from under it. Keep it in step with the `fleet_core_extensions` line in the justfile; bin/test/damage-control-unification.test.js asserts the two agree.",
+    "_mcp_bridge_comment": "chrome-devtools-mcp imports the sibling library ../mcp-bridge, and pi fails to load it when that directory is missing. `requires` brings the bridge with it (the browser feature lists only chrome-devtools-mcp), and `pinnedBy` refuses to uninstall the bridge from under it. bin/test/manifest.test.js derives these edges from the extensions' imports.",
     "pi-extension:mcp-bridge": {
       "companions": [
         "companion:pi-extension-manifests",
         "companion:pi-extension-deps"
+      ],
+      "pinnedBy": [
+        "pi-extension:chrome-devtools-mcp"
       ]
     },
     "pi-extension:chrome-devtools-mcp": {
       "companions": [
         "companion:pi-extension-manifests",
         "companion:pi-extension-deps"
+      ],
+      "requires": [
+        "pi-extension:mcp-bridge"
       ]
     },
     "pi-extension:compact-and-continue": {

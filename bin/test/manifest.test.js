@@ -278,6 +278,28 @@ test("a workflow-only install brings every role its flows run, without the Hub, 
   for (const role of roles) assert.ok(manifest.items.find((i) => i.id === role).pinnedBy.includes("companion:workflow-runtime"), `${role} cannot be uninstalled from under the workflow runtime`);
 });
 
+test("an extension that imports a sibling extension requires it, and the sibling is pinned", () => {
+  // pi loads every .pi/extensions/<name>/; an import of ../<sibling> fails at load when the sibling is missing.
+  const extRoot = join(root, ".pi/extensions");
+  const extensions = readdirSync(extRoot).filter((name) => statSync(join(extRoot, name)).isDirectory() && name !== "node_modules");
+  const edges = [];
+  for (const name of extensions) {
+    for (const file of readdirSync(join(extRoot, name)).filter((f) => f.endsWith(".ts") && !f.includes(".test."))) {
+      for (const m of readFileSync(join(extRoot, name, file), "utf8").matchAll(/from\s+["']\.\.\/([a-z0-9-]+)/g)) {
+        if (m[1] !== name && extensions.includes(m[1])) edges.push([`pi-extension:${name}`, `pi-extension:${m[1]}`]);
+      }
+    }
+  }
+  assert.ok(edges.some(([from, to]) => from === "pi-extension:chrome-devtools-mcp" && to === "pi-extension:mcp-bridge"), "the scan sees the known import");
+  for (const [from, to] of edges) {
+    assert.ok(manifest.items.find((i) => i.id === from).requires?.includes(to), `${from} requires ${to}`);
+    assert.ok(manifest.items.find((i) => i.id === to).pinnedBy?.includes(from), `${to} cannot be uninstalled from under ${from}`);
+    assert.ok(resolveSelection(manifest, "pi", { items: [from] }).selected.includes(to), `selecting ${from} installs ${to}`);
+  }
+  const browser = resolveSelection(manifest, "pi", { items: manifest.features.browser.items }).selected;
+  assert.ok(browser.includes("pi-extension:mcp-bridge"), "the browser feature brings mcp-bridge");
+});
+
 test("the Hub requires the debate skill, which it pins like a role (D28)", () => {
   const hub = manifest.items.find((i) => i.id === "pi-harness:agent-hub");
   const debate = manifest.items.find((i) => i.id === "skill:debate");
