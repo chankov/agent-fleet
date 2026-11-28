@@ -1,5 +1,83 @@
 # Agent Fleet changelog
 
+## 2.3.0
+
+### Minor Changes
+
+- 9f452d2: The package ships three role definitions instead of the fourteen personas, and every guide describes roles and practices.
+
+  - `agents/` holds only `researcher.md`, `reviewer.md` and `editor.md`. Their catalogue ids stay `persona:researcher`, `persona:reviewer` and `persona:editor` (group "Agent roles"); the default preset installs all three, and installing the Hub always brings them in, so a single role cannot be uninstalled while the Hub stays.
+  - `setup` retires the old personas: an unedited installed copy is removed, an edited one is kept and becomes yours. Overrides and model profiles are never edited.
+  - `agent-fleet doctor` reports, read-only, every leftover definition file named for a retired persona and every key in `.ai/agent-fleet-overrides.md` or `.pi/agents/model-profiles.yaml` that names one (`model.builder`, `thinking.planner`, a profile's `builder:`), with its file and line. An unambiguous name gets the exact replacement (`model.builder` → `model.editor.implementation`); an ambiguous one shows the role and practice choices.
+  - `just flow build-test` runs the editor with the implementation practice and `just flow document` the editor with the documentation practice (documentation paths only, no shell). Each phase carries the assignment block and traces its role, practices and model source; the fix phase is now `editor-fix-N`.
+  - `docs/agents.md` is the role and practice catalogue, and `docs/MIGRATION-agent-fleet.md` section 6 maps each retired persona, team and peer-group command to its replacement.
+
+- 04f0167: The Hub operator can start a Debate itself, and a new Debate skill says when and how.
+
+  - New `debate_panel` tool (`question`, optional `panel`, `persona`, `rounds` 2–5, default 3). It and `/af-debate` share one path with Poll's panel precedence (an explicit name, the configured `poll-panel:` or active model profile, then a panel named `default`) and Poll's Git work context (the session's assigned checkout; a non-Git workspace needs `just fleet --worktree <path>`). An invalid request is refused once before any voice starts or any budget is charged.
+  - The result is structured and has no judge: each voice's final position, which voices changed position in which round and the evidence that moved them, failed voices, rounds that did not run, and each voice's final-round refutations as the open disagreements, with the round artifacts on disk. The operator owns the decision.
+  - `/af-debate` and `debate_panel` show one live block (resolved panel, round of the total, one row per voice) and deliver the outcome once, instead of a started message, one message per voice and a notification.
+  - Poll and Debate voices take the persona `researcher` (default) or `reviewer` only; `editor` is refused and a retired persona name shows its role mapping.
+  - `skills/debate` is operator guidance for framing a decision, choosing Poll or Debate, reading the result and recording or escalating the decision. The Hub requires it, like the three roles. It adds no role or practice.
+  - The operator prompt names `debate_panel` next to `poll_panel` and drops repeated rules to stay inside its size budget.
+
+- a3bb2db: Four practices say when a delegated worker should propose a Poll or a Debate, and the Hub hands a valid proposal to the operator ready to run.
+
+  - `planning`, `architecture`, `independent-review` and `security` each name their trigger: viable sequences, scopes or migration paths and a dependency or rollback objection; trade-offs with their assumptions and evidence; a substantial finding or incompatible remedies tied to the named revision; mitigations once the risk is established and a disputed threat-model assumption or residual risk. One shared paragraph per assignment gives the format and points at the `debate` skill.
+  - A worker never starts a Poll or a Debate. It ends its report with at most two `DECISION_QUESTION: {"method":"poll"|"debate",…}` lines. The Hub validates each one and adds a single notice to the dispatch or research result with `poll_panel` or `debate_panel` and a ready question (`details.decisionQuestions`); a rejected line is reported with its reason.
+  - A proposal starts nothing and never blocks, fails or accepts the run, and a reviewer's verdict stays its own. A worker that cannot continue without the decision still raises `ASK_USER`; facts still go to research.
+  - The planning skill's operator-only paragraph now covers Poll and Debate, and the Debate skill says how to treat a delegate's proposal.
+
+- 8e79074: Ask System 1 is a simple on/off setting, four practices say when a worker may suggest a question for it, and System 1's transport is now an explicit, documented decision.
+
+  - `consumers.agenticAsk.mode` takes `on` or `off`; a missing mode is `off`. The legacy `advisory` and `recommended` are read as `on` with consent, scope, limits and every other consumer unchanged, and setup never rewrites the section. When `ask_system1` is active the Hub shows the recommended guidance, and the operator decides whether to call it; enabling it, building the prompt or refreshing the catalog makes no call.
+  - `agent-fleet doctor` shows Ask System 1's canonical mode (naming a legacy value) and whether the tool is available, or the first missing prerequisite: the consumer off, no consent, root System 1 off, the feature not enabled, or System 1 not locally ready.
+  - `research`, `planning`, `independent-review` and `security` each name one optional Ask System 1 question and the verification to do next. A worker never calls the tool; it may end its report with at most two `SYSTEM1_QUESTION: {…}` lines, which the Hub validates with the tool's own validator and shows the operator as a ready input when `ask_system1` is active, or as the verification to do directly when it is not (`details.system1Questions`). The four skills' named sections point at the shared rule in the new `references/system1-consultation.md`.
+  - Every System 1 call keeps Fleet's direct TypeSafe adapter. Pi's native classifier was checked and is not used: its catalog has only `typesafe/jev-latest`, `models.json` cannot declare a classifier, and its results lack the returned model and ordinal distributions. Doctor shows `transport: direct` for an enabled configuration, and the configuration guide explains Fleet policy versus the credential.
+
+### Patch Changes
+
+- 5664ccf: `setup` with the `browser` feature now also installs `mcp-bridge`, the library `chrome-devtools-mcp` imports; before, the browser extension could fail to load. Selecting `pi-extension:chrome-devtools-mcp` brings the bridge with it, and uninstall keeps the bridge while the browser extension stays.
+- 5de9b9a: Documentation now matches this release throughout.
+
+  - README, getting-started and `just fleet help` say that a flow runs on the current branch unless `--branch` is given.
+  - Guides no longer show removed commands and flags (`just fleet --agents/--peers`, `/af-agents`, `just fleet peer --browser`, `/compound`), and point at `setup` instead of the deprecated `update`.
+  - The setup guide moves the watchdog System 1 opt-in to `consumers.watchdog.mode` in `.ai/system1.json`, and drops a `version` key from the proactive review examples that made the section invalid.
+  - The Hermes guides say the npm package carries the plugin and skill sources (only the install script is repo-only), and the watchdog skill uses its installed script path.
+
+- de45132: `spawn_research` runs distinct questions in parallel. Each question is its own attempt, keyed by its normalized task, goal and expected result (case, punctuation and spacing ignored): the same question already in flight is refused as busy, and a failed or cancelled question is fenced for itself without blocking other questions.
+- 3737660: Show each Poll run (`poll_panel` and `/af-poll`) as one compact block that updates in place: the panel appears once it resolves, each configured voice keeps one row as it answers or fails, synthesis shows while the integrator works, and the block finishes with the recommendation or the failure reason (expand it for positions, reasons and the opinions path). `/af-poll` no longer posts a transcript message per voice or a duplicate notification; it leaves one entry and still hands the digest to the dispatcher. When no panel is named, Poll uses the configured panel (`poll-panel:`, or the active model profile's), then a panel named `default`; unknown names are refused before any voice starts, listing the available panels. Voices and synthesis now run in the session's assigned checkout (`just fleet --worktree`), while panels and opinions stay at the Fleet workspace; a non-Git workspace without an assigned worktree is refused once instead of failing every voice.
+- d542a8a: Agent Hub dispatches three runtime roles — `researcher`, `reviewer` and `editor` — and attaches practices from an eleven-entry catalog (research, architecture, planning, implementation, independent review, testing, security, performance, browser debugging, documentation, release) through a new `practices` parameter on `dispatch_agent` and `spawn_research`. A practice adds method, expected evidence and native-first skill paths to the assignment; it never adds authority.
+
+  - Retired persona names (`builder`, `code-reviewer`, `planner`, …) are refused before any start, with the role and practice mapping to use instead. Only the three role definitions are dispatched; a workspace file with a role's name may replace its prompt or model, but the code-owned ceiling still applies.
+  - A reviewer's active checks (`run-checks` and the current-state modes) keep the shell but always run inside the write-denying sandbox with an empty write allowlist; without the sandbox the dispatch is refused and directed to an editor.
+  - A read-only role reaches a coms peer only when the peer was launched with enforced read-only tools and declares `read_only` at registration (`just fleet peer <name> --read-only`); otherwise it falls back to native, or is refused under `fallback: none`. A read-only pi peer gets `read,grep,find,ls` only; a read-only Claude Code peer gets `Read,Grep,Glob` with MCP servers disabled. Neither can message other peers, and both still answer inbound requests.
+  - Review reuse and the no-progress retry fence now include the assignment's practices, so a security review never reuses a plain review and an editor with different practices is a new attempt.
+  - The shipped `model-profiles.yaml` lists the roles; `doctor` no longer rewrites `reviewer` as a legacy alias.
+  - Publishing (`git push`, `npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish`, `gh release create|upload|edit`) now needs a one-call approval from the damage-control rules; the release practice prepares a release but never publishes on its own.
+  - The tier gate now weighs practices: architecture, and security on a reviewer, are refused at trivial and small tiers.
+
+- 7cb31fc: Teams and peer groups are gone: the Hub always has the three roles and all eleven practices, and each peer starts on its own.
+
+  - Removed native teams (`.pi/agents/teams.yaml`, `/af-agents-team`, `/af-agents-add`, `/af-agents-drop`, `/af-agents-save`, the `team_adjust` tool and `--agent-team`). The operator prompt lists the roles and the practice catalog instead.
+  - Removed peer groups and `.pi/agents/peers.yaml`, `just fleet team …`, team snapshots and resume. `just fleet peer <name>` takes `--runner`, `--model`, `--read-only` and `--env-file`; a pi peer always loads `chrome-devtools-mcp` except a read-only one. `just fleet --herdr` and `just fleet conductor hermes` run on a new single-pane launcher.
+  - `dispatch-policy.yaml` routes are keyed by role with a distinct `peer:` address (`reviewer: { peer: claude-reviewer }`); parallel instances use their role's route.
+  - Per-practice models: role files declare `practice_models:`, and overrides (`model.<role>.<practice>`), profiles (`editor.planning`) and `/af-agent-model <role>.<practice>` can change them; the first practice with a choice wins and the run records the source. The retired personas' models are kept as role-file defaults; the researcher uses one stronger model.
+  - A busy reviewer gets an automatic independent instance (`reviewer--p2`); `dispatch_agent` accepts `after: [instances]` to queue an assignment until its dependencies settle.
+  - Review closure records who authored each changed file and refuses self-review, including the same coms peer after a role change or a restart (a peer is its address, whatever its session). The check runs before the review starts: an auto route that would reach an author runs a native reviewer instead, and an explicit coms backend or `fallback: none` is refused with nothing launched. Only a fresh verdict covering the whole change at the integrated revision closes it, and follow-up reviews receive the previous findings and the delta.
+  - The operator prompt asks the Hub to check each delegate's evidence and follow up on gaps before it reports.
+
+- 3df54fc: Fixes from the independent review of the runtime roles release.
+
+  - A review closes the review obligation, or registers operator current-state evidence, only when the reviewer was assigned the `independent-review` practice. A reviewer consulted with another practice (for example `testing`) gives advice: its result stays preliminary with the reason `review_practice_missing`, it never reuses a recorded review, and it leaves an earlier independent review in place.
+  - A workflow-only install now brings the `editor` and `researcher` roles its flows run, and they cannot be uninstalled from under the workflow runtime.
+  - `spawn_research` takes the researcher role's model, thinking and fallback for the assigned practices in both forms (with or without `persona`), also under a complete model profile; an explicit helper `model` replaces only the model, and the chat model is used only when no researcher role is installed.
+  - Poll refuses a panel without an `integrator: true` voice before any budget charge or voice start; Debate still accepts such a panel.
+  - `dispatch_agent` `after` may name the same role as the new assignment: it waits for the earlier assignments of that instance, in arrival order, instead of being refused as waiting on itself. A real cycle is still refused.
+  - `agent-fleet doctor` never echoes an unknown key from `.ai/system1.json`; it names the known parent and numbers the unknown entries.
+  - The Debate digest keeps the change history of a voice that dropped out in a later round.
+  - The skill catalogue and README list all 33 installable skills, including `drafting-workflows` and `fleet-connect`.
+
 ## 2.2.6
 
 ### Patch Changes

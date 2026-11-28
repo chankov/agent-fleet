@@ -1,0 +1,178 @@
+# damage-control-continue
+
+Safety auditing — blocks destructive tool calls, but lets the agent **adapt and keep working**.
+
+> Ported from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by [disler](https://github.com/disler) (MIT). See the [extension catalog](../../../docs/pi-extensions.md).
+
+For a command requiring confirmation, review the action in the local or dispatcher approval surface. Chat consent does not count. The action reference identifies one request; it cannot grant permission. If a request expires, request fresh authorization. If approval is unavailable, check dispatcher or local UI availability first. Neither outcome means a human saw or refused the request.
+
+## What it does
+
+It loads `.pi/damage-control-rules.yaml` (`bashToolPatterns`, `zeroAccessPaths`,
+`readOnlyPaths`, `noDeletePaths`) and checks every tool call against it.
+
+On a match, `damage-control-continue` replaces the tool result with **actionable
+feedback** that distinguishes destructive from non-destructive intent and tells
+the agent how to adapt. It does **not** call `ctx.abort()`: the blocked operation
+fails closed, but the turn continues so the agent can report the block or take a
+safe alternative. Protected-path calls may proceed only through the explicit
+approval/exemption paths below; inherently dangerous command patterns never can.
+
+## Optional assigned D6 semantic layer
+
+The baseline above is mandatory and independent of optional System 1 D6.
+Parent Hub owns the shared service, durable task/input decisions and approval
+coordinator. Native specialists, read-only research helpers and nested delegates
+receive independent, revocable physical-attempt assignments bounded by effective
+tools, independently of D9. Pre-call D6 checks cover baseline-allowed bash/write/edit;
+research retains read-only authority and supported result screening only.
+Standalone Damage-Control without a trusted assignment retains baseline, not a
+hidden provider. Coms peers are not covered by native D6 registration.
+
+D6 defaults off with separate commands/edits/results export scopes. Only valid
+severe AND sufficient yields a hold/warning; unknown/partial is not clearance or
+a speculative hold. Off/outage does not erase durable denial or restore grants.
+`/af-damage-override [actionId]` arms one new dialog for a current matching blocked
+action (latest eligible action if omitted); it does not execute, clear denial,
+retry or grant path access. `/af-allow` changes only baseline path exemptions;
+it cannot waive semantic denial or a hard command deny. A held effect still
+requires matching one-use human consent and post-wait baseline revalidation.
+
+See the [D6 guide](../../../docs/system1-damage-guard.md) for fixed deadlines,
+durable recovery, supported result sources and original→D6→D8 visible structured
+API. Production wiring/local SDK 1.1.0 evidence is not independent acceptance:
+D6, A1–A8, packaging and final regression/review remain open.
+
+## Version footer and provenance
+
+This persistent-UI harness shows `agent fleet v<version>` below the prompt. It shares one common-key
+status with `agent-hub` and `coms`, so a stack renders the version once. Its
+version remains separate from the mutable `damage-control` status: active-rule and
+last-violation feedback never replaces it. The root `package.json` is canonical;
+`bin/sync-harness-versions.js` synchronizes its value into this adjacent manifest. The local
+`version.ts` reader supports copied or symlinked harness directories by resolving that adjacent
+stamp, but those targets still require the pre-existing full `.pi/harnesses/` dependency
+installation.
+
+The `agent fleet` half of the label is an OSC 8 terminal hyperlink to the project homepage —
+clickable in terminals that support hyperlinks, ignored (rendered as plain text) elsewhere, and
+free of footer columns because pi strips OSC sequences before measuring width. It opens the
+repository in a browser, not a TUI panel: pi has no mouse tracking, so a click never reaches the
+harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that mangle OSC 8
+(GNU screen, tmux before 3.4).
+
+## Exemptions — allow access per turn or per session
+
+Runtime allowances layered on top of the rules file (which is never modified).
+They apply to the **path categories only** — `zeroAccessPaths`, `readOnlyPaths`,
+`noDeletePaths`. Destructive `bashToolPatterns` (`rm -rf`, `git push --force`,
+`DROP TABLE`, …) can never be exempted. Publishing verbs (`git push`,
+`npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish`, `gh release
+create|upload|edit`) are `ask` rules: every call needs its own approval, because
+preparing a release (the `release` practice) never authorizes publishing.
+
+**Pre-authorize** (when you know the agent will need it):
+
+```
+/af-allow .env            # exempt for the rest of the session (default)
+/af-allow .env turn       # exempt until the end of the current/next turn
+/af-allowed               # list active exemptions
+/af-revoke .env           # remove an exemption
+```
+
+**Block-time dialog** (when you forgot): in an interactive session a path block
+opens a selector with *Allow once* initially focused, followed by *Keep blocked*
+and, when eligible, *Allow for this turn / Allow for this session*. Press Enter
+explicitly to approve only the current request; focus alone does not approve it.
+An approved call proceeds immediately (the agent never sees the block); *Keep blocked* is remembered for the rest of the turn so the agent can't
+re-prompt you; no answer within 60s (or dismissing the dialog) fails closed. The
+agent is told the dialog closed unanswered — not that you denied it — and is
+pointed at `/af-allow`; this reads and audits the same whether or not a Codex
+permission relay is attached.
+
+**Escalation from headless children**: when this harness runs inside a subagent
+spawned by agent-hub (no UI, `AGENT_HUB_ASK_ENDPOINT` set), a path block sends an
+`access_request` to the hub's coms socket instead. The dispatcher session shows
+the request reference, tool and rule, plus the target or command when safe. If the target is withheld, the dialog cannot grant broader access. Ordinary protected reads/writes with a displayable target
+offer *Allow once*, *Deny*, and explicit agent/session grants. A protected deletion
+offers only *Allow once* and *Deny*, so approving one file does not grant its
+parent directory. A destructive `bashToolPatterns` rule marked `ask: true` offers
+only one-time approval or denial (30s locally); it escalates the same way
+(category `bash_pattern`) and never becomes an exemption. The child waits up to 60s and
+fails closed on timeout. At most 3 escalations per child run; denials are cached.
+
+**Codex relay**: in a Hub session with a Codex permission relay, every one of
+these approvals — baseline, child escalation, zero-access included, for any of
+`bash`, `write`, `edit`, `read`, `grep`, `find`, `ls`, `filesystem` and
+`submit_result` — is also offered to Codex as an exact one-use request; the first
+answer wins. Only an action that cannot be shown in full and safely (unsafe text,
+over the size limit) stays local, and a `relay_not_used` log entry says why.
+
+**Shared exemptions file**: agent-hub keeps one session-scoped file
+(`~/.pi/coms/exemptions/<session>.json`, deleted on shutdown) and passes it to
+every spawned child via `AGENT_HUB_EXEMPTIONS_FILE`. `/af-allow <pattern> session`
+in the hub lands there, so it covers every child of the session. Every native role subagent,
+research helper, and nested delegate uses this harness and re-reads the file on
+every block, so mid-session grants reach already-running children. Everything
+(grants, revokes, escalation
+outcomes) is logged to the `damage-control-log` session entries.
+
+## When it's used (this repo)
+
+Every `just fleet` Pi mode loads this harness: the default interactive session,
+standalone peers, Hub, and Herdr Pi peers. Agent Hub additionally re-loads it into
+every native **specialist, research helper, and nested delegate**. If the harness cannot be resolved, Agent Hub
+refuses guarded child dispatch rather than launching an unprotected process.
+
+## Commands & tools
+
+- `/af-allow <pattern> [turn|session]` — exempt a protected path pattern
+- `/af-allowed` — list active exemptions
+- `/af-revoke <pattern>` — remove an exemption
+- `/af-damage-override [actionId]` — Hub-owned D6 dialog re-arm only, not execution or a path exemption
+
+Blocking itself runs passively on the `tool_call` event.
+
+## Package update check
+
+On `session_start` this harness also schedules the shared Fleet Core helper
+[`.pi/harnesses/lib/update-check.ts`](../lib/update-check.ts). In an interactive
+session with a `version:` line in `.ai/agent-fleet-setup.md`, it compares that
+record to the npm registry (24h shared cache with the CLI) and, when a newer
+version exists, notifies with the exact `npx @chankov/agent-fleet@latest setup`
+command — plus `--dry-run` and the releases URL. Headless hub children, CI, and
+`AGENT_SKILLS_NO_UPDATE_CHECK` / `NO_UPDATE_NOTIFIER` skip the check. It never
+blocks session start and never writes the install record.
+
+## Requires
+
+- `.pi/damage-control-rules.yaml` — the rule set (shipped in this repo)
+- Optional, injected by agent-hub into spawned children: `AGENT_HUB_ASK_ENDPOINT`
+  (escalation socket), `AGENT_HUB_EXEMPTIONS_FILE` (shared grants),
+  `AGENT_HUB_AGENT_ID` (requester identity). Without them the harness behaves
+  standalone: dialog when a UI is present, plain block+feedback otherwise.
+
+## Usage
+
+```bash
+# standalone continue-mode guardrail session
+pi -e .pi/harnesses/damage-control-continue/index.ts
+
+# Hub variants (Fleet Core loads this harness first)
+just fleet
+just fleet --no-coms
+
+# direct continue-guarded hub launch
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts
+```
+
+## Upstream changes
+
+- Theme integration removed — the `themeMap.ts` import and the `applyExtensionDefaults()`
+  call were stripped (this repo does not ship pi themes).
+- The `find` tool's `pattern` is matched against `zeroAccessPaths`, closing a gap
+  where `find` could still locate secret files.
+- Exemption layer added (not in upstream): `/af-allow`/`/af-allowed`/`/af-revoke`,
+  block-time approval dialog, and escalation from headless agent-hub children to
+  the dispatcher — see the Exemptions section above. Shared plumbing lives in
+  [`../lib/damage-control-shared.ts`](../lib/damage-control-shared.ts).

@@ -1,0 +1,32 @@
+# Backend routing for the agent-hub dispatcher (dispatch_agent). Decided at
+# DISPATCH time — a peer may register after the Hub session starts.
+#
+#   default: native | coms   — coms sends ANY role to a live peer named like the role
+#   grace_s: <seconds>       — how long a `fallback: none` route polls the pool
+#                              for its peer before the dispatch is refused
+#   routes:
+#     <role>:                — researcher | reviewer | editor (a parallel instance
+#                              such as reviewer--p2 uses its role's route)
+#       peer: <address>      — coms address of the peer; default: the role name
+#       prefer: native|coms  — a bare role block defaults to coms
+#       fallback: native|none — none = coms-required (refuse when no live peer)
+#       timeout_s: <seconds> — per-route reply timeout (default PI_COMS_TIMEOUT_MS)
+#
+# A read-only role (researcher, reviewer) reaches only a peer launched with
+# enforced read-only tools that declares it at registration
+# (`just fleet peer <name> --read-only`); otherwise it runs native. A reviewer
+# never reaches a peer address that changed a file in the review's scope, even
+# after a restart: an auto route runs a native reviewer instead, while an
+# explicit coms backend or `fallback: none` is refused before it starts.
+# Missing file = everything native. HOW each peer runs (runner, model, env)
+# is set by the flags of `just fleet peer <name>` (--runner, --model,
+# --read-only, --env-file); there is no peer declaration file.
+
+default: native
+grace_s: 30
+
+routes:
+  reviewer:
+    peer: claude-reviewer
+    prefer: coms
+    fallback: native

@@ -1,0 +1,153 @@
+import type {
+	AgentToolResult,
+	AgentToolUpdateCallback,
+	ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
+
+export interface DispatchAgentParams {
+ triage_id?: string;
+ triage_reason?: "used" | "better_fit" | "changed_scope" | "independent_judgment";
+	agent: string;
+	/** Practice ids from config/practices.ts; empty takes the role default. */
+	practices?: string[];
+	task: string;
+	artifacts?: string[];
+	scope?: string[];
+	scope_mode?: "existing" | "create";
+	deliverables?: string[];
+	watchdog?: boolean;
+	review_reason?: string;
+ review_mode?: "changes" | "run-checks" | "operator-current-state" | "private-config-current-state";
+ private_config_files?: string[];
+ verifier_sources?: string[];
+	backend?: "auto" | "native" | "coms";
+	/** Run alongside other parallel writers: OS-sandboxed to its exact scope, refused on overlap. */
+	parallel?: boolean;
+	/** Instances this assignment waits for (D13); see tools/dispatch-execution.ts */
+	after?: string[];
+}
+
+export interface SpawnResearchParams {
+	task: string;
+	/** Practice ids for the researcher role; empty takes the role default (research). */
+	practices?: string[];
+	persona?: string;
+	model?: string;
+	artifacts?: string[];
+	/** Optional structured contract; legacy task-only calls remain valid. */
+	read_scope?: string[];
+	goal?: string;
+	expected_result?: string;
+}
+
+export interface SetTaskTierParams {
+	tier: string;
+	/** Explicit correctness risk; omitted legacy calls remain unknown, never low. */
+	risk?: "unknown" | "low" | "high";
+	/** Explicit process scope, separate from dispatch path globs. */
+	scope?: "read-only" | "small" | "wide";
+	reason?: string;
+	new_task?: boolean;
+}
+
+export interface SetAssertionsParams {
+	assertions: Array<{ id: string; tag: string; text: string; source?: string; reference?: string; critical_conditions?: string[]; test_command?: string; compiler_command?: string }>;
+}
+
+export interface UpdateAssertionParams {
+	id: string;
+	status: string;
+	evidence?: string;
+}
+
+export interface ComsListParams {
+	project?: string;
+	include_explicit?: boolean;
+}
+
+export interface ComsSendParams {
+	target: string;
+	prompt: string;
+	handoff_token?: string;
+	conversation_id?: string;
+	response_schema?: unknown;
+	reply_timeout_ms?: number;
+}
+
+export interface ComsGetParams {
+	msg_id: string;
+}
+
+export interface ComsAwaitParams {
+	msg_id: string;
+	timeout_ms?: number;
+}
+
+/**
+ * The herdr_spawn_peer parameters; peer-spawn-plan.ts's HubPeerSpawnRequest is
+ * this same type (the rationale for the field set lives there). Declared here,
+ * without importing the launcher, so this types module stays a leaf.
+ */
+export interface HerdrSpawnPeerParams {
+	name: string;
+	runner?: "pi" | "claude-code";
+	persona?: string;
+	no_persona?: boolean;
+	model?: string;
+	read_only?: boolean;
+	direction?: "right" | "down";
+}
+
+export interface HerdrSpawnPaneParams {
+	name: string;
+	command: string;
+	direction?: "right" | "down";
+}
+
+export interface HerdrReadPaneParams {
+	pane_id: string;
+	lines?: number;
+}
+
+export interface HerdrClosePaneParams {
+	pane_id: string;
+	reason: string;
+}
+
+export interface HerdrNotifyParams {
+	title: string;
+	body?: string;
+}
+
+export type ToolUpdate = AgentToolUpdateCallback<unknown> | undefined;
+export type ToolExecutionResult = AgentToolResult<unknown>;
+
+export type ToolExecutor<TParams> = (
+	toolCallId: string,
+	params: TParams,
+	signal: AbortSignal | undefined,
+	onUpdate: ToolUpdate,
+	ctx: ExtensionContext,
+) => Promise<ToolExecutionResult>;
+
+/** Dependencies tool registrars receive from the hub composition root. */
+export interface ToolContext {
+	executeDispatchAgent: ToolExecutor<DispatchAgentParams>;
+	executeSpawnResearch: ToolExecutor<SpawnResearchParams>;
+	/** Read-only recovery analysis without the research no-progress fence. */
+	executeRecoveryResearch: ToolExecutor<SpawnResearchParams>;
+	executeSetTaskTier: ToolExecutor<SetTaskTierParams>;
+	executeSetAssertions: ToolExecutor<SetAssertionsParams>;
+	executeUpdateAssertion: ToolExecutor<UpdateAssertionParams>;
+	executeGetAssertions: ToolExecutor<Record<string, never>>;
+	executeComsList: ToolExecutor<ComsListParams>;
+	executeComsSend: ToolExecutor<ComsSendParams>;
+	executeComsGet: ToolExecutor<ComsGetParams>;
+	executeComsAwait: ToolExecutor<ComsAwaitParams>;
+	executeHerdrSpawnPeer: ToolExecutor<HerdrSpawnPeerParams>;
+	executeHerdrSpawnPane: ToolExecutor<HerdrSpawnPaneParams>;
+	executeHerdrReadPane: ToolExecutor<HerdrReadPaneParams>;
+	executeHerdrClosePane: ToolExecutor<HerdrClosePaneParams>;
+	executeHerdrNotify: ToolExecutor<HerdrNotifyParams>;
+	getAssertionCount(): number;
+}

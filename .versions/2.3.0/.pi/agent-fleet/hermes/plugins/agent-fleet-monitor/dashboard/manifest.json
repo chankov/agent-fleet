@@ -1,0 +1,11 @@
+{
+  "name": "agent-fleet-monitor",
+  "label": "Agent Fleet Monitor",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/agent-fleet-monitor",
+    "hidden": true
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

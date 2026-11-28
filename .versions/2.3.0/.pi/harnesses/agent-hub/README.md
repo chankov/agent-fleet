@@ -1,0 +1,1758 @@
+# agent-hub
+
+The unified Agent Fleet runtime for pi, with [`coms`](../coms/README.md) **embedded**. Bare
+`just fleet` loads Fleet Core and starts `agent-hub` with its one **operator**: direct coding tools
+plus delegation to three runtime roles — `researcher`, `reviewer` and `editor` — under the
+Verification Contract. Each assignment attaches practices from an eleven-entry catalog that add
+method and expected evidence, never authority ([roles and practices](../../../docs/agents.md)).
+The former delegate-only orchestrator work mode was removed (2026-11-11). Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
+[`ask-user-remote`](../ask-user-remote/README.md), Compact & Continue, BTW, and the update
+checker; STT is opt-in with `--voice`. The operator can dispatch roles, run research,
+collaborate with Pi/Claude peers, and hand the session to a visible coms peer.
+
+> Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
+> P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
+> [disler](https://github.com/disler) (MIT). See the
+> [extension catalog](../../../docs/pi-extensions.md) and the
+> [architecture guide](../../../docs/ARCHITECTURE.md).
+
+**Optional ChatGPT client:** `just fleet --herdr --project <name>` can supply the live Pi session that the experimental [ChatGPT Fleet session client](https://github.com/chankov/agent-fleet/blob/main/docs/codex-session-bridge.md) selects. Hermes remains the inbound `ask_user` route.
+
+## System 1 task triage (active experimental; off by default)
+
+Task triage is a separate consumer of the existing TypeSafe `jev-1.13.0` service,
+not `dispatch_triage` persona advice, watchdog calibration or the spend tier.
+Select experimental `system1-task-triage` with separate task-context consent;
+Default/Full and `--yes` alone do not enable it. Over an existing desired file,
+use `--save-desired` for permanent headless opt-in/disable. Setup proposes absent
+nonsecret consumer/provider configs transactionally and never flips a human off
+config or collects a key. Runtime dependencies and caller key readiness remain
+separate. See [exact config and setup](../../../docs/agent-fleet-setup.md#task-triage-active-experimental-off-by-default).
+
+An enabled consumer evaluates accepted user task input before the first model
+turn, including when the dispatcher skips `set_task_tier` or watchdog is off.
+Limits: 40 KiB aggregate user task/clarifications, 64 KiB state, 100 logical calls
+per saved session and 2,000 ms per evaluation. Identical input/scope is cached;
+new scope can require another call. Reset, compaction or resume
+does not refill the allowance. No file bodies/tool outputs/environment are sent
+by this consumer; sensitive/oversized input is refused, not silently truncated.
+
+Independent predicates add review for requested security changes (p ≥0.80),
+review for broad changes (p ≥0.85), and exact-action one-use confirmation for
+requested potentially irreversible execution (p ≥0.80). They do not change the
+tier/model/roster, increase spend or authorize effects. Review is before task
+acceptance, not a blanket authoring ban. Low probability is never safety clearance.
+Baseline and source additions persist through failures, disable and resume.
+
+Native/coms messages do not become interactive human input for this consumer.
+When no accepted input is available, including after reload, scope classification
+retains the baseline and persisted additions without requesting a scoped assessment.
+This does not require `/af-task-triage-recover`. A pending transition with missing
+input, cancelled assessment, or failed process write still refuses dependent work.
+For a status-only follow-up, `get_assertions` reads the ledger without binding. Writes and agent launches still require binding.
+
+If classification commits but a process block remains, `set_task_tier` reports
+the block rather than success.
+
+A missing `reviewer` role definition requires the human to install it (`agent-fleet setup`);
+the Hub dispatches it once installed. Planning and plan review are optional;
+wide/high-risk tasks can start without them. Gaps use focused research and
+additional decisions use `ask_user` grilling. Usage does not require renewal.
+`/af-task-triage-waive <addition-id> <reason>` uses a correlated human answer for
+one current addition; it remains waived rather than satisfied and cannot erase
+baseline/other additions. `/af-task-triage-recover` performs checked process
+append/readback, not JSONL editing. Pending input must be bound before dependent
+effects. Direct Hub bash/edit/write confirmation is exact-call/input/cwd-bound.
+It shows complete tool inputs as JSON and working directory, not merely a hash;
+the **8 KiB (8192 bytes)** detail cap refuses missing, invalid, sensitive,
+terminal/bidi-control, mismatched or oversized inputs **without truncation or
+partial redaction**. JSON escapes preserve non-ASCII data. Sensitive-text refusal
+is heuristic, not complete secret/PII detection. Inputs, cwd, task/revision,
+operation and call ID are rechecked before one-use consumption. The human
+question is **not local-only**: the existing ask-user local/remote human route
+can carry action paths/content. Metadata-only audit does not sanitize ordinary
+Pi tool/session rendering, human-route records or clipboard. Unsupported
+child/coms/remote action bindings refuse that effect. Damage-control
+and existing review/acceptance gates remain independent.
+
+The full Fleet dashboard shows assessment, probabilities, active/waived additions,
+effective stages and blockers even with no workers; it adds no small-strip badge.
+Fleet `1` offers separately enabled memory-only capture with the unchanged
+32 KiB viewer cap; larger otherwise-valid payloads are withheld. `/af-audit`
+separates logical reservations/physical attempts/unknown usage and action grant,
+consumption and tool result. Provider ok, assessment applied, process complete,
+a waiver and tool-result success are not independent semantic acceptance. Trace
+failure is optional; authoritative process/grant/consumption persistence failure
+blocks the dependent effect.
+
+Disable with the complete remaining feature set plus `--save-desired`, then
+restart/resume; the human config and old task obligations survive. Cancel current
+work normally if immediate stopping is needed. Active experimental is not live
+accuracy, calibration, universal remote protection or release authority.
+`npm run test:task-triage` is the guarded source regression suite and is included
+in `npm run test:full`; scripted fixture reviews never replace independent
+semantic review.
+
+## Proactive turn review (experimental; off by default)
+
+This is a **separate, per-repository, session-bound** advisory consumer of the
+shared System 1 foundation, not the native watchdog's System 1 shortcut. The
+human-owned `consumers.proactiveReview` in `.ai/system1.json` is never created by setup. Missing/off
+means zero proactive capture, inference and feedback. Enabled `shadow` or
+`advisory` requires explicit include scope; `remoteContext: "disabled"` is
+local-only (reviewed deterministic validators, no semantic provider check),
+while `selected-excerpts` additionally permits bounded source/assistant
+excerpts to the already configured System 1 provider when ready. Shadow only
+observes; advisory can deliver ≤3 current findings at the same owner's next
+**natural** context hook (≤1,500 characters, once per finding revision).
+There is no autonomous turn, fix, termination, permission, or acceptance gate;
+the existing watchdog retains independent authority. Never interpret a
+suspicion, uncovered rule, unavailable model, or lack of findings as verified
+correctness.
+
+Hub/direct and supported native Pi specialist turns are instrumented; nested
+delegates, research helpers, coms peers and Hermes are not. Source and explicit
+plan/rules are bound to the session's immutable snapshot; delivery checks
+current source hashes and the session-bound rule revision. Rule discovery is read-only, source-bound and
+bounded; missing/partial/unsupported coverage is visible rather than passed.
+Editing rules during a session does **not** reload them: restart to adopt edits.
+Bounded private snapshots support local validated evidence readback, while
+operator history, `/af-hub-report` and `/af-audit` expose metadata-only
+projections. Feedback never creates a new Pi turn. Native delivery without a
+receipt remains unknown; rare async-close errors remain a nonblocking risk.
+The tested native integration uses repo-local Pi 0.84.2; Node 18 covers only
+extracted-package CLI/doctor compatibility, not the TypeScript observer.
+
+See [config, limits, exact explicit human-label schema, offline installed
+runbook, rollback and separately consented pilot](../../../docs/agent-fleet-setup.md#proactive-turn-review-experimental).
+Use `/af-hub-report` and `/af-audit` without labels for read-only session
+status; `--labels /absolute/path/to/CURRENT_SESSION/artifacts/labels.json`
+requires an explicitly provided file in the current session, never auto-loads
+labels and does not transmit payloads. Only retained findings expose label
+keys in the local evidence view (Fleet Dashboard `p` → `n` → `e`, or specialist
+detail `n` → `e`); unavailable evidence shows no template. Checked-clear
+units have no operator-accessible keys, so human miss/true-negative labeling
+and full recall evaluation are not operational; absent labels remain unknown.
+Only the project's `rules:` roots are catalogued; an inactive session binding
+proposal is not installed configuration or a loaded skill. C5 visibility and
+the earlier C6 offline/package review do not constitute final post-fix review,
+a live pilot or C7 acceptance. No release, deployment, repo config edit or
+remote request is authorized by this README. Roll back with the complete
+`{"version":1,"mode":"off"}` config and restart; cancel current work if
+immediate stopping is necessary, without destructive artifact cleanup.
+
+## Work Mode, roles, and topology
+
+These are independent runtime axes:
+
+- **One operator** — keeps `read`, `bash`, `edit`, `write`, approved extension tools, and the
+  delegation tools; `dispatch_triage` is listed only when that consumer can evaluate, and the
+  `filesystem` inspection tool stays profile-gated (`assist.deterministic-tools`). Raw Herdr panes are
+  for auxiliary processes such as watchers or servers. `--work-mode` is deprecated and ignored.
+- **Three runtime roles** — local headless Pi subagents for `researcher`, `reviewer` and `editor`.
+  The Hub always has all three and every practice; there is no team to select. A busy role gets an
+  extra instance (`reviewer--p2`, `editor--p2`) as described under [Parallel writers](#parallel-writers).
+  Native teams (`teams.yaml`, `/af-agents-team`, `/af-agents-add`, `/af-agents-drop`,
+  `/af-agents-save`, `team_adjust`, `--agent-team`) were removed in 2.3.0.
+- **Peer topology** — separate long-lived Pi or Claude Code processes, each started on its own with
+  `just fleet peer <name>` or `herdr_spawn_peer`, connected by coms and optionally placed in sibling
+  Herdr panes. `--herdr` opens the Hub alone in a one-pane workspace. Peer groups (`peers.yaml`,
+  `just fleet team …`, snapshots and resume) were removed in 2.3.0.
+
+Child deadlines, nested delegation, and Verification Contract rigor follow the **task tier**, not
+Work Mode. Dispatch and research counts are usage, never a per-turn allowance.
+
+All Hub slash commands, including `/af-handoff`, are always registered. A command whose
+runtime capability is unavailable refuses with remediation rather than disappearing. `--no-coms`
+disables only embedded coms; direct operator work and native dispatch remain available.
+
+### Automatic capability surfaces
+
+Capability packs load **automatically** from the current request, task tier, pending work,
+and runtime state; there is no activation command. `core` is always present, and so is `fleet`:
+the operator always holds `dispatch_agent`, `spawn_research`, `poll_panel`, `debate_panel` and `set_task_tier`,
+because whether to delegate is its judgment rather than a keyword match on the
+request (reason `operator-default`, or a more specific one such as `explicit-fleet`). Acceptance
+work, an existing coms peer, a Herdr pane/watcher request, and explicit or imminent compaction
+respectively add `verification`, `peer`, `workspace`, and `compaction`. A ready coms or Herdr
+runtime is only **readiness**, not intent: its tools and policy remain model-inactive until requested.
+
+### Operator delegation
+
+The operator prompt lists the three roles with their authority, default practice and model, and the
+practice catalog with each practice's expected result (restricted practices name their roles).
+`spawn_research` runs the `researcher` and `dispatch_agent` runs `reviewer` or `editor`; both take
+`practices`:
+
+```js
+dispatch_agent({ agent: "editor", practices: ["planning", "implementation", "testing"],
+  task: "Plan, implement and test the retry limit", scope: ["src/retry.ts", "test/retry.test.ts"] })
+```
+
+A practice supplies method, expected evidence and native-first skill paths; it never widens the
+role. An empty `practices` list uses the role default (`research`, `independent-review`,
+`implementation`). A retired persona name (`builder`, `code-reviewer`, `planner`, …), an unknown
+role or practice, and a practice the role cannot use (`implementation`, `documentation` and
+`release` are editor-only, `independent-review` is reviewer-only) are refused before anything
+starts; a retired name's diagnostic gives the role-and-practice mapping. The first dispatch of a
+role loads it into the Hub roster and notifies the human; a role whose definition is not installed
+is refused with the install step. The `release` practice prepares a release but never publishes:
+`git push`, `npm publish` (and the pnpm/yarn/bun forms), `changeset publish` and
+`gh release create|upload|edit` each need a separate one-call approval from
+`.pi/damage-control-rules.yaml`. A former persona name maps to a role and practices
+as listed under [retired personas](../../../docs/agents.md#retired-personas) and in the
+[migration guide](../../../docs/MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).
+See [roles](../../../docs/agents.md#roles), [practices](../../../docs/agents.md#practices) and
+[dispatch examples](../../../docs/agents.md#dispatch-examples). A `## When to delegate` section
+tells the operator to delegate research by default and in parallel, to make small changes itself,
+to get non-trivial changes reviewed by a separate agent, to poll the panel for decisions, and to
+debate a known objection with `debate_panel`.
+Capped model providers (by default `omlx/` and `custom/`, overridable with
+`AGENT_HUB_PROVIDER_LIMITS`) appear with their limits; slots in use appear in the task state.
+
+### Parallel writers
+
+Read-only audits and `spawn_research` can run alongside an active editor within the provider's
+concurrency limits. Distinct research questions run in parallel; each is its own attempt, keyed by
+its normalized task, goal and expected result, so the same question already in flight is refused as
+busy. The Hub runs read-only roles natively with inspection tools and `submit_result`; the
+read-only ceiling is code-owned, not a frontmatter choice. In native inspection the reviewer reads the scoped files directly and submits its own report.
+The child receives neither the delegation extension nor the optional `filesystem` tool, including
+its UTF-8 and Base64 paging operations. A reviewer routed to a coms peer takes no writer slot: it reaches only a peer launched with enforced read-only tools.
+A reviewer also supports `review_mode: "run-checks"` to run its configured shell checks. That mode
+and the current-state verification modes follow the writer rules and run only inside the
+write-denying sandbox with an empty write allowlist; without the sandbox the dispatch is refused and
+directed to an editor.
+
+While a write-capable dispatch runs, another writer can start only when **both** were dispatched
+with `parallel: true`:
+
+- `parallel: true` requires a scope of exact existing files or directories (no globs, no
+  `scope_mode: create`) and the native backend; `auto` is forced native and `coms` is refused.
+- The Hub registers each parallel writer and its native launch runs under the OS write sandbox
+  (bubblewrap on Linux, Seatbelt on macOS) confined to its scope plus its runtime, artifact and temp
+  roots, whatever the model profile says. No sandbox means a fail-closed refusal, never an
+  unsandboxed parallel child. An isolated writer with an empty scope cannot write to the repository.
+- A new writer is refused before anything starts or is charged when a running writer is not
+  isolated (`writer_active_unisolated`), when the new one is not parallel (`writer_active`), or when
+  the scopes overlap (`scope_overlap`). Overlap is conservative: a glob anchor or a containing
+  directory counts as overlap.
+- A role runs one dispatch at a time. A second `parallel: true` dispatch to a role that is already
+  busy runs as its own instance, `editor--p2` (up to `--p16`), with a separate session and executor.
+  A pure inspection by a busy `reviewer` gets its instance (`reviewer--p2`) without the flag; a coms
+  route is never cloned. The instance keeps the base role's prompt, tools, current model and
+  thinking, its review meaning and its tier gates. The result names the instance that ran.
+- `after: ["editor", "editor--p2"]` queues a dependent assignment until the named instances settle:
+  it shows "queued after …" with nothing started or charged, is refused when a dependency failed or
+  has no settled result in this task, and honors cancellation. Research handles are not instances.
+  `after` may name the same role as the new assignment: it then waits for the earlier assignments of
+  that instance, in arrival order. A real cycle is refused before anything waits (`after_cycle`).
+- Real Pi takes `<file>.lock` directories beside `trust.json`, `auth.json` and `settings.json` in its
+  agent directory and beside the project `.pi/settings.json`. The sandbox therefore lets a child
+  create new entries in those two directories, keeps every existing entry there read-only (code,
+  extensions, `AGENTS.md`, settings), and leaves only `auth.json`, `models-store.json` and the crash
+  logs writable.
+- For an isolated writer, only observed changes inside its own scope are attributed to it; changes
+  elsewhere during its run are listed in the result and not attributed. Its runtime test evidence
+  stays non-exclusive, so the operator runs the full checks once no writer is active.
+
+Shared files outside every scope (package.json, lock files, generated manifests, shared indexes) are
+the operator's to edit after the writers finish. Writers never commit.
+
+For a shared interface, agree the contract first (signatures, formats, acceptance checks), give each
+editor its own exact scope, and queue the consumer with `after`; see
+[parallel editors with a shared interface](../../../docs/agents.md#parallel-editors-with-a-shared-interface).
+
+**Area and final review.** A read-only area review can run beside active editors; a busy reviewer
+gets another instance automatically. Hub keeps the report
+and records its declared scope, starting and ending revisions, and any reason the result is
+preliminary in `details.reviewEvidence` and the saved assessment. A writer that starts and exits
+during the review still counts as overlap.
+
+Review evidence needs the `reviewer` role **and** the `independent-review` practice. A reviewer
+assigned only other practices (for example `testing`) gives advice: its review evidence stays
+preliminary with the reason `review_practice_missing`, it never reuses a recorded review, and it
+leaves an earlier independent review in place.
+
+Final approval requires the same repository revision at launch and completion, no overlapping
+writer, and coverage of every task file observed across editor runs, by a reviewer that authored
+none of them. Review closure records who authored each changed file; a coms peer is the same author
+under its address whatever its session, so a restarted peer cannot review its own change. Approval
+reuse requires the same repository revision and matching scope, requirements, practices and report.
+A later revision change reopens the review, and a follow-up review receives the previous findings and
+the delta. After editors finish, run one review of the whole integrated change. Include any
+preliminary reports as input artifacts when their findings are relevant.
+
+For `incomplete_scope`, `details.reviewEvidence.scopeDiagnostic` reports a declared-scope
+omission count only when the task input and revision are comparable. Otherwise it tells you
+how to re-establish the changed-file list and run targeted verification. A current-state
+preflight refusal can report the numbered declaration entry that was not eligible in the
+runtime Git observation, or ask you to check Git status locally if observation is unavailable.
+These diagnostics do not echo omitted filenames or infer actual checked paths or test coverage
+from scope declarations, reviews, or command receipts. They do not change acceptance.
+
+### Task brief
+
+Agents share facts through files, not through prompts. Each task has one brief,
+`artifacts/briefs/task-<taskId>.md` under the session artifact root, and every `dispatch_agent`,
+`spawn_research` and coms dispatch receives it as an input artifact. Before each delegation the Hub
+regenerates its runtime part: tier, risk and scope, the assertion ledger with sources, and the
+delegations admitted in this task with their scope and current status (refused dispatches are not
+recorded). The operator keeps the **Operator notes** section, below a marker line, current with
+decisions, constraints and open questions; regeneration preserves it, and delegated agents only read
+the file. The brief is a record, never a gate: a failure to write it does not block delegation.
+
+Briefs are working files. A new task's brief replaces the previous task's, and session start removes
+`briefs/` before archiving the rest of the artifact root into `runs/<runId>/` as before. Returns,
+reviews and evidence keep their existing retention. Every dispatch result already names the full
+output path, so the operator reads it instead of dispatching again.
+
+Ambiguous peer or workspace intent provisionally exposes the smallest relevant pack
+and records its reason in the state capsule and `/af-context`. Before that pack's first side effect,
+the Hub asks one focused `ask_user` confirmation. Confirming promotes it for the task; reject or
+cancel removes it and leaves no message, child, or pane behind. Active task packs persist through
+follow-up turns so a workflow does not lose tools. They shrink only through
+`set_task_tier(new_task: true)` (apart from the operator's fleet and pending-operation leases), never
+merely because the next message sounds different. Compaction is the transient exception:
+a task-triage assessment refresh preserves the current input's already-resolved explicit
+compaction intent without re-reading task text or promoting declined packs. The next
+ordinary input/reset/restore clears that explicit intent; context-pressure and pending-operation
+leases remain independent. Showing `request_compaction` does not itself execute compaction.
+
+`/af-context` separates stable replacement-prompt cost from the volatile state capsule and active
+schemas. Inactive and ready-but-inactive packs cost zero model-visible characters. Provider totals,
+including cache read/write when Pi supplies them, remain authoritative; deterministic character
+figures are regression diagnostics and never invent provider usage.
+
+### Context-pressure and resume recovery
+
+Pre-turn surface cost and live conversation pressure are different budgets. `/af-context` separates
+the stable replacement prompt, volatile state capsule, and active tool schemas; user and assistant
+messages plus tool results then accumulate during a turn. A long tool loop can therefore reach the
+model window even while every standing prompt ceiling remains green.
+
+The Hub samples live provider usage and projects each finalized tool result before another model
+request:
+
+- Below **60%**, pressure is `normal`. Automatic semantic compaction never starts below **50%**.
+- At **60%**, pressure becomes `warning`; the compact recovery surface is exposed transiently and
+  ordinary work may continue.
+- At **70%**, the Hub aborts the next same-turn provider request, waits until the tool result and
+  aborted turn are persisted, and starts one automatic Pi compaction. Only one recovery may run at
+  a time. Input received while startup or same-turn recovery is active is retained in memory,
+  including images, then replayed once after compaction succeeds.
+
+Automatic compaction re-arms when measured usage falls below **60%**, or after the history grows by
+10% of the window over the first measurement after a compaction, so a small window whose compacted
+baseline stays above 60% is not left waiting. At **80%**, further model work is blocked after a
+failed recovery, or when even the compacted baseline is at or above 80%. A compacted baseline
+between 70% and 80% warns once and keeps working until growth re-arms compaction. A single large
+tool result can overshoot before its result is observed.
+
+The status line and `/af-context` show the pressure phase, measured usage, both thresholds, episode,
+and last recovery outcome. Persisted pressure diagnostics contain numeric/enumerated metadata only;
+they never include prompts, tool output, credentials, error bodies, or compaction summaries.
+
+If automatic recovery reports `failed`, the queued input remains retained. Use Pi's built-in manual
+fallback, or switch to a model with a larger context window:
+
+```text
+/compact Preserve the current goal, decisions, assertions, pending operations, blockers, and next step.
+```
+
+On restore the roster is every installed role again; parallel instances join on demand, and there
+is no team to resolve. A session saved in the removed orchestrator work mode continues as the
+operator with a one-time notice.
+
+The Pi session JSONL under `~/.pi/agent/sessions/` is the authoritative append-only conversation and
+recovery record. Context overflow does **not** by itself mean that file is corrupt.
+Inspect it through `/session`, resume it through `/resume` or Pi's session flags, and recover through
+compaction or the commands above. Never edit, truncate, reorder, or synthesize JSONL entries to
+recover a session.
+
+## What it does
+
+The whole dispatch loop, end to end:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant H as Hub (dispatcher)
+    participant S as Role (e.g. editor)
+    participant R as Research helper
+    participant D as Disk (.pi/agent-sessions/)
+
+    U->>H: task
+    H->>D: set_assertions — Verification Contract persisted
+    H->>S: dispatch_agent (task + advisory scope)
+    S-->>H: NEEDS_RESEARCH: how does X work?
+    H->>R: spawn_research (researcher)
+    R->>D: write findings file
+    R-->>H: one-line notice + path
+    H->>S: resume with file paths — never raw findings
+    S-->>H: structured return + named evidence
+    H->>D: update_assertion
+    H-->>U: Assertions: 2✓ 1○ 1✗ · open: A4
+```
+
+Every borrowed idea from another harness passes one test before it lands: *does this persistently enter the dispatcher context?* If yes, it goes to disk or a one-line status instead.
+
+### Avoiding repeated coordination
+
+- Exact-action confirmation and identical-dialog memory are shared across isolated
+  extension loaders. Decisions stay bound to the task/input revision, reset at
+  session boundaries and cannot be populated by a late answer from an older task.
+  Runtime effects still require and consume their own one-use authorization.
+- `dispatch_agent` reuses successful review evidence only for a reviewer assigned the
+  `independent-review` practice, with the same reviewer,
+  task, requirements, practices, covered scope, input artifacts and exact repository revision,
+  so a security review never reuses a plain review. The reply reports `review_reused`, retains the
+  original evidence path and starts no child. Use `review_reason` for a fresh focus;
+  changed accepted input, repository revision or requirements, missing evidence, blocking findings or unresolved decisions
+  require fresh review. Test and acceptance evidence remain separate.
+- Older successful tool bodies are projected to compact references for the model.
+  Full originals remain in the session journal and private
+  `artifacts/context-history/` files. Failures, questions, images, the latest tool
+  batch and recent inspection working pages remain complete. Current sourced
+  requirements/critical conditions stay visible in the task capsule. New projections
+  apply in batches of at least 32 KiB and an earlier projection is reused verbatim
+  while its original file is unchanged, so the projected prefix moves in steps instead
+  of on every turn. This reduces repeated history; it makes no provider-token or
+  latency guarantee.
+- Plain `continue`/`resume` (including Bulgarian `продължи`, meaning “continue”) retains the accepted task input. An identical
+  `set_task_tier` declaration returns unchanged without another assessment or
+  process write. A changed request still requires the existing task binding.
+
+`agent-hub` is the supported home for the former standalone dispatcher features:
+
+- **Dispatcher grid** — a live dashboard of the installed roles and any parallel instances.
+- **Context budget** — `/af-context` opens a separate read-only full-screen diagnostic. It shows provider totals and cache fields beside named, metadata-only estimates; `loaded-excluded` Pi inputs are discovered but contribute zero to the replacement Hub prompt. Each specialist, research helper, delegate, and peer remains a separate context plane with its own model window. Component token estimates are heuristic/provider-scaled, never exact claims; unavailable peer/provider detail is labelled explicitly and raw prompts, schemas, and conversation text are never retained or displayed.
+- **Fleet config screen** — `/af-config [tab]` or **`Alt+,`** opens a read-only full-screen view of what is configured and what is active: desired state (`.ai/agent-fleet.json`), the install record with recorded-hash vs on-disk checks, overrides sections and the values the Hub parsed at start, AI-state provenance, System 1, STT, fleet YAML (dispatch policy, model profiles, voices) with live peers, damage-control rules, and the session runtime. It reads files and compares hashes only; installer evaluation (item states, feature availability, conflicts) stays with `agent-fleet verify`/`setup`, and the screen writes nothing. See [docs/agent-fleet-setup.md](../../../docs/agent-fleet-setup.md#viewing-configuration-from-a-live-session).
+- **Role delegation** — `dispatch_agent` sends a `reviewer` or `editor` assignment with its
+  practices; `spawn_research` runs the `researcher`.
+- **Research helpers** — the dispatcher invokes `spawn_research` automatically for read-only
+  investigation; specialists can trigger the separate automatic `NEEDS_RESEARCH:` pipe described
+  below. Managed research children use a replacement read-only prompt with `--no-skills` and
+  `--no-context-files`; managed specialists receive a selected context manifest (role file,
+  applicable policy paths, and the skill paths of the assignment's practices) rather than inherited
+  global skill/context loading. One `kind: research` role ships: `researcher` (`grok-4.7`, medium
+  thinking), which starts with the smallest search that can answer the question and deepens it when
+  sources disagree or evidence is missing; there is no depth parameter. Distinct questions run in
+  parallel. Its model + thinking level is shown in the role catalog. Both `spawn_research` forms
+  (with or without `persona`) take the researcher role's model, thinking and fallback for the
+  assigned practices, also under a complete model profile. An explicit `model` (ad-hoc form only)
+  replaces only the model; the chat model is used only when no researcher role is installed.
+  Live helpers appear in the Fleet Dashboard (`Alt+A`) and bounded fleet widget while they are
+  running. On every terminal outcome (success, error, timeout, spawn/preflight failure, or operator
+  kill) the live `rN` handle is removed immediately.
+  Session, transcript, and `findings/*.md` files remain on disk for the requester, and
+  `/af-agents-history` keeps the audit/timing record. Finished helpers cannot be restarted; a new
+  request always creates a fresh helper. `rN` handles are never reused during a Hub session.
+- **Human handoff path** — `ask_user` is exposed by the `ask-user-remote` wrapper (capturing stock
+  `pi-ask-user` and optionally racing a `user-remote` bridge), so specialists can bubble decisions
+  back through the dispatcher.
+- **Auto-research pipe (`NEEDS_RESEARCH:`)** — a specialist that lacks information pauses by ending
+  its turn with `NEEDS_RESEARCH: <question>` lines (mirror of the `ASK_USER:` protocol). The hub
+  intercepts them **in code**: it fans out read-only research helpers (max 4 questions per pause,
+  2 pauses per dispatch), writes each helper's findings to `.pi/agent-sessions/findings/*.md`, and
+  resumes the specialist's session with the file paths. The dispatcher LLM sees only a one-line
+  notice — raw findings never enter its context. Findings files are wiped at session start.
+- **Decision questions (`DECISION_QUESTION:`)** — a worker with the `planning`, `architecture`,
+  `independent-review` or `security` practice never starts a Poll or a Debate; it may end its report
+  with at most two `DECISION_QUESTION: {"method":"poll"|"debate",…}` lines. The hub validates each one
+  in code and adds a single notice to the dispatch or research result with `poll_panel` or
+  `debate_panel` and a ready question (`details.decisionQuestions`; rejected lines are reported with
+  their reason). A proposal starts nothing and never blocks, fails or accepts the run; the operator
+  decides (see `skills/debate/SKILL.md`). Blocking forks still use `ASK_USER:`.
+- **Ask System 1 suggestions (`SYSTEM1_QUESTION:`)** — a worker with the `research`, `planning`,
+  `independent-review` or `security` practice never calls `ask_system1`; it may end its report with at
+  most two `SYSTEM1_QUESTION: {"uncertainty":…,"input":{…},"verify":…}` lines. The hub validates `input`
+  with the tool's own validator and adds one notice: a ready input when `ask_system1` is active in this
+  Hub, otherwise the verification to do directly (`details.system1Questions`). Nothing is called until
+  the operator calls it; an answer is advice. Shared rule: `references/system1-consultation.md`.
+- **Verification Contract (assertion ledger)** — the dispatcher owns a ledger of checkable
+  acceptance assertions built from the request *before* any editor runs, so a clearly stated
+  requirement is never silently dropped. `set_assertions` records the numbered, tagged assertions
+  (`test` | `runtime-ui` | `code-grep` | `manual`, one pass condition each, plus a required
+  `source` naming where the requirement comes from) and rebuilds the whole
+  ledger on a "wrong again" regression reset; `update_assertion` marks each one proven (named
+  evidence required), unproven, or failed after a verification gate; `get_assertions` reads the
+  full ledger (ids, tags, pass conditions, evidence) back. Every committed ledger change is
+  journaled first as a task-bound `agent-hub-assertion-ledger` session entry (a failed append
+  refuses the change); on reload/resume the hub restores the latest entry on the current branch
+  only for the same task identity — a foreign-task or unreadable entry restores nothing and never
+  falls back to an older one, and a session from before snapshots migrates its last typed
+  successful `set_assertions` once as open declarations without proof. The hub mirrors the ledger to
+  `.pi/agent-sessions/assertions.json` (a write mirror, never a restore source) and renders a
+  one-line status (`Assertions: 2✓ 1○ 1✗ · open: A4`) so the contract survives compaction without
+  re-flooding the dispatcher LLM context — after a compaction the dispatcher calls `get_assertions`
+  to recover the full text the status line omits. The operator drives it — a researcher
+  parity inventory for "behave like" requests, runtime proof for UI/visibility assertions, the
+  regression reset on a re-ask — per
+  [`orchestration-verification`](../../../skills/orchestration-verification/SKILL.md). The hub also
+  machine-parses each assertion-carrying specialist's structured return, writes the full raw output
+  to `.pi/agent-sessions/sessions/<sessionId>/artifacts/returns/<agentKey>-<dispatchId>.md`, surfaces only a compact
+  `details.structuredReturn` digest plus `details.returnPath`, and marks contract notices such as
+  missing assertion ids or evidence-less `assertions_proven` entries (demoted to unproven in the
+  tool text). `details.fullOutput` remains for `/af-zoom`/compatibility, but dispatcher-visible text is
+  digest + path oriented. `update_assertion(status: "proven")` validates evidence by assertion tag:
+  test evidence needs a command/test and outcome, `code-grep` needs pattern plus result sample,
+  manual needs user/`ask_user` confirmation, and `runtime-ui` needs an existing artifact path under
+  `.pi/agent-sessions/artifacts/evidence/`. **Advisory by design** (PRD open question 2): status is
+  surfaced and "proven" requires named evidence, but a dispatch is never hard-refused on an unproven
+  assertion — code-enforcement is the Checkpoint A decision. Two contract rules ARE enforced at the
+  tool: a batch with any sourceless assertion is refused with the offending ids named (a specialist
+  told to prove `A9` must be able to read its origin instead of spending a dispatch and an ASK_USER
+  cycle asking where `A9` was defined), and a batch over **8** open assertions is accepted with a
+  warning suggesting the split — declare the batch the next dispatches actually prove, and
+  `set_assertions` the next one when it starts.
+- **Artifact bus** — session handoffs live under `.pi/agent-sessions/artifacts/` with conventional
+  `returns/`, `failures/`, `plans/`, `reviews/`, `inventories/`, and `evidence/` subdirectories, all
+  **archived** into an immutable `runs/<runId>/` namespace at session start rather than wiped (see
+  [Immutable per-run artifact namespaces](#immutable-per-run-artifact-namespaces-run-namespacejs)),
+  so a later session can never overwrite an earlier one's returns. `failures/` is separate on purpose: a run
+  that errored or timed out produced no specialist result, so its output goes there and the dispatch
+  result names it a **delivery failure** carrying no assertion evidence. Filing a 142-byte coms error
+  stub as `returns/reviewer-run4.md` once cost a 103-second dispatch investigating a review that
+  had in fact succeeded — only its reply was lost. `dispatch_agent` and `spawn_research` accept optional
+  `artifacts: string[]` paths (repo-relative or session-artifact-relative); the hub validates that
+  they stay inside the repo/session roots and injects only the path plus first heading/one-line
+  preview, never file bodies. Document-producing specialists are instructed to write plans, reviews,
+  inventories, and reports to the real session path
+  `.pi/agent-sessions/artifacts/<kind>/<agentKey>-run<N>.md` when their tools allow it, then report/pass
+  the artifact-relative handoff path `artifacts/<kind>/<agentKey>-run<N>.md`, finish with that path plus
+  a ≤10-line digest, and still include structured returns when assertions are carried. Repo-root
+  `./artifacts/...` files are not session artifacts. An editor with the `planning` practice still ends
+  with `PLAN_FILE: <path>`; the artifact path is an additional handoff channel.
+- **Dispatch scope advisory** — `dispatch_agent` accepts optional `scope: string[]` for writable
+  editor runs. The operator should derive these globs from the plan task's file list,
+  and skip scope for exploratory/reconnaissance work where the right files are not known yet. The
+  hub snapshots git status before the writable dispatch, diffs after the whole tool call (including
+  auto-research resumes), and reports out-of-scope paths in `details.scopeViolations` plus a ⚠ text
+  notice. This is advisory only: the hub never blocks completion, reverts files, or escalates
+  automatically. Known limitation: concurrent writable dispatches can only be attributed
+  approximately, so overlapping runs are flagged in the notice.
+- **Agent controls** — `/af-zoom` inspects a live agent timeline; `/af-agents-history` replays the run as a
+  timeline (operator turns, dispatches, research helpers) with per-agent durations, parallel-run
+  markers, and a grand total; kill/restart controls manage running child agents; each role file's
+  `model:` and `practice_models:` select its models. `/af-agents-kill <name|rN|all>` SIGTERMs a specialist (keeping
+  its standing card) or kills a currently running research helper (`all` clears every live helper).
+  `/af-agents-restart <name>` re-runs a specialist's last task fresh; research helpers cannot be
+  restarted. `/af-zoom <name|rN>` opens a running helper through the Fleet data model. Research spawning
+  and follow-up reconnaissance are automated through `spawn_research` and `NEEDS_RESEARCH:`; there are
+  no dedicated research lifecycle slash commands.
+  Restartable role instances at or above 70% context render
+  their context percentage with a warning marker/color in the Fleet Dashboard, and their next
+  `dispatch_agent` result adds a `/af-agents-restart <role>` hint. Research helpers are not warned,
+  and the hub never restarts specialists automatically.
+- **Model switching** — a role file's frontmatter `models:` list declares the models it may switch to
+  (the default `model:` is implicitly a candidate). `/af-agent-model <role>` picks from that list;
+  the choice lasts for the session and takes effect on the role's next dispatch
+  (`/af-agents-restart <role>` applies it immediately). `/af-agent-model <role>.<practice>`
+  (for example `editor.planning`) switches the model for assignments whose first practice with a
+  model choice is that practice. A practice choice comes, highest first, from the session command,
+  the active model profile (`editor.planning:`), `model.<role>.<practice>:` in the overrides file,
+  then the role file's `practice_models:` (under a complete model profile, only the session command
+  and the profile's own entries apply); the first practice in assignment order with any choice
+  wins, otherwise the role model applies, and the run records the source
+  ([models per role and practice](../../../docs/agents.md#models-per-role-and-practice)). Any other
+  dot form, `/af-agent-model <role>.<sub-role>`, switches a delegate sub-role's model instead — its
+  candidates are the sub-role's declared default plus the parent role's own candidate list; the switch is applied
+  when the parent is next dispatched (it lands in the serialized delegate config, so nested
+  children inherit it). `/af-models [profile]` applies a named profile
+  from `.pi/agents/model-profiles.yaml` — a macro over the same declared candidates, validated at
+  session start (a profile with any entry outside a role's candidates is dropped whole, with an
+  error). This is the legacy flat format. Version 2 profiles also set all child roles, thinking,
+  dispatcher, watchdog/extraction, poll/debate and routing from one selection; they declare their
+  own models without project candidate overrides. See [complete model profiles](../../../docs/agent-fleet-setup.md#complete-model-profiles). Those
+  declared-candidate commands stay within their lists; Fleet Detail and the session-wide
+  substitution target picker intentionally use Pi's currently available registry. When an effective project or session override
+  fails with a model/provider error or aborted request before work begins (including local-model
+  memory-limit failures), the hub retries once with the model originally declared in the role
+  file. For **write-capable** runs this is pre-work only: no fallback occurs after text
+  output, a tool call, cancellation, timeout, drift stop, or a Pi process-spawn failure, avoiding
+  duplicate writes. **Read-only children and research helpers** (tools limited to
+  `read,grep,find,ls`) also retry once when the provider fails *mid-run* — re-running a reader
+  repeats nothing, and those are exactly the children that exist to protect their parent's context,
+  so losing one to a local-endpoint OOM halfway through discards work for no safety gain. A
+  terminated run (watchdog, deadline, cancellation) never retries either way: that is a verdict on
+  the work, not a provider outage. The failed attempt is removed from the child session before retry. Per project,
+  `model.<role>:` / `models.<role>:` keys under `## agent-hub` in
+  `.ai/agent-fleet-overrides.md` replace a role's default model / candidate list, and
+  `model.<role>.<practice>:` / `thinking.<role>.<practice>:` set a practice's choice. Retired persona
+  keys (`model.builder`, …) no longer select anything; `agent-fleet doctor` reports them with the
+  replacement. The `researcher` (`kind: research`) is switchable the same way —
+  `/af-agent-model researcher` and `/af-agent-model-thinking researcher` accept it. Since research
+  helpers are spawned fresh through `spawn_research`, the switch lands on their next spawn (there is
+  no running instance to `/af-agents-restart`).
+  `/af-agent-models-substitute [<source> <target>]` saves a runtime source → target mapping for
+  the current session. With no arguments it opens the same two-step visual picker as `m` in Fleet
+  Dashboard: first choose a source from every model configured across role defaults, candidates,
+  fallbacks, and delegate sub-roles; then choose a target from Pi's currently available models. The
+  two-argument form performs the same operation directly. The mapping is resolved when work is
+  spawned rather than eagerly copied into today's roster, so roles, parallel instances, research
+  helpers, and delegate sub-roles activated or created later in the session inherit it automatically. Existing
+  runs are not interrupted, and all mappings reset at the next `session_start`.
+- **Thinking levels** — each role file's frontmatter `thinking:` sets its pi `--thinking`
+  reasoning effort (`off` · `minimal` · `low` · `medium` · `high` · `xhigh`). `/af-agent-model-thinking
+  <role>[.<practice>]` switches it among those six levels for the session; like a model switch it takes effect
+  on the role's next dispatch (`/af-agents-restart <role>` applies it now), and selecting the
+  frontmatter default clears the override. The level shows as a short badge after the model
+  everywhere a model is rendered — `gpt-5.5 (xh)` in the dashboard (`min`/`low`/`med`/`hi`/`xh`; `off` shows no badge). Per project, a `thinking.<role>:` key
+  under `## agent-hub` in `.ai/agent-fleet-overrides.md` replaces a role's default level.
+- **Mid-turn delegation (`delegate` tool)** — a role file that declares a `subagents:` map in its
+  frontmatter (`role: { model, tools? }` entries, or an indented `model:`/`tools:` block per role)
+  gets a real mid-turn `delegate(role, instruction, context?, allow_write?)` tool, injected as an
+  extra `-e delegate.ts` extension into its spawned process (the `delegate` tool name is appended to
+  its `--tools` allowlist — pi filters extension tools too). Only declared roles are spawnable, on
+  their declared models — model choice is configuration, never the child LLM's. Budgets are readable
+  refusals: at most 4 delegate children per dispatch, tree-wide, and a per-role `delegate_depth:`
+  budget capped at 1 (the default). Children spawned with remaining depth 0 do not receive the
+  `delegate` extension/tool. Write safety: children run read-only (`read,grep,find,ls`) unless a
+  SINGLE live child gets `allow_write: true`, which inherits the parent's tools intersected with the
+  role's `tools:` cap; if a declared role cap leaves no available tools, delegation is refused.
+  Concurrent children are always forced read-only. Children stream timeline events through
+  `.pi/agent-sessions/delegations/<agent>/events.jsonl`; the hub tails it and renders nested rows
+  under the parent's card (child id, model, tokens, status),
+  each openable with `/af-zoom <child-id>`. Each child also writes its full final output to
+  `.pi/agent-sessions/delegations/<agent>/results/<childId>.md`; the parent receives only status,
+  a required final `DIGEST:` section (≤30 lines with path:line citations), and the result-file path.
+  If a child omits `DIGEST:`, the parent gets the first ~30 lines plus a no-DIGEST warning and the
+  result path. Spend rolls up: every child row and the parent's subtree
+  total show tokens, and a session-wide `Δ delegated` counter sits in the status line.
+  `/af-agents-kill` on the parent SIGTERMs its whole process group, so the delegation tree dies with
+  it. `context: fork` is accepted but treated as a summary brief in v1. Per project,
+  `subagents.<role>.<sub-role>:` and `delegate-depth.<role>:` keys under `## agent-hub` in
+  `.ai/agent-fleet-overrides.md` replace individual sub-roles / the depth budget. An overridden
+  role retains its frontmatter model as a one-shot fallback under the same pre-work-only safety
+  rule; delegate cards and results show the model that ultimately ran. Two roles ship with
+  declared sub-roles on cheap `gpt-6-luna` helpers, with the parent reserved for synthesis and
+  verdicts:
+  - `reviewer` — `preflight` (rules and hotspot map), `quality`, `perf` and `docs` for code and
+    documentation; `feasibility` and `deps` for plans (no preflight — the plan is the map). In native
+    read-only inspection the reviewer skips delegation and reviews directly.
+  - `editor` — `recon` maps call sites and existing patterns before edits; `verifier` (the one
+    `allow_write: true` child) runs the test suite after them. Implementation is never
+    delegated.
+  The `researcher` declares none.
+- **Default damage-control guardrails** — `just fleet` and `just fleet --no-coms` load the
+  `damage-control-continue` harness before `agent-hub`, so dispatcher tool calls are checked against
+  `.pi/damage-control-rules.yaml` and a blocked call feeds back instead of aborting the turn. A
+  guardrail is also re-loaded into every native specialist, research helper, and nested delegate
+  (see [Safety scope](#safety-scope)). Missing safety plumbing refuses child dispatch.
+- **Embedded coms** — the dispatcher is a discoverable peer on the local machine. Multiple
+  `agent-hub` (or plain `coms`) sessions on the same box find each other through per-project registry
+  files and exchange messages over a unix socket (named pipe on Windows).
+
+`/af-zoom <name|rN|child-id>` opens the selected agent's full-screen stream detail. For fleet rows,
+it uses the [Fleet Dashboard detail controls](#fleet-dashboard-and-detail); a directly addressed
+fallback stream keeps the legacy zoom controls. Both overlays size to the terminal.
+
+### `/af-agents-history`
+
+`/af-agents-history` (or **`h`** while the Fleet Dashboard is open) opens a read-only overlay (same chrome as `/af-zoom`) that replays the session as an
+execution **tree**:
+
+- **Operator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
+  labelled `(dispatcher)`. Chat-only turns add no rows.
+- **Dispatched specialists and research helpers** nest one level beneath the turn that launched them;
+  **delegate sub-sub-agents** nest one level deeper still under the specialist that spawned them — in
+  start order at every level.
+- **Parallel runs** — siblings whose run times overlap are marked with a `│→` connector, so a
+  concurrent fan-out reads as a visually grouped block.
+- **Real-work durations** — each row shows that node's *own* work: its span **minus the time it spent
+  awaiting children**. A dispatcher blocked on six concurrent agents is credited only for the time it
+  actually worked between/around the awaits, never for the await itself — so the same wall-clock isn't
+  counted twice up the tree. The same subtraction applies to a specialist awaiting its own delegate
+  children. Format: plain seconds under a minute (`42sec`), `m:ss` above it (`10:20min` for 620s).
+  Running rows tick live (the overlay re-renders once a second) and a new dispatch appears the instant
+  it starts.
+- **Footer** shows `Σ real work <total> · <n> runs (agents <a> + dispatchers <d>)` — the real work of
+  *everyone*: the dispatched specialists' and research helpers' full runtime (`agents`) plus each
+  dispatcher turn's own work (`dispatchers` — its span minus the time it awaited agents **and** the
+  human via `ask_user`). Wall-clock is deliberately **not** shown: it would fold in the idle gaps
+  while you're away between turns, and `ask_user` waits are subtracted for the same reason.
+
+Navigate with `↑/↓`, press `G` to jump back to the live tail, and `Q`/`Esc` to close. The log resets
+on each session start.
+
+The default agent view includes a collapsed fleet summary below the editor. When the installed public
+SDK editor contract can be positively verified, an empty focused editor can activate its bounded
+inspection window with the registered `Alt+I` shortcut; the same chord collapses it, and `j`/`k`
+select. Enter opens detail, while `x`/`r` use the same two-press confirmation and ownership checks as
+the dashboard. Plain and Alt arrow keys remain editor input unchanged and exactly once. Existing
+`Alt+A` shortcut continues to open the Fleet Dashboard exactly once
+from either widget state. Autocomplete, paste, key release,
+non-empty/unfocused editors, modal UI, RPC/print/headless modes, and unsupported custom editors do not
+activate it; unsupported environments retain a noninteractive summary without a key hint. The window
+uses at most `floor(terminal.rows / 3)` rows including chrome, retains completed/error runs for exactly
+10 seconds (or while the same selected run is pinned), and separates active peers from task counts.
+Both fleet surfaces scrub terminal controls and size Unicode by display cells. A confirmed coms kill
+aborts only the local request—the confirmation explicitly notes that the peer pane keeps running.
+The coms pool panel remains at the **bottom of the Fleet Dashboard**.
+
+### macOS Alt shortcuts
+
+On macOS, the outer terminal must send Option as Meta or the Fleet's Alt shortcuts will not reach
+the Hub. In Terminal.app, enable **Use Option as Meta key** under **Settings → Profiles → Keyboard**
+for the profile used by the window. For details, see the
+[macOS terminal note](../../../docs/pi-extensions.md).
+
+### Fleet config screen
+
+Press **`Alt+,`**, run **`/af-config [tab]`**, or press **`c`** inside the Fleet Dashboard (**`Alt+A`**) to
+open the **Fleet config** overlay (Esc returns to the dashboard). Tabs:
+Overview, Setup, State, Overrides, AI State, System 1, STT, Fleet, Safety and (Hub only) Runtime.
+`←→`/`Tab` and `1`-`9` switch tabs, `↑↓`/`PgUp`/`PgDn` move, `Enter` expands a group, `o` opens the
+selected file in a read-only viewer, `i` runs `agent-fleet inspect` (read-only installer evaluation:
+item states, verify and doctor findings, feature availability, provenance validity) and folds its
+answer into the Overview, Setup, State and AI State tabs, `r` re-reads the files, `q`/`Esc` closes.
+The CLI is the recorded `sourceRoot` checkout when it exists, otherwise `npx` pinned to the recorded
+package version; without either the row says the evaluation is unavailable.
+
+Changes go through the same CLI and never through the screen. On the Setup tab `Space` toggles a
+feature and `p` cycles the preset in an unsaved draft; `a` runs `agent-fleet setup --dry-run --json`
+for that draft and shows the CLI's own plan (actions by kind, operator steps, notes, conflicts). `y`
+confirms: a second dry run must produce the same plan digest, otherwise nothing is applied; then
+`agent-fleet setup --yes --save-desired` runs with the CLI's lock and transaction journal. Conflicts
+and first-migration blocks are shown with the terminal command and cannot be applied from the screen.
+Enabling `system1-task-triage` asks the separate data consent before `--task-triage-consent` is
+passed; a desired file the installer rejects is shown as the CLI's repair preview and applies only with
+`--repair-config` after confirmation. On the Overrides tab `a` asks for rules/docs roots, previews
+`agent-fleet configure --dry-run` as a line diff and applies with `--yes --expect-hash`, so a file
+edited in between is refused by the CLI. Headless sessions have no write flows. Each row names its
+origin (`file:line` or `runtime`). Files edited after session start are flagged, because the Hub reads
+overrides, role definitions and System 1 configuration once at start. Environment variables appear as names with
+present/absent only; values are never read or shown. Headless children get the Overview as a notice.
+The same command and shortcut exist in coms peers (without the Runtime tab and the Hub's effective
+override values). The screen never writes a configuration file; changes go through the CLI
+(`agent-fleet setup`, `agent-fleet configure`).
+
+### Fleet Dashboard and detail
+
+Press **`Alt+A`** or run **`/af-agents-list`** to open the full-screen **Fleet Dashboard**. It is a
+live overlay backed by the same fleet source as the compact widget and lists specialists, true nested
+delegates, running research helpers, and coms peers. Dashboard filtering remains independent from the
+widget, and `/af-zoom` continues to use an unfiltered key lookup.
+The bordered **coms** panel is pinned to the bottom of this overlay. The dashboard shows status,
+hierarchy, model, context/tokens, elapsed time, tool count, and recent work; its summary counts
+running/done/failed rows, overlap-aware wall time, and visible token totals. Finished/idle/stale
+rows are hidden by default.
+
+- **`↑`/`↓`** or **`j`/`k`** selects a row; **`PgUp`/`PgDn`** pages; **Enter** opens its full-screen
+  detail view. **`h`** opens the same history overlay as `/af-agents-history` (Esc/`q` returns to the dashboard);
+  **`c`** opens the Fleet config screen (`/af-config`) the same way.
+- **`f`** starts a name/model/recent-work filter; type the query and press **Enter** to apply it, or
+  **Esc** to clear it. **`a`** toggles finished rows.
+- **`x`** requests a kill and **`r`** requests a restart; press the same key again within two seconds
+  to confirm. Kill acts on a local running specialist, a coms-backed specialist, or a research helper.
+  Confirmed restart terminates a running specialist when necessary, clears its session, and re-dispatches
+  its previous task fresh; it is refused for peer/delegate/research rows and rows with no previous task.
+  If a research detail view is already open when that helper finishes, it stays as a read-only terminal
+  snapshot until Esc; returning to the dashboard shows no completed research row.
+- **`q`** or **Esc** closes the dashboard.
+
+The detail view streams the selected local agent's assistant text, provider-emitted thinking, tool
+arguments, and tool results (including success/error and duration). Normal events request an immediate
+render; a 2-second ticker recovers missed file notifications and advances elapsed time. Use **`v`** to
+switch between scan-friendly **Compact** rows and wrapped **Verbose** output. The choice is preserved
+while drilling into other rows in the same open dashboard.
+
+Use **`↑`/`↓`**, **`PgUp`/`PgDn`**, and **Home**/**End** to navigate. Manual movement pauses tail-follow;
+**End** restores it. **Enter** expands a selected tool row in Compact mode and **Ctrl+C** copies the
+selected entry. **`m`** replaces the log area with a full-screen picker containing every model currently
+reported by Pi's available-model registry. Use **`↑`/`↓`**, **`PgUp`/`PgDn`**, or **Home**/**End**, then
+**Enter** to apply; **Esc** cancels back to the logs.
+
+Each local run also writes an append-only transcript under `.pi/agent-sessions/transcripts/`. The
+directory/file permissions are owner-only (0700/0600 where the platform supports them), large events
+are chunked, and the live in-memory window is bounded. Common authorization headers, API keys, access
+tokens, passwords, provider tokens, and private-key blocks become `[REDACTED]` **before both persistence
+and display**. This is pattern-based protection, so operators should still avoid deliberately printing
+unknown secret formats.
+
+“Thinking” means only text explicitly emitted by the provider/runtime; hidden model reasoning is not
+available, and roles with thinking disabled have no thinking rows. Model switching works for local
+specialists, a currently running research helper, and nested delegate roles. It applies on the next dispatch or
+continuation and never interrupts a running child. A coms-backed specialist stores the choice for native
+fallback runs; external coms peers control their own model, have no picker, and have no local transcript.
+**Esc**/**`q`** returns to the dashboard. **`/af-zoom <name|rN>`** opens this same detail view directly.
+
+### Version footer
+
+`agent-hub` renders its local harness version first in its custom footer:
+`agent fleet v<version> · <model><thinking>`. It replaces pi's default footer, so it does **not**
+consume or render the shared version status; it reads its own adjacent stamped manifest directly.
+The three persistent-UI harnesses (`agent-hub`, `coms`, and
+`damage-control-continue`) still register that one shared key, which gives default footers one
+version in stacked non-hub sessions. In the supported guardrail-plus-hub stack, the hub's custom
+footer supplies the single visible version. Damage-Control can update its own safety status after
+a violation without overwriting the shared version entry. The canonical source is the
+repository-root `package.json`; the adjacent harness manifest is a synchronized stamp maintained
+by `bin/sync-harness-versions.js`. Its local `version.ts` reader intentionally stays with the
+harness for copied or symlinked installs, but those installs still need the pre-existing full
+`.pi/harnesses/` dependency installation.
+
+The `agent fleet` half of the label is an OSC 8 terminal hyperlink to the project homepage —
+clickable in terminals that support hyperlinks, ignored (rendered as plain text) elsewhere, and
+free of footer columns because pi strips OSC sequences before measuring width. It opens the
+repository in a browser, not a TUI panel: pi has no mouse tracking, so a click never reaches the
+harness. `AGENT_FLEET_NO_LINKS=1` restores the plain label on multiplexers that mangle OSC 8
+(GNU screen, tmux before 3.4).
+
+### Voice dictation indicator
+
+The custom footer renders the optional [`pi-voice-stt`](../../extensions/pi-voice-stt/README.md)
+extension's recording indicator on a line **below the model line** — e.g.
+`● REC 0:01 ⏎ send · esc cancel` while recording, or a `transcribing…` dot. Because agent-hub
+replaces pi's built-in footer (where that indicator normally lives), it reads the extension's
+`setStatus("voice-stt", …)` value via the footer data provider and surfaces it itself. The
+indicator only appears once `pi-voice-stt` is installed and configured; otherwise the footer is
+the single model line. Press **`Alt+S`** to start/stop dictation as in a normal pi session.
+
+## Configuration
+
+At session start, `agent-hub` reads `.ai/agent-fleet-overrides.md` in the workspace. The
+canonical section name is `## agent-hub` (the legacy `## agent-team` name is still accepted):
+
+```markdown
+## agent-hub
+# Replace Bulgarian with any language name.
+language: Bulgarian
+```
+
+Omit the section to keep the default `English`. `language` applies to dispatcher replies,
+`ask_user` questions and `context` fields, handoff summaries, and user-facing status text;
+specialist task strings stay in English.
+
+The same section can point the roles at the project's own rule files and documentation
+entry points:
+
+```markdown
+## agent-hub
+rules: docs/rules, .ai/rules
+docs: Docs/AGENTS.md, Docs/architecture/ARCHITECTURE_OVERVIEW.md
+```
+
+`rules:` lists repo-relative folders of HOW rules — implementation patterns the work must
+comply with. Resolution is **index-first**: a folder with a top-level `README.md`/`index.md`
+is treated as curated — roles read the index first and follow its loading manifest
+(session bundles, conditional-load lists) instead of bulk-reading the tree; a folder without
+an index is searched **recursively** through all subfolders. When set, every dispatched
+specialist's system prompt gains a "Project rules" block naming the folders and the
+resolution order; a planning assignment cites the relevant rules in its acceptance criteria and the
+reviewer validates its subject against them and hands them to its delegate sub-reviewers.
+
+`docs:` lists repo-relative WHAT/WHY documentation entry points — canonical files (e.g. an
+`AGENTS.md`, an architecture overview) or doc folders (roles start from the folder's
+README/index). Docs orient rather than bind: every dispatched specialist **and every research
+helper** gains a "Project docs" block telling it to read the entry points relevant to its
+task and follow their links instead of bulk-reading doc trees. The reviewer flags
+changes that alter documented behavior without a doc update; an editor treats the entry
+points and the trees they link as the documentation it maintains.
+
+`research-keep:` is **removed**. An existing key warns at session start and has no effect; delete it.
+Live research helpers disappear from the Fleet Dashboard when they finish. Session/transcript/findings
+files and `/af-agents-history` records remain.
+
+### Bounded local-disk searches
+
+Every `read`, `grep`, `find`, and `ls` call made by a native research helper or a nested
+`delegate` child has a **parent-side** watchdog. The default is **120 seconds per tool call**;
+it is a per-tool bound, not a whole-run deadline — the whole-run bound is the execution
+mode's per-run deadline below. Configure it in the repository-standard overrides file:
+
+```markdown
+## agent-hub
+recon-search-timeout-s: 120  # integer 1..3600
+# recon-search-timeout-s: off # disable this per-tool watchdog
+```
+
+Invalid values warn at session start and use 120. Calls are tracked independently by their
+JSONL `toolCallId`; a repeated start/update cannot extend an existing deadline. A timeout returns
+`tool_timeout` with the call metadata, ends the research/delegate lifecycle, sends SIGTERM to the
+child's explicitly owned process group, then SIGKILL after a finite grace period. The parent also
+has a final settlement timer, so it settles rather than waiting indefinitely for `close` or
+inherited pipe drain. If child/process-group death cannot be confirmed after this bounded cleanup,
+the timeout metadata reports `terminationConfirmed: false`: this prevents the parent hanging, but
+may indicate an uninterruptible OS-level process that needs operator attention. This group
+ownership covers descendants even when the pi leader exits first; nested delegates own their groups
+and forward parent cancellation, avoiding detached-orphan processes. Caller
+cancellation follows the same bounded cleanup path but is reported as `cancelled`, not
+`tool_timeout`.
+
+### Usage accounting without continuation quotas
+
+Dispatch, research and review-round counts and active time remain visible for each
+turn/task. No tier imposes a continuation quota, and authorized work does not ask
+periodically whether to continue. Legacy `max-dispatches-per-turn`,
+`max-research-per-turn` and `turn-wall-time-s` keys are ignored with warnings.
+Auto-research is still counted. Cancellation and individual child deadlines remain.
+
+```markdown
+## agent-hub
+watchdog: auto               # default; root operator and native specialists
+agent-turn-timeout-s: 1800    # tightens the individual run deadline
+session-recycle-runs: 5      # tightens the recycle threshold
+run-history-keep: 10         # previous artifact archives to retain
+```
+
+Two related always-on behaviors: specialist **context pressure is measured over
+input + cacheRead + cacheWrite** (resumed sessions re-send their whole accumulated context
+as cache reads — counting `input` alone hid that entirely), and a specialist session is
+**recycled** (fresh session, no `-c` resume) once it has served `session-recycle-runs` runs
+or its measured context passes 60%. The dispatch result notes the recycle so the dispatcher
+knows the specialist starts without session memory — task text and `artifacts:` paths must
+carry the state, which the deliverable-to-file protocol already ensures.
+
+Context is measured against **that agent's own** model window, resolved from pi's model
+registry (`ctx.modelRegistry.find`) with the source recorded on every resolution. Dividing a
+49k local model's usage by the dispatcher's window is what produced unactionable readings
+like `⚠ editor context at 315%`; a reading above 100% now emits a one-time diagnostic that
+names the window and where the number came from, so a mis-resolved window is distinguishable
+from a genuine overflow. Two recycle rules follow from it: a session at or past a **full**
+window is recycled unconditionally (no threshold override keeps it alive), and a resumed
+session whose *projected* prompt — prior tokens plus this task — would overflow is recycled
+**before** the spawn instead of after the run.
+
+#### Per-provider concurrency
+
+A dispatch may fan out to four delegate children at once and several specialists can be
+mid-run, with nothing bounding how many requests land on one provider. That is fine against
+a hosted endpoint and not against a local one. Requests are capped per process — **2 in
+flight for `custom/*` and `omlx/*` by default, unlimited elsewhere**:
+
+```bash
+AGENT_HUB_PROVIDER_LIMITS="custom=4"        # raise the local cap
+AGENT_HUB_PROVIDER_LIMITS="custom=off"      # disable it
+AGENT_HUB_PROVIDER_LIMITS="custom=2,ollama=1"
+```
+
+Queued runs still execute — they wait for a permit, and the wait is announced rather than
+looking like a hang. The cap applies per **level** of the delegation tree (each pi process
+runs its own semaphore over the children it spawns), and a nested spawn reuses its parent's
+permit, so a child can never wait on its own ancestor. The drift judge and the return
+extractor are deliberately ungated: both run while a specialist holds a permit, so queueing
+them behind it would stall the watchdog meant to stop it.
+
+The per-run deadline lands as `turn_timeout` (exit 124) with partial output preserved, for
+dispatched specialists, research helpers, and nested delegate children alike — a hung child
+can no longer hold its parent for hours.
+
+### Task triage (complexity tiers)
+
+The dispatcher classifies the current TASK with the `set_task_tier` tool BEFORE its first
+dispatch — `trivial` / `small` / `feature` / `project` — to select resource and
+delegation policy. The tier shows in the `hub-tier` status chip
+(`Tier: small · …`), with a trailing `?` while it is only assumed.
+
+Skipping classification assumes **small**. This retains conservative delegation,
+role and child-deadline defaults, without limiting task duration or invocation counts.
+Planning and plan review remain available on request at every tier.
+
+The tier is **task-scoped and ratcheted**. It survives the user's next message, and it
+moves in one direction cheaply: **lowering it is always free, raising it requires a
+`reason`** naming what the ask turned out to contain (refused in code otherwise). A
+turn-scoped tier could not bind on a steered run — every correction reset it to null, the
+next dispatch re-assumed `feature`, and the effective tier drifted to the ceiling, because
+nobody ever re-declares `trivial` after a steering message.
+
+The remaining policy separates admission, review and usage:
+
+- **Duplicate-dispatch guard** — refuses re-dispatching the same agent with a
+  near-identical task inside one turn.
+- **Tier practice gate** — at trivial/small, an assignment with the `architecture` practice, or a
+  `reviewer` with `security`, is refused without charging; raise the tier with a reason first.
+  Planning and plan review are optional and are never required to admit implementation.
+- **Review rounds** — counted without a hard quota. Review quality and current
+  changed-scope evidence remain required where the process calls for them.
+- **Review finding budget** — a `reviewer` dispatch carries a blocking-finding cap
+  tied to the tier (trivial 1, small 2, feature 5, project uncapped) plus the rule that a
+  blocking finding may only enforce an invariant the task/plan/rules already state. The hub
+  **counts** what came back (`review-findings.js`) and appends a visible notice when the
+  return exceeds the cap — it never reclassifies a finding. No rule the hub can evaluate
+  distinguishes "invents a manifest nobody asked for" from "this logs a connection string";
+  both are a heading and a bullet, and silently demoting the second by position would, on
+  the day it matters, move a real security finding into the section nobody acts on.
+
+Every budget/gate refusal is counted in `/af-hub-report`.
+
+### Docs lane (`docs-lane.js`)
+
+A dispatch whose declared `scope` is documentation only — `Docs/**`, `**/*.md`,
+`artifacts/evidence/*.png`, `.changeset/**` — runs in the single-worker docs lane:
+
+- dispatching a `reviewer` on it is **refused** and costs no budget slot;
+- an editor's result carries a note telling the dispatcher not to open a review
+  gate for it (unless required process review remains open).
+
+An absent or empty `scope` is never the lighter lane — unknown is not docs. The refusal is
+overridable per dispatch with `review_reason: "<why>"` for the cases that do warrant a gate
+(the doc publishes a credential, or states a contract other systems depend on).
+
+### External-blocker stop (`external-blocker.js`)
+
+A specialist that cannot proceed without something outside the fleet's reach — an account,
+a permission, a deployment credential, a telemetry destination, a console-only action —
+emits `EXTERNAL_BLOCKED: <what is missing, who owns it, what it blocks>` (the protocol is
+injected into every specialist prompt). The hub records it and **refuses the next
+dispatch/research** with an owner-escalation packet: what is missing and who owns it, which
+assertions are blocked, what is already proven and where, and the human's options (provide
+access / waive as UNPROVEN / drop from scope).
+
+The Hub resumes dependent work after receiving the human's answer to the outstanding blocker.
+Opening a question, cancelling it, or sending an unrelated message leaves the blocker open.
+When `ask_user` is unavailable, reply in chat with `Confirm [[external-blocker:<UUID>]]`,
+using the exact marker from the current escalation packet on the first line. You can include
+the resolution on the following lines.
+
+This exists because the alternative is the most expensive failure mode observed: with no
+correlation destination available, a run kept substituting internal work for the missing
+external fact — scripts, manifests, fixtures, diagnostic packets — for hours, and the
+assertion still ended UNPROVEN.
+
+### Immutable per-run artifact namespaces (`run-namespace.js`)
+
+Session start used to `rm -rf` `.pi/agent-sessions/artifacts/`, and specialist returns were
+named by a per-session counter (`returns/builder-run1.md`, from the retired `builder` persona). Both
+halves of that failed at once: the next session's `builder-run1.md` claimed the same path as the previous one's, and
+the wipe deleted the originals first — a post-mortem had to record eleven implementation
+returns and two review artifacts as NOT RECOVERABLE.
+
+Now each session **archives** the previous session's artifacts into
+`.pi/agent-sessions/runs/<runId>/artifacts/` — a namespace written once and never reused —
+alongside a read-only `meta.json` (run id, archive time, project, workspace, per-kind
+artifact counts) and an appended `runs/index.json`. `runId` is a sortable UTC timestamp plus
+a random suffix, so two sessions starting in the same second still get distinct namespaces.
+Retention is `run-history-keep` (default 10, `off` keeps everything); an empty artifact tree
+is not archived. If archiving fails the artifacts are **left in place** rather than deleted:
+a stale tree is recoverable, a deleted one is not.
+
+### Drift watchdog (in-flight observation)
+
+The root operator is supervised too (`operator-watchdog.ts`): identical calls or
+consecutive failures use the existing drift judge, cooldown and cancellation fence.
+Root tool volume alone does not trigger a quota. Late judges cannot stop a later
+turn/session. Root audit entries record abort requests without claiming that all
+in-flight side effects stopped. There is no root wall-time heartbeat or visibility
+into an external coms peer's own tool stream. Explicit watchdog off is respected.
+
+
+An armed dispatch is observed **while it runs**, from the same JSON event stream that
+drives the cards — not post-hoc:
+
+- **Layer 1 — deterministic rules, zero tokens** (`drift-watchdog.js`): a write/edit
+  outside the dispatch's declared `scope` globs, the identical tool call repeated 4×,
+  5 consecutive failed tool calls, or 200 total tool calls in one run.
+- **Layer 2 — LLM judge, escalation only**: when a rule fires (single-flight, 90 s
+  success cooldown), a one-shot cheap run (default model: the researcher role's; override with
+  `watchdog-judge-model`) reads the original task + declared scope + recent tool trail and
+  answers `VERDICT: ON_TRACK|DRIFTING|STUCK`. An unavailable judge has no verdict:
+  it is recorded as `judge_unavailable` and, if the attempt and signal remain live,
+  is retried once after 5 seconds with new snapshot/LLM-attempt IDs. A second failure
+  is exhausted, not a successful 90-second cooldown.
+- **Intervention**: DRIFTING/STUCK terminates the run as **`drift_stop`** (exit 125,
+  partial output preserved) and the dispatch result instructs: re-dispatch ONCE with a
+  corrected, narrowed task — never the same task unchanged.
+
+Enablement is dynamic. Precedence is the `watchdog: true|false`
+param on a single `dispatch_agent` call → a per-agent override (`/af-watchdog editor
+on|off|clear`) → the hub-wide setting (`/af-watchdog on|off|auto`, default `auto`, project
+default via the `watchdog:` overrides key): `on`/`auto` arm and `off` disarms. Opt out with hub `/af-watchdog off` (or override `watchdog: off`), or a per-agent
+`off`. Read-only research helpers are not monitored — they already run under the per-tool
+watchdog + turn deadline and cannot write.
+
+### Opt-in System 1 drift observations
+
+`watchdog-system1: off|shadow|active` in `## agent-hub` defaults to `off`.
+The separate experimental `system1` feature, valid `.ai/system1.json`, a
+caller-injected key and an armed native watchdog are also needed. `shadow`
+runs System 1 independently of the immediately started LLM judge; it cannot
+stop a specialist. `active` is an **uncalibrated experiment in every installed
+workspace**, requiring explicit `watchdog-system1: active` opt-in; default remains
+off. Only advisory `scope` may bypass LLM on provider `on_track` with confidence
+and on-track distribution ≥0.95 and all three predicate probabilities ≤0.05.
+Terminal `loop`, `failures`, and `toolcap` always go to LLM. `/af-watchdog`
+shows `experimental: scope only; G2 not validated`; an unavailable/mismatched
+provider falls back to LLM. Production approved profiles are still empty.
+This is not G2 approval or a safety guarantee: the experiment can miss a scope
+advisory. This watchdog consumer adds no automatic hook for research, coms or normal Hub
+requests; the separately consented task-triage consumer owns its own Hub input hook.
+
+The limited **System 1** state includes reviewed task text, normalized
+relative paths, structured tool kinds/outcomes and counters, not tool
+args/commands/bodies or outputs. The existing parallel **LLM judge** still
+receives the original task, scope and a recent trail containing up to 120
+characters of raw tool arguments per call. Review pilot inputs and expected
+tool arguments; unexpected agent actions remain a residual risk. Even task/path
+names can leak information: the intended future pilot is agent-fleet-only,
+without client data or secrets. The native spawn filters the shared
+key from merged child env, not from files or unrelated launchers. The below-chat
+Fleet strip holds the recent S1 result for 10 s; `/af-agents-list` Enter shows the
+owner check and safe history. `/af-watchdog` shows current readiness and
+blocking reason; `/af-hub-report` separates checks, evaluations and LLM
+attempts from worker token usage; `/af-audit` exposes safe lifecycle/decision
+metadata. Trace lives at `<sessionDir>/artifacts/watchdog/events.jsonl`; a
+crash or unknown usage is not reported as success or zero. The offline G2
+report requires human labels keyed by session/dispatch/attempt/check,
+`snapshotId` **and** `llmAttemptId`; older five-ID labels cannot qualify.
+No routine chat messages or extra model turns are sent for progress.
+
+To roll back, set the consumer to `off` for the **next** Hub session; cancel a
+current run normally if needed. G1 requires outbound state and real UI review
+before any shadow pilot. G2 separately requires human-labelled held-out
+session evidence and explicit maintainer approval for a production policy
+profile. Offline tests and demo/doctor readiness do not grant either gate.
+
+### The roster
+
+The roster is every installed role plus parallel instances; there are no teams to restructure.
+`dispatch_agent` loads a role on its first dispatch, a busy role gets an instance (`reviewer--p2`,
+`editor--p2`) and the result names it. The system prompt is rebuilt each turn, so a newly installed
+role definition appears without a new command. Native teams and their commands (`/af-agents-team`,
+`/af-agents-add`, `/af-agents-drop`, `/af-agents-save`, `team_adjust`) were removed in 2.3.0.
+
+### `/af-hub-report`
+
+Per-turn cost accounting: dispatches (agent, status, elapsed, billed/output tokens),
+research runs, session recycles, drift stops, and budget/duplicate refusals — for the
+current turn, the last completed turn, and session totals. Billed tokens count
+input + cacheRead + cacheWrite, the same measure the recycler uses. System 1
+usage is reported separately; unavailable metadata remains unknown.
+
+Paths that don't exist produce a session-start warning, never an error. The full key list for
+`## agent-hub` (models, practice models, sub-roles, depth budgets, research retention, watchdog,
+Poll panel, mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
+
+## The coms layer
+
+> The runtime coordination protocols this layer implements (sentinels, push over
+> polling, barriers, fan-out digests, racing) are catalogued in
+> [references/fleet-coordination-patterns.md](../../../references/fleet-coordination-patterns.md).
+
+### Fleet tools (herdr)
+
+Inside a [herdr](https://herdr.dev) pane with a live server, the dispatcher's tool
+surface additionally gets (absent otherwise, like coms):
+
+- `herdr_spawn_peer` — stand up a constrained Fleet peer through the shared peer-launch resolver.
+  The peer joins **this session's `--project` pool** (the model cannot override it). Its settings
+  are the `just fleet peer <name>` flags the model may choose — `runner` (`pi` or `claude-code`),
+  `persona` / `no_persona`, `model`, `read_only` and `direction`; there is no peer declaration file.
+  A same-named role or persona file starts a guarded Pi persona peer, otherwise a Fleet Core peer.
+  Every Pi peer loads Chrome DevTools MCP, and a `read_only: true` peer gets inspection tools only
+  and no extension. `--env-file`, the project and raw Pi argv stay out of the model's reach. The
+  peer gets a sibling pane in the current workspace/tab, not a second process in the Hub pane. A
+  persona peer **boots idle**
+  and does nothing until a `coms_send` reaches it, so the call waits (bounded, ~45s) for it to
+  register and returns `peer_ready` plus its coms name instead of a bare pane id; on failure it
+  returns the pane's last output, which means the peer did not start rather than that it is slow.
+  Peers spawned but never addressed are named at turn end and in `/af-hub-report` with a close
+  suggestion — closing stays the human's call.
+  Mechanism: herdr's `pane.split` takes **no command** — it opens a shell — so the spawn splits,
+  waits for the pane's prompt, and types the argv (text and Enter sent separately, because bash
+  bracketed paste would swallow a newline). Only `layout.apply` pane nodes carry an argv, which is
+  why the one-pane `just fleet --herdr` layout is not affected by this.
+- `herdr_spawn_pane` — create an arbitrary command pane when a constrained/addressable Fleet peer
+  is not the desired shape; raw commands are intentionally excluded from `herdr_spawn_peer`.
+  The operator uses it for auxiliary processes such as watchers or servers.
+- `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
+  messaging still goes through coms, and peer busy state comes from `coms_list`, not from
+  reading the screen
+- `herdr_close_pane` — kills a pane; **asks the human to confirm every call**; the
+  bash-level `herdr pane close`/`workspace close`/`server stop` verbs are hard-blocked
+  for spawned specialists by `.pi/damage-control-rules.yaml`
+- `herdr_notify` — desktop notification to reach the human when they are away
+
+This closes the fleet loop: spawn a worker, watch it, notify the human, tear it down —
+without leaving the session. Claude Code panes join the same pool via the
+[coms bridge](../../../docs/claude-code-coms-bridge.md).
+
+### Presence backend (herdr or files)
+
+Presence is pluggable, exactly as in the standalone [coms harness](../coms/README.md#presence-backends-herdr-vs-files):
+inside a [herdr](https://herdr.dev) pane with a live server, the ping cycle is replaced by
+push events (`agent.list` + `events.subscribe`) and the hub reports itself into the herdr
+sidebar (`custom_status` = `<name> <pct>% q<depth>`); everywhere else the original 10s
+ping loop runs unchanged. The file registry is written in both backends, and the
+pool-scope boundary is enforced identically.
+
+### Identity
+
+Each session registers a coms identity at start-up, resolved in this precedence order:
+
+1. **CLI flags** — `--name`, `--purpose`, `--project`, `--color`, `--explicit`
+2. **Defaults** — auto-generated name `hub-<id>`, purpose `agent-hub dispatcher`, project
+   `default`, a deterministic color derived from the session id
+
+Names are de-duplicated per project (`resolveUniqueName`), so two hubs that both want `hub-main`
+become `hub-main` and `hub-main-2`. `--explicit` marks a **private** peer — kept out of every
+pool by default, so it is neither listed nor reachable until a human opts in with `/af-coms --all`
+(see [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)). The registry lives
+under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runtime.
+
+### Commands & tools (local dispatcher plus coms)
+
+- `/af-coms` — coms control surface (peer list / status)
+- `/af-handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
+- `/af-poll [--panel NAME] [--persona researcher|reviewer] <question>` — ask every voice in a named model panel (from the workspace's `.pi/agents/voices.yaml`) the same question. `--panel` wins; else the configured Poll panel (the panel named after the active model profile, else `poll-panel:` in `## agent-hub`); else the panel named `default` when the roster has one. An unknown or missing name is refused before any voice starts, listing the available panels (or saying the roster is empty) and how to select one. A panel with no `integrator: true` voice is refused before any voice starts or any budget is charged, because its opinions cannot be synthesized; Debate needs no integrator. Counts as **one** turn-budget dispatch. While it runs, one live block above the editor shows the resolved panel, one row per configured voice (updated as each answers or fails), and the synthesis row while the integrator works; it then leaves exactly one transcript entry with the recommendation or the failure reason (expand it for positions, reasons and the opinions path). On success that entry hands the digest to the dispatcher. Full opinions stay on disk under `.pi/agent-sessions/artifacts/polls/<runId>/` at the Fleet workspace.
+- `poll_panel` (model tool) — the same poll, started by the operator itself with typed `question`, optional `panel` (same precedence) and `persona`. A voice is read-only, so the persona of Poll and Debate is `researcher` (default) or `reviewer`; `editor` is refused and a retired persona name shows its role mapping. It is meant for decisions, not facts: architectural choices, uncertain diagnoses, choosing between approaches, risky changes. It is read-only, counts as one dispatch, updates the same compact block in place in its tool result, and returns the digest and opinions directory to the model. A poll with fewer than two successful voices fails and is reported as no decision.
+- **Git work context (both entry points).** Voices, the synthesis worker and their read-only Git checks run in the session's assigned checkout: the `--worktree` selection, or the workspace itself when it is a Git checkout. Panels, personas, overrides, run records and opinions stay at the Fleet workspace; outside the checkout the digest gives the opinions path absolutely. A workspace that is not a Git repository and has no assigned worktree, a working directory outside the assignment, or a binding that no longer validates is refused once, before any voice starts — Poll and Debate never choose among child repositories. Start the session with `just fleet --worktree <path>` instead.
+- `/af-debate [--panel NAME] [--persona researcher|reviewer] [--rounds N] <question>` — cross-examine one decision across the panel for 2–5 harness-mediated rounds (default 3). Panel precedence, persona rule and Git work context are Poll's; any refusal (question, persona, rounds, target, panel, preflight) starts no voice and charges nothing. Round 1 positions are independent and parallel; in each later round every surviving voice sees the other successful voices' labeled positions from the previous round. A voice that fails drops out; fewer than two successes in round 1 fail the debate (the message names the round artifacts), and a later collapse stops it early and says so. There is no judge and no hidden merge. Counts as **one** turn-budget dispatch. One live block shows the resolved panel, the round of the total and one row per voice; it leaves exactly one transcript entry. On success that entry hands the digest to the dispatcher: each final position, which voices changed position in which round and the evidence that moved them, failed voices, and the open disagreements — each voice's final-round refutations, attributed. Per-round files land under `.pi/agent-sessions/artifacts/polls/<runId>/debate/round-<n>/` at the Fleet workspace. The operator owns the decision; see `skills/debate/SKILL.md`.
+- `debate_panel` (model tool) — the same debate, started by the operator itself with typed `question`, optional `panel` (same precedence), `persona` and `rounds`. Use it when a known objection could change a decision, or when a poll disagrees; never for facts. It updates the same block in place in its tool result and returns the digest under a `DEBATE RESULT (panel NAME, R of N rounds, complete|stopped: …)` headline, plus the structured result (`details.result`).
+- `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
+  candidate-lessons brief from the session (corrections, recurring findings, root causes),
+  confirms it with the user, then dispatches an `editor` with the `documentation` practice to land
+  the approved lessons as minimal diffs on the project's `rules:`/`docs:` targets per
+  `skills/compound-learning/SKILL.md`. Requires the installed `editor` role; run it before
+  `/af-handoff` or session end.
+- `coms_list` — discover the peers in your pool: names, models, live context usage, purpose,
+  `pane_id`, waiting-only `queue_depth`, and `status` (`idle` | `queued` | `working` | `booting`).
+  Check status before sending: `working` means the peer has an active turn, `queued` means accepted
+  work is waiting to start, and `booting` means it is not addressable yet.
+  This is the field whose absence drove 127 `herdr_read_pane` calls in one session. Scoped
+  to your project and excluding private peers; the LLM cannot widen it (see
+  [Pool scope is the reach boundary](#pool-scope-is-the-reach-boundary)).
+- `coms_send` — send a prompt to a peer **in your pool**; returns a `msg_id`
+- `coms_await` — **block** until that `msg_id`'s reply lands (default 30 min,
+  `PI_COMS_TIMEOUT_MS`)
+- `coms_get` — **non-blocking** poll of a `msg_id` (status `pending|complete|error`)
+
+`/af-coms` and `/af-handoff` tab-complete live peer names **in your pool**.
+
+### Pool scope is the reach boundary
+
+The set of peers shown in the pool widget is the security boundary: **a peer is reachable only if it
+is in your pool.** `coms_list`, `coms_send`, and `/af-handoff` all resolve targets through the same
+`peersInScope()` helper, so the dispatcher can never message a peer it cannot see. Two knobs define
+the pool, and **both are human-only** — the LLM cannot widen scope to reach more peers:
+
+- **Project** — defaults to your own `identity.project`. A human can retarget with `/af-coms --project
+  <name>` (one project) or `/af-coms --project *` (every project). `coms_list`'s own parameters cannot
+  override this; an LLM request for a wider project is clamped back to the current pool and flagged.
+- **Explicit (private) peers** — excluded from every pool by default. `/af-coms --all` toggles them in
+  (and out again).
+
+This closes a cross-project leak where a peer reachable through the mesh was *not* shown in the
+default project-scoped pool — so it could be messaged without being "connected." Now the reachable
+set is always a subset of what the widget shows. To reach a peer outside the pool, a human widens
+scope first; the dispatcher is told to **ask** rather than attempt it, and not to pass cross-project
+context to a peer the human has not approved.
+
+### Peer as subagent
+
+The dispatcher uses a peer as a subagent by pairing the tools: `coms_send(target, prompt)` to
+issue the task, then `coms_await(msg_id)` to block for the reply (or `coms_get` to poll). This sits
+alongside `dispatch_agent` — local role subagents are dispatched as subprocesses; remote peers
+are reached over coms. The two paths stay explicit for the LLM, but
+[coms-backed dispatch](#coms-backed-dispatch-dispatch-policyyaml) can route a `dispatch_agent` call
+to the peer its role's route names under the hood. (The specialist-level `delegate` tool is a third,
+nested path: a dispatched specialist spawning its own declared sub-agents — it does not auto-route
+between local and remote either.) Multi-hop is inherited from coms: a peer handling a dispatched task can `coms_send`
+onward, hops accumulating up to `MAX_HOPS` (5).
+
+### Coms-backed dispatch (dispatch-policy.yaml)
+
+A role can be served by a live coms peer instead of a fresh native subagent — for example a Claude
+Code reviewer started with `just fleet peer claude-reviewer --runner claude-code --read-only`.
+`.pi/agents/dispatch-policy.yaml` routes **by role**, and `peer:` names the coms address, which is
+distinct from the role ([peers serving a role](../../../docs/agents.md#peers-serving-a-role)):
+
+```yaml
+default: native            # coms = send ANY role to a live peer named like the role
+grace_s: 30                # poll window for coms-required routes
+routes:
+  reviewer:                # researcher | reviewer | editor; reviewer--p2 uses this route
+    peer: claude-reviewer  # coms address; default: the role name
+    prefer: coms
+    fallback: native       # none = coms-required: refuse with guidance instead of spawning
+    # timeout_s: 3600      # per-route reply timeout (default PI_COMS_TIMEOUT_MS, 30 min)
+```
+
+Semantics:
+
+- **One API with an explicit override.** `dispatch_agent(..., backend: "auto"|"native"|"coms")`
+  defaults to `auto`, which follows this policy. `native` always starts the local Pi subagent even
+  when the routed peer is live. `coms` requires the live peer the role's route names and never falls
+  back to native. The whole downstream pipeline — structured return contract,
+  `ASK_USER:` extraction, the NEEDS_RESEARCH auto-research pipe, assertions, history, the grid —
+  consumes a coms reply exactly like a subagent's final output (the dispatch protocols ride in the
+  message body, since a standing peer only receives a user prompt).
+- **Decided per dispatch, against the live pool.** Hub and peers boot in parallel, so the first
+  dispatch may land before the peer registers: with `fallback: native` it runs natively with a
+  notice, and later dispatches pick up the peer once it is live. With `fallback: none` the dispatch
+  polls the pool for `grace_s` seconds, then refuses with remediation steps. The address match is
+  scoped to the coms pool — the same security boundary as `coms_send`.
+- **Read-only roles need a read-only peer.** A `researcher` or `reviewer` reaches only a peer
+  launched with enforced read-only tools that declares `read_only` at registration
+  (`just fleet peer <name> --read-only`, or `read_only: true` on `herdr_spawn_peer`); otherwise it
+  runs native, or is refused under `fallback: none`. A coms peer is one live process, so a busy
+  peer is never cloned into an instance.
+- **No self-review by address.** A reviewer route never reaches a peer address that changed a file
+  in the review's scope, even after a restart: an `auto` route runs a native reviewer instead, with
+  a notice, while an explicit `backend: "coms"` or `fallback: none` is refused before anything
+  starts (`review_self_authored`). A deliberately fresh reviewer needs another peer name.
+- **Standing context is the point.** Re-dispatches (ASK_USER answers, research resumes) go back to
+  the same peer session, so a Claude Code reviewer keeps its review context across rounds.
+- **Visibility.** The role's grid card shows a `⇄coms <peer-model>` badge, history entries are
+  annotated `(coms)`, and `/af-dispatch-policy` prints the resolved routing per role with live-peer
+  status.
+- **Limitations.** `/af-agents-kill` on a coms-backed run only abandons the wait — the peer keeps
+  running in its own pane and cannot be killed from the hub (`/af-agents-restart` abandons, then
+  re-dispatches). `/af-zoom` shows only the final reply (there is no stream), tool counts stay 0, and
+  context% is a registry snapshot. `/af-agent-model` overrides apply only to native(-fallback) runs —
+  the peer's model is its `--model` launch flag.
+
+Missing file = everything native. HOW a peer runs (runner, model, read-only, env file) is set by the
+flags of `just fleet peer <name>`; this file only decides WHEN the hub prefers a peer over a native
+spawn.
+
+### Plan recovery and completion evidence
+
+No plan occurrence is an admission prerequisite. Existing saved plan requirements
+normalize to optional while preserving their artifacts and source history. A direct
+operator, native editor or coms peer can execute authorized work without a plan.
+Independent review, task-transition fencing and exact-action authorization remain.
+Resolve factual gaps with focused research and additional decisions with `ask_user`.
+
+A current declared plan artifact readback proves plan occurrence only. Exit 0, echoed
+instructions, `PLAN_FILE` text without the declared file, or a pending reply do not close
+that deliverable contract. Plan, acceptance and review remain independent; verification
+and review must cover the current revision. Coms transport cannot produce trusted native
+runtime checks, even when a valid peer reply and declared deliverable are available.
+
+Malformed `dispatch_agent`/`spawn_research` input returns `invalid_invocation_shape` with
+bounded safe field/type diagnostics, separately from `invocation_persistence_failed`
+for valid input whose durable contract could not be stored. Neither launches the executor;
+correct the reported input or storage prerequisite and re-invoke explicitly under existing
+gates. Diagnostics omit raw values/private payloads and redact unsafe unknown-key locations.
+
+### Handoff
+
+`/af-handoff <peer>` transfers the session to another **main** agent. Following the plan's
+**decision G1**, it does *not* try to extract a compaction summary; instead it asks the dispatcher
+LLM to compose a **self-contained brief** ("everything the target needs, assume no shared history"),
+then `coms_send`s that brief to the peer, `coms_await`s the reply, and relays it back — in the
+configured user-facing language. When the handoff `coms_send` fires, the hub appends machine-generated
+sections after the LLM brief: `## Verification ledger (verbatim, machine-appended)` with every current
+assertion in canonical ledger form, and `## Artifact index` with artifact paths plus first headings.
+The target peer must treat the machine-appended ledger as the contract, not the paraphrased brief.
+The target peer takes over; the source relays the result. There is no raw session copy (pi sessions
+aren't portable between live agents). The target must be a peer in your pool — `/af-handoff` resolves
+through the same [scope boundary](#pool-scope-is-the-reach-boundary) as `coms_send`, so you cannot
+hand a session to a peer you cannot see.
+
+### Pool widget
+
+A live "pool" widget lists connected peers with name, model, and live context usage, refreshed by a
+ping cycle; a keepalive cycle re-writes this session's own registry entry (and self-heals it if an
+external prune removed it). Both timers are `unref`'d so they never hold the process open.
+
+### Purpose
+
+The coms identity `purpose` is the `--purpose` CLI flag when set, otherwise the default
+`agent-hub dispatcher`. There is no runtime dispatcher-persona picker.
+
+### Graceful degradation
+
+If the coms socket can't bind at start-up (`comsReady` stays `false`), the session degrades to a
+local dispatcher without coms: the `coms_*` tools are withheld from `setActiveTools`, the
+`/af-handoff` command refuses with a notice, and the "Peer agents (coms)" prompt section is omitted.
+Orchestration, research helpers, and the grid keep working.
+
+### Tool surface
+
+`setActiveTools` always preserves the orchestration surface and adds runtime-ready capabilities.
+The operator also preserves the baseline direct/extension tools.
+Coms tools are active only when coms is ready, Herdr tools only in a live Herdr pane, and `ask_user`
+only when registered. Capability refreshes recompute this list live without touching session state.
+
+`set_assertions` / `update_assertion` / `get_assertions` are the always-on Verification Contract ledger tools (see
+[What it does](#what-it-does)); like `dispatch_agent` / `spawn_research` they stay on the
+orchestration surface.
+
+## Optional Hermes local monitor transport
+
+The optional monitor is an Agent Fleet-owned transport boundary, not a Hermes runtime API or a
+bundled Hermes plugin. When enabled, `agent-hub` publishes dispatcher-turn and specialist-run
+state and owns generation-safe cancellation. A separate local Hermes UI or operator client may
+consume the owner-only discovery + Unix-socket contract documented in
+[`.pi/agent-fleet/hermes/README.md`](../../agent-fleet/hermes/README.md#local-agent-hub-monitor-integration).
+
+Set these before the hub starts:
+
+```bash
+export AGENT_FLEET_PROFILE_ID="approved-profile-id"
+export AGENT_FLEET_MONITOR_RUNTIME_DIR="/absolute/owner-only/runtime-root"
+```
+
+Both are required for monitor startup; the runtime root must be absolute and owner-only, and the
+profile ID must be a safe identifier. The monitor also starts only for a Herdr-backed hub with
+`HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`; retain those values and `HERDR_SOCKET_PATH` in the
+standard `just fleet --herdr` flow, which passes the monitor variables to the Hub pane as pane env.
+Workspace labels are display metadata, not monitor identity.
+
+The live contract exposes three authenticated newline-delimited JSON requests: `snapshot`, cursor-
+based `output`, and exact-generation `cancel`. The monitor is local-only and fails closed when its
+profile discovery, lease, token, or Unix socket is unavailable. A native cancel targets only the
+matching hub-owned process generation. A coms cancel abandons the local wait only; its peer can
+continue. Neither path controls or closes a Herdr workspace/pane.
+
+Example startup:
+
+```bash
+monitor_runtime="${XDG_RUNTIME_DIR:?}/agent-fleet-monitor"
+install -d -m 700 "$monitor_runtime"
+AGENT_FLEET_PROFILE_ID=dev \
+AGENT_FLEET_MONITOR_RUNTIME_DIR="$monitor_runtime" \
+just fleet --herdr --project af
+```
+
+No Desktop/backend plugin installation is required or provided. Consumers must re-discover after
+lease or socket loss and must never persist or log the token.
+
+## Requires
+
+- The three role definitions (`researcher.md`, `reviewer.md`, `editor.md`, installed in
+  `.pi/agents/personas/`; a project file with a role's name may replace one) and (strongly recommended)
+  [`pi-ask-user`](https://github.com/edlsh/pi-ask-user). A missing role is reported at session start
+  and its dispatches are refused; any other definition file is listed as not dispatched.
+- [`skills/debate`](../../../skills/debate/SKILL.md), the operator guidance for `debate_panel`,
+  `/af-debate` and a delegate's `DECISION_QUESTION:` proposal.
+- `.pi/damage-control-rules.yaml` for every guarded `just fleet` Pi mode.
+- Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
+  runtime.
+
+## Usage
+
+```bash
+# Unified Fleet interface (Fleet Core + Agent Hub are loaded together)
+just fleet
+just fleet --project myrepo
+just fleet --herdr --project myrepo
+
+# equivalent direct guarded launch
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts
+pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/ask-user-remote/index.ts -e .pi/harnesses/agent-hub/index.ts --name hub-private --explicit
+
+# direct unguarded launch, only when you intentionally want to skip damage-control
+pi -e .pi/harnesses/agent-hub/index.ts
+```
+
+Identity flags: `--name`, `--purpose`, `--project`, `--color`, `--explicit`.
+
+### Safety scope
+
+`just fleet` and `just fleet --no-coms` load Fleet Core before `agent-hub`, so guardrails and `ask_user` apply
+to hub/dispatcher tool calls in that parent pi process — and because it is the *continue* variant, a
+blocked dispatcher call feeds back and the turn keeps going rather than aborting. Specialist and
+research agents are spawned as separate pi subprocesses with `--no-extensions` — but `agent-hub`
+resolves `damage-control-continue` from this session's `-e` flags, else the repo-local harness, and
+re-loads it into every native specialist, research helper, and nested delegate via explicit `-e`.
+`--no-extensions` keeps discovery off, so children never auto-load `.pi/extensions/` utilities or
+recursively re-load `agent-hub`; the explicit guardrail still checks every child's tool calls against
+`.pi/damage-control-rules.yaml`. Protected-path blocks escalate to the hub for explicit approval;
+protected deletions offer only Deny or Allow once, while inherently dangerous command patterns are
+non-exemptible. Denial or timeout blocks the call without aborting the child's turn. If continue
+cannot be resolved, dispatch is refused—children are never spawned unguarded. Research helpers are
+additionally read-only by construction. Guided setup enforces `agent-hub` ⇒
+`damage-control-continue` + `ask-user-remote`.
+
+### Related recipes
+
+```bash
+# Operator/native work without coms
+just fleet --no-coms
+
+# Hub-only Herdr workspace, then one peer at a time beside it
+just fleet --herdr --project af
+just fleet --herdr --project af --dry-run
+just fleet peer claude-reviewer --runner claude-code --read-only --project af
+just fleet peer scout --persona researcher --read-only --project af
+
+# Compatibility aliases (accepted with migration warnings)
+just fleet hub --solo
+just fleet team base          # use: just fleet --herdr
+```
+
+Each peer starts on its own; its settings are the flags of `just fleet peer <name>` (`--runner`,
+`--persona`/`--no-persona`, `--model`, `--read-only`, `--env-file`). A Pi peer whose name (or
+`--persona`) matches a role or persona file loads it, and that file's frontmatter
+`description`/`color` become the peer's coms purpose/color. Peer groups, `peers.yaml`,
+`just fleet team <name>`, team snapshots, `down` and `resume` were removed in 2.3.0.
+
+## How it differs from its sources
+
+- **Embedded, not stacked (decision 1).** coms is folded into this one `index.ts`; the identity
+  flags are registered once. Loading `coms` as a second `-e` would double-register
+  `--name/--purpose/...` and abort start-up.
+- **Single `session_start`.** coms init is folded into the former dispatcher's `session_start` and
+  guarded by `if (!comsReady)`, so `/new` reuses the same peer identity (no leaked socket).
+- **Dispatcher is also a peer.** `setActiveTools` lists `coms_*` alongside `dispatch_agent` +
+  `spawn_research` (+ `ask_user`); the system prompt gains a "Peer agents (coms)" section when coms
+  is ready. Its coms `purpose` is `--purpose` when set, else `agent-hub dispatcher` (see
+  [Purpose](#purpose)).
+- **`/af-handoff` uses an LLM-composed brief**, not a compaction-summary extraction (decision G1).
+- **Clean shutdown** SIGTERMs any running specialist/research children, clears the coms pool
+  widget, and removes the registry entry on `session_shutdown` / SIGINT / SIGTERM.
+
+### Execution evidence isolation
+
+New sessions allocate `.pi/agent-sessions/sessions/<UUID>/`; startup does not migrate,
+clear or prune legacy shared files. Each native/coms dispatch and research helper has
+a UUID and a create-exclusive `dispatches/<UUID>/request.json` / `result.json` bundle.
+Requests retain task/scope and copies of supplied input artifacts; results preserve
+output/diagnostics and transcript/session paths (`details.evidencePath`). Native
+continuation copies the previous raw session into the new dispatch, never rewrites it;
+delegation events also live under the dispatch. Counters remain UI labels, not evidence IDs.
+
+`run-history-keep` keeps its configured limit, applied to **closed, fully settled new
+sessions whose owning process is gone**. Live, unfinished, pending and malformed
+namespaces are protected. A crash without a close marker is retained for manual
+inspection, not silently classified as safely deletable. Follow absolute paths from
+tool results; `artifacts/...` is a session-relative handoff alias, not a read-tool path.
+
+### No-progress stops
+
+Unchanged failed dispatch/research retries are refused across turns using normalized
+actor, structured scope, input artifacts, actual execution conditions and worktree
+state, not task wording or scope_mode. Research scope is advisory, not isolation.
+
+Operator cancellation fences the **agent identity**, including disjoint scopes,
+model/prose changes and dispatch/research inputs. Other agents' already-running work
+is not cancelled. `/af-recover inspect <operationId>` reports safe attempt state and
+missing prerequisites; `retry|reconcile|abandon <operationId> <attemptId>` validate IDs.
+Legacy `/af-retry <dispatchId>` resolves the same retry handler for cancellation and
+settled indeterminate failures. Both retry spellings ask the human once, warning that an
+indeterminate attempt may already have partial effects and retry can duplicate them;
+there is at most one indeterminate grant per operation. Neither command executes or
+renews budget: after authorization, explicitly invoke the code-rendered original
+`dispatch_agent(...)` or `spawn_research(...)` contract. Pending/unknown process,
+duplicate grant, stale response, or unavailable original contract is not permission
+to replay. T3 protocol errors still need trusted effects evidence and corrected conditions;
+unknown-tool needs a catalog change. `reconcile` requires attributable unchanged-current-
+revision readback and independent nonblocking review; it clears a technical block only,
+retaining failed delivery and every open AF-MIN-CHANGE/test/review obligation. `abandon`
+does not satisfy dependent work. A cancellation fence survives a task
+change, and so does its retry authorization: `/af-retry` still lifts it from the next task
+and after resume. `abandon` of a cancelled operation releases the agent identity (the
+abandoned contract itself stays refused). Esc on the operator turn stops the running
+specialist and records the same fence, marked as a human interrupt: the next input the
+human types grants its one-use authorization automatically. Coms messages, automatic
+continuations and other extension turns never do, and a kill from the fleet panel keeps
+requiring `/af-retry`. Audit exports IDs/statuses only, never prompts, nonces,
+raw contracts or evidence paths.
+
+Non-busy recovery refusals use separate accounting and never consume turn/task launch
+counters. A `not_started` preflight refusal (runtime-owned, `started:false`, `effects:none`)
+records 0 launches and 0 indeterminate attempts; correcting the prerequisite and re-invoking
+explicitly needs no slash reset, grant, or reconcile. Usage does not impose a
+continuation quota; recovery adds no automatic retry, wait or queue.
+Busy operations that never started spend no allowance and record no failure. Turn reports no
+longer charge refusals as dispatches; refusal totals count every refusal while launch
+counters count only real child executions. Session execution totals
+still count real dispatch attempts rather than guard refusals.
+
+The shared recovery contract is fail-closed. Protocol errors require changed
+conditions plus a trusted prior-effects inspection. The internal task-generation-bound
+establishEffects port accepts a retained inspection reference; it is not a model
+parameter or a promise that T3 exists. Launch/close/termination lifecycle facts are
+produced by the native spawn path and the research spawn path (safety refusal and spawn
+failure never launched; timeout without close stays uncertain). Unknown-tool
+recovery has a task-generation-bound catalog-change port; a trusted catalog-change
+producer must still supply the evidence — prose alone never authorizes it.
+
+### Runtime verification contract
+
+set_assertions.test_command declares an exact bash verification command for a test
+or code-grep requirement. It does not execute the command. For code-grep, the command
+must exit nonzero when the declared presence/absence condition fails. Native children
+run it through the existing approved bash path after edits. The child-loaded
+runtime-test-check observer preserves Pi's configured shell/prefix, execution context,
+renderers and tool_result error flag; the parent retains command, actual exit and
+before/after revisions, binding source/text/reference/critical conditions to task ID.
+Optional `set_assertions.compiler_command` declares an additional exact bash compiler
+command for test/code-grep requirements. When both commands are declared, both need
+their own successful runtime receipt; compiler-only explicit declarations are supported.
+No command is inferred from prose, and declaration never executes it. Automatic
+changed-file compiler diagnostics still check only the minimal change requirement.
+An existing `AF-MIN-CHANGE` ledger row remains valid: dispatch keeps its declaration
+and conditions, adds the runtime minimum conditions, and does not append a duplicate.
+A bound command on that row is not silently replaced by unrelated compiler success.
+
+Run each declared command unchanged in its own approved bash call, sequentially,
+without overlapping tool calls. Do not append `; echo $?`, pipes, redirections or
+wrappers: they change the observed command and can mask the test exit code. The
+runtime already records exit codes. A delivered native result with missing exact
+commands now lists them in `verificationDiagnostics` and the acceptance artifact;
+it does not infer success from the reviewer report or automatically retry.
+For an unproven `operator-current-state` review, use a separately authorized fresh
+review of the same current scope with the exact checks. Registration still requires
+current, exclusive runtime evidence and independent review; manual criteria remain
+open. Do not reset the task or remove its review obligation to recover.
+
+Native same-task, same-revision continuation may retain up to 64 successful checks
+(256 KiB journal metadata) via the existing process-state journal. Capture anchors
+bind task/generation/session, exact scope and revision, accepted input and input-artifact
+hashes, complete declarations (including both commands and coverage), original native
+dispatch, capture time, exclusivity epoch and contained evidence-byte hashes. Original
+command attribution, revision, timestamps and evidence references are not rewritten.
+Overlapping/unsettled captures, backend/identity/declaration changes, changed or missing
+evidence, and newer failed/unknown/missing command results prevent reuse. Native bash
+starts lacking a usable result explicitly invalidate that command's retained success.
+Legacy files without capture anchors, model reports and proven ledger stamps cannot
+seed continuation. Hash readback is local integrity checking, not cryptographic
+attestation or protection against a hostile same-user filesystem writer.
+
+This is source behavior, not activation of a running session. New harness source has
+a new inspected revision; historical receipts cannot be relabelled or imported into
+new acceptance. Recovery never reruns producers implicitly, grants permission, resets
+obligations, or changes operator-current-state gates or manual unsupported semantics.
+
+The native dispatcher passes the explicitly declared dispatch scopes to the test
+observer. In a non-Git workspace containing nested Git repositories, the observer
+uses the same declared-repository revision as dispatch acceptance; shell `cd` does
+not select the evidence scope and no repository discovery scan is performed.
+Single-repository workspaces retain whole-repository revision semantics. Missing,
+invalid or incomplete repository identity cannot pass, even when both recorded and
+current revisions are `unavailable`. Updating the installed harness and restarting
+Pi are required before a running workspace session can use this behavior; old
+`unavailable` evidence must be regenerated, not rewritten.
+
+manual/runtime-ui requirements are explicitly unsupported by this producer. A test
+or code-grep without a command/check remains missing/unverified; a model's proven
+stamp is not runtime proof. Fresh bound runtime checks supersede old claimed ledger
+stamps; stale runtime checks do not. Runtime refs and claimedEvidenceRefs are separate.
+
+agent-fleet.runtime-result/v1 reports orthogonal execution, changes, verification,
+acceptance and compatibility dimensions. Acceptance requires completed execution,
+current task, certain changed state, and all requirements/checks passing with current
+revision and retained runtime evidence. Missing/failed/stale/unsupported checks,
+unchanged/missing deliverables and uncertain attribution never accept, at any tier.
+needs_verification means unaccepted, not nearly done.
+
+**Semantic limitation (operator accepted):** specialist-authored tests may pass the
+runtime gate. Runtime proves execution/state, NOT the adequacy of those tests or
+code-grep predicates. Separate code review remains required; accepted is not human
+Checkpoint A approval. No live model runs or T3/T7 implementation are included.
+
+### Explicit delivery contract
+
+`dispatch_agent` accepts `deliverables: string[]` of exact expected output files.
+The worker receives their absolute paths. The hub reads every expected file back,
+records size/hash/preview and whether it changed, retains the inspected content, and
+saves `details.assessmentPath`. Missing files, directories and unsafe symlink paths
+do not pass readback. An existing unchanged file is not attributed to this run.
+
+Exit 0 returns `executionStatus: completed`, **not** acceptance. Without qualifying runtime checks, tool status is
+`completed_unverified` or `verification_failed` and `accepted: false`. Only the
+runtime verification contract above can produce `accepted: true`. Every delivered return is
+saved even without assertion IDs. Pending peer delivery remains pending.
+
+Scope roots are checked before budget confirmation/counters. Missing roots are not
+zero-match success. Set `scope_mode: create` explicitly to permit a new root. A new
+exact file in an existing directory is permitted when declared in `deliverables`;
+otherwise a missing dotted name such as `RIN.Video` is still treated as a missing
+root, not guessed to be a file. Free-form prose and XML are never executed as tools.
+
+## System 1 communication and dispatch advice
+
+Fleet `1` opens a read-only request/response viewer. Press `e` to enable memory-only
+capture, Enter to inspect a pair, left/right and Enter to copy, `d` to disable and
+clear. `j` navigation is unchanged. The optional `dispatch_triage` tool is for the
+operator, not a human slash command; all dispatch gates remain authoritative.
+See [the guide](../../../docs/system1-dispatch-triage.md) for opt-in configuration,
+privacy boundaries, evaluation commands and outstanding live acceptance.
+
+## Unified System 1 v2 configuration
+
+The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract and per-consumer usage](../../../docs/system1-config.md) and the inert, all-consumer [system1.example.json](../../../docs/system1.example.json) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change. Every System 1 call from the Hub, `ask_system1` included, goes through Fleet's direct TypeSafe adapter; Pi's native classifier is not used (`.pi/harnesses/lib/system1/transport.js`), and `agent-fleet doctor` shows `transport: direct` for an enabled configuration.
+
+D7 `consumers.contextCompaction` adds optional automatic early-boundary advice. On Pi 1.1.0 or later the Hub keeps deterministic 60% early opportunity / 70% compact-and-continue (80% ceiling) recovery independent of System1. Early advice requires separate consent, compactable history, Pi-owned reserve headroom and provider confidence; unavailable/unaccepted advice never removes the pressure fallback. Explicit compaction of a too-small session is honestly skipped while any continuation remains gated. Shared native children load the pressure adapter, but coms task-description binding and root System1 forwarding through nested/workflow processes remain incomplete. See [D7 usage, live evidence and limits](../../../docs/system1-context-continuity.md); configuration examples do not activate these features.
+
+## Automatic System 1 file discovery
+
+D9 `consumers.fileDiscovery` is separately consented and off by default. At all tiers it ranks eligible parent inventory/find/ls/grep before delivery, plus initial/current native research/worker and registered nested delegate discoveries. Every display-permitted candidate remains (low/unscored included); large lists use bounded pages and normal read budgets, never top-K. Scope is a hint, not permission; mandatory policy, original failures and launch/acceptance gates survive. Fleet `1` opt-in diagnostics show only hashed identity, trigger/counts/coverage/elapsed and actual-or-unknown usage, not queries/bodies/paths/tokens. Start a new session after config changes. See [D9 scope, full-list/status/privacy limits and source/local-tarball activation instructions](../../../docs/system1-file-discovery.md); published latest is not assumed to contain this checkout's D9.
+
+## Agentic System 1 advisory tool
+
+`ask_system1` is an opt-in parent-only Hub consumer configured by `consumers.agenticAsk` in the shared `.ai/system1.json`. It batches typed questions over minimal state, selected files/ranges and opted-in recorded bash refs, without executing shell or changing process gates. `mode` is `on` or `off` (the legacy `advisory` and `recommended` read as `on`); when the tool is active the prompt carries the recommended guidance, and the operator decides whether to call it for a concrete unresolved question. Default installs remain off. Start a new Hub session after changing the mode. See [configuration, examples, bounds and safe readback](../../../docs/system1-agentic.md).
+
+### Clarification routing
+
+Routine technical choices inside approved scope are resolved by the working model,
+with their rationale recorded. Existing decisions are reused and discoverable facts
+are researched. Unresolved material decisions (requirements, public compatibility,
+consequential trade-offs, new permissions or scope) use `ask_user`; without the tool,
+ask in chat and wait for an explicit answer.
+
+Specialist `ASK_USER` returns go to the operator first. It resolves questions
+from approved decisions, repository facts or routine engineering judgment, then
+escalates what it cannot resolve. A parent-only answer uses a single task line:
+
+```text
+ORCHESTRATOR_ANSWER: {"dispatchId":"ask-1","answers":[{"question":"Which local pattern?","answer":"Use the adjacent helper convention","basis":"routine_technical","evidence":"Same internal contract as the adjacent helper"}]}
+```
+
+Allowed bases are `existing_decision`, `repository_fact`, and `routine_technical`.
+Every returned question must appear exactly once, with a nonempty answer and basis
+evidence. The grant is one-use, task- and scope-bound. Actual human responses retain
+`USER_ANSWER: <dispatchId> :: <question>` and the actual answers in the task. For a
+mixed round, obtain the needed human answers before re-dispatching and label the
+source of each answer honestly.
+
+`blocked_on_user` remains the compatibility status for a paused clarification; it
+does not itself mandate human escalation. Neither marker grants action permissions,
+clears cancellation or bypasses unknown-effect recovery. Semantic classification of
+a decision remains model-guided; validation checks the clarification envelope and
+scope, not the truth of the model's reasoning. Historical pauses without recorded
+questions cannot use the new parent-answer path.
+
+
+Automatic recovery monitoring adds `Auto compaction` and `Last compaction` rows to
+`/af-context`. Local `agent-hub-compaction-monitor` events record start, restoration,
+continuation, failure and ceiling blocking; native children use
+`agent-fleet-compaction-monitor`. Before/after percentages stay unknown when Pi has
+not yet provided a post-compaction usage measurement. See
+[context continuity](../../../docs/system1-context-continuity.md) for the 50/60/70/80
+policy, diagnostics, real CLI test coverage and provider-fixture limitations.
+
+### Coordination efficiency
+
+Native specialists receive `submit_result`. It validates a bounded report with
+`status` (`completed`, `partial`, `blocked`), `summary`, the existing assertion/
+changed-file/test/risk/decision arrays, and `evidence: [{path}]`. Evidence files
+must be inside the workspace and pass Damage-Control read policy; the tool records
+their SHA-256 and size. A proven-assertion declaration must reference one of these
+paths. Hashing a file confirms its identity, **not** the truth of the assertion.
+Further tool work invalidates an earlier submission; submit again after that work.
+
+The parent consumes only a matching, successful executed tool result. By default,
+native runs with this tool do not invoke a model to reconstruct a missing report.
+A model profile that sets `assist.return-extraction: true` opts into the cheap
+read-only extraction pass over the written report when a specialist with tracked
+assertions never submits; the result is labelled extracted and stays weaker than a
+declared submission. Missing submissions stay visibly `submission_missing` either
+way; legacy/coms text parsing and its extraction fallback remain supported. `details.specialistCompletion` describes
+the worker's report, while `details.taskAccepted` remains the runtime acceptance
+verdict. Partial/blocked reports and unresolved decisions cannot accept the task.
+
+A fresh review receives the previous report, recorded verification reference and
+a bounded exact diff of the previously reviewed files. The reviewer must check
+fixes and affected dependencies. History never grants approval. Changed requirements,
+scope, HEAD, file set, explicit new focus, stale/missing artifacts, binary/oversized
+files or incomplete Git observation require a full review. Baselines are local
+managed artifacts (up to 100 text files / 512 KiB total); journal state stores only
+references and hashes. Native and coms dispatches share this parent-side context.
+
+System 1 advice is optional for a concrete unresolved question. Direct reasoning,
+search and bounded excerpts are permitted at every tier. Choose configured helpers
+using measured task accuracy, latency and tool reliability; unknown suitability
+stays unknown. The harness does not invent benchmarks or switch configured models
+automatically. Source/export permissions remain authoritative.
+
+Catalog/capability journals record an initial snapshot and actual state changes,
+rather than every refresh. Session restoration resets suppression; failed writes
+are retried. Catalog reconciliation, recovery and active-tool enforcement still run
+on every refresh.

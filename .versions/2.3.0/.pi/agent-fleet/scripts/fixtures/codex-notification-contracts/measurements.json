@@ -1,0 +1,74 @@
+{
+  "format": "fleet-codex-notification-measurements/v1",
+  "observedAt": "2026-11-11T11:04:58Z",
+  "exports": [
+    {
+      "version": "0.167.0",
+      "versionOutput": "codex-cli 0.167.0",
+      "platform": "x86_64-unknown-linux-musl",
+      "binarySha256": "cdcb45aaa01d0f14e298985e09465aebccd47f64ecd298aea44814af7b62bbda",
+      "snapshot": "0.167-shared.json",
+      "command": "app-server generate-json-schema --experimental --out <temporary-directory>"
+    },
+    {
+      "version": "0.167.1",
+      "versionOutput": "codex-cli 0.167.1",
+      "platform": "x86_64-unknown-linux-musl",
+      "binarySha256": "dd5bfdf19d794dcc6fb482d2d5a2d9fb31d11f6caa44b303bb72890d461e8a02",
+      "snapshot": "0.167-shared.json",
+      "command": "app-server generate-json-schema --experimental --out <temporary-directory>"
+    }
+  ],
+  "daemonVersionObservation": {
+    "command": "codex app-server daemon version",
+    "status": "running",
+    "backend": "pid",
+    "cliVersion": "0.167.1",
+    "managedCodexVersion": "0.167.1",
+    "appServerVersion": "0.167.1"
+  },
+  "initializeObservation": {
+    "transport": "existing managed control socket; initialize only; disconnected after response",
+    "request": {
+      "method": "initialize",
+      "params": {
+        "clientInfo": {"name": "agent_fleet_queue_bridge", "title": "Fleet queue bridge", "version": "1"},
+        "capabilities": {"experimentalApi": true}
+      }
+    },
+    "resultKeys": ["codexHome", "platformFamily", "platformOs", "userAgent"],
+    "userAgent": "Codex Desktop/0.167.1 (Ubuntu 25.10.0; x86_64) dumb (agent_fleet_queue_bridge; 1)",
+    "omittedValues": ["codexHome", "platformFamily", "platformOs"],
+    "provesDesktopIdentity": false,
+    "provesLoadedConsumer": false
+  },
+  "historicalExactTuples": [
+    {
+      "daemonVersion": "0.166.0",
+      "desktopVersion": "0.166.0-alpha.5.1",
+      "addSchema": "60f25b7d3e3357c215bef9d2fe7047200f545e030dca9e00527ac0620cd0c88f",
+      "responseSchema": "c11b9772788427b19c9f9decf0765e2b41cbdead1aa9c3d39f42fdd70b339314"
+    },
+    {
+      "daemonVersion": "0.166.0",
+      "desktopVersion": "0.166.0-alpha.6",
+      "addSchema": "60f25b7d3e3357c215bef9d2fe7047200f545e030dca9e00527ac0620cd0c88f",
+      "responseSchema": "c11b9772788427b19c9f9decf0765e2b41cbdead1aa9c3d39f42fdd70b339314"
+    },
+    {
+      "daemonVersion": "0.166.0",
+      "desktopVersion": "0.167.0-alpha.3.2",
+      "addSchema": "60f25b7d3e3357c215bef9d2fe7047200f545e030dca9e00527ac0620cd0c88f",
+      "responseSchema": "c11b9772788427b19c9f9decf0765e2b41cbdead1aa9c3d39f42fdd70b339314",
+      "desktopAddSchema": "f6466a8f06cd4e68ec1999d06a0d70a1ddc339c0cb1baf12ee966a999fead17c",
+      "desktopResponseSchema": "896a82716b432a8aa4d190591bcfa86adacdacb91ec5ec2c9c75ff6562561256"
+    }
+  ],
+  "limitations": [
+    "Historical tuples are copied from the current exact runtime gate and archived evidence, not remeasured here.",
+    "Original 0.166.0 and Desktop alpha binaries were not available for schema recapture.",
+    "Desktop executable identity and loaded consumer were not measured.",
+    "Export equality is offline evidence only, not runtime compatibility admission or delivery qualification.",
+    "No thread read/resume, queue submission, daemon start, notification enable, grant, config write or live wake was performed."
+  ]
+}

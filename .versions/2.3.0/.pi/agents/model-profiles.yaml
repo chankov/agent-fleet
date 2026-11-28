@@ -1,0 +1,82 @@
+# Flat profiles switch named roles (researcher, reviewer, editor) and per-practice
+# choices (<role>.<practice>); version: 2 profiles switch the complete fleet. See
+# docs/agent-fleet-setup.md for defaults, child roles, services and policies.
+mix-max:
+  reviewer: xai/grok-4.7
+  editor: openai-codex/gpt-6.2-sol
+  # Keeps the retired planner and security-auditor choices (D9).
+  editor.planning: openai-codex/gpt-6.2-astra
+  reviewer.security: openai-codex/gpt-6.2-sol
+local-workers:
+  version: 2
+  defaults:
+    model: &qwenWorkers omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
+    thinking: off
+  allowed-models:
+    - *qwenWorkers
+  fallback: none
+  routing: native
+  agents:
+    editor: *qwenWorkers
+    researcher: *qwenWorkers
+    reviewer: *qwenWorkers
+  subagents:
+    editor:
+      recon: *qwenWorkers
+      verifier: *qwenWorkers
+    reviewer:
+      preflight: *qwenWorkers
+      quality: *qwenWorkers
+      perf: *qwenWorkers
+      docs: *qwenWorkers
+      feasibility: *qwenWorkers
+      deps: *qwenWorkers
+  services:
+    watchdog: *qwenWorkers
+    return-extractor: *qwenWorkers
+  panel:
+    - name: qwen-a
+      model: *qwenWorkers
+    - name: qwen-b
+      model: *qwenWorkers
+    - name: qwen-integrator
+      model: *qwenWorkers
+      integrator: true
+
+# Single-model local profile. Every role and service uses omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0.
+local-full:
+  version: 2
+  defaults:
+    model: &qwen36 omlx/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0
+    thinking: off
+  allowed-models:
+    - *qwen36
+  fallback: none
+  routing: native
+  dispatcher: *qwen36
+  agents:
+    editor: *qwen36
+    researcher: *qwen36
+    reviewer: *qwen36
+  subagents:
+    editor:
+      recon: *qwen36
+      verifier: *qwen36
+    reviewer:
+      preflight: *qwen36
+      quality: *qwen36
+      perf: *qwen36
+      docs: *qwen36
+      feasibility: *qwen36
+      deps: *qwen36
+  services:
+    watchdog: *qwen36
+    return-extractor: *qwen36
+  panel:
+    - name: qwen-a
+      model: *qwen36
+    - name: qwen-b
+      model: *qwen36
+    - name: qwen-integrator
+      model: *qwen36
+      integrator: true
