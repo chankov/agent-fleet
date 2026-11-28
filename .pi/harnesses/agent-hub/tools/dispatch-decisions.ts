@@ -95,7 +95,11 @@ export function decideDispatch(d: DispatchExecutorDeps, p: PreparedDispatch, res
         const candidateReviewInput=stage==='review'?reviewInput(cwd,p.taskId,p.agent,p.scopeGlobs,operatorReviewState(processState,p.operatorCandidate),s.getAssertions(),p.inputArtifacts,s.getAcceptedUserInput?.(),p.assignment?assignmentPracticeIds(p.assignment):[]):null;
         // Named, ordered qualifiers: the same conjunction as before, so a refusal can
         // say which one failed. Diagnostics never relax or reorder a gate.
+        // Review evidence needs the reviewer role AND the assigned independent-review practice: a reviewer
+        // consulted with another practice (testing, security, ...) gives advice, not review evidence.
+        const reviewPracticeAssigned = !!p.assignment && assignmentPracticeIds(p.assignment).includes("independent-review");
         const reviewQualifiers: Array<[string, boolean]> = [
+            ["review_practice_missing", reviewPracticeAssigned],
             ["review_self_authored", selfAuthored.length === 0],
             ["tool_protocol_error", !protocolDiagnostic],
             ["deliverable_failed", runtimeResult.compatibility.hubAcceptanceStatus !== "deliverable_failed"],

@@ -1025,6 +1025,7 @@ export default function (pi: ExtensionAPI) {
 		getReconSearchTimeoutMs: () => reconSearchTimeoutMs,
 		getContextWindow: () => contextWindow,
 		resolvedModel, resolvedThinking, resolveThinkingLevel, fallbackModelFor, substitutedModel,
+		researcherDef: () => allAgentDefs.find(def => def.name.toLowerCase() === "researcher"),
 		modelWindowLookup, guardrailEnv, notifyProviderQueue, spawnPiAgentWithModelFallback,
 		getProjectPolicyPaths: specialistProjectPolicyPaths,
 		getProjectDocsPaths: () => projectDocsPaths,

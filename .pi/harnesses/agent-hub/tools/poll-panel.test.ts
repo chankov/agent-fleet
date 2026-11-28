@@ -335,6 +335,19 @@ async function refusedEverywhere(cwd: string, expected: RegExp) {
 	}
 }
 
+test("a panel without an integrator refuses Poll before any charge or voice, and stays valid for Debate", async () => {
+	const repo = canonicalMkdtempSync(join(tmpdir(), "poll-no-integrator-"));
+	try {
+		repository(repo, true);
+		fleetConfig(repo);
+		writeFileSync(join(repo, ".pi", "agents", "voices.yaml"), "default:\n  - { name: sol, model: a/sol }\n  - { name: grok, model: b/grok }\n");
+		await refusedEverywhere(repo, /panel "default" has no voice with integrator: true, so its opinions cannot be synthesized\. Mark one voice integrator: true in \.pi\/agents\/voices\.yaml/);
+		const { hubDebateWorkflowPorts } = await import("../debate-runtime.ts");
+		const debate = hubDebateWorkflowPorts({ command: "debate_panel", checkVisibility: models => ({ models: models.map(model => ({ model, ok: true, failed: [], reasons: [] })) }) as any });
+		assert.equal(await debate.preflight!({ panel: "default", persona: "researcher", cwd: repo, target: { mode: "legacy", workspaceRoot: repo, executionRoot: repo } }), null, "Debate has no judge and needs no integrator");
+	} finally { rmSync(repo, { recursive: true, force: true }); }
+});
+
 test("missing, ambiguous, out-of-scope or stale targets refuse once with zero voice and synthesis starts", async () => {
 	const root = canonicalMkdtempSync(join(tmpdir(), "poll-refuse-"));
 	const empty = canonicalMkdtempSync(join(tmpdir(), "poll-empty-"));

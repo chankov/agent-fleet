@@ -17,7 +17,7 @@ test('immutable isolated consumer snapshots and missing consumers off', () => {
  assert.equal(snapshot.consumers.watchdog.status,'ready');
  assert.equal(snapshot.consumers.proactiveReview.status,'invalid');
  assert.equal(snapshot.consumers.taskTriage.status,'off');
- assert.ok(snapshot.errors.some(e=>e.path==='$.consumers.strange'));
+ assert.ok(snapshot.errors.some(e=>e.path==='$.consumers.<unknown section 1>'&&e.code==='unknown_section'));assert.doesNotMatch(JSON.stringify(snapshot.errors),/strange/,'an unknown name is never echoed');
  assert.throws(()=>{snapshot.document.consumers.watchdog.mode='off'},TypeError);
  value.consumers.watchdog.mode='off';
  assert.equal(snapshot.consumers.watchdog.config.mode,'active');

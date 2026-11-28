@@ -28,12 +28,20 @@ const fields = {
 export function normalizeSystem1Config(value, context) {
   const errors = [];
   const error = (path, code = 'invalid_value') => errors.push({ path, code });
+  // An unknown name is never echoed: it is operator input and may hold anything, even a pasted secret.
+  // The diagnostic names the known parent and numbers the unknown entries under it.
+  const unknownCounts = new Map();
+  const unknown = (parent, code = 'unknown_field') => {
+    const n = (unknownCounts.get(`${parent}\0${code}`) ?? 0) + 1;
+    unknownCounts.set(`${parent}\0${code}`, n);
+    error(`${parent}.<${code === 'unknown_section' ? 'unknown section' : 'unknown field'} ${n}>`, code);
+  };
   const empty = status => deepFreeze({ status, errors, consumers: Object.fromEntries(CONSUMERS.map(name => [name, { status: 'off' }])) });
   if (value === undefined) return empty('missing');
   if (!record(value)) { error('$', 'invalid_root'); return empty('invalid'); }
   if (value.version === 1) {
     const keys = ['version', 'mode', 'provider', 'model', 'apiKeyEnv'];
-    for (const key of Object.keys(value)) if (!keys.includes(key)) error(`$.${key}`, 'unknown_field');
+    for (const key of Object.keys(value)) if (!keys.includes(key)) unknown('$');
     for (const key of keys) if (!Object.hasOwn(value, key)) error(`$.${key}`, 'missing_field');
     if (!['auto', 'off'].includes(value.mode)) error('$.mode');
     if (value.provider !== 'typesafe') error('$.provider');
@@ -44,7 +52,7 @@ export function normalizeSystem1Config(value, context) {
     return deepFreeze({ ...empty('migration_required'), legacyProvider: { ...value } });
   }
   const rootKeys = ['version', 'mode', 'provider', 'model', 'apiKeyEnv', 'consumers'];
-  for (const key of Object.keys(value)) if (!rootKeys.includes(key)) error(`$.${key}`, 'unknown_field');
+  for (const key of Object.keys(value)) if (!rootKeys.includes(key)) unknown('$');
   for (const [key, valid] of Object.entries({ version: value.version === 2, mode: ['off', 'auto'].includes(value.mode), provider: value.provider === 'typesafe', model: value.model === 'jev-1.13.0', apiKeyEnv: value.apiKeyEnv === 'TYPESAFE_API_KEY', consumers: record(value.consumers) })) if (!valid) error(`$.${key}`);
   if (errors.length) return empty('invalid');
   let document;
@@ -54,27 +62,27 @@ export function normalizeSystem1Config(value, context) {
   // Provider projection is still a valid v2 document, with no consumer policies.
   provider.consumers = {};
   const consumers = {};
-  for (const name of Object.keys(document.consumers)) if (!CONSUMERS.includes(name)) error(`$.consumers.${name}`, 'unknown_section');
+  for (const name of Object.keys(document.consumers)) if (!CONSUMERS.includes(name)) unknown('$.consumers', 'unknown_section');
   for (const name of CONSUMERS) {
     const section = document.consumers[name];
     if (section === undefined) { consumers[name] = { status: 'off' }; continue; }
     const path = `$.consumers.${name}`;
     const before = errors.length;
     if (!record(section)) error(path, 'invalid_section');
-    else for (const key of Object.keys(section)) if (!fields[name].includes(key)) error(`${path}.${key}`, 'unknown_field');
+    else for (const key of Object.keys(section)) if (!fields[name].includes(key)) unknown(path);
     if (errors.length !== before) { consumers[name] = { status: 'invalid' }; continue; }
     if (name === 'proactiveReview' && Array.isArray(section.localBindings)) {
       const schemas = { rule:['path','heading','occurrence','hash'], applicability:['paths','kinds','basename'], exceptions:['paths','legacy'], placement:['prefix'] };
       section.localBindings.forEach((binding, index) => {
         if (!record(binding)) return;
-        for (const key of Object.keys(binding)) if (!['version','validator','rule','applicability','exceptions','placement'].includes(key)) error(`${path}.localBindings[${index}].${key}`, 'unknown_field');
-        for (const [key, allowed] of Object.entries(schemas)) if (record(binding[key])) for (const field of Object.keys(binding[key])) if (!allowed.includes(field)) error(`${path}.localBindings[${index}].${key}.${field}`, 'unknown_field');
+        for (const key of Object.keys(binding)) if (!['version','validator','rule','applicability','exceptions','placement'].includes(key)) unknown(`${path}.localBindings[${index}]`);
+        for (const [key, allowed] of Object.entries(schemas)) if (record(binding[key])) for (const field of Object.keys(binding[key])) if (!allowed.includes(field)) unknown(`${path}.localBindings[${index}].${key}`);
       });
       if (errors.length !== before) { consumers[name] = {status:'invalid'}; continue; }
     }
     if (name === 'taskTriage' && record(section.limits)) {
       const limits = TASK_TRIAGE_LIMITS;
-      for (const key of Object.keys(section.limits)) if (!Object.hasOwn(limits,key)) error(`${path}.limits.${key}`,'unknown_field');
+      for (const key of Object.keys(section.limits)) if (!Object.hasOwn(limits,key)) unknown(`${path}.limits`);
       for (const [key, value] of Object.entries(limits)) if (section.limits[key] !== value) error(`${path}.limits.${key}`);
       if (errors.length !== before) { consumers[name] = {status:'invalid'}; continue; }
     }
@@ -90,7 +98,7 @@ export function normalizeSystem1Config(value, context) {
       else if (name === 'proactiveReview') config = parseProactiveConfig({ version: 1, ...section }, context);
       else if (name === 'dispatchTriage') {
         if (section.profile && Object.keys(section.profile).some(k => !['version','approved','evidence','provider','model','languages','domains','minConfidence','minMargin','securityThreshold','destructiveThreshold'].includes(k))) {
-          for (const key of Object.keys(section.profile)) if (!['version','approved','evidence','provider','model','languages','domains','minConfidence','minMargin','securityThreshold','destructiveThreshold'].includes(key)) error(`${path}.profile.${key}`, 'unknown_field');
+          for (const key of Object.keys(section.profile)) if (!['version','approved','evidence','provider','model','languages','domains','minConfidence','minMargin','securityThreshold','destructiveThreshold'].includes(key)) unknown(`${path}.profile`);
           throw new Error();
         }
         config = parseTriageConfig({ version: 1, ...section });

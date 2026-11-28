@@ -250,7 +250,7 @@ test("the Hub requires all three roles, and each role is pinned by it (D7)", () 
   const roles = ["persona:editor", "persona:researcher", "persona:reviewer"];
   for (const id of roles) {
     assert.ok(hub.requires.includes(id), `pi-harness:agent-hub requires ${id}`);
-    assert.deepEqual(manifest.items.find((i) => i.id === id).pinnedBy, ["pi-harness:agent-hub"], id);
+    assert.ok(manifest.items.find((i) => i.id === id).pinnedBy.includes("pi-harness:agent-hub"), id);
   }
   const { selected } = resolveSelection(manifest, "pi", { items: ["pi-harness:agent-hub"] });
   for (const id of roles) assert.ok(selected.includes(id), `selecting the Hub installs ${id}`);
@@ -258,6 +258,24 @@ test("the Hub requires all three roles, and each role is pinned by it (D7)", () 
   const orchestration = manifest.items.find((i) => i.id === "skill:orchestration-verification");
   assert.deepEqual(orchestration.recommendsWith, ["persona:editor", "persona:reviewer"]);
   assert.deepEqual(manifest.items.find((i) => i.id === "skill:compound-learning").recommendsWith, ["command:compound", "persona:editor"]);
+});
+
+test("a workflow-only install brings every role its flows run, without the Hub, and pins them", () => {
+  // The roles are read from the flows themselves, so a flow that starts using another role fails here.
+  const dir = join(root, ".pi/agent-fleet/scripts/workflows");
+  const sources = [...readdirSync(dir).filter((f) => /^wf-.*\.ts$/.test(f) && !f.endsWith(".test.ts")).map((f) => join(dir, f)), join(dir, "lib/poll.ts"), join(dir, "lib/debate.ts"), join(dir, "lib/merge.ts")];
+  const roles = new Set();
+  for (const file of sources) {
+    const text = readFileSync(file, "utf8");
+    for (const m of text.matchAll(/resolve(?:Role|Persona)\("([a-z]+)"|role: "([a-z]+)"/g)) roles.add(`persona:${m[1] ?? m[2]}`);
+  }
+  assert.deepEqual([...roles].sort(), ["persona:editor", "persona:researcher"]);
+  for (const entry of ["companion:workflow-runtime", "companion:justfile-region", "skill:drafting-workflows"]) {
+    const { selected } = resolveSelection(manifest, "pi", { items: [entry] });
+    assert.equal(selected.includes("pi-harness:agent-hub"), false, `${entry} does not need the Hub`);
+    for (const role of roles) assert.ok(selected.includes(role), `${entry} installs ${role}`);
+  }
+  for (const role of roles) assert.ok(manifest.items.find((i) => i.id === role).pinnedBy.includes("companion:workflow-runtime"), `${role} cannot be uninstalled from under the workflow runtime`);
 });
 
 test("the Hub requires the debate skill, which it pins like a role (D28)", () => {

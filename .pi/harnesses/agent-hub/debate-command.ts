@@ -111,20 +111,23 @@ export function debateResultLabel(result: AfDebateResult): string {
  * the open disagreements and where the round artifacts are. Full voice reports stay on disk.
  */
 export function formatAfDebateDigest(result: AfDebateResult): string {
-	const voices = result.voices.map(voice => {
-		if (voice.failedRound !== undefined) {
-			const lines = [`${voice.name} · ${voice.model} · failed in round ${voice.failedRound}: ${voice.reason ?? "unknown error"}`];
-			if (voice.position) lines.push(`  last position (round ${voice.finalRound}): ${voice.position}`);
-			return lines.join("\n");
-		}
-		const lines = [`${voice.name} · ${voice.model} · round ${voice.finalRound}`, `  position: ${voice.position ?? ""}`];
-		if (!voice.changes.length) lines.push("  changed: no");
+	// The same change history whether the voice finished or dropped out later.
+	const history = (voice: AfDebateResult["voices"][number]): string[] => {
+		const lines = voice.changes.length ? [] : ["  changed: no"];
 		for (const change of voice.changes) {
 			lines.push(`  changed: round ${change.round} — moved by: ${change.evidence.length ? change.evidence.join("; ") : "(no evidence given)"}`);
 		}
 		const first = voice.changes[0]?.from;
 		if (first) lines.push(`  first position: ${first}`);
-		return lines.join("\n");
+		return lines;
+	};
+	const voices = result.voices.map(voice => {
+		if (voice.failedRound !== undefined) {
+			const lines = [`${voice.name} · ${voice.model} · failed in round ${voice.failedRound}: ${voice.reason ?? "unknown error"}`];
+			if (voice.position) lines.push(`  last position (round ${voice.finalRound}): ${voice.position}`, ...history(voice));
+			return lines.join("\n");
+		}
+		return [`${voice.name} · ${voice.model} · round ${voice.finalRound}`, `  position: ${voice.position ?? ""}`, ...history(voice)].join("\n");
 	});
 	const disagreements = result.disagreements.length
 		? result.disagreements.map(item => `- ${item.voice}: ${item.statement}`)

@@ -12,7 +12,7 @@ import { checkChildVisibility, type ChildVisibilityReport } from "../../agent-fl
 import { resolvePersona } from "../../agent-fleet/scripts/workflows/lib/personas.ts";
 import { runPoll, type PollVoiceResult } from "../../agent-fleet/scripts/workflows/lib/poll.ts";
 import { Run } from "../../agent-fleet/scripts/workflows/lib/run.ts";
-import { integratorVoice, listPanelNames, resolvePanel } from "../../agent-fleet/scripts/workflows/lib/voices.ts";
+import { integratorVoice, listPanelNames, resolvePanel, VOICES_REL } from "../../agent-fleet/scripts/workflows/lib/voices.ts";
 import type { AfPollHandleInput, AfPollTargetResolution, AfPollVoiceDigest } from "./poll-command.ts";
 
 const refused = (label: PanelRunLabel) => `${label} refused before any voice started:`;
@@ -108,6 +108,8 @@ export function hubPollWorkflowPorts(options: HubPollWorkflowOptions): Pick<AfPo
 				resolvePersona(persona, target.workspaceRoot);
 				voices = resolvePanel(panel, target.workspaceRoot);
 			} catch (error) { return message(error); }
+			// Poll always synthesizes; refuse before any charge or voice when nobody can (Debate needs no integrator).
+			if (!integratorVoice(voices)) return `panel "${panel}" has no voice with integrator: true, so its opinions cannot be synthesized. Mark one voice integrator: true in ${VOICES_REL} of the Fleet workspace, or use debate_panel, which needs no integrator.`;
 			const report = (options.checkVisibility ?? checkChildVisibility)(voices.map(voice => voice.model));
 			if (report.diagnostic) return `could not verify clean-room model visibility (${report.diagnostic})`;
 			const hidden = report.models.filter(model => !model.ok);

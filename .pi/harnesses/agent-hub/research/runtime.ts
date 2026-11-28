@@ -57,6 +57,8 @@ export interface ResearchState<TDef extends ResearchAgentDef = ResearchAgentDef>
 	def: TDef;
 	persona: boolean;
 	model: string;
+	/** Thinking chosen with the model (role and practices, D9); absent means the definition's own. */
+	thinking?: string;
 	status: "idle" | "running" | "done" | "error";
 	task: string;
 	toolCount: number;
@@ -112,8 +114,10 @@ export interface ResearchRuntimeDeps<TDef extends ResearchAgentDef> extends Rese
 	getSafetyHarnessPath(): string | null;
 	getReconSearchTimeoutMs(): number | null;
 	getContextWindow(): number;
-	resolvedModel(def: TDef): string | undefined;
-	resolvedThinking(def: TDef): string | undefined;
+	resolvedModel(def: TDef, practices?: readonly string[]): string | undefined;
+	resolvedThinking(def: TDef, practices?: readonly string[]): string | undefined;
+	/** The installed researcher role definition, whose model and practice choices an ad-hoc helper takes (D9–D10). */
+	researcherDef?(): TDef | undefined;
 	resolveThinkingLevel(value: string | undefined): string;
 	fallbackModelFor(def: TDef, model: string): string | undefined;
 	substitutedModel(model: string | undefined): string | undefined;
@@ -139,8 +143,10 @@ export interface ResearchRuntime<TDef extends ResearchAgentDef = ResearchAgentDe
 	reset(): void;
 	sessionPath(id: number): string;
 	anonymousDef(): TDef;
-	resolveModel(def: TDef, explicit: string | undefined, ctx: ExtensionContext): string;
-	createState(def: TDef, persona: boolean, model: string): ResearchState<TDef>;
+	resolveModel(def: TDef, explicit: string | undefined, ctx: ExtensionContext, practices?: readonly string[]): string;
+	/** Thinking for the same choice; undefined keeps the definition's own. */
+	resolveThinking?(def: TDef, explicit: string | undefined, practices?: readonly string[]): string | undefined;
+	createState(def: TDef, persona: boolean, model: string, thinking?: string): ResearchState<TDef>;
 	finalize(state: ResearchState<TDef>, outcome: ResearchFinalizeOutcome): void;
 	spawn(state: ResearchState<TDef>, prompt: string, ctx: ExtensionContext, inputArtifacts?: InputArtifactPreview[], signal?: AbortSignal, admission?:ResearchAdmission): Promise<ResearchResult>;
 }
@@ -188,11 +194,21 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 				systemPrompt: ANON_RESEARCH_PROMPT, file: "",
 			} as TDef;
 		},
-		resolveModel(def, explicit, ctx) {
+		// One choice for both spawn_research forms (D9–D10): an explicit helper model wins; otherwise the
+		// definition's own model for these practices, then the researcher role's, and only then the chat model.
+		resolveModel(def, explicit, ctx, practices) {
 			if (explicit) return explicit;
-			return deps.resolvedModel(def) || (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
+			const role = deps.researcherDef?.();
+			return deps.resolvedModel(def, practices) || (role ? deps.resolvedModel(role, practices) : undefined)
+				|| (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
 		},
-		createState(def, persona, model) {
+		resolveThinking(def, explicit, practices) {
+			if (explicit) return undefined;
+			if (deps.resolvedModel(def, practices)) return deps.resolvedThinking(def, practices);
+			const role = deps.researcherDef?.();
+			return role && deps.resolvedModel(role, practices) ? deps.resolvedThinking(role, practices) : undefined;
+		},
+		createState(def, persona, model, thinking) {
 			const id = deps.getNextResearchId();
 			deps.setNextResearchId(id + 1);
 			const dispatchId = randomUUID();
@@ -201,7 +217,7 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 			const rawSession = safePathWithin(evidenceDir, "session.json");
 			paths.set(id, rawSession);
 			const state: ResearchState<TDef> = {
-				id, dispatchId, evidenceDir, sessionPath: rawSession, def, persona, model, status: "running", task: "", toolCount: 0, messageCount: 0,
+				id, dispatchId, evidenceDir, sessionPath: rawSession, def, persona, model, ...(thinking ? { thinking } : {}), status: "running", task: "", toolCount: 0, messageCount: 0,
 				elapsed: 0, lastWork: "", contextPct: 0, contextTokens: 0, timeline: [],
 			};
 			deps.getResearchStates().set(id, state);

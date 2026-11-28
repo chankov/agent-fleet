@@ -94,7 +94,7 @@ export async function runResearchSpawn<TDef extends ResearchAgentDef>(
 			state.elapsed = Date.now() - startTime;
 			deps.onElapsed?.();
 		}, 1000);
-		const thinkingLevel = deps.resolveThinkingLevel(deps.resolvedThinking(state.def));
+		const thinkingLevel = deps.resolveThinkingLevel(state.thinking ?? deps.resolvedThinking(state.def));
 		const wantThinking = thinkingLevel !== "off";
 		const researchWindow = resolveContextWindow(state.model, { lookup: deps.modelWindowLookup(ctx), fallbackWindow: deps.getContextWindow() });
 		const fallbackCandidate = profileFallback(deps.substitutedModel(deps.fallbackModelFor(state.def, state.model)));

@@ -448,12 +448,14 @@
     "_roles_comment": "The Hub dispatches exactly three runtime roles and refuses a dispatch whose role definition is missing (PLAN-11-01, D7). The wiring is the Fleet Core shape: `requires` on the Hub, so selecting it installs all three roles, and `pinnedBy` on each role, so uninstall refuses to take one out from under an installed Hub.",
     "persona:editor": {
       "pinnedBy": [
-        "pi-harness:agent-hub"
+        "pi-harness:agent-hub",
+        "companion:workflow-runtime"
       ]
     },
     "persona:researcher": {
       "pinnedBy": [
-        "pi-harness:agent-hub"
+        "pi-harness:agent-hub",
+        "companion:workflow-runtime"
       ]
     },
     "persona:reviewer": {
@@ -571,6 +573,10 @@
       ]
     },
     "companion:workflow-runtime": {
+      "requires": [
+        "persona:editor",
+        "persona:researcher"
+      ],
       "companions": [
         "companion:session-worktree-guide",
         "companion:workflow-guide",

@@ -3,6 +3,8 @@
 // ask_system1 is active, and nothing is ever called until the operator calls it. An answer is advice.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { parseAgenticConfig } from "../lib/system1/config-agentic.js";
 import { createAgenticRuntime } from "./agentic-runtime.ts";
@@ -16,7 +18,8 @@ import { prepareDeps } from "./tools/dispatch-execution.test-support.ts";
 const ctx = { cwd: process.cwd(), ui: { notify() {} } } as any;
 const text = (result: any) => result?.content?.[0]?.text ?? "";
 const CONSULTING = ["research", "planning", "independent-review", "security"] as const;
-const reference = readFileSync("references/system1-consultation.md", "utf8");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const reference = readFileSync(join(repoRoot, "references/system1-consultation.md"), "utf8");
 
 const suggestion = {
 	uncertainty: "Which acceptance claim has the weakest support?",
@@ -26,7 +29,7 @@ const suggestion = {
 const line = `SYSTEM1_QUESTION: ${JSON.stringify(suggestion)}`;
 
 function block(agent: string, practices: string[]): string {
-	const assignment = resolveAssignment({ agent, practices }, [process.cwd()]);
+	const assignment = resolveAssignment({ agent, practices }, [repoRoot]);
 	assert.equal(assignment.ok, true, JSON.stringify(assignment));
 	return formatAssignmentBlock(assignment as ResolvedAssignment);
 }
@@ -58,7 +61,7 @@ test("the four named skill sections point at the shared rule, and its example is
 		["skills/code-review-and-quality/SKILL.md", "### Step 5: Verify the Verification"],
 		["skills/security-and-hardening/SKILL.md", "## Process: Threat Model First"],
 	]) {
-		const skill = readFileSync(path, "utf8");
+		const skill = readFileSync(join(repoRoot, path), "utf8");
 		const start = skill.indexOf(section);
 		assert.ok(start >= 0, path);
 		const level = section.split(" ")[0].length;

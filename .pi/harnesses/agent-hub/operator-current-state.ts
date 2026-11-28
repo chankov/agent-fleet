@@ -93,6 +93,7 @@ export function operatorStateNextStep(reason:string):string {
  const code=reason.split(':')[0];
  const steps:Record<string,string>={
   not_same_task:'The task changed during the review; re-run it for the current task.',
+  review_practice_missing:'This reviewer was not assigned the independent-review practice, so its result is advice, not review evidence; dispatch the reviewer with practices that include "independent-review".',
   not_native:'Re-run with backend: native.',
   non_exclusive_capture:'Another writer or capture overlapped; re-run when no writer is active.',
   revision_unavailable:'The scope revision could not be observed; check the declared files are tracked and re-run.',

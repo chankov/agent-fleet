@@ -123,7 +123,7 @@ test("uninstall refuses a role the Hub still needs, and --all leaves the user's 
   const single = run(["uninstall", "--workspace", ws, "--items", "persona:editor", "--dry-run", "--json"]);
   assert.equal(single.status, 0, single.stderr);
   const plan = JSON.parse(single.stdout).plan ?? JSON.parse(single.stdout);
-  assert.ok(plan.notes.some((note) => note.type === "pinned" && /persona:editor is kept — still required by pi-harness:agent-hub/.test(note.detail)), JSON.stringify(plan.notes));
+  assert.ok(plan.notes.some((note) => note.type === "pinned" && /persona:editor is kept — still required by (?:.*, )?pi-harness:agent-hub/.test(note.detail) && /companion:workflow-runtime/.test(note.detail)), JSON.stringify(plan.notes));
   assert.equal(plan.actions.some((action) => action.kind === "remove"), false);
 
   const all = run(["uninstall", "--workspace", ws, "--all", "--yes", "--json"]);

@@ -532,10 +532,14 @@ function afterRefusal(d: DispatchExecutorDeps, agent: string, params: DispatchAg
  */
 function createAssignmentTracker(d: DispatchExecutorDeps, reserved: Map<string, number>) {
 	const outcomes = new Map<string, AssignmentOutcome>();
+	// Each queued assignment is its own entry: a dependency names an instance, and an assignment never waits on
+	// itself. Entries of one instance name wait in arrival order, so "editor after editor" queues behind the
+	// earlier editor assignments instead of deadlocking with a sibling that names the same instance.
 	const queued: Array<{ agent: string; after: string[] }> = [];
 	const waiters = new Set<() => void>();
 	const notify = () => { for (const wake of [...waiters]) wake(); };
-	const isRunning = (name: string) => (reserved.get(name) ?? 0) > 0 || d.state.getAgentStates().get(name)?.status === "running" || queued.some(entry => entry.agent === name);
+	const isRunning = (name: string, self?: { agent: string; after: string[] }) => (reserved.get(name) ?? 0) > 0 || d.state.getAgentStates().get(name)?.status === "running"
+		|| queued.some(entry => entry !== self && entry.agent === name && (!self || entry.agent !== self.agent || queued.indexOf(entry) < queued.indexOf(self)));
 	const waitsOn = (from: string, target: string, seen = new Set<string>()): boolean => {
 		if (from === target) return true;
 		if (seen.has(from)) return false;
@@ -557,7 +561,6 @@ function createAssignmentTracker(d: DispatchExecutorDeps, reserved: Map<string, 
 			return afterRefusal(d, agent, params, "invalid_input", "after_invalid", "after must be an array of agent keys, for example [\"editor\", \"editor--p2\"].", "invalid_input");
 		}
 		const names = [...new Set(after.map(entry => normalizeAgentInput(entry as string)))];
-		if (names.includes(agent)) return afterRefusal(d, agent, params, "invalid_input", "after_self", `after names ${agent}, the agent of this dispatch; an assignment cannot wait for itself.`, "invalid_input");
 		const states = d.state.getAgentStates();
 		for (const name of names) {
 			if (isResearcherRole(name)) return afterRefusal(d, agent, params, "invalid_input", "after_unknown", `after names ${name}: research runs through spawn_research handles, not dispatch_agent instances.`, "invalid_input");
@@ -566,7 +569,11 @@ function createAssignmentTracker(d: DispatchExecutorDeps, reserved: Map<string, 
 				return afterRefusal(d, agent, params, "invalid_input", "after_unknown", `after names unknown instance ${name}. Known instances: ${known}.`, "invalid_input");
 			}
 		}
-		const cycle = names.find(name => waitsOn(name, agent));
+		// The new assignment is not queued yet, so naming its own instance means the earlier assignments of it.
+		// A cycle is a queued entry of a named instance that already waits, directly or not, on this agent.
+		const cycle = names.find(name => name === agent
+			? queued.some(entry => entry.agent === name && entry.after.some(next => next !== agent && waitsOn(next, agent)))
+			: waitsOn(name, agent));
 		if (cycle) return afterRefusal(d, agent, params, "invalid_input", "after_cycle", `after would deadlock: ${cycle} is already queued after ${agent}.`, "invalid_input");
 		return names;
 	}
@@ -581,7 +588,7 @@ function createAssignmentTracker(d: DispatchExecutorDeps, reserved: Map<string, 
 			let shown = "";
 			for (;;) {
 				if (signal?.aborted) { leave(); return afterRefusal(d, agent, params, "cancelled", "cancelled_while_queued", `Operation cancelled before dispatch while queued after ${names.join(", ")}.`, "operator_cancelled"); }
-				const waiting = names.filter(isRunning);
+				const waiting = names.filter(name => isRunning(name, entry));
 				if (!waiting.length) break;
 				const label = waiting.join(", ");
 				if (label !== shown) {
@@ -734,12 +741,13 @@ function researchExecution(d: DispatchExecutorDeps): ToolExecutor<SpawnResearchP
 		if (signal?.aborted) return refusal(d, "", params.task, "cancelled", "Operation cancelled before research.");
 		let def: any; let persona = false;
 		if (params.persona) { def = s.getResearchPersonas().find(x => x.name.toLowerCase() === params.persona!.toLowerCase()); if (!def) return { content: [{ type: "text", text: `No research persona "${params.persona}". Available: ${s.getResearchPersonas().map(x => x.name).join(", ") || "(none defined)"}. Omit \`persona\` for an ad-hoc helper. (Nothing started or counted.)` }], details: { status: "not_started", reason: "unknown_agent", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; persona = true; } else def = d.research.anonymousDef();
-		const model = d.research.resolveModel(def, persona ? undefined : params.model, ctx); let artifacts: InputArtifactPreview[];
+		const explicitModel = persona ? undefined : params.model;
+		const model = d.research.resolveModel(def, explicitModel, ctx, researchPractices); const thinking = d.research.resolveThinking?.(def, explicitModel, researchPractices); let artifacts: InputArtifactPreview[];
 		try { artifacts = d.artifacts.loadInputArtifacts(params.artifacts, ctx); } catch (err: any) { return { content: [{ type: "text", text: `⚠ Research NOT spawned and NOT counted — input artifact could not be resolved:\n${err?.message || err}\n\nFix the path and try again.` }], details: { status: "artifact_preflight_failed", reason: "artifact_preflight_failed", recoveryCategory: "not_started" as const, started: false, notStarted: true, effects: "none", exitCode: 1 } }; }
 		s.setTurnResearchCount(s.getTurnResearchCount() + 1); s.setTaskResearchCount(s.getTaskResearchCount() + 1); s.getTurnReport().research++; s.getSessionTotals().research++; d.budget.updateModeStatus();
 		const taskToken=d.noProgress.taskToken(),sessionDir=s.getSessionDir();
   const admit=()=>taskToken===d.noProgress.taskToken()&&sessionDir===s.getSessionDir()&&!signal?.aborted&&!d.provisionalCapabilityRefusal('fleet')&&!preflightGate(d,"researcher",researchPractices);
-  const state = d.research.createState(def, persona, model);
+  const state = d.research.createState(def, persona, model, thinking);
   try { s.recordDelegation?.({ agent: persona ? def.name : "research", kind: "research", task: params.task, scope: params.read_scope ?? [], researchId: state.id }); } catch { /* the brief is a record, never a gate */ }
   onUpdate?.({ content: [{ type: "text", text: `Spawning research helper r${state.id}...` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, status: "spawning" } });
 		try { const result = await d.research.spawn(state, withAssignment(structuredResearchPrompt(params), researchAssignment), ctx, artifacts, signal, {readScope:normalizeResearchContract(params).readScope,admit}); const status = result.termination ? result.termination.reason : result.exitCode === 0 ? "done" : "error"; const output = result.output.length > 8000 ? `${result.output.slice(0, 8000)}\n\n... [truncated]` : result.output; const decisionQuestions = extractDecisionQuestions(result.output); const decisionNotice = decisionQuestionNotice(`research r${state.id}`, decisionQuestions); const system1Questions = extractSystem1Questions(result.output); const system1Notice = system1QuestionNotice(`research r${state.id}`, system1Questions, d.isAskSystem1Active?.() === true); return { content: [{ type: "text", text: `[research r${state.id} · ${persona ? d.displayName(def.name) : "ad-hoc"} · read-only] ${status} in ${Math.round(result.elapsed / 1000)}s\n\n${output}${decisionNotice ? `\n\n${decisionNotice}` : ""}${system1Notice ? `\n\n${system1Notice}` : ""}${result.evidencePath ? `\n\nFull execution evidence: ${result.evidencePath}` : ""}` }], details: { handle: `r${state.id}`, persona: persona ? def.name : null, model, status, decisionQuestions, system1Questions, elapsed: result.elapsed, exitCode: result.exitCode, fullOutput: result.output, dispatchId: result.dispatchId, evidencePath: result.evidencePath, transcriptPath: result.transcriptPath, termination: result.termination, lifecycle: (result as any).lifecycle ?? null, researchContract: normalizeResearchContract(params), artifacts: artifacts.map(a => ({ path: a.path, displayPath: a.displayPath, preview: a.preview, resolvedFromKind: a.resolvedFromKind ?? null })) } }; }

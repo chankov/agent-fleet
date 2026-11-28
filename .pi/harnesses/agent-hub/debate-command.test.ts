@@ -163,6 +163,15 @@ test("the digest names each final position, what changed and why, failed voices,
 	assert.match(formatAfDebateDispatcherNote(stopped, formatAfDebateDigest(stopped)), /^DEBATE RESULT \(panel default, 2 of 3 rounds, stopped: round 2 had 1 successful voice; a round needs at least 2\)/);
 });
 
+test("a voice that changed position and then dropped out keeps its change history in the digest", () => {
+	const fixture = debateFixture();
+	const sol = fixture.voices[0];
+	const dropped = { ...fixture, voices: [{ ...sol, failedRound: 3, reason: "timeout", finalRound: 2 }, ...fixture.voices.slice(1)] };
+	const digest = formatAfDebateDigest(dropped);
+	assert.match(digest, /sol · a\/sol · failed in round 3: timeout\n  last position \(round 2\): Extract after the release\.\n  changed: round 2 — moved by: opus: the release freeze in docs\/release\.md; CI time\n  first position: Extract now\./);
+	assert.match(digest, /grok · b\/grok · failed in round 2: timeout\n  last position \(round 1\): Rewrite it\.\n  changed: no/);
+});
+
 function commandUi() {
 	const shown: (DebateBlock | undefined)[] = [];
 	const sent: { message: AfDebateMessage; options: { triggerTurn: boolean } }[] = [];

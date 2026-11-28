@@ -198,6 +198,23 @@ test("(a) a native instance that changed a file in scope is refused as its revie
 	assert.equal(fx.process().review.evidenceRef, null);
 });
 
+test("only the independent-review practice makes a reviewer's verdict review evidence; other practices give advice", async t => {
+	const fx = await independenceFixture(t);
+	await integrate(fx);
+	fx.respond = () => ({ output: APPROVE });
+	// The same approving verdict on the same integrated revision, from a reviewer consulted for coverage.
+	const coverage = await fx.dispatch("coverage", { ...wholeReview, practices: ["testing"] });
+	assert.equal(details(coverage).reviewEvidence.status, "preliminary", text(coverage));
+	assert.deepEqual(details(coverage).reviewEvidence.reasons, ["review_practice_missing"], "refused only for the missing practice");
+	assert.equal(details(coverage).processVerdict.obligations.review.status, "open");
+	assert.equal(fx.process().review.evidenceRef, null);
+	assert.equal(fx.process().reviews, undefined, "no reusable review evidence either");
+	// Adding independent-review alone is enough; testing can stay alongside it.
+	const review = await fx.dispatch("review", { ...wholeReview, practices: ["testing", "independent-review"] });
+	assert.equal(details(review).reviewEvidence.status, "final", text(review));
+	assert.equal(fx.process().review.evidenceRef, details(review).returnPath);
+});
+
 test("(b) a verdict on the base revision cannot close the integrated change", async t => {
 	const fx = await independenceFixture(t);
 	const base = worktreeRevision(fx.cwd, []);

@@ -241,3 +241,33 @@ test("research counter reset preserves prior raw session, transcript identity an
  assert.equal(readFileSync(firstPath, "utf8"), "original raw session");
  assert.notEqual(first.dispatchId, second.dispatchId);
 });
+
+test("both spawn_research forms take the researcher role's model and thinking for the practices; an explicit helper model still wins (D9–D10)", async () => {
+	const spawned: any[] = [];
+	const f = fixture({
+		resolvedModel: (agent: any, practices?: readonly string[]) => agent.name === "researcher" ? (practices?.includes("architecture") ? "provider/architect" : agent.model) : agent.model,
+		resolvedThinking: (agent: any, practices?: readonly string[]) => agent.name === "researcher" ? (practices?.includes("architecture") ? "high" : "medium") : undefined,
+		resolveThinkingLevel: (value: string | undefined) => value ?? "off",
+		researcherDef: () => def,
+		spawnPiAgentWithModelFallback: async (options: any) => { spawned.push(options); return { output: "findings", stderr: "", exitCode: 0 }; },
+	});
+	const adHoc = f.runtime.anonymousDef();
+	assert.equal(adHoc.model, undefined, "the ad-hoc helper has no model of its own");
+	assert.equal(f.runtime.resolveModel(adHoc, undefined, ctx, ["architecture"]), "provider/architect", "the role's practice model");
+	assert.equal(f.runtime.resolveThinking!(adHoc, undefined, ["architecture"]), "high");
+	assert.equal(f.runtime.resolveModel(adHoc, undefined, ctx, ["research"]), "provider/persona", "the role model, not the chat model");
+	assert.equal(f.runtime.resolveThinking!(adHoc, undefined, ["research"]), "medium");
+	assert.equal(f.runtime.resolveModel(def, undefined, ctx, ["architecture"]), "provider/architect", "the persona form passes its practices too");
+	assert.equal(f.runtime.resolveModel(adHoc, "provider/cheap", ctx, ["architecture"]), "provider/cheap", "an explicit helper model is the operator's choice");
+	assert.equal(f.runtime.resolveThinking!(adHoc, "provider/cheap", ["architecture"]), undefined);
+	const withoutRole = fixture({ researcherDef: () => undefined });
+	assert.equal(withoutRole.runtime.resolveModel(withoutRole.runtime.anonymousDef(), undefined, ctx, []), "provider/dispatcher", "no role installed: the chat model, as before");
+
+	// At the start boundary: the spawned process gets the chosen model and thinking.
+	const model = f.runtime.resolveModel(adHoc, undefined, ctx, ["architecture"]);
+	const state = f.runtime.createState(adHoc, false, model, f.runtime.resolveThinking!(adHoc, undefined, ["architecture"]));
+	await f.runtime.spawn(state, "Where should the export rule live?", ctx);
+	assert.equal(spawned.length, 1);
+	assert.equal(spawned[0].model, "provider/architect");
+	assert.equal(spawned[0].thinking, "high");
+});

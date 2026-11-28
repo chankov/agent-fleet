@@ -167,11 +167,10 @@ test("a consumer cancelled while queued is refused before dispatch and nothing s
 	f.runs.at(-1)!.settle(); await fresh;
 });
 
-test("after names are validated before anything waits: unknown, self, research, wrong shape and a cycle", async t => {
+test("after names are validated before anything waits: unknown, research, wrong shape and a cycle", async t => {
 	const f = assignmentFixture(t); const run = createDispatchExecutor(f.d as any);
 	const cases: Array<[unknown, string, RegExp]> = [
 		[["editor--p3"], "after_unknown", /unknown instance editor--p3\. Known instances: editor, reviewer\./],
-		[["reviewer"], "after_self", /after names reviewer, the agent of this dispatch/],
 		[["researcher"], "after_unknown", /spawn_research handles/],
 		["editor", "after_invalid", /array of agent keys/],
 		[[" "], "after_invalid", /array of agent keys/],
@@ -195,6 +194,28 @@ test("after names are validated before anything waits: unknown, self, research, 
 	assert.equal(f.runs.length, 1); assert.equal(f.d._turn(), 1, "no refused or queued call is charged");
 	f.runs[0]!.settle(0, "src/api/index.ts"); await api; await settleTicks(20);
 	f.runs.at(-1)!.settle(); await review;
+});
+
+test("a second assignment of the same role waits for the first; same-role dependents queue in order, never on themselves", async t => {
+	const f = assignmentFixture(t); const run = createDispatchExecutor(f.d as any);
+	// One editor produces the contract; the next editor assignment consumes it once the first has settled.
+	const producer = run("contract", { agent: "editor", task: "Define the export contract", scope: ["src/api"] }, undefined, undefined, f.ctx);
+	await settleTicks(20);
+	const updates: any[] = [];
+	const consumer = run("consumer", { agent: "editor", task: "Use the contract", scope: ["src/client"], after: ["editor"] }, undefined, update => updates.push(update), f.ctx);
+	const second = run("second", { agent: "editor", task: "Document the contract", scope: ["docs"], after: ["editor"] }, undefined, undefined, f.ctx);
+	await settleTicks(20);
+	assert.equal(f.runs.length, 1, "both dependents are queued, none started");
+	assert.equal(updates[0].details.status, "queued");
+	assert.match(updates[0].content[0].text, /^editor queued after editor; nothing started or charged yet\./);
+	f.runs[0]!.settle(0, "src/api/index.ts"); await producer; await settleTicks(20);
+	assert.equal(f.runs.length, 2, "the first dependent starts; the second waits behind it, not on itself");
+	f.runs[1]!.settle(0, "src/client/index.ts"); assert.equal(details(await consumer).executionStatus, "completed");
+	await settleTicks(20);
+	assert.equal(f.runs.length, 3, "then the second dependent runs");
+	f.runs[2]!.settle(0, "docs/index.md"); assert.equal(details(await second).executionStatus, "completed");
+	assert.deepEqual(f.runs.map(r => r.agent), ["editor", "editor", "editor"]);
+	assert.equal(f.d._turn(), 3, "each charged once, when it started");
 });
 
 test("a dependency's outcome counts only in the task it ran in", async t => {

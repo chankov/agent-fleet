@@ -313,3 +313,26 @@ test("doctor names the direct transport for enabled System 1, stays clean when d
     assert.doesNotMatch(disabled.issue, /transport/);
   }
 });
+
+test("doctor never echoes an unknown key from .ai/system1.json, in text or JSON output", t => {
+  const marker = "sk-synthetic-pasted-as-a-key-1f2e";
+  const ws = workspace(t); mkdirSync(join(ws, ".ai"));
+  writeFileSync(join(ws, ".ai/agent-fleet.json"), JSON.stringify({ features: { system1: true } }));
+  // Root keys are validated first and stop there; consumer keys need a valid root.
+  writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify({ ...validConfig, [marker]: 1, [`a.${marker}`]: 2 }));
+  const root = scanSystem1Readiness({ workspace: ws, env: {} }).filter(f => f.type === "system1-config");
+  assert.deepEqual(root.map(f => f.path), ["$.<unknown field 1>", "$.<unknown field 2>"], "a key containing a dot is not split into a leaked parent");
+  assert.match(root[0].issue, /unknown_field/);
+  assert.doesNotMatch(JSON.stringify(root), new RegExp(marker), "root JSON findings");
+  writeFileSync(join(ws, ".ai/system1.json"), JSON.stringify({ ...validConfig, consumers: { [marker]: {}, agenticAsk: { mode: "on", [marker]: true, limits: { [marker]: 1 } } } }));
+  const findings = scanSystem1Readiness({ workspace: ws, env: {} });
+  const configErrors = findings.filter(f => f.type === "system1-config");
+  assert.ok(configErrors.some(f => f.path === "$.consumers.<unknown section 1>" && /unknown_section/.test(f.issue)), JSON.stringify(configErrors));
+  assert.ok(configErrors.some(f => f.path === "$.consumers.agenticAsk.<unknown field 1>"), JSON.stringify(configErrors));
+  assert.doesNotMatch(JSON.stringify(findings), new RegExp(marker), "consumer JSON findings");
+  for (const args of [[], ["--json"]]) {
+    const result = spawnSync(process.execPath, [cli, "doctor", "--workspace", ws, ...args], { encoding: "utf8", env: { ...process.env, PI_OFFLINE: "1" } });
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(marker), `doctor ${args.join(" ") || "text"} output`);
+    assert.match(`${result.stdout}`, /unknown field 1|unknown_field/);
+  }
+});

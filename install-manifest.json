@@ -1240,6 +1240,10 @@
         "companion:workflow-deps",
         "companion:workflow-guide"
       ],
+      "requires": [
+        "persona:editor",
+        "persona:researcher"
+      ],
       "parents": [
         "companion:justfile-region",
         "skill:drafting-workflows"
@@ -1494,6 +1498,7 @@
         }
       },
       "pinnedBy": [
+        "companion:workflow-runtime",
         "pi-harness:agent-hub"
       ]
     },
@@ -1522,6 +1527,7 @@
         }
       },
       "pinnedBy": [
+        "companion:workflow-runtime",
         "pi-harness:agent-hub"
       ]
     },

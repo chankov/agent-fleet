@@ -15,7 +15,7 @@ For a separate Fleet workspace and session-scoped `--worktree` selection, see
 
 **Operate a coding-agent *fleet* — not just one chat session.**
 
-Agent Fleet is a **multi-agent orchestration system for AI coding agents**, built pi-first: a thin dispatcher routes work to three runtime roles — `researcher`, `reviewer`, `editor` — under a Verification Contract, peers spawn as tiled [herdr](https://herdr.dev) panes, agents message each other over a shared coms plane, a **Hermes Desktop panel** shows you the whole fleet at a glance — and a library of **29 production-grade lifecycle skills**, attached to each assignment as **11 engineering practices**, keeps every agent disciplined.
+Agent Fleet is a **multi-agent orchestration system for AI coding agents**, built pi-first: a thin dispatcher routes work to three runtime roles — `researcher`, `reviewer`, `editor` — under a Verification Contract, peers spawn as tiled [herdr](https://herdr.dev) panes, agents message each other over a shared coms plane, a **Hermes Desktop panel** shows you the whole fleet at a glance — and a library of **production-grade lifecycle skills**, attached to each assignment as **11 engineering practices**, keeps every agent disciplined.
 
 Three things make it unusual:
 
