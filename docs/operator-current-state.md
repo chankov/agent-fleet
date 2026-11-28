@@ -18,7 +18,7 @@ Default/explicit `changes` пази стария fingerprint, recovery, review r
 
 Current-state режимът изисква:
 
-- `agent=reviewer` (по избор с practices, например `security`), **explicit `backend=native`**. Ролята е read-only; Bash за actual checks върви само в write-denying sandbox с празен write allowlist (без Bash или без sandbox има early refusal); Bash остава subject на existing guards. Няма COMS или unsupported fallback. Пенсионираните имена `code-reviewer` и `security-auditor` се отказват с mapping към `reviewer` + practices.
+- `agent=reviewer` с practice `independent-review` (подразбиране на ролята; при изрични practices го включете, например `["independent-review", "security"]`), **explicit `backend=native`**. Reviewer без `independent-review` дава съвет, не review evidence: candidate-ът не се регистрира и причината е `review_practice_missing`. Ролята е read-only; Bash за actual checks върви само в write-denying sandbox с празен write allowlist (без Bash или без sandbox има early refusal); Bash остава subject на existing guards. Няма COMS или unsupported fallback. Пенсионираните имена `code-reviewer` и `security-auditor` се отказват с mapping към `reviewer` + practices.
 - `scope_mode=existing`, без deliverables, **1–128 unique exact existing regular files**; без absolute paths, traversal, symlinks/aliases, globs или session outputs. Файловете са в Git repo-то на workspace-а или, когато workspace root-ът е обикновена папка с вложени repos (например `rin-docs/` и `ringithub/`), всеки файл в своето вложено repo, със workspace-relative път. Всеки файл трябва да е в trusted Git-visible dirty/untracked snapshot на своето repo. Файл извън наблюдавано repo е gap; gap прави revision-а unavailable и отказва целия candidate, така че частично покритие никога не се приема. Clean/ignored files не се добавят тихомълком; например Git-ignored PLAN се ползва като input reference, не като current-state candidate.
 - Всички вече регистрирани task paths трябва да са обхванати. Не се губи стар scope чрез по-тясно ново приемане.
 - Runtime-owned before/after revisions и task identity трябва да съвпадат; source mutation, stale task/requirements/input, writable overlap или unavailable snapshot отказват приемане. Snapshot/guard checks не са filesystem transaction или hostile same-user attestation.
@@ -58,7 +58,7 @@ Origin се пази при state normalization/restoration; при следва
 `review_mode=private-config-current-state` supports private Codex notification
 preparations without inventing a Git delta. Supply `private_config_files` (1–4
 exact absolute JSON paths) and `verifier_sources` (1–32 exact repository-relative
-source paths). Explicit native code/security reviewer, read-only tools with Bash,
+source paths). An explicit native `reviewer`, read-only tools with Bash,
 all declared automated checks plus AF-MIN-CHANGE, fresh complete native capture,
 validated completed submission and independent affirmative full-scoped review
 are mandatory. No artifacts, Git scope or deliverables are accepted in this mode.

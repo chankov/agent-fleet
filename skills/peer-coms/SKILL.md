@@ -60,7 +60,9 @@ self-contained (the peer sees only that text).
 claude-reviewer }`); the peer address stays distinct from the role. The task then carries
 an `## Assignment` block naming the role and its practices: follow it, and stay
 inside that role's authority. A read-only role (`researcher`, `reviewer`) reaches you
-only when you were launched with `--read-only`, and a review never reaches a peer
+only when you were launched with `--read-only`. Launched that way you have only
+`Read`, `Grep` and `Glob`, so you cannot run `coms-cli` to ask other peers; you still
+answer inbound requests. A review never reaches a peer
 address that changed a file in the review's scope. See
 [peers serving a role](../../docs/agents.md#peers-serving-a-role).
 

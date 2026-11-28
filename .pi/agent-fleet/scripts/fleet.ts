@@ -49,7 +49,7 @@ DETERMINISTIC FLOWS
   just flow quality
   just flow scout "where is authentication configured?"
   just flow build-test "add the validated endpoint"
-      Run code-owned headless phase graphs on isolated flow/<name>-<runId> branches.
+      Run code-owned headless phase graphs on the current branch; --branch runs one on a new flow/<name>-<runId> branch.
 
   just flow cleanup       # list flow branches and prompt for a number
   just flow cleanup 2     # safely remove empty/integrated selection 2

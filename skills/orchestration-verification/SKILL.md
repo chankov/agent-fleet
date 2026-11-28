@@ -9,7 +9,7 @@ description: Defines the Verification Contract that keeps a multi-agent run hone
 
 Multi-agent runs drop clearly stated requirements silently. The dispatcher relays the requirement as *prose*, specialists return *prose* summaries ("approved", "verification passed"), and the feature ships broken anyway. Propagation is rarely the problem — the requirement is usually right there in the dispatch text. **Verification is the problem:** nothing exercised the requirement and refused "done" until it passed.
 
-This skill defines the four artifacts that replace prose-as-truth with **checkable assertions and named evidence**. It is the single canonical source for their formats — the Hub operator and the `researcher`, `reviewer` and `editor` role definitions reference this skill by name instead of restating the schema.
+This skill defines the four artifacts that replace prose-as-truth with **checkable assertions and named evidence**. It is the single canonical source for their formats — the Hub operator and the `reviewer` and `editor` role definitions reference this skill by name instead of restating the schema.
 
 1. **Acceptance assertions** — the dispatcher converts the request into numbered, individually checkable statements before any editor runs.
 2. **Parity / touchpoint inventory** — for "make X behave like existing Y", an exhaustive list of every site where the exemplar is special-cased; each becomes an assertion.

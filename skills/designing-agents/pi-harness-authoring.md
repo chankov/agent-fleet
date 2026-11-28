@@ -18,9 +18,9 @@ is their catalog. A harness can:
 
 ### Harness vs. utility extension — where it lives
 
-pi auto-discovers and loads **every** directory under `.pi/extensions/`. The three there
-(`mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`) are always-on utilities that
-coexist. Harnesses are different: most are **mutually exclusive** — two that both replace
+pi auto-discovers and loads **every** directory under `.pi/extensions/`. The five there
+(`mcp-bridge`, `chrome-devtools-mcp`, `compact-and-continue`, `btw`, `pi-voice-stt`) are
+always-on utilities that coexist (`pi-voice-stt` stays a no-op until an STT provider is configured). Harnesses are different: most are **mutually exclusive** — two that both replace
 the footer fight, two that register the same CLI flag abort startup. So harnesses live in
 `.pi/harnesses/`, which pi does **not** auto-discover, and load explicitly via `pi -e <path>`
 or the `justfile`. The supported stack is `damage-control-continue` before `agent-hub`; never put a

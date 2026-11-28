@@ -159,7 +159,8 @@ sequential.
    this task. The call waits with a visible "queued after …" status, and nothing
    starts or is charged until each dependency settles. A failed or unsettled
    dependency refuses the consumer with a diagnostic, and cancellation is honored.
-   An assignment cannot wait for its own instance, and research runs through
+   Naming the new assignment's own instance waits for that instance's earlier
+   assignments in arrival order; a real cycle is refused. Research runs through
    `spawn_research` handles, not instances.
 
    ```js
@@ -177,14 +178,17 @@ sequential.
      task: "Review the whole order-summary change on the integrated working tree" })
    ```
 
-Closure needs a fresh verdict that covers every changed file at the integrated
-revision. A verdict on one editor's files, on the base revision, or from an author
-of the change does not close the task. When an editor changes reviewed work, the
+Closure needs a fresh verdict from a reviewer assigned `independent-review` that
+covers every changed file at the integrated revision. A verdict on one editor's
+files, on the base revision, or from an author of the change does not close the
+task. A reviewer with other practices only (for example `testing`) gives advice: its
+result stays preliminary (`review_practice_missing`), never reuses a recorded review
+and leaves an earlier independent review in place. When an editor changes reviewed work, the
 follow-up review receives the previous findings and the delta.
 
 ## Retired personas
 
-The 13 personas that shipped before 2.3.0 are no longer dispatched. Naming one is
+Thirteen of the 14 personas that shipped before 2.3.0 are no longer dispatched. Naming one is
 refused before anything starts, and the message gives the mapping below. There is
 no alias. Choose the role by the outcome you need.
 
@@ -225,6 +229,10 @@ then the role file's `practice_models:`. The first practice in assignment order 
 a choice wins. Without one, the role's own model chain applies. The run records
 which source chose the model. Override keys are documented in
 [agent-fleet-setup.md](agent-fleet-setup.md).
+
+`spawn_research` takes the `researcher` role's model, thinking and fallback for its
+practices, with or without `persona`. An explicit helper `model` replaces only the
+model, and the chat model is used only when no researcher role is installed.
 
 ## Peers serving a role
 
@@ -276,6 +284,8 @@ debate_panel({ question: "Decision: … Alternatives: (A) … (B) … Objection 
   then a panel named `default`. Voices inspect the session's assigned checkout
   (`just fleet --worktree <path>` from a non-Git Fleet workspace). A preflight
   refusal starts no voice.
+- Poll needs a panel voice with `integrator: true` to merge the opinions; a panel
+  without one is refused before any voice starts. Debate needs no integrator.
 - Debate runs 2–5 rounds (default 3). Round 1 positions are independent; later
   rounds show each voice the others' labelled positions. The result lists each
   final position, which voice changed in which round and the evidence that moved
@@ -304,7 +314,8 @@ practice that names it. To add a new kind of assignment, propose a practice chan
 
 The installer ships the three role files as items `persona:researcher`,
 `persona:reviewer` and `persona:editor` in the catalogue group "Agent roles". All
-three are in the default preset and come with the Hub. They install verbatim to
+three are in the default preset and come with the Hub; the workflow runtime brings
+`editor` and `researcher`. They install verbatim to
 `.pi/agents/personas/<role>.md`, beside the fleet YAML in `.pi/agents/`. Setup
 removes unmodified installed copies of retired personas and keeps edited ones.
 `agent-fleet doctor` reports leftover retired definitions and override keys without

@@ -156,12 +156,11 @@ blocks session start and never writes the install record.
 
 ```bash
 # standalone continue-mode guardrail session
-just fleet
 pi -e .pi/harnesses/damage-control-continue/index.ts
 
-# Hub variants
-just fleet hub
-just fleet hub --solo
+# Hub variants (Fleet Core loads this harness first)
+just fleet
+just fleet --no-coms
 
 # direct continue-guarded hub launch
 pi -e .pi/harnesses/damage-control-continue/index.ts -e .pi/harnesses/agent-hub/index.ts

@@ -57,10 +57,11 @@ ships is `agent-fleet` — both names are intentional.
 
 3. **Push to main.** After the Linux/macOS checks pass, the Release job — only
    when pending changesets exist — runs `npm run version:changeset`, which:
+   - Runs `node bin/force-patch-changesets.js`, which rewrites every pending `minor`/`major` changeset to `patch` unless it carries `# release: keep-bump`
    - Rolls every `.changeset/*.md` into `CHANGELOG.md`
    - Bumps `package.json#version`
    - Runs `node bin/sync-harness-versions.js` to stamp the adjacent persistent-harness manifests
-   - Finalizes `package-lock.json`, then runs `node bin/snapshot-version.js` to write `.versions/<x.y.z>/`
+   - Finalizes `package-lock.json`, regenerates `install-manifest.json` (`node bin/build-manifest.js`), then runs `node bin/snapshot-version.js` to write `.versions/<x.y.z>/`
 
    It commits the result to `main` as `chore: release v<x.y.z> [skip ci]`
    (no release PR, no extra workflow run). Pull it afterwards.
@@ -77,6 +78,10 @@ ships is `agent-fleet` — both names are intentional.
 ## Manual publish (escape hatch)
 
 If the workflow is broken or you need to publish from your laptop:
+
+Run from a Fleet pi session, `git push`, `npm publish` and `changeset publish`
+each stop for a one-call approval from the damage-control rules
+(`.pi/damage-control-rules.yaml`).
 
 ```bash
 git checkout main && git pull
@@ -118,7 +123,7 @@ cd ~/projects/some-other-repo
 npx @chankov/agent-fleet@latest -- doctor --dry-run
 
 # 4. The snapshot was published (required for version-aware updates)
-npx --yes @chankov/agent-fleet@<new-version> -- update --workspace .
+npx --yes @chankov/agent-fleet@<new-version> -- setup --dry-run --workspace .
 ```
 
 ## Unpublishing / yanking

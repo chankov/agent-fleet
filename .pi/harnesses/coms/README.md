@@ -93,11 +93,12 @@ Nothing in-repo — the peer registry lives at `~/.pi/coms/` and is created at r
 pi -e .pi/harnesses/coms/index.ts
 ```
 
-For a guarded coms node, use `just fleet peer <name>`. It loads Fleet Core plus `coms`
-with deterministic extension discovery. Add `--browser` for Chrome DevTools or
-`--all-extensions` when the peer intentionally needs arbitrary project/global extensions;
-those tools stay scoped to that process and never leak into Agent Hub's
-`--no-extensions` specialists.
+For a guarded coms node, use `just fleet peer <name>`. A Pi peer loads Fleet Core, `coms`
+and Chrome DevTools MCP with deterministic extension discovery; a `--read-only` peer gets
+inspection tools only and no extension. The peer's settings are its flags (`--runner`,
+`--persona`/`--no-persona`, `--model`, `--read-only`, `--env-file`); `--browser` and
+`--all-extensions` are refused for a peer. Its tools stay scoped to that process and never
+leak into Agent Hub's `--no-extensions` role subagents.
 
 ## Upstream changes
 

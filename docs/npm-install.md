@@ -39,7 +39,7 @@ Pin the exact version when the run has to be reproducible:
 npx @chankov/agent-fleet@1.0.0 setup --preset default --features none --yes
 ```
 
-**Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. It includes the three agent roles (`persona:researcher`, `persona:reviewer`, `persona:editor`, catalogue group "Agent roles"), which the Hub also brings in whenever it is selected; they install to `.pi/agents/personas/<role>.md`. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
+**Default** is the stable Fleet Core selection and creates neither `.claude/` nor voice configuration. It includes the three agent roles (`persona:researcher`, `persona:reviewer`, `persona:editor`, catalogue group "Agent roles"), which the Hub also brings in whenever it is selected, together with the `debate` skill; they install to `.pi/agents/personas/<role>.md`. **Full** selects every stable, platform-applicable catalogue root; it may install the recorded Claude Code coms bridge. **Full + all features** is not a permanent preset: it stores `preset: "full"` and an explicit snapshot of every currently platform-compatible feature, including experimental ones, so future features are not silently enabled. Features are named capabilities (`browser`, `voice`, `hermes`, `telegram`,
 `claude-bridge`, and the experimental `system1` and
 `system1-task-triage`), not an
 arbitrary package-entry mode — `setup --help` lists them. Experimental features
@@ -181,7 +181,7 @@ No release, live pilot, calibration or semantic correctness follows from setup.
 ### Then install the runtime dependencies
 
 Setup writes files; it does not run commands for you, and a successful file commit is not reported as runtime readiness unless the existing dependency checks pass. The three `npm` steps for
-`.pi/extensions`, `.pi/harnesses`, and `scripts` are planned as `skip` with the
+`.pi/extensions`, `.pi/harnesses`, and `.pi/agent-fleet/scripts` are planned as `skip` with the
 reason *"runs a command — re-run with `--allow-exec` to include it"*. **A
 workspace is not launchable until they run.** Either let setup run them:
 
@@ -192,7 +192,7 @@ npx @chankov/agent-fleet@latest setup --allow-exec --yes
 …or run them afterwards through the recipe setup just installed:
 
 ```bash
-just fleet deps      # npm install in .pi/extensions, .pi/harnesses, and scripts
+just fleet deps      # npm install in .pi/extensions, .pi/harnesses, and .pi/agent-fleet/scripts
 just fleet doctor    # confirm the workspace is whole
 ```
 
@@ -248,8 +248,8 @@ valid. See [the STT configuration guide](../.pi/extensions/pi-voice-stt/README.m
 
 A local checkout contains unreleased fixes only for commands run through `node bin/cli.js`.
 Users invoking `npx @chankov/agent-fleet@latest` receive this behavior only after a corrected
-package has been published; editing this repository does not change the already published
-`2.0.9` package.
+package has been published; editing this repository does not change an already published
+package.
 
 ## Updating an existing install
 
@@ -446,6 +446,9 @@ The package now ships three role definitions — `researcher`, `reviewer` and
   practices to choose from where a persona had more than one use; and each
   leftover definition file named for a retired persona.
 - `uninstall` refuses to remove a single role while the Hub stays installed.
+  The workflow runtime behind `just flow` (`companion:workflow-runtime`) also
+  requires `editor` and `researcher`, so an install without the Hub still gets
+  them, and uninstall keeps them while that runtime stays.
 
 The persona → role + practices mapping and the other changes of this release are
 in the [migration guide](MIGRATION-agent-fleet.md#6-three-runtime-roles-replace-the-personas).

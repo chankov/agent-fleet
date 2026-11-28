@@ -67,12 +67,7 @@ There is also `--autoConnect` (Chrome 144+, requires enabling remote debugging v
 
 ### On pi
 
-pi does not natively consume MCP servers. This repo ships a pi extension that bridges `chrome-devtools-mcp` into pi as native tools under the `chrome_devtools__` prefix (see [docs/pi-setup.md](../../docs/pi-setup.md#optional-pi-extensions)):
-
-```bash
-npx @chankov/agent-fleet install --agent pi --allow-exec --yes \
-  --items pi-extension:mcp-bridge,pi-extension:chrome-devtools-mcp
-```
+pi does not natively consume MCP servers. This repo ships a pi extension, built on the `mcp-bridge` extension, that bridges `chrome-devtools-mcp` into pi as native tools under the `chrome_devtools__` prefix. Install it with the `browser` feature of `agent-fleet setup` (see [installation and lifecycle](../../docs/npm-install.md)), then load it into the Hub with `just fleet --browser` (see [docs/pi-extensions.md](../../docs/pi-extensions.md)).
 
 After install, run `/af-chrome-devtools-status` inside pi to confirm the bridge connected.
 

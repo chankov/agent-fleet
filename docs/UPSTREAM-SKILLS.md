@@ -37,7 +37,9 @@ Two kinds of native skills exist:
 
 - **Fleet-original skills** with no upstream counterpart:
   `_internal/`, `compound-learning/`, `debate/`, `designing-agents/`,
-  `orchestration-verification/`, `peer-coms/`.
+  `drafting-workflows/`, `fleet-connect/`, `orchestration-verification/`,
+  `peer-coms/`, `repository-ai-setup/`, and the Codex-only
+  `fleet-native-voice/` (installed by `agent-fleet set-codex-mcp`, not by setup).
 - **Forked-and-customized skills** that shadow an upstream name. These
   carry deliberate Agent Fleet policy edits (agent operating rules, review
   gates, references to `references/prompting-patterns.md` and the

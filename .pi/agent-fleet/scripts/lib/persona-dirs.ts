@@ -5,7 +5,7 @@
 //
 //   agents/                 the user's own convention — wins, and is never
 //   .claude/agents/         written by the installer
-//   .pi/agents/personas/    where agent-fleet installs its 15 personas
+//   .pi/agents/personas/    where agent-fleet installs its three role files
 //   .pi/agents/             hand-placed files beside the fleet YAML config
 //
 // The installer moved out of `agents/` so a workspace keeps a clean root; the

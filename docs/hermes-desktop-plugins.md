@@ -134,7 +134,7 @@ timestamp in `gui.log` against the mtime of the changed `.py` file, then restart
 the app.
 
 **4. The Desktop plugin has no module resolution.** It is evaluated as a blob:
-only `@.pi/agent-fleet/hermes/plugin-sdk`, `react`, `react/jsx-runtime` and
+only `@hermes/plugin-sdk`, `react`, `react/jsx-runtime` and
 `react/jsx-dev-runtime` resolve, a **relative import cannot resolve at all**,
 and there is no transpiler — so no JSX syntax, only `createElement`. The folder
 name must equal `plugin.id` or the inventory shows a ghost row. The plugin runs
@@ -150,7 +150,7 @@ the backend side.
 |---|---|---|
 | **Hermes v0.19.0+**, `hermes` on `PATH` | the installer resolves the profile with `hermes profile show` and opens the enable gate with `hermes plugins enable` | `hermes profile show default` |
 | **Hermes Desktop app** | the pane lives in the Electron renderer, and its gateway is the one that mounts the backend routes | it launches |
-| **This repo, checked out** | both halves are symlinked out of the working tree; nothing is published to npm | `ls .pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr` |
+| **This repo, checked out** | both halves are symlinked out of the working tree, and the install script does not ship on npm | `ls .pi/agent-fleet/hermes/desktop-plugins/agent-fleet-herdr` |
 | **A fleet that has run at least once** | the coms registry is the source of the session list — with no registry the panel is correctly empty | `ls ~/.pi/coms/projects` |
 | **[herdr](https://herdr.dev)** *(optional but wanted)* | supplies the live state; without it every row is `unknown` and `focus` is unavailable | `herdr agent list` |
 
@@ -529,7 +529,7 @@ the launcher's shell.
 
 ```bash
 just fleet --herdr                 # monitored, no setup
-AGENT_FLEET_MONITOR=0 just fleet hub   # opt out
+AGENT_FLEET_MONITOR=0 just fleet --herdr   # opt out
 ```
 
 An export you make yourself always wins. A runtime directory that cannot be
@@ -818,6 +818,6 @@ import. `presentation.test.js` compares the two blocks and fails on drift.
   are more precise but live in the memory of an optional process and carry no
   project in `~/.pi/coms/hermes-bridge/log.ndjson`. Phase 2 fixes the bridge,
   not the plugin.
-- **Not shipped in the npm package.** `.pi/agent-fleet/hermes/plugins/` and
-  `.pi/agent-fleet/hermes/desktop-plugins/` are outside the published surface; this stays
-  source + install script.
+- **Installed from a checkout.** The npm package carries
+  `.pi/agent-fleet/hermes/plugins/` and `.pi/agent-fleet/hermes/desktop-plugins/` as
+  source, but the install script is repo-only; this stays source + install script.

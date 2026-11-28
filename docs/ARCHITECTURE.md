@@ -182,9 +182,12 @@ does not become consent.
 Successful independent reviews retain role-specific evidence, reviewed file
 revision, coverage, requirement declarations and input-artifact hashes in the
 process journal. An identical covered review returns the retained evidence without
-starting another child. Changed accepted input, source, requirements, task, scope, evidence,
+starting another child. Changed accepted input, source, requirements, task, scope, practices, evidence,
 concurrent writes or an explicit `review_reason` require a fresh review; unresolved
 questions, blocking findings and rejected reviews cannot supply reusable approval.
+Only a `reviewer` assigned the `independent-review` practice produces, reuses or replaces
+this evidence. A reviewer with other practices gives advice: its result stays preliminary
+(`review_practice_missing`) and leaves an earlier independent review in place.
 
 The model's context hook projects older successful coordination/inspection bodies
 to short references backed by exact local originals. It leaves the session journal,
@@ -197,7 +200,7 @@ Changed intent still uses the existing task-transition fence.
 
 All Hub-owned slash commands are always registered. Capability packs are resolved automatically from explicit task intent, tier, pending work, and compaction state—there is no activation command. Runtime **readiness** (a coms or Herdr connection) is not model-visible capability: ready-but-unrequested peer/workspace packs remain inactive. Ambiguous fleet, peer, and workspace requests are provisionally visible but require one `ask_user` confirmation before their first side effect; a rejection removes the provisional pack. Task packs persist across follow-ups and reset only through `set_task_tier(new_task: true)`, while mandatory work mode and pending-operation leases remain. The verification pack also exposes `set_task_tier` so direct operators can declare explicit risk/scope through the trusted producer without activating fleet dispatch. This does not clear any obligation or change work mode, roles, permissions, or the setter's existing transition/confirmation gates.
 
-`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with the selected role, its practices, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt in both work modes and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an installed role definition, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
+`/af-context` is a standalone, read-only full-screen budget diagnostic; it separates stable prompt cost, volatile state, active schemas, and zero-cost inactive/loaded-excluded inputs. Provider totals and cache read/write fields are authoritative where Pi supplies them; it never fabricates provider usage or combines capacity percentages across Hub, child, and peer planes. `/af-audit` is a separate read-only session audit over existing runtime-owned records: it reports allowlisted T1 recovery categories, T2 result states, T3 protocol failures, and T8 permission correlations while keeping root, child, compaction snapshot, and repeated-record identities distinct. It never copies prompts, model text, tool payloads, environment values, or transcript content, and unavailable evidence stays explicit rather than becoming a zero count. Managed specialists and research children use explicit replacement prompts/context manifests with the selected role, its practices, policy, and skill paths instead of inherited global skills/context files. Configured project rule and documentation pointers are rendered into the Hub prompt and into native specialist, nested delegate, research, and coms handoffs. Files are read directly; folders are resolved index-first, with recursive rule discovery only when no index exists. The prompt carries pointers and selection instructions rather than bulk-injecting rule bodies, and the Hub ledger attributes that text as `hub/policy/project`. Runtime gates control whether an action can proceed: without coms, Herdr, a visible target, or an installed role definition, the corresponding command refuses with an actionable message rather than disappearing. `--browser` and `--all-extensions` expand the captured operator surface only when those optional extensions are installed.
 
 T12 diagnostics have been withdrawn by user decision; there is no command, runner, or replacement entry point. Historical results and accounting remain unchanged. `diagnostic-series-budget.ts` retains the shared v2 ledger, stage/per-unit ceilings, conservative input preflight, migration refusal for ambiguous history, ownership locks, and cancellation fences used by benchmark consumers. `diagnostic-probe-extension.ts` is now a side-effect-free compatibility library exposing only provider/API output-cap mapping, its types, and the transport refusal exit constant. It preserves the reviewed 2048 cap and rejects unsupported payload semantics; it does not register an extension or tool. Existing sessions must be reloaded after updating. The installer retires unchanged managed command/runner files; user-modified obsolete files are preserved and reported for manual review, never deleted automatically. Such retained files are not imported by the current Hub.
 
@@ -634,8 +637,7 @@ observation or unavailable compiler coverage cannot establish acceptance through
 sibling repository. Runtime session outputs are excluded from nested observation. These
 are local source guarantees, not evidence that an installed workspace copy was upgraded.
 
-The same code-owned state is consumed by dispatch acceptance in operator and orchestrator
-modes, appended as `agent-hub-process-state`, restored from the session log, and retained
+The same code-owned state is consumed by dispatch acceptance, appended as `agent-hub-process-state`, restored from the session log, and retained
 through compaction and mode changes. Only `set_task_tier(new_task: true)` creates fresh
 unknown-risk process state. `/af-audit` exports allowlisted satisfied/open/unsupported
 obligation statuses and explains that the budget tier limits spend rather than correctness;
@@ -664,6 +666,8 @@ run by itself, matching the post-run scope gate, which reverts nothing. **Parall
 a busy reader gets an automatic independent instance (`reviewer--p2`); editors run concurrently
 only with `parallel: true` and disjoint exact scopes; and `dispatch_agent` `after: [instances]`
 queues a dependent assignment until those instances settle, refusing it when a dependency failed.
+Naming the new assignment's own instance waits for that instance's earlier assignments in
+arrival order; a real cycle is refused.
 `/af-hub-report` accounts each turn's dispatches,
 tokens (billed = input + cacheRead + cacheWrite), recycles, drift stops, and refusals.
 
@@ -967,10 +971,24 @@ separate copied installations still need their normal workspace update.
 agent-hub/
 ├── index.ts                  # bounded composition root; constructs root-owned mutable ports
 ├── types.ts                  # shared Hub agent/state contracts
-├── config/                   # roles and practices (roles.ts, practices.ts), role files, profiles, dispatch policy, overrides
+├── config/                   # role files, profiles, dispatch policy, overrides
+│   ├── roles.ts              # the three roles: code-owned tool ceilings, default practices, retired-persona refusals, assignment block
+│   └── practices.ts          # the eleven practices: method, expected result, native-first skill paths, decision and Ask System 1 guidance
 ├── context/                  # state, budgets, assertions/artifacts, session-health factories
 ├── commands/                 # 24 typed /af-* command registrars
 ├── tools/                    # tool registrars plus dispatch/research execution orchestration
+│   ├── debate-panel.ts       # registers the operator's debate_panel tool and the live Debate block widget
+│   └── debate-panel-core.ts  # UI-free debate_panel schema and body; each update carries the current Debate block
+├── poll-command.ts           # /af-poll arguments, voice persona and panel precedence, digest and presentation
+├── poll-runtime.ts           # Poll's Git work context, panel preflight (integrator required) and workflow ports
+├── poll-progress.ts          # UI-free live Poll block: resolved panel, one row per voice, synthesis, outcome
+├── debate-command.ts         # /af-debate arguments, round range, digest and presentation; one path with debate_panel
+├── debate-runtime.ts         # Debate's Git work context and workflow ports; judge-free summary from the voices' reports
+├── debate-progress.ts        # UI-free live Debate block: resolved panel, round of the total, one row per voice, outcome
+├── decision-questions.ts     # validates a worker's DECISION_QUESTION lines (max 2) into one notice with a ready Poll/Debate question
+├── system1-questions.ts      # validates a worker's SYSTEM1_QUESTION lines (max 2) with ask_system1's validator into one notice
+├── system1-question-format.ts # import-free SYSTEM1_QUESTION marker and line format, shared with practices.ts
+├── review-closure.ts         # change authorship (operator, native instance, coms peer address) and self-review refusal
 ├── dispatch-core.ts          # facade over native, coms, and observability dispatch
 ├── dispatch-*.ts             # native preparation/spawn/completion and backend adapters
 ├── acceptance.ts             # agent-fleet.runtime-result/v1 and minimal acceptance evaluation
@@ -992,6 +1010,8 @@ agent-hub/
 ```
 
 Cross-harness coms lifecycle remains shared in `.pi/harnesses/lib/coms-core.ts` and `coms-core-io.ts`; it is not owned by the Hub composition root.
+
+System 1's transport decision is `.pi/harnesses/lib/system1/transport.js` (D32). Every caller uses Fleet's direct TypeSafe adapter, selected before a request is built; Pi's native classifier is not used, and the module lists why. Doctor shows `transport: direct` for an enabled configuration.
 
 ```text
 .pi/                          # Pi runtime: harnesses, extensions, agents config, prompts

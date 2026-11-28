@@ -71,4 +71,4 @@ export async function execute(params: any, pi: ExtensionAPI, ctx: any) {
 ```
 
 ## 7. Historical Integration with Agent-Team
-Agent Forge was designed to act as a "specialist" within an `agent-team`. In the current repo, that orchestration role lives in `agent-hub`; an engineer specialist in the hub can use Agent Forge-style tooling to build tools for analyst or builder agents.
+Agent Forge was designed to act as a "specialist" within an `agent-team`. Neither the `agent-team` harness nor Agent Forge ships in the current repo. Orchestration lives in `agent-hub`, which dispatches only the `researcher`, `reviewer` and `editor` roles; there are no engineer, analyst or builder agents.

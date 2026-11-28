@@ -70,6 +70,9 @@ npm version patch --no-git-tag-version
 # derives each persistent harness's adjacent version stamp from the root package version
 node bin/sync-harness-versions.js
 
+# regenerates install-manifest.json with the new package version
+node bin/build-manifest.js
+
 # mirrors the new version's artifacts into .versions/<new-version>/
 node bin/snapshot-version.js
 ```
@@ -94,6 +97,9 @@ git tag "v$VER"
 
 ## 9. Publish
 
+Run from a Fleet pi session, `npm publish` and `git push` each stop for a
+one-call approval from the damage-control rules (`.pi/damage-control-rules.yaml`).
+
 ```sh
 npm publish --access public --tag latest
    # --tag latest is the default
@@ -107,4 +113,4 @@ git push && git push --tags
 ```
 
 ------------
-  npx @chankov/agent-fleet@latest update --agent pi
+  npx @chankov/agent-fleet@latest setup   # update a workspace to the new release

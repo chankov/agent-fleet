@@ -34,6 +34,7 @@ Fleet source root. Its identity is part of the binding, while human configuratio
 `af`. Arbitrary resources outside these two verified roots are refused.
 Role files, profiles, dispatch policy, overrides, guard policy, extensions, skills, and prompts
 remain workspace-owned. Git and relative coding operations run in the target.
+Poll and Debate voices also inspect the target; their panels are read from `af`.
 Target configuration does not replace Fleet configuration. The workspace's `AGENTS.md`
 (or `CLAUDE.md`) is an explicitly supplied resource; automatic target-local discovery
 is disabled. Project instructions are read as explicitly requested project data.

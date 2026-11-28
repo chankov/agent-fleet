@@ -65,10 +65,11 @@ When the workflow runtime is selected, `just flow` runs code-owned workflows out
 ```bash
 just flow scout "where is authentication configured?"
 just flow quality
-just flow build-test "add the validated endpoint"
+just flow build-test "add the validated endpoint"            # on the current branch
+just flow build-test --branch "add the validated endpoint"   # on a new flow branch
 ```
 
-Each run creates a `flow/<name>-<runId>` branch. Use the numbered maintenance selector to remove an empty/integrated branch or squash-merge an accepted result back to the branch from which it started:
+A run needs a clean tree and stays on the current branch, so its writes and commits land there. Only `--branch` creates a `flow/<name>-<runId>` branch and records the branch it started from. Use the numbered maintenance selector to remove an empty/integrated flow branch or squash-merge an accepted one back to that branch:
 
 ```bash
 just flow cleanup       # list flow branches and prompt for a number

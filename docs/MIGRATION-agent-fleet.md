@@ -123,6 +123,9 @@ Registering it in `.claude/settings.json` remains a manual step — see
 recipe, `runner: claude-code` peers in `.pi/agents/peers.yaml`, and the
 `dispatch-policy.yaml` routing that lets a bridged pane serve a team member's
 dispatch. Cross-model review through a standing Claude session works as before.
+(2.3.0 later removed `peers.yaml` and teams: start the peer with
+`just fleet peer <name> --runner claude-code`, and key its route by role; see
+[section 6](#6-three-runtime-roles-replace-the-personas).)
 
 ### Migrating a `claude-code` workspace
 
@@ -283,6 +286,11 @@ dispatch_agent({ agent: "editor", practices: ["implementation", "testing"], task
 Research stays on `spawn_research`, which runs the `researcher` role; its
 `persona` parameter accepts only `researcher` or nothing.
 
+Keep `independent-review` in a reviewer's practices when the review must close the
+task or register operator current-state evidence. A reviewer with other practices
+only (for example `testing`) gives advice, and its result stays preliminary
+(`review_practice_missing`).
+
 ### Teams and peer groups are removed
 
 | Removed | Use instead |
@@ -327,9 +335,9 @@ A model profile that still names a retired persona fails validation
 
 The catalogue now ships three role items, `persona:researcher`, `persona:reviewer`
 and `persona:editor`, in the group "Agent roles". All three are in the default preset
-and come with the Hub. On the next `just fleet setup`, unmodified installed copies of
-retired personas under `.pi/agents/personas/` are removed and edited copies are kept
-as yours. A kept copy is harmless: the Hub never dispatches it and lists it in its
+and come with the Hub; the workflow runtime brings `editor` and `researcher`. On the
+next `just fleet setup`, unmodified installed copies of retired personas under
+`.pi/agents/personas/` are removed and edited copies are kept as yours. A kept copy is harmless: the Hub never dispatches it and lists it in its
 startup notice. Your own `agents/editor.md` (or another role name) still replaces
 that role's prompt or model under the same ceiling.
 

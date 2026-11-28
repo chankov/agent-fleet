@@ -280,7 +280,7 @@ It should pass validated arguments to the exported execution function and preser
 The hub tool will need an explicit budget and cancellation contract before implementation.
 It must not bypass clean-tree or permission enforcement.
 It must not translate flow acceptance into advisory assertion status.
-`run_flow` is design-only in this release: no tool is registered and no hub file is changed.
+The Hub registers `run_flow` for the read-only `scout` procedure only; writable flows stay unavailable through it.
 
 ## Author verification checklist
 

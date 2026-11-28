@@ -139,7 +139,7 @@ npx @chankov/agent-fleet@latest setup \
   --preset default --features system1 --save-desired --yes
 ```
 
-Then create the human-owned `.ai/system1.json` with exactly these version-1
+Then create the human-owned `.ai/system1.json` with exactly these version-2
 fields and values:
 
 ```json
@@ -183,7 +183,9 @@ The only phase-0 production provider/model is TypeSafe Jev `jev-1.13.0` at its
 fixed official endpoint. No local model is installed and no fallback model is
 selected. Outputs preserve available uncertainty but do not establish truth,
 action authority, or calibration for a particular domain/language. The native specialist drift watchdog has a separate **consumer opt-in**:
-`watchdog-system1: off|shadow|active` in `## agent-hub` (default `off`).
+`consumers.watchdog.mode: off|shadow|active` in `.ai/system1.json` (default `off`).
+The older `watchdog-system1` key in `## agent-hub` is not read; doctor reports it
+and `setup --migrate-system1-config` moves it.
 It also requires an armed watchdog, explicit feature selection, valid shared
 configuration and a key. `off` makes no System 1 evaluation. `shadow` runs the
 LLM judge immediately and System 1 in parallel; only the LLM can stop a child.
@@ -195,8 +197,8 @@ always use LLM. `/af-watchdog` labels this `experimental: scope only; G2 not
 validated`. This can miss a scope advisory; it is not G2 approval. Missing or
 mismatched provider/config returns to LLM; default consumer mode remains off. Restart Hub to apply a
 consumer mode/config snapshot; `/af-watchdog on|off|auto` changes Layer 1 arming,
-not the System 1 consumer mode. For rollback set `watchdog-system1: off` for the
-next session (cancel the current run if needed).
+not the System 1 consumer mode. For rollback set `consumers.watchdog.mode` to `off`
+for the next session (cancel the current run if needed).
 
 **Watchdog System 1 outbound state** is limited to a redacted task, normalized relative
 scope/paths, 40 structured tool events without commands, bodies, arguments or
@@ -209,7 +211,7 @@ review cannot guarantee that an agent will not produce unexpected arguments.
 The final native spawn env removes `TYPESAFE_API_KEY`; this does not protect
 against file reads or other launchers. Trace (`<sessionDir>/artifacts/watchdog/events.jsonl`)
 records only allowlisted metadata. `/af-watchdog` shows readiness/checks, the
-strip under chat and `/af-agents` show owner badges and detail history;
+strip under chat and `/af-agents-list` show owner badges and detail history;
 `/af-hub-report` counts evaluations/LLM attempts separately; `/af-audit`
 shows read-only decision status including `judge_unavailable`. Missing usage
 is unknown, not zero. A failed judge gets one live, revalidated retry after 5 s
@@ -402,7 +404,7 @@ feature flag. The Hub/native consumer uses the existing shared System 1 service
 (`system1` feature, `.ai/system1.json`, caller-owned key) only when selected
 excerpts are explicitly permitted and the service is ready. Its config is
 human-owned `consumers.proactiveReview` in `.ai/system1.json`; setup/doctor do not create or activate
-it. Missing config or valid `{"version":1,"mode":"off"}` causes **zero
+it. Missing config or a valid `{"mode":"off"}` section causes **zero
 proactive capture, inference, and feedback**. Invalid configuration fails closed.
 Nothing here authorizes a live pilot, client repository, ringithub, provider
 request, release, deployment or active configuration change.
@@ -430,7 +432,6 @@ this shape; do not copy these example paths into active configuration:
 
 ```json
 {
-  "version": 1,
   "mode": "shadow",
   "remoteContext": "selected-excerpts",
   "include": ["src/**", "docs/**"],
@@ -438,9 +439,9 @@ this shape; do not copy these example paths into active configuration:
 }
 ```
 
-Only `version`, `mode`, `remoteContext`, `include`,
-`maxEvaluationsPerSession`, `localBindings` are accepted. Version is `1`;
-mode is `off|shadow|advisory`; remote context is
+Only `mode`, `remoteContext`, `include`,
+`maxEvaluationsPerSession`, `localBindings` are accepted; the v2 section has no
+`version` wrapper. Mode is `off|shadow|advisory`; remote context is
 `disabled|selected-excerpts`. Enabled modes require a nonempty explicit
 repository-relative `include` (≤32 distinct entries, ≤256 characters each;
 no absolute/dot/traversal paths, hidden segments, backslashes, special
@@ -754,10 +755,10 @@ compound pass writes lessons to.
 | `turn-wall-time-s` | — | **Removed.** Ignored with a warning; active time stays visible, and `agent-turn-timeout-s` still bounds each child run. Delete the key. |
 | `agent-turn-timeout-s` | tier default (600/600/1800/1800) | Whole-run deadline, in seconds, for each spawned specialist, research helper, and nested delegate child (unlike `recon-search-timeout-s`, this bounds the entire run). On expiry the run terminates as `turn_timeout` (exit 124) with partial output preserved. Positive integer or `off` (stays at the tier). |
 | `session-recycle-runs` | tier default (3/3/5/5) | Recycle a specialist's accumulated session (fresh spawn instead of `-c` resume) after this many resumed runs. Context is also always recycled at ≥60% measured context (input + cacheRead + cacheWrite). Positive integer or `off` (stays at the tier recycle count; context threshold still applies). |
-| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. Orchestrator work mode auto-arms when the setting is `auto`/`on` and ignores a dispatch `watchdog: false`. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
-| `watchdog-system1` | `off` | Native specialist consumer only: `off`, `shadow`, or explicitly opted-in experimental `active` for advisory `scope` only (0.95/0.05; not G2-validated). Requires the separate selected feature and shared config; no automatic outbound request from setup/doctor. |
+| `watchdog` | `auto` | Drift watchdog default for dispatched specialists: `auto`/`on` arm the in-flight rules (out-of-scope writes, tool-call loops, repeated failures, tool-call cap) with LLM-judge escalation; `off` disarms. A dispatch's own `watchdog: true|false` takes precedence over the per-agent and hub settings. Overridable live per hub (`/af-watchdog on\|off\|auto`) and per agent (`/af-watchdog <agent> on\|off\|clear`). A DRIFTING/STUCK verdict terminates the run as `drift_stop` (exit 125) with partial output preserved. |
+| `watchdog-system1` | — | **Moved.** Not read by the runtime; the watchdog System 1 mode is `consumers.watchdog.mode` in `.ai/system1.json` (see [System 1 configuration](#system-1-configuration)). Doctor reports a leftover key; `setup --migrate-system1-config` moves it. |
 | `watchdog-judge-model` | researcher role's model | pi model spec for the one-shot drift judge (e.g. `openai-codex/gpt-6-luna`). Falls back to the researcher role's resolved model, then the dispatcher's. |
-| `poll-panel` | none | Configured panel for Poll (`/af-poll`, `poll_panel`) and Debate (`/af-debate`, `debate_panel`) when no panel is named; an active complete model profile's panel takes precedence. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, both use the panel named `default` if `voices.yaml` has one, otherwise they refuse and list the panels. An explicitly named unknown panel is refused even when a fallback exists. |
+| `poll-panel` | none | Configured panel for Poll (`/af-poll`, `poll_panel`) and Debate (`/af-debate`, `debate_panel`) when no panel is named; an active complete model profile's panel takes precedence. Must match a panel in `.pi/agents/voices.yaml`; an unknown name is refused. Without this key, both use the panel named `default` if `voices.yaml` has one, otherwise they refuse and list the panels. An explicitly named unknown panel is refused even when a fallback exists. Poll also refuses a panel with no `integrator: true` voice before any voice starts; Debate accepts one. |
 | `append-prompt` | none | Comma-separated repo-relative files appended to the system prompt of every dispatched role. Listed files must exist. Enable the communication contract with `append-prompt: references/communication-contract.md`. |
 
 Example — switch the dispatcher to Bulgarian, pin the editor to sonnet and its
@@ -836,8 +837,9 @@ Read by `just flow` when a flow starts. The `quality` and `build-test` flows nee
 a command, and there is no default: a missing command is a startup refusal (exit `3`).
 The command is the deterministic test phase: `build-test` runs the editor role with the
 single practice `implementation`, and `document` runs the editor with `documentation`.
-A flow's editor model is the active complete profile's `editor.<practice>` entry, else
-the role file's `practice_models:` entry, else the role model.
+With an active complete model profile, a flow's editor model is that profile's
+`editor.<practice>` entry; without one, it is the role file's `practice_models:` entry;
+otherwise it is the role model.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -1174,7 +1176,7 @@ local-full:
   outside `allowed-models`; that list still applies to workers and peers.
 - `services` sets the watchdog and structured-return extractor independently;
   unspecified services use defaults. `panel` supplies 2–5 poll/debate voices and
-  an optional single integrator. Poll and Debate (`/af-poll`, `poll_panel`,
+  an optional single integrator; Poll refuses a panel without one. Poll and Debate (`/af-poll`, `poll_panel`,
   `/af-debate`, `debate_panel`) select the active profile's panel automatically.
   Explicit other panel names are refused while the complete profile is active.
   Without `panel`, two default-model voices are used.

@@ -7,9 +7,9 @@ description: Foreground, fail-closed local Agent Hub watchdog. Use only for expl
 `hub-watchdog` is a packaged source skill, not a service or an enabled Hermes integration. Run it only as an explicit foreground operator action:
 
 ```bash
-python3 .pi/agent-fleet/scripts/watchdog.py status --invocation-json '<json>'
-python3 .pi/agent-fleet/scripts/watchdog.py validate-config --invocation-json '<json>'
-python3 .pi/agent-fleet/scripts/watchdog.py watch --invocation-json '<json>'
+python3 <profile>/skills/hub-watchdog/scripts/watchdog.py status --invocation-json '<json>'
+python3 <profile>/skills/hub-watchdog/scripts/watchdog.py validate-config --invocation-json '<json>'
+python3 <profile>/skills/hub-watchdog/scripts/watchdog.py watch --invocation-json '<json>'
 ```
 
 `status` and `validate-config` report the resolved autonomy tier and delivery disposition without connecting to anything. Run them before `watch` and stop if either reports something you did not intend.

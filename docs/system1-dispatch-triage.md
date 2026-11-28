@@ -6,9 +6,9 @@ The offline implementation is available. No live evaluation, human-labelled real
 corpus or production calibration acceptance is claimed. The human has tested and
 accepted the Fleet communication viewer.
 Provider/consumer settings are human-owned. Existing v1 settings require explicit
-migration before optional orchestrator-led triage can run.
+migration before optional operator-led triage can run.
 
-`dispatch_triage` is an optional **orchestrator tool**, not a human slash command
+`dispatch_triage` is an optional **Hub operator tool**, not a human slash command
 and not an automatic before-dispatch hook. It never starts an agent, changes tier,
 permissions, budgets, or satisfies acceptance. `dispatch_agent` retains all gates.
 
@@ -37,7 +37,7 @@ Configuration fields:
 | `maxCalls` | Human-approved positive integer, session logical-call ceiling |
 | `maxStateBytes`, `maxTaskBytes`, `maxRoleBytes` | Human-approved positive byte limits; overflow refuses, never silently truncates |
 | `profile` | Optional human-approved calibration profile |
-| `orchestratorBeforeDispatch` | Optional boolean, default false. In orchestrator mode, when advisory/consent/service/budget are ready, instruct the orchestrator to triage each focused delegation before independently dispatching. No code-owned auto-launch. |
+| `orchestratorBeforeDispatch` | Optional boolean, default false. When `mode` is `advisory`, consent is given, the service is ready and session calls remain, the Hub operator prompt asks it to call `dispatch_triage` once for each focused task it intends to delegate, before it chooses the role. The key keeps its name from the removed orchestrator mode; it applies to the operator. No code-owned auto-launch. |
 
 No arbitrary production budgets or quality thresholds ship. The communication
 viewer's limits below are separate from triage call/context budgets.
@@ -57,7 +57,7 @@ Low risk probabilities **never** mean safe or remove checks. Provider confidence
 is not a calibrated workflow success probability. Invalid results, stale snapshots,
 missing context and unavailable services stay explicit.
 
-`shadow` records metadata without returning advice to the orchestrator. One request
+`shadow` records metadata without returning advice to the operator. One request
 uses one shared service evaluation; physical retries remain adapter-owned. Separate
 session limits apply; task changes do not reset the triage call counter. Session
 shutdown aborts pending triage. Changed task/roster/constraints invalidate advice.
@@ -80,7 +80,7 @@ makes no System 1 calls. No calibration profile is invented by migration.
 Start a new session with an explicitly selected System 1 feature and the current
 process key. Never paste the key into chat.
 
-Open Fleet, press `1`, then `e` before submitting a task. Ask the orchestrator to
+Open Fleet, press `1`, then `e` before submitting a task. Ask the Hub operator to
 delegate a read-only code review of `.pi/harnesses/agent-hub/ui/system1-communication.ts`,
 without modifying files. After its normal task/process classification, expect
 `dispatch_triage` followed by an independently chosen `dispatch_agent` with a

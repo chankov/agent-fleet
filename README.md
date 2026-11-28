@@ -113,15 +113,16 @@ just fleet peer claude-reviewer --runner claude-code --read-only --project af
 
 ### Deterministic flows and branch maintenance
 
-The optional workflow runtime runs code-owned, headless graphs separately from the interactive Hub. Each run starts a `flow/<name>-<runId>` branch and records where it should merge back:
+The optional workflow runtime runs code-owned, headless graphs separately from the interactive Hub. A run needs a clean tree and stays on the current branch. Add `--branch` to run it on a new `flow/<name>-<runId>` branch instead; only such a branch records where it should merge back:
 
 ```bash
 just flow scout "where is authentication configured?"
 just flow quality
-just flow build-test "add the validated endpoint"
+just flow build-test "add the validated endpoint"            # on the current branch
+just flow build-test --branch "add the validated endpoint"   # on a new flow branch
 ```
 
-Completed branches have a numbered Worktrunk-backed selector:
+Completed flow branches have a numbered Worktrunk-backed selector:
 
 ```bash
 just flow cleanup       # show branches and prompt for a number
@@ -301,7 +302,7 @@ That one command backs up `config.yaml`, symlinks **both halves** into the profi
 Then start a fleet and open the **Agent Fleet** tab:
 
 ```bash
-just fleet --agents default --peers default    # monitored Hub + peers; nothing extra to configure
+just fleet --herdr --project af    # monitored Hub; add peers with just fleet peer; nothing extra to configure
 ```
 
 <details>
@@ -339,7 +340,7 @@ See **[native MCP setup](docs/codex-local-mcp.md)**, **[text/voice workflow](doc
 
 ## agent-hub: a thin-context dispatcher for pi
 
-Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to three runtime roles — `researcher`, `reviewer`, `editor` — embedded `coms`, and `damage-control-continue` guardrails. Each assignment combines practices (`planning`, `implementation`, `testing`, `security`, …) that add method and evidence, never authority. The operator decides when to delegate: distinct research questions run in parallel, non-trivial changes get an independent review, `poll_panel` asks the model panel for independent opinions on a decision, `debate_panel` cross-examines a decision across that panel for 2–5 rounds (no judge; the operator decides), and editors can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`). Every delegate reads a shared task brief. The `release` practice prepares a release; publishing needs separate explicit permission. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
+Every public Pi Fleet session is one `agent-hub` runtime with one **operator**: direct `read`/`bash`/`edit`/`write`, delegation to three runtime roles — `researcher`, `reviewer`, `editor` — embedded `coms`, and `damage-control-continue` guardrails. Each assignment combines practices (`planning`, `implementation`, `testing`, `security`, …) that add method and evidence, never authority. The operator decides when to delegate: distinct research questions run in parallel, non-trivial changes get an independent review, `poll_panel` asks the model panel for independent opinions on a decision, `debate_panel` cross-examines a decision across that panel for 2–5 rounds (no judge; the operator decides), and editors can run in parallel on disjoint scopes under the OS write sandbox (`parallel: true`), with a dependent assignment queued behind them (`after: [...]`). Every delegate reads a shared task brief. The `release` practice prepares a release; publishing needs separate explicit permission. The former delegate-only orchestrator work mode was removed; see [MIGRATION](docs/MIGRATION-agent-fleet.md).
 
 ![The agent-hub dispatcher fanning one request out to six peers over coms and awaiting each reply, with every peer's presence dashboard beside it](docs/assets/agent-hub-dispatch.png)
 
@@ -410,14 +411,14 @@ Slash commands map to the development lifecycle; each activates the right skills
 
 Under the hood are **33 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
-- **Define:** [interview-me](skills/interview-me/SKILL.md) · [idea-refine](skills/idea-refine/SKILL.md) · [spec-driven-development](skills/spec-driven-development/SKILL.md)
+- **Define:** [interview-me](skills/interview-me/SKILL.md) · [idea-refine](skills/idea-refine/SKILL.md) · [spec-driven-development](skills/spec-driven-development/SKILL.md) · [repository-ai-setup](skills/repository-ai-setup/SKILL.md)
 - **Plan:** [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) · [constraint-driven-development](skills/constraint-driven-development/SKILL.md)
 - **Build:** [incremental-implementation](skills/incremental-implementation/SKILL.md) · [test-driven-development](vendor/agent-skills-upstream/skills/test-driven-development/SKILL.md) · [context-engineering](skills/context-engineering/SKILL.md) · [source-driven-development](vendor/agent-skills-upstream/skills/source-driven-development/SKILL.md) · [doubt-driven-development](vendor/agent-skills-upstream/skills/doubt-driven-development/SKILL.md) · [frontend-ui-engineering](skills/frontend-ui-engineering/SKILL.md) · [api-and-interface-design](vendor/agent-skills-upstream/skills/api-and-interface-design/SKILL.md)
 - **Verify:** [browser-testing-with-devtools](skills/browser-testing-with-devtools/SKILL.md) · [debugging-and-error-recovery](vendor/agent-skills-upstream/skills/debugging-and-error-recovery/SKILL.md)
 - **Review:** [code-review-and-quality](skills/code-review-and-quality/SKILL.md) · [code-simplification](vendor/agent-skills-upstream/skills/code-simplification/SKILL.md) · [security-and-hardening](skills/security-and-hardening/SKILL.md) · [performance-optimization](skills/performance-optimization/SKILL.md)
 - **Ship:** [git-workflow-and-versioning](skills/git-workflow-and-versioning/SKILL.md) · [ci-cd-and-automation](vendor/agent-skills-upstream/skills/ci-cd-and-automation/SKILL.md) · [deprecation-and-migration](skills/deprecation-and-migration/SKILL.md) · [documentation-and-adrs](vendor/agent-skills-upstream/skills/documentation-and-adrs/SKILL.md) · [observability-and-instrumentation](vendor/agent-skills-upstream/skills/observability-and-instrumentation/SKILL.md) · [shipping-and-launch](vendor/agent-skills-upstream/skills/shipping-and-launch/SKILL.md)
-- **Orchestrate:** [orchestration-verification](skills/orchestration-verification/SKILL.md) · [debate](skills/debate/SKILL.md) · [peer-coms](skills/peer-coms/SKILL.md)
-- **Learn:** [compound-learning](skills/compound-learning/SKILL.md) · **Meta:** [using-agent-skills](skills/using-agent-skills/SKILL.md) · [designing-agents](skills/designing-agents/SKILL.md)
+- **Orchestrate:** [orchestration-verification](skills/orchestration-verification/SKILL.md) · [debate](skills/debate/SKILL.md) · [peer-coms](skills/peer-coms/SKILL.md) · [fleet-connect](skills/fleet-connect/SKILL.md)
+- **Learn:** [compound-learning](skills/compound-learning/SKILL.md) · **Meta:** [using-agent-skills](skills/using-agent-skills/SKILL.md) · [designing-agents](skills/designing-agents/SKILL.md) · [drafting-workflows](skills/drafting-workflows/SKILL.md)
 
 Workspace onboarding uses the deterministic `setup`, `doctor`, and `uninstall` CLI lifecycle.
 
@@ -436,6 +437,8 @@ The Hub dispatches three roles, defined in [`agents/`](agents/):
 | `editor` | Writes code, tests, plans and docs inside the authorized scope |
 
 Each assignment attaches practices from an eleven-entry catalogue — `research`, `architecture`, `planning`, `implementation`, `independent-review`, `testing`, `security`, `performance`, `browser-debugging`, `documentation`, `release`. A practice loads the matching skills and names the expected evidence; it never adds authority. The role files install verbatim to `.pi/agents/personas/`. A file with a role's name in your own `agents/` or `.claude/agents/` replaces that role's prompt or model, while the code-owned ceiling still applies. The 13 earlier personas (`builder`, `code-reviewer`, `planner`, …) are refused with their role + practice mapping.
+
+A reviewer's result counts as review evidence only when it was assigned `independent-review`; with other practices it is advice. Workers never start a Poll, a Debate or an Ask System 1 call. A worker with `planning`, `architecture`, `independent-review` or `security` may end its report with up to two `DECISION_QUESTION:` lines, and one with `research`, `planning`, `independent-review` or `security` with up to two `SYSTEM1_QUESTION:` lines. The Hub validates them and shows the operator a ready question (or, when `ask_system1` is not active, the check to do directly); a proposal starts nothing and never changes the run's result.
 
 Catalogue, dispatch examples and the migration mapping: **[docs/agents.md](docs/agents.md)**.
 
@@ -465,7 +468,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | **[docs/hermes-desktop-plugins.md](docs/hermes-desktop-plugins.md)** | **The Hermes Desktop plugin: install, contract, API, failure modes, limits** |
 | [docs/claude-code-coms-bridge.md](docs/claude-code-coms-bridge.md) · [docs/coms-hermes-bridge.md](docs/coms-hermes-bridge.md) · [docs/codex-session-bridge.md](docs/codex-session-bridge.md) | Claude Code as a coms peer · phone relay · retired CLI migration to native Codex |
 | [docs/npm-install.md](docs/npm-install.md) | CLI reference, versioning, update flow |
-| [references/](references/) | 9 checklists skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns. Each installs automatically alongside the skills that cite it |
+| [references/](references/) | 12 checklists and shared rules skills pull in: testing, security, performance, accessibility, observability, orchestration + fleet-coordination + prompting patterns, definition of done, communication contract, workflow authoring, System 1 consultation. Each installs automatically alongside the skills that cite it |
 
 ---
 

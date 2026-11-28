@@ -49,14 +49,14 @@ checks the setup. A simplified port of [`cgarrot/pi-voice-stt`](https://github.c
 see [.pi/extensions/pi-voice-stt/README.md](../.pi/extensions/pi-voice-stt/README.md).
 
 > **macOS terminal note:** Option-to-Alt behavior belongs to the outer terminal, not macOS, Pi, or
-> Herdr. If Option+M inserts `µ` (or another shortcut inserts a character) instead of activating the
+> Herdr. If Option+A inserts `å` (or another shortcut inserts a character) instead of activating the
 > shortcut, the terminal is sending the keyboard-layout character rather than a Meta/Alt key event.
 > In Terminal.app, open **Settings → Profiles → Keyboard** for the profile used by the window and
 > enable **Use Option as Meta key**. In Zed, set `terminal.option_as_meta` to `true`. Then verify
-> Option+M opens the Fleet work-mode picker; the terminal should send Meta/Alt chords as an Escape
-> prefix (for example, ESC followed by `m`). This enables the existing shortcuts; it is not an
-> OS-wide keybinding change. Command+M is separate: Terminal.app handles it as **Minimize**, so it
-> does not reach Pi or Herdr as a Fleet shortcut.
+> Option+A opens the Fleet Dashboard; the terminal should send Meta/Alt chords as an Escape
+> prefix (for example, ESC followed by `a`). This enables the existing shortcuts; it is not an
+> OS-wide keybinding change. Command chords are separate: Terminal.app handles them itself (Command+A
+> selects all), so they do not reach Pi or Herdr as Fleet shortcuts.
 
 The documented harnesses below are different: each is a **session harness**. They
 reshape the whole pi session — some set orchestration/UI surfaces and some gate every
@@ -86,7 +86,7 @@ harness closure into *that project's* `.pi/harnesses/`. Then load it via the
 managed `justfile` region, or point `pi -e` at a harness file directly — never
 drop harnesses into `.pi/extensions/`, and never load all of them at once. The supported multi-harness
 exception is loading `damage-control-continue` and `ask-user-remote` before `agent-hub` for a guarded hub session (see
-[pi-setup.md](pi-setup.md#optional-pi-extensions)).
+[pi-setup.md](pi-setup.md#runtime-closure)).
 
 ---
 
@@ -178,7 +178,7 @@ harnesses:
   to the three runtime roles, `researcher`, `reviewer` and `editor`, each assignment carrying
   practices that add method and expected evidence, never authority (see
   [roles and practices](agents.md)). Native teams were removed in 2.3.0. The former orchestrator work mode,
-  `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. During a pending task transition, `get_assertions` can report the current task’s status repeatedly without binding the input or counting as a diversion. `set_task_tier` and `ask_user` remain available. Other tools, including edits and agent launches, are refused until binding; a second diversion stops the turn, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered in both work modes; capability-off actions
+  `/af-work-mode` and **Alt+M** were removed; `--work-mode` is ignored with a warning. Dispatch and research counts are usage, never a per-turn allowance. During a pending task transition, `get_assertions` can report the current task’s status repeatedly without binding the input or counting as a diversion. `set_task_tier` and `ask_user` remain available. Other tools, including edits and agent launches, are refused until binding; a second diversion stops the turn, and the fence survives resume. Research, nested delegation, and the task envelope follow task tier. All Hub slash commands remain registered; capability-off actions
   refuse actionably.
 - **Fleet widget** — **`Alt+I`**, registered through Pi's shortcut API, expands or collapses the
   bounded below-editor fleet view when its focus, empty-editor, autocomplete/modal, row, and height
@@ -223,7 +223,9 @@ harnesses:
   block opens an approval dialog, and a headless child escalates to the hub. Protected deletion
   offers only deny/once. The approval dialog identifies the request by its opaque reference and tool. It shows a safe target or command, not edit/write contents. A withheld target cannot receive an expanded grant; chat consent does not authorize any call. Denial and
   timeout fail closed without aborting the child turn. Destructive bash patterns are never exemptible,
-  and a missing continue harness refuses child dispatch.
+  and a missing continue harness refuses child dispatch. Publishing commands (`git push`,
+  `npm`/`pnpm`/`yarn`/`bun publish`, `changeset publish`, `gh release create|upload|edit`) need a
+  one-call approval every time; the `release` practice prepares a release but never publishes.
 - **Embedded coms** — peer discovery, `coms_list` / `coms_send` / `coms_get` / `coms_await`,
   `/af-handoff`, and peer-as-subagent flows.
 - **No-coms mode** — `just fleet --no-coms` keeps direct operator work, native delegation,

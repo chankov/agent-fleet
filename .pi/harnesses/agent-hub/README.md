@@ -6,9 +6,9 @@ plus delegation to three runtime roles — `researcher`, `reviewer` and `editor`
 Verification Contract. Each assignment attaches practices from an eleven-entry catalog that add
 method and expected evidence, never authority ([roles and practices](../../../docs/agents.md)).
 The former delegate-only orchestrator work mode was removed (2026-11-11). Fleet Core loads first: [`damage-control-continue`](../damage-control-continue/README.md),
-[`ask-user-remote`](../ask-user-remote/README.md), STT, Compact & Continue, BTW, and the update
-checker. The operator can dispatch roles, run research, collaborate with Pi/Claude
-peers, and hand the session to a visible coms peer.
+[`ask-user-remote`](../ask-user-remote/README.md), Compact & Continue, BTW, and the update
+checker; STT is opt-in with `--voice`. The operator can dispatch roles, run research,
+collaborate with Pi/Claude peers, and hand the session to a visible coms peer.
 
 > Consolidates the retired `agent-team` dispatcher into this harness and embeds the ported `coms`
 > P2P layer from [`pi-vs-claude-code`](https://github.com/disler/pi-vs-claude-code) by
@@ -181,7 +181,7 @@ runtime is only **readiness**, not intent: its tools and policy remain model-ina
 
 The operator prompt lists the three roles with their authority, default practice and model, and the
 practice catalog with each practice's expected result (restricted practices name their roles).
-`spawn_research` runs the `researcher`; `dispatch_agent` runs `reviewer` or `editor` and takes
+`spawn_research` runs the `researcher` and `dispatch_agent` runs `reviewer` or `editor`; both take
 `practices`:
 
 ```js
@@ -245,6 +245,8 @@ with `parallel: true`:
 - `after: ["editor", "editor--p2"]` queues a dependent assignment until the named instances settle:
   it shows "queued after …" with nothing started or charged, is refused when a dependency failed or
   has no settled result in this task, and honors cancellation. Research handles are not instances.
+  `after` may name the same role as the new assignment: it then waits for the earlier assignments of
+  that instance, in arrival order. A real cycle is refused before anything waits (`after_cycle`).
 - Real Pi takes `<file>.lock` directories beside `trust.json`, `auth.json` and `settings.json` in its
   agent directory and beside the project `.pi/settings.json`. The sandbox therefore lets a child
   create new entries in those two directories, keeps every existing entry there read-only (code,
@@ -266,6 +268,11 @@ gets another instance automatically. Hub keeps the report
 and records its declared scope, starting and ending revisions, and any reason the result is
 preliminary in `details.reviewEvidence` and the saved assessment. A writer that starts and exits
 during the review still counts as overlap.
+
+Review evidence needs the `reviewer` role **and** the `independent-review` practice. A reviewer
+assigned only other practices (for example `testing`) gives advice: its review evidence stays
+preliminary with the reason `review_practice_missing`, it never reuses a recorded review, and it
+leaves an earlier independent review in place.
 
 Final approval requires the same repository revision at launch and completion, no overlapping
 writer, and coverage of every task file observed across editor runs, by a reviewer that authored
@@ -397,7 +404,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   extension loaders. Decisions stay bound to the task/input revision, reset at
   session boundaries and cannot be populated by a late answer from an older task.
   Runtime effects still require and consume their own one-use authorization.
-- `dispatch_agent` reuses successful review evidence only for the same reviewer,
+- `dispatch_agent` reuses successful review evidence only for a reviewer assigned the
+  `independent-review` practice, with the same reviewer,
   task, requirements, practices, covered scope, input artifacts and exact repository revision,
   so a security review never reuses a plain review. The reply reports `review_reused`, retains the
   original evidence path and starts no child. Use `review_reason` for a fresh focus;
@@ -431,7 +439,10 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   global skill/context loading. One `kind: research` role ships: `researcher` (`grok-4.7`, medium
   thinking), which starts with the smallest search that can answer the question and deepens it when
   sources disagree or evidence is missing; there is no depth parameter. Distinct questions run in
-  parallel. Its model + thinking level is shown in the role catalog.
+  parallel. Its model + thinking level is shown in the role catalog. Both `spawn_research` forms
+  (with or without `persona`) take the researcher role's model, thinking and fallback for the
+  assigned practices, also under a complete model profile. An explicit `model` (ad-hoc form only)
+  replaces only the model; the chat model is used only when no researcher role is installed.
   Live helpers appear in the Fleet Dashboard (`Alt+A`) and bounded fleet widget while they are
   running. On every terminal outcome (success, error, timeout, spawn/preflight failure, or operator
   kill) the live `rN` handle is removed immediately.
@@ -542,7 +553,8 @@ Every borrowed idea from another harness passes one test before it lands: *does 
   (for example `editor.planning`) switches the model for assignments whose first practice with a
   model choice is that practice. A practice choice comes, highest first, from the session command,
   the active model profile (`editor.planning:`), `model.<role>.<practice>:` in the overrides file,
-  then the role file's `practice_models:`; the first practice in assignment order with any choice
+  then the role file's `practice_models:` (under a complete model profile, only the session command
+  and the profile's own entries apply); the first practice in assignment order with any choice
   wins, otherwise the role model applies, and the run records the source
   ([models per role and practice](../../../docs/agents.md#models-per-role-and-practice)). Any other
   dot form, `/af-agent-model <role>.<sub-role>`, switches a delegate sub-role's model instead — its
@@ -642,7 +654,7 @@ fallback stream keeps the legacy zoom controls. Both overlays size to the termin
 `/af-agents-history` (or **`h`** while the Fleet Dashboard is open) opens a read-only overlay (same chrome as `/af-zoom`) that replays the session as an
 execution **tree**:
 
-- **Orchestrator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
+- **Operator turns** — each dispatcher turn that actually dispatched something is a depth-0 row
   labelled `(dispatcher)`. Chat-only turns add no rows.
 - **Dispatched specialists and research helpers** nest one level beneath the turn that launched them;
   **delegate sub-sub-agents** nest one level deeper still under the specialist that spawned them — in
@@ -1077,7 +1089,7 @@ tool arguments; unexpected agent actions remain a residual risk. Even task/path
 names can leak information: the intended future pilot is agent-fleet-only,
 without client data or secrets. The native spawn filters the shared
 key from merged child env, not from files or unrelated launchers. The below-chat
-Fleet strip holds the recent S1 result for 10 s; `/af-agents` Enter shows the
+Fleet strip holds the recent S1 result for 10 s; `/af-agents-list` Enter shows the
 owner check and safe history. `/af-watchdog` shows current readiness and
 blocking reason; `/af-hub-report` separates checks, evaluations and LLM
 attempts from worker token usage; `/af-audit` exposes safe lifecycle/decision
@@ -1111,7 +1123,7 @@ usage is reported separately; unavailable metadata remains unknown.
 
 Paths that don't exist produce a session-start warning, never an error. The full key list for
 `## agent-hub` (models, practice models, sub-roles, depth budgets, research retention, watchdog,
-mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
+Poll panel, mode/budget keys) is documented in `docs/agent-fleet-setup.md`.
 
 ## The coms layer
 
@@ -1144,8 +1156,7 @@ surface additionally gets (absent otherwise, like coms):
   why the one-pane `just fleet --herdr` layout is not affected by this.
 - `herdr_spawn_pane` — create an arbitrary command pane when a constrained/addressable Fleet peer
   is not the desired shape; raw commands are intentionally excluded from `herdr_spawn_peer`.
-  Orchestrators may use this for auxiliary processes such as watchers or servers, never to bypass
-  delegate-only implementation policy.
+  The operator uses it for auxiliary processes such as watchers or servers.
 - `herdr_read_pane` — bounded `pane.read` (≤200 lines), read-to-decide on workers/tools;
   messaging still goes through coms, and peer busy state comes from `coms_list`, not from
   reading the screen
@@ -1185,11 +1196,11 @@ under `~/.pi/coms/projects/<project>/agents/<name>.json` and is created at runti
 
 - `/af-coms` — coms control surface (peer list / status)
 - `/af-handoff <peer>` — hand the whole session off to a coms peer (see [Handoff](#handoff))
-- `/af-poll [--panel NAME] [--persona researcher|reviewer] <question>` — ask every voice in a named model panel (from the workspace's `.pi/agents/voices.yaml`) the same question. `--panel` wins; else the configured Poll panel (`poll-panel:` in `## agent-hub`, or the active model profile's panel); else the panel named `default` when the roster has one. An unknown or missing name is refused before any voice starts, listing the available panels (or saying the roster is empty) and how to select one. Counts as **one** turn-budget dispatch. While it runs, one live block above the editor shows the resolved panel, one row per configured voice (updated as each answers or fails), and the synthesis row while the integrator works; it then leaves exactly one transcript entry with the recommendation or the failure reason (expand it for positions, reasons and the opinions path). On success that entry hands the digest to the dispatcher. Full opinions stay on disk under `.pi/agent-sessions/artifacts/polls/<runId>/` at the Fleet workspace.
+- `/af-poll [--panel NAME] [--persona researcher|reviewer] <question>` — ask every voice in a named model panel (from the workspace's `.pi/agents/voices.yaml`) the same question. `--panel` wins; else the configured Poll panel (the panel named after the active model profile, else `poll-panel:` in `## agent-hub`); else the panel named `default` when the roster has one. An unknown or missing name is refused before any voice starts, listing the available panels (or saying the roster is empty) and how to select one. A panel with no `integrator: true` voice is refused before any voice starts or any budget is charged, because its opinions cannot be synthesized; Debate needs no integrator. Counts as **one** turn-budget dispatch. While it runs, one live block above the editor shows the resolved panel, one row per configured voice (updated as each answers or fails), and the synthesis row while the integrator works; it then leaves exactly one transcript entry with the recommendation or the failure reason (expand it for positions, reasons and the opinions path). On success that entry hands the digest to the dispatcher. Full opinions stay on disk under `.pi/agent-sessions/artifacts/polls/<runId>/` at the Fleet workspace.
 - `poll_panel` (model tool) — the same poll, started by the operator itself with typed `question`, optional `panel` (same precedence) and `persona`. A voice is read-only, so the persona of Poll and Debate is `researcher` (default) or `reviewer`; `editor` is refused and a retired persona name shows its role mapping. It is meant for decisions, not facts: architectural choices, uncertain diagnoses, choosing between approaches, risky changes. It is read-only, counts as one dispatch, updates the same compact block in place in its tool result, and returns the digest and opinions directory to the model. A poll with fewer than two successful voices fails and is reported as no decision.
 - **Git work context (both entry points).** Voices, the synthesis worker and their read-only Git checks run in the session's assigned checkout: the `--worktree` selection, or the workspace itself when it is a Git checkout. Panels, personas, overrides, run records and opinions stay at the Fleet workspace; outside the checkout the digest gives the opinions path absolutely. A workspace that is not a Git repository and has no assigned worktree, a working directory outside the assignment, or a binding that no longer validates is refused once, before any voice starts — Poll and Debate never choose among child repositories. Start the session with `just fleet --worktree <path>` instead.
 - `/af-debate [--panel NAME] [--persona researcher|reviewer] [--rounds N] <question>` — cross-examine one decision across the panel for 2–5 harness-mediated rounds (default 3). Panel precedence, persona rule and Git work context are Poll's; any refusal (question, persona, rounds, target, panel, preflight) starts no voice and charges nothing. Round 1 positions are independent and parallel; in each later round every surviving voice sees the other successful voices' labeled positions from the previous round. A voice that fails drops out; fewer than two successes in round 1 fail the debate (the message names the round artifacts), and a later collapse stops it early and says so. There is no judge and no hidden merge. Counts as **one** turn-budget dispatch. One live block shows the resolved panel, the round of the total and one row per voice; it leaves exactly one transcript entry. On success that entry hands the digest to the dispatcher: each final position, which voices changed position in which round and the evidence that moved them, failed voices, and the open disagreements — each voice's final-round refutations, attributed. Per-round files land under `.pi/agent-sessions/artifacts/polls/<runId>/debate/round-<n>/` at the Fleet workspace. The operator owns the decision; see `skills/debate/SKILL.md`.
-- `debate_panel` (model tool) — the same debate, started by the operator itself with typed `question`, optional `panel` (same precedence), `persona` and `rounds`. Use it when a known objection could change a decision, or when a poll disagrees; never for facts. It updates the same block in place in its tool result and returns the digest plus the structured result (`details.result`).
+- `debate_panel` (model tool) — the same debate, started by the operator itself with typed `question`, optional `panel` (same precedence), `persona` and `rounds`. Use it when a known objection could change a decision, or when a poll disagrees; never for facts. It updates the same block in place in its tool result and returns the digest under a `DEBATE RESULT (panel NAME, R of N rounds, complete|stopped: …)` headline, plus the structured result (`details.result`).
 - `/af-compound [focus]` — end-of-session **compound-learning pass**: the dispatcher composes a
   candidate-lessons brief from the session (corrections, recurring findings, root causes),
   confirms it with the user, then dispatches an `editor` with the `documentation` practice to land
@@ -1218,9 +1229,10 @@ is in your pool.** `coms_list`, `coms_send`, and `/af-handoff` all resolve targe
 the pool, and **both are human-only** — the LLM cannot widen scope to reach more peers:
 
 - **Project** — defaults to your own `identity.project`. A human can retarget with `/af-coms --project
-  <name>` (one project) or `/af-coms --all` (every project). `coms_list`'s own parameters cannot
+  <name>` (one project) or `/af-coms --project *` (every project). `coms_list`'s own parameters cannot
   override this; an LLM request for a wider project is clamped back to the current pool and flagged.
-- **Explicit (private) peers** — excluded from every pool by default. `/af-coms --all` opts them in.
+- **Explicit (private) peers** — excluded from every pool by default. `/af-coms --all` toggles them in
+  (and out again).
 
 This closes a cross-project leak where a peer reachable through the mesh was *not* shown in the
 default project-scoped pool — so it could be messaged without being "connected." Now the reachable
@@ -1280,7 +1292,7 @@ Semantics:
 - **No self-review by address.** A reviewer route never reaches a peer address that changed a file
   in the review's scope, even after a restart: an `auto` route runs a native reviewer instead, with
   a notice, while an explicit `backend: "coms"` or `fallback: none` is refused before anything
-  starts. A deliberately fresh reviewer needs another peer name.
+  starts (`review_self_authored`). A deliberately fresh reviewer needs another peer name.
 - **Standing context is the point.** Re-dispatches (ASK_USER answers, research resumes) go back to
   the same peer session, so a Claude Code reviewer keeps its review context across rounds.
 - **Visibility.** The role's grid card shows a `⇄coms <peer-model>` badge, history entries are
@@ -1406,6 +1418,8 @@ lease or socket loss and must never persist or log the token.
   `.pi/agents/personas/`; a project file with a role's name may replace one) and (strongly recommended)
   [`pi-ask-user`](https://github.com/edlsh/pi-ask-user). A missing role is reported at session start
   and its dispatches are refused; any other definition file is listed as not dispatched.
+- [`skills/debate`](../../../skills/debate/SKILL.md), the operator guidance for `debate_panel`,
+  `/af-debate` and a delegate's `DECISION_QUESTION:` proposal.
 - `.pi/damage-control-rules.yaml` for every guarded `just fleet` Pi mode.
 - Nothing extra in-repo for coms — the peer registry lives at `~/.pi/coms/` and is created at
   runtime.
@@ -1653,7 +1667,7 @@ privacy boundaries, evaluation commands and outstanding live acceptance.
 
 ## Unified System 1 v2 configuration
 
-The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract and per-consumer usage](../../../docs/system1-config.md) and the inert, all-consumer [system1.example.json](../../../docs/system1.example.json) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change.
+The runtime source is `.ai/system1.json` version 2 with independent consumer sections, one immutable session snapshot and a shared service. Installation selection remains separate. See [the unified configuration contract and per-consumer usage](../../../docs/system1-config.md) and the inert, all-consumer [system1.example.json](../../../docs/system1.example.json) for setup, explicit migration, retained backups, diagnostics and remote/local off semantics. Legacy JSON files and `watchdog-system1` in Markdown are not runtime sources. v1 requires explicit migration and cannot start inference. Persisted Task Triage obligations remain enforced when inference is off or unavailable. D10 is not activated by this change. Every System 1 call from the Hub, `ask_system1` included, goes through Fleet's direct TypeSafe adapter; Pi's native classifier is not used (`.pi/harnesses/lib/system1/transport.js`), and `agent-fleet doctor` shows `transport: direct` for an enabled configuration.
 
 D7 `consumers.contextCompaction` adds optional automatic early-boundary advice. On Pi 1.1.0 or later the Hub keeps deterministic 60% early opportunity / 70% compact-and-continue (80% ceiling) recovery independent of System1. Early advice requires separate consent, compactable history, Pi-owned reserve headroom and provider confidence; unavailable/unaccepted advice never removes the pressure fallback. Explicit compaction of a too-small session is honestly skipped while any continuation remains gated. Shared native children load the pressure adapter, but coms task-description binding and root System1 forwarding through nested/workflow processes remain incomplete. See [D7 usage, live evidence and limits](../../../docs/system1-context-continuity.md); configuration examples do not activate these features.
 

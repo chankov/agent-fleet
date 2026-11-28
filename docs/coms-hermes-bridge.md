@@ -109,7 +109,7 @@ just fleet conductor hermes --project af            # live one-pane conductor wo
 just fleet conductor hermes --project af --dry-run  # preview; no Herdr calls
 ```
 
-The live recipe runs `.pi/agent-fleet/scripts/herdr-hub.ts --conductor hermes`: it creates a herdr workspace labeled `<worktree-tag>-conductor-hermes-<name>` (the optional name defaults to `full`; the tag is the last dot-segment of the checkout's basename, so the same launch from a different worktree gets its own workspace) with one `conductor-hermes` pane running `hermes -p dev`. An existing workspace with that label is refused. Peers are not part of it: start each with `just fleet peer <name> --project af`. Peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
+The live recipe runs `.pi/agent-fleet/scripts/herdr-hub.ts --conductor hermes`: it creates a herdr workspace labeled `<worktree-tag>-conductor-hermes-<name>` (the optional name defaults to `full`; a non-default project appends `--project.<project>`; the tag is the last dot-segment of the checkout's basename, so the same launch from a different worktree gets its own workspace) with one `conductor-hermes` pane running `hermes -p dev`. An existing workspace with that label is refused. Peers are not part of it: start each with `just fleet peer <name> --project af`. Peers keep their normal coms harness and herdr presence reporting, so they continue to show agent state in the sidebar; Hermes' own herdr-agent-state plugin is responsible for the conductor pane's state.
 
 ### Telegram bridge control command
 
@@ -123,7 +123,7 @@ The outbound `hermes send` path needs a configured Telegram channel but no skill
 /af-set-hermes-telegram off 7883056502:1735
 ```
 
-Claude Code exposes the unprefixed `/set-hermes-telegram`; the arguments and backend are identical. The deterministic CLI can also be called directly with `agent-fleet set-hermes-telegram ...`.
+The deterministic CLI can also be called directly with `agent-fleet set-hermes-telegram ...`; the arguments and backend are identical.
 
 #### `status` and profile resolution
 

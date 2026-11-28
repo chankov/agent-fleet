@@ -3,7 +3,7 @@
 This directory holds the in-repository Hermes surfaces of Agent Fleet: the
 **Desktop plugin** that shows the live fleet, and the **skills** behind the
 coms ⇄ Hermes question bridge. They are source artifacts, installed into a
-profile explicitly — nothing here is published to npm and nothing writes to
+profile explicitly — the npm package carries them, but nothing writes to
 `~/.hermes` unless you run an installer.
 
 Two distinct integrations, easy to conflate:
@@ -17,7 +17,7 @@ Two distinct integrations, easy to conflate:
 
 `desktop-plugins/<id>/` and `plugins/<id>/` are the two halves of a Hermes
 plugin — the Electron pane and the FastAPI backend it calls. They are installed
-into a profile with `.pi/agent-fleet/scripts/install-hermes-plugin.sh`, never published to npm.
+into a profile with `.pi/agent-fleet/scripts/install-hermes-plugin.sh` from a checkout; that script does not ship on npm.
 The contract, the install runbook, and the failure modes that look identical
 from the outside are documented in
 [docs/hermes-desktop-plugins.md](../../../docs/hermes-desktop-plugins.md).

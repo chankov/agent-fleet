@@ -41,15 +41,15 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 
 ## Skills by Phase
 
-**Define:** interview-me, idea-refine, spec-driven-development
+**Define:** interview-me, idea-refine, spec-driven-development, repository-ai-setup
 **Plan:** planning-and-task-breakdown, constraint-driven-development
 **Build:** incremental-implementation, test-driven-development, context-engineering, source-driven-development, doubt-driven-development, frontend-ui-engineering, api-and-interface-design
 **Verify:** browser-testing-with-devtools, debugging-and-error-recovery
 **Review:** code-review-and-quality, code-simplification, security-and-hardening, performance-optimization
 **Ship:** git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, shipping-and-launch
-**Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), debate (operator guidance for `debate_panel` / `/af-debate`: frame one decision, read positions and dissent, decide or escalate — no judge; required by the Hub), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md)
+**Orchestrate:** orchestration-verification (the Verification Contract enforced by the agent-hub operator), debate (operator guidance for `debate_panel` / `/af-debate`: frame one decision, read positions and dissent, decide or escalate — no judge; required by the Hub), peer-coms (Claude Code as a coms peer via the bridge — the ONLY role Claude Code has in the fleet; see docs/claude-code-coms-bridge.md), fleet-connect (connect a native Codex chat to one Fleet session)
 **Learn:** compound-learning (end-of-session lessons → minimal diffs on the project's `rules:`/`docs:` targets — invoked via the agent-hub `/af-compound` command dispatching an `editor` with the `documentation` practice)
-**Meta:** drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
+**Meta:** using-agent-skills, designing-agents, drafting-workflows (nearest-shape flow drafting with exact prompts and mandatory compile/dry-run gates)
 
 ## Conventions
 
@@ -67,8 +67,8 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 
 ## Commands
 
-- `npm test` — CLI smoke test (`--version`, `--help`) plus the `node --test` unit tests in `bin/test/`. The fast and full runners run 4 files at a time; `AF_TEST_CONCURRENCY=<n>` lowers that on a loaded machine (see CONTRIBUTING.md). Remove every temp dir a test creates with `t.after`/`test.after?.`
-- `just flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]` — headless deterministic workflow execution; exit `0` accepted, `1` failed/unaccepted, `2` invalid/unknown, and `3` startup refusal. Quality and build-test flows require `## workflows` → non-empty `quality:` in `.ai/agent-fleet-overrides.md`; see `docs/workflows.md`. Runtime traces stay under the gitignored `.pi/flow-sessions/`
+- `npm test` — the fast lane (`bin/test/run-fast.js`, a fixed list of `node --test` files; release CI runs it). `npm run test:full` adds the CLI smoke test (`--version`, `--help`), the type checks and the full runner. The fast and full runners run 4 files at a time; `AF_TEST_CONCURRENCY=<n>` lowers that on a loaded machine (see CONTRIBUTING.md). Remove every temp dir a test creates with `t.after`/`test.after?.`
+- `just flow <name> [args] [--branch] [--allow-dirty] [--run-id <id>] [--dry-run]` — headless deterministic workflow execution on the current branch (`--branch` runs it on a new `flow/<name>-<runId>` branch instead); exit `0` accepted, `1` failed/unaccepted, `2` invalid/unknown, and `3` startup refusal. Quality and build-test flows require `## workflows` → non-empty `quality:` in `.ai/agent-fleet-overrides.md`; see `docs/workflows.md`. Runtime traces stay under the gitignored `.pi/flow-sessions/`
 - `just flow cleanup [number|flow/branch] [--discard] [--yes]` — list/select flow branches and remove them through Worktrunk; normal cleanup is non-forcing, `--discard` explicitly permits deletion of clean unmerged work, and dirty worktrees are always refused. Example: `just flow cleanup` then `just flow cleanup 2`
 - `just flow merge [number|flow/branch] [--target <branch>] [--yes]` — squash-merge an accepted, clean flow through Worktrunk into its recorded source branch, then remove the flow branch/worktree. Example: `just flow merge` then `just flow merge 2`; old branches without source metadata need `--target`
 - `npx tsc -p .pi/agent-fleet/scripts/workflows/tsconfig.json --noEmit` — scoped workflow-only TypeScript gate; it does not require edits under `.pi/harnesses/`
