@@ -1,6 +1,6 @@
 # Skills Catalog
 
-All 31 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/af-spec`, `/af-plan`, `/af-build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
+All 33 skills, grouped by lifecycle phase. Each one is a structured workflow with steps, verification gates, and anti-rationalization tables — see [skill-anatomy.md](skill-anatomy.md) for the format. The lifecycle commands (`/af-spec`, `/af-plan`, `/af-build`, …) are the entry points; these skills are what they activate, and every skill can also be referenced directly.
 
 Skills live in **two roots**: fleet-native and customized skills in [`skills/`](../skills/), and the pristine upstream import in [`vendor/agent-skills-upstream/skills/`](../vendor/agent-skills-upstream/). When a name exists in both, the native copy wins — see [UPSTREAM-SKILLS.md](UPSTREAM-SKILLS.md).
 
@@ -10,6 +10,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 |-------|-------------|----------|
 | [using-agent-skills](../skills/using-agent-skills/SKILL.md) | Maps incoming work to the right skill workflow and defines shared operating rules | Starting a session or deciding which skill applies |
 | [designing-agents](../skills/designing-agents/SKILL.md) | Author a workflow skill or pi harness that another agent will run, or a same-named role file that replaces a runtime role's prompt or model | Writing or rewriting a skill, harness or role override |
+| [drafting-workflows](../skills/drafting-workflows/SKILL.md) | Draft a deterministic `just flow` workflow by adapting the nearest existing flow, then prove the draft compiles and dry-runs | Creating or changing a `just flow` workflow, or turning an operator request into phase prompts |
 
 ## Define - Clarify what to build
 
@@ -73,6 +74,7 @@ Skills live in **two roots**: fleet-native and customized skills in [`skills/`](
 | [orchestration-verification](../skills/orchestration-verification/SKILL.md) | The Verification Contract — dispatcher-owned acceptance assertions, a parity/touchpoint inventory for "behave like X" requests, structured upward returns with named evidence, and a requirement-regression reset | Orchestrating role assignments through a dispatcher (the `agent-hub` harness), a "make X behave like existing Y" change, or a requirement that keeps coming back wrong |
 | [debate](../skills/debate/SKILL.md) | Hub-operator guidance for a model-panel Debate — choose it over research or a Poll, frame one decision with its alternatives, the objection to test, evidence paths and constraints, invoke `debate_panel` or `/af-debate`, read final positions, changes and open disagreements, then record or escalate the decision. Confers no capability; not a practice | A known objection could change a choice between viable alternatives, a Poll surfaced material disagreement, or a debate result must become a recorded operator decision |
 | [peer-coms](../skills/peer-coms/SKILL.md) | Makes a bridged Claude Code pane a first-class peer in the local coms pool — discover pi colleagues with `coms-cli list`, ask/delegate with `send --await`, answer inbound peer questions, never drive panes itself. Installing it also brings the Stop hook the bridge reads | Claude Code runs in a bridged herdr pane (see the [coms bridge](claude-code-coms-bridge.md)), or an inbound `[coms message from …]` arrives |
+| [fleet-connect](../skills/fleet-connect/SKILL.md) | Connects or reconnects the current native Codex chat to one exact Fleet session; rights and notifications are approved in one native Pi dialog | A Codex chat should read, send to or approve for a running Fleet session — see [codex-connections.md](codex-connections.md) |
 
 `orchestration-verification` is the single canonical source for the four Verification-Contract artifacts. It is referenced — never restated — by the agent-hub operator prompt (the [agent-hub harness](../.pi/harnesses/agent-hub/), loaded via `just fleet`), by the `independent-review` practice, and conditionally by the [`editor`](../agents/editor.md) and [`reviewer`](../agents/reviewer.md) role files, whose structured returns report assertion status with evidence when the skill is installed.
 

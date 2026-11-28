@@ -408,7 +408,7 @@ Slash commands map to the development lifecycle; each activates the right skills
 | Orchestrate agents | *agent-hub harness* | The operator dispatches roles with practices |
 | Capture session lessons | `/af-compound` *(agent-hub)* | Every session improves the next |
 
-Under the hood are **31 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
+Under the hood are **33 skills** — each a structured workflow with steps, verification gates, and anti-rationalization tables (never vague advice). Skills also activate automatically from what you're doing: designing an API triggers `api-and-interface-design`, building UI triggers `frontend-ui-engineering`.
 
 - **Define:** [interview-me](skills/interview-me/SKILL.md) · [idea-refine](skills/idea-refine/SKILL.md) · [spec-driven-development](skills/spec-driven-development/SKILL.md)
 - **Plan:** [planning-and-task-breakdown](skills/planning-and-task-breakdown/SKILL.md) · [constraint-driven-development](skills/constraint-driven-development/SKILL.md)
@@ -458,7 +458,7 @@ Discipline is the other half. AI coding agents default to the shortest path — 
 | [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) | Canonical project direction: deterministic methodology, proportional workflows, adaptive model assistance, and evidence-based completion |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime layers, fleet hierarchy, module map, external dependencies |
 | [docs/getting-started.md](docs/getting-started.md) | First session walkthrough |
-| [docs/skills-catalog.md](docs/skills-catalog.md) | All 31 skills with descriptions and triggers |
+| [docs/skills-catalog.md](docs/skills-catalog.md) | All 33 skills with descriptions and triggers |
 | [docs/agents.md](docs/agents.md) | The three runtime roles and eleven practices: dispatch examples, models, peers, migration mapping |
 | [docs/pi-setup.md](docs/pi-setup.md) · [docs/pi-extensions.md](docs/pi-extensions.md) | pi install paths, harnesses, and utility extensions |
 | [docs/agent-fleet-setup.md](docs/agent-fleet-setup.md) | Per-project overrides (`.ai/agent-fleet-overrides.md`) — spec/plan paths, dev server, branch policy, per-role and per-practice models, dispatcher language, rules/docs targets |

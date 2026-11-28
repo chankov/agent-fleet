@@ -7,6 +7,7 @@ import { createDispatchExecutor,createResearchExecutor,type WriterEntry } from "
 import { applyProcessClassification,createProcessState,noteProcessStage,processPreEffectGate,evaluateProcessObligations,processAuditRecord,latestProcessState } from "../process-obligations.ts";
 import { applyTaskTriageAdditions } from "../task-triage-obligations.ts";
 import { revisionOf,worktreeRevision } from "../scope-gate.js";
+import { reviewInput } from "../review-reuse.ts";
 import { extractAskUserQuestions } from "../presentation.ts";
 
 import { gitDiagnosticsFixture,nativeCleanLifecycle,highRiskChangedFixture,operatorStateFixture } from "./dispatch-execution.test-support.ts";
@@ -619,6 +620,35 @@ test("review reuse: security audit is reused only as security coverage, and a fr
  await execute("reject",{...params,task:"Fresh audit",review_reason:"New concern"},undefined,undefined,{cwd} as any);
  assert.equal(process().review.evidenceRef,null,"fresh rejection cannot leave old approval active");
  assert.equal(process().reviews?.some(r=>r.agent==="reviewer--p2"),false);
+});
+
+test("review reuse: a retained record whose contract lacks independent-review is never reused",async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0;
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d.dispatchAgent=async()=>({output:"verdict: APPROVE",exitCode:0,elapsed:1,dispatchId:`review-${++runs}`});
+ const execute=createDispatchExecutor(d as any),params={agent:"reviewer",task:"Review changed code",scope:["src/api.ts"]};
+ await execute("first",params,undefined,undefined,{cwd} as any);assert.ok(process().review.evidenceRef);
+ // A state saved before the practice qualifier: the same evidence retained under a testing-only contract.
+ const legacy=reviewInput(cwd,d.noProgress.taskId(),"reviewer",params.scope,process(),d.state.getAssertions(),[],(d.state as any).getAcceptedUserInput?.(),["testing"])!;
+ d.state.setProcessState({...process(),reviews:process().reviews!.map(r=>({...r,contractHash:legacy.contractHash}))});
+ const consulted=await execute("consult",{...params,practices:["testing"]},undefined,undefined,{cwd} as any);
+ assert.notEqual((consulted.details as any).status,"review_reused","only independent-review evidence is reusable");assert.equal(runs,2);
+});
+
+test("review reuse: a reviewer consulted with another practice keeps the final review it cannot replace",async t=>{
+ const {cwd,d,process}=await highRiskChangedFixture(t);let runs=0;
+ d.budget.currentBudget=()=>({maxDispatches:null,maxResearch:null}) as any;
+ d.dispatchAgent=async()=>({output:"verdict: APPROVE",exitCode:0,elapsed:1,dispatchId:`review-${++runs}`});
+ const execute=createDispatchExecutor(d as any),params={agent:"reviewer",task:"Review changed code",scope:["src/api.ts"]};
+ const first=await execute("first",params,undefined,undefined,{cwd} as any);const evidence=(first.details as any).returnPath;
+ assert.equal(process().review.evidenceRef,evidence);
+ const consulted=await execute("coverage",{...params,task:"Check the test coverage",practices:["testing"]},undefined,undefined,{cwd} as any);
+ assert.equal(runs,2,"the consultation runs");
+ assert.deepEqual((consulted.details as any).reviewEvidence.reasons,["review_practice_missing"]);
+ assert.equal(process().review.evidenceRef,evidence,"advice never clears the independent review");
+ assert.equal(process().reviews?.find(r=>r.agent==="reviewer")?.evidenceRef,evidence);
+ const again=await execute("again",{...params,task:"Independently check the change again"},undefined,undefined,{cwd} as any);
+ assert.equal((again.details as any).status,"review_reused","the kept review still covers the unchanged scope");assert.equal(runs,2);
 });
 
 for(const condition of ["question","blocking-finding","source-changed-during-review"] as const) test(`review reuse: ${condition} never records reusable approval`,async t=>{

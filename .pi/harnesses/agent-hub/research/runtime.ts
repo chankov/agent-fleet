@@ -30,6 +30,8 @@ import { runResearchSpawn, type ResearchSpawnPorts } from "./spawn-run.ts";
 export const RESEARCH_TOOLS = "read,grep,find,ls";
 export const MAX_AUTO_RESEARCH_ROUNDS = 2;
 export const MAX_AUTO_RESEARCH_QUESTIONS = 4;
+/** The ad-hoc helper's definition name; it is not a role and owns no model policy. */
+export const ANON_RESEARCH_NAME = "research";
 
 export const ANON_RESEARCH_PROMPT = `# Research Helper
 
@@ -144,7 +146,7 @@ export interface ResearchRuntime<TDef extends ResearchAgentDef = ResearchAgentDe
 	sessionPath(id: number): string;
 	anonymousDef(): TDef;
 	resolveModel(def: TDef, explicit: string | undefined, ctx: ExtensionContext, practices?: readonly string[]): string;
-	/** Thinking for the same choice; undefined keeps the definition's own. */
+	/** Thinking for the same choice, from the researcher role for the practices; an explicit model does not change it. */
 	resolveThinking?(def: TDef, explicit: string | undefined, practices?: readonly string[]): string | undefined;
 	createState(def: TDef, persona: boolean, model: string, thinking?: string): ResearchState<TDef>;
 	finalize(state: ResearchState<TDef>, outcome: ResearchFinalizeOutcome): void;
@@ -178,7 +180,15 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 		const states = deps.getResearchStates();
 		if (states.get(state.id) === state) states.delete(state.id);
 	};
-	const spawnPorts: ResearchSpawnPorts<TDef> = { ...deps, researchTools: RESEARCH_TOOLS, sessionPath, finalize };
+	// The ad-hoc helper keeps its own prompt but has no model policy of its own: it takes the researcher
+	// role's (D9–D10). Without this a complete profile hands the name "research" its defaults, and the two
+	// spawn_research forms would pick different models, thinking and fallbacks for the same practices.
+	const policyDef = (def: TDef): TDef => def.name === ANON_RESEARCH_NAME && !def.file ? deps.researcherDef?.() ?? def : def;
+	const spawnPorts: ResearchSpawnPorts<TDef> = {
+		...deps, researchTools: RESEARCH_TOOLS, sessionPath, finalize,
+		resolvedThinking: (def, practices) => deps.resolvedThinking(policyDef(def), practices),
+		fallbackModelFor: (def, model) => deps.fallbackModelFor(policyDef(def), model),
+	};
 
 	return {
 		states: deps.getResearchStates,
@@ -190,23 +200,20 @@ export function createResearchRuntime<TDef extends ResearchAgentDef>(deps: Resea
 		sessionPath,
 		anonymousDef() {
 			return {
-				name: "research", description: "Ad-hoc read-only research helper.", tools: RESEARCH_TOOLS,
+				name: ANON_RESEARCH_NAME, description: "Ad-hoc read-only research helper.", tools: RESEARCH_TOOLS,
 				systemPrompt: ANON_RESEARCH_PROMPT, file: "",
 			} as TDef;
 		},
-		// One choice for both spawn_research forms (D9–D10): an explicit helper model wins; otherwise the
-		// definition's own model for these practices, then the researcher role's, and only then the chat model.
+		// One choice for both spawn_research forms (D9–D10): the researcher role's model for these practices,
+		// and the chat model only when no role is installed. An explicit helper model replaces the model alone.
 		resolveModel(def, explicit, ctx, practices) {
 			if (explicit) return explicit;
-			const role = deps.researcherDef?.();
-			return deps.resolvedModel(def, practices) || (role ? deps.resolvedModel(role, practices) : undefined)
+			return deps.resolvedModel(policyDef(def), practices)
 				|| (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "openrouter/google/gemini-3-flash-preview");
 		},
-		resolveThinking(def, explicit, practices) {
-			if (explicit) return undefined;
-			if (deps.resolvedModel(def, practices)) return deps.resolvedThinking(def, practices);
-			const role = deps.researcherDef?.();
-			return role && deps.resolvedModel(role, practices) ? deps.resolvedThinking(role, practices) : undefined;
+		// Thinking follows the role for the practices in both forms, also when the operator named the model.
+		resolveThinking(def, _explicit, practices) {
+			return deps.resolvedThinking(policyDef(def), practices);
 		},
 		createState(def, persona, model, thinking) {
 			const id = deps.getNextResearchId();

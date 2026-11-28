@@ -351,7 +351,7 @@ async function runWithAutoResearch(d: DispatchExecutorDeps, p: PreparedDispatch,
 		onUpdate?.({ content: [{ type: "text", text: `${p.agent} paused for research (${questions.length} question(s)) — spawning read-only helpers...` }], details: { agent: p.agent, task: p.task, status: "researching" } });
 		const findingsDir = safePathWithin(p.sessionDir, "findings"); mkdirSync(findingsDir, { recursive: true }); const key = safeAgentKey(d.state.getAgentStates().get(p.agent.toLowerCase())?.def.name ?? p.agent);
 		const answered = await Promise.all(questions.map(async question => {
-			const def = d.research.anonymousDef(); const state = d.research.createState(def, false, d.research.resolveModel(def, undefined, ctx));
+			const def = d.research.anonymousDef(); const state = d.research.createState(def, false, d.research.resolveModel(def, undefined, ctx), d.research.resolveThinking?.(def, undefined));
 			const response = await d.research.spawn(state, question, ctx, [], signal); const file = safePathWithin(findingsDir, `${key}-${response.dispatchId ?? randomUUID()}.md`);
 			writeFileSync(file, `# Research findings r${state.id}\n\n**Question:** ${question}\n\n${response.exitCode === 0 ? response.output : `(research helper failed, exit ${response.exitCode})\n\n${response.output}`}\n`, { encoding: "utf-8", flag: "wx" }); return { question, file };
 		}));
@@ -426,7 +426,10 @@ function researchExecutionConditions(d: DispatchExecutorDeps, params: SpawnResea
 	const persona = params.persona ? d.state.getResearchPersonas().find(item => item.name.toLowerCase() === params.persona!.toLowerCase()) : undefined;
 	try {
 		const def = persona ?? d.research.anonymousDef();
-		return { model: d.research.resolveModel(def, persona ? undefined : params.model, ctx), tools: "read,grep,find,ls", externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged() };
+		// The same practices as the run itself, so the recorded condition is the model that starts.
+		const assignment = resolveDispatchAssignment("researcher", params.practices, ctx.cwd || process.cwd());
+		const practices = assignment.ok ? assignmentPracticeIds(assignment) : [];
+		return { model: d.research.resolveModel(def, persona ? undefined : params.model, ctx, practices), tools: "read,grep,find,ls", externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged() };
 	} catch {
 		return { model: params.model ?? null, tools: "read,grep,find,ls", externalBlockerAcknowledged: d.state.getExternalBlockerAcknowledged() };
 	}
@@ -662,6 +665,9 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		const invalid = validateDispatchAgent(d, agent, params.task, ctx, params.practices); if (invalid) return invalid;
 		const guardedAssignment = resolveDispatchAssignment(agent, params.practices, ctx.cwd || process.cwd());
 		const guardedPractices = guardedAssignment.ok ? assignmentPracticeIds(guardedAssignment) : [];
+		// Only an independent-review assignment can produce review evidence, so only it may reuse or replace it;
+		// a reviewer consulted with another practice gives advice and leaves the recorded review alone.
+		const independentReview = guardedPractices.includes("independent-review");
 		if (d.state.getAgentStates().get(agent)?.status === "running") return { content: [{ type: "text", text: "Agent is busy; nothing started, queued or charged. Re-invoke explicitly after it is idle." }], details: { status: "busy", reason: "busy", recoveryCategory: "busy", started: false, exitCode: 1 } };
 		d.budget.ensureTaskTier();
 		const processGate = d.state.processBlock?.() ?? (d.state.getProcessState ? processPreEffectGate(d.state.getProcessState(), "child", agent) : { reason: "process_state_unavailable", message: "Process state is unavailable; child launch fails closed." });
@@ -670,7 +676,7 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
 		try { preflightDeliverables(params, { cwd: ctx.cwd || process.cwd(), sessionDir: d.state.getSessionDir() }); }
 		catch (error) { return refusal(d, agent, params.task, "scope_preflight_failed", String(error)); }
 		if (signal?.aborted) return refusal(d, agent, params.task, "cancelled", "Operation cancelled before dispatch.");
-        if (isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && !needsComsWriter(d, agent, params) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
+        if (independentReview && isReviewPersona(agent) && (!params.review_mode || params.review_mode === "changes") && !needsComsWriter(d, agent, params) && !params.review_reason && !params.deliverables?.length && !/(?:USER|ORCHESTRATOR)_ANSWER:/.test(params.task) && !d.state.getActiveWritableDispatches() && !d.state.getActiveWriters?.().length && d.state.getProcessState) {
             const state=d.state.getProcessState();
             let cached=null;
             try { cached=reusableReview(state,reviewInput(ctx.cwd,d.noProgress.taskId(),agent,params.scope??[],state,d.state.getAssertions(),d.artifacts.loadInputArtifacts(params.artifacts,ctx),d.state.getAcceptedUserInput?.(),guardedPractices),ctx.cwd); } catch { /* incomplete evidence must run the normal path */ }
@@ -681,7 +687,7 @@ function createGuardedDispatchExecutor(d: DispatchExecutorDeps): ToolExecutor<Di
                 return {content:[{type:"text",text:`Independent ${agent} review already covers this unchanged scope and requirements. Reused evidence: ${cached.evidenceRef}. No child launched. New review focus requires review_reason.`}],details:{status:"review_reused",reused:true,started:false,notStarted:true,exitCode:0,elapsed:0,returnPath:cached.evidenceRef,processVerdict:verdict,accepted:verdict.accepted}};
             }
         }
-        if(params.review_mode !== 'private-config-current-state' && isReviewPersona(agent) && d.state.getProcessState){
+        if(independentReview && params.review_mode !== 'private-config-current-state' && isReviewPersona(agent) && d.state.getProcessState){
             const state=d.state.getProcessState();
             if(state.review.evidenceRef){
                 const next={...state,review:{...state.review,evidenceRef:null,revision:null},reviews:(state.reviews??[]).filter(r=>r.agent!==agent)};

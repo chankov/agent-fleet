@@ -822,7 +822,7 @@ export default function (pi: ExtensionAPI) {
 		getPendingReplies: () => pendingReplies.values(),
 		displayName,
 		modelForAgent: state => state.lastBackend === "coms" ? shortModel(state.comsPeerModel) : modelWithThinking(state.def),
-		modelForResearch: state => shortModel(state.model) + thinkingSuffix(resolvedThinking(state.def)),
+		modelForResearch: state => shortModel(state.model) + thinkingSuffix(state.thinking ?? resolvedThinking(state.def)),
 		modelForPeer: abbreviateModel,
 		getSystem1: () => watchdogActivity?.live() ?? null,
 		getTaskTriage: () => {

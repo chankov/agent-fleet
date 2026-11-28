@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createResearchRuntime, parseResearchHandle, RESEARCH_TOOLS, type ResearchState } from "./runtime.ts";
 import { PROFILE_ENV } from "../policy/profile-runtime.ts";
+import { createModelPolicy } from "../policy/models.ts";
 import { nativeResearchSystemPrompt } from "../../lib/context-budget-child-prompt.ts";
 
 const def = { name: "researcher", description: "Research", tools: "bash", systemPrompt: "prompt", file: "/agents/researcher.md", model: "provider/persona" };
@@ -242,32 +243,39 @@ test("research counter reset preserves prior raw session, transcript identity an
  assert.notEqual(first.dispatchId, second.dispatchId);
 });
 
-test("both spawn_research forms take the researcher role's model and thinking for the practices; an explicit helper model still wins (D9–D10)", async () => {
+test("under a complete profile both spawn_research forms take the researcher role's model, thinking and fallback for the practices; an explicit helper model replaces only the model (D9–D10)", async () => {
+	// The real model policy: the profile's defaults differ from its researcher.architecture entry.
+	const policy = createModelPolicy<any>({ getAllDefs: () => [def], getActiveDef: () => undefined, getResearchDefs: () => [def], refreshUi() {} });
+	policy.applyProfile({ version: 2, defaults: { model: "omlx/a", thinking: "off" }, agents: { "researcher.architecture": { model: "omlx/b", thinking: "high" } }, "allowed-models": ["omlx/a", "omlx/b"], fallback: "none", routing: "native" } as any);
 	const spawned: any[] = [];
+	const fallbackDefs: string[] = [];
 	const f = fixture({
-		resolvedModel: (agent: any, practices?: readonly string[]) => agent.name === "researcher" ? (practices?.includes("architecture") ? "provider/architect" : agent.model) : agent.model,
-		resolvedThinking: (agent: any, practices?: readonly string[]) => agent.name === "researcher" ? (practices?.includes("architecture") ? "high" : "medium") : undefined,
+		resolvedModel: policy.resolvedModel, resolvedThinking: policy.resolvedThinking,
 		resolveThinkingLevel: (value: string | undefined) => value ?? "off",
+		fallbackModelFor: (agent: typeof def) => { fallbackDefs.push(agent.name); return undefined; },
 		researcherDef: () => def,
 		spawnPiAgentWithModelFallback: async (options: any) => { spawned.push(options); return { output: "findings", stderr: "", exitCode: 0 }; },
 	});
 	const adHoc = f.runtime.anonymousDef();
 	assert.equal(adHoc.model, undefined, "the ad-hoc helper has no model of its own");
-	assert.equal(f.runtime.resolveModel(adHoc, undefined, ctx, ["architecture"]), "provider/architect", "the role's practice model");
-	assert.equal(f.runtime.resolveThinking!(adHoc, undefined, ["architecture"]), "high");
-	assert.equal(f.runtime.resolveModel(adHoc, undefined, ctx, ["research"]), "provider/persona", "the role model, not the chat model");
-	assert.equal(f.runtime.resolveThinking!(adHoc, undefined, ["research"]), "medium");
-	assert.equal(f.runtime.resolveModel(def, undefined, ctx, ["architecture"]), "provider/architect", "the persona form passes its practices too");
+	assert.equal(policy.resolvedModel(adHoc, ["architecture"]), "omlx/a", "precondition: the profile hands the helper's own name its defaults");
+	for (const form of [adHoc, def]) {
+		assert.equal(f.runtime.resolveModel(form, undefined, ctx, ["architecture"]), "omlx/b", `${form.name}: the role's practice model`);
+		assert.equal(f.runtime.resolveThinking!(form, undefined, ["architecture"]), "high", `${form.name}: the role's practice thinking`);
+		assert.equal(f.runtime.resolveModel(form, undefined, ctx, ["research"]), "omlx/a", `${form.name}: no practice entry, the profile's role default`);
+		assert.equal(f.runtime.resolveThinking!(form, undefined, ["research"]), "off");
+	}
 	assert.equal(f.runtime.resolveModel(adHoc, "provider/cheap", ctx, ["architecture"]), "provider/cheap", "an explicit helper model is the operator's choice");
-	assert.equal(f.runtime.resolveThinking!(adHoc, "provider/cheap", ["architecture"]), undefined);
+	assert.equal(f.runtime.resolveThinking!(adHoc, "provider/cheap", ["architecture"]), "high", "it replaces the model only");
+
+	// At the start boundary: both forms launch with the same model and thinking, and take the role's fallback.
+	for (const form of [adHoc, def]) {
+		const state = f.runtime.createState(form, form === def, f.runtime.resolveModel(form, undefined, ctx, ["architecture"]), f.runtime.resolveThinking!(form, undefined, ["architecture"]));
+		await f.runtime.spawn(state, "Where should the export rule live?", ctx);
+	}
+	assert.deepEqual(spawned.map(options => [options.model, options.thinking]), [["omlx/b", "high"], ["omlx/b", "high"]]);
+	assert.deepEqual(fallbackDefs, ["researcher", "researcher"], "the fallback comes from the role for both forms");
+
 	const withoutRole = fixture({ researcherDef: () => undefined });
 	assert.equal(withoutRole.runtime.resolveModel(withoutRole.runtime.anonymousDef(), undefined, ctx, []), "provider/dispatcher", "no role installed: the chat model, as before");
-
-	// At the start boundary: the spawned process gets the chosen model and thinking.
-	const model = f.runtime.resolveModel(adHoc, undefined, ctx, ["architecture"]);
-	const state = f.runtime.createState(adHoc, false, model, f.runtime.resolveThinking!(adHoc, undefined, ["architecture"]));
-	await f.runtime.spawn(state, "Where should the export rule live?", ctx);
-	assert.equal(spawned.length, 1);
-	assert.equal(spawned[0].model, "provider/architect");
-	assert.equal(spawned[0].thinking, "high");
 });
