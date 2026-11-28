@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createMonitorLifecycle } from "./monitor-lifecycle.ts";
 import { createMonitorSessionBridge } from "./monitor-session-bridge.ts";
 import { MonitorRegistry } from "../../agent-fleet/scripts/lib/hermes-monitor-registry.ts";
 import { socketTempRoot } from "../../agent-fleet/scripts/lib/monitor-env.ts";
 
-test("lifecycle snapshot/output/cancel share one bridge-backed task store", async () => {
-  const root=mkdtempSync(join(socketTempRoot(),"monitor-live-")); mkdirSync(join(root,"profile"));
+test("lifecycle snapshot/output/cancel share one bridge-backed task store", async t => {
+  const root=mkdtempSync(join(socketTempRoot(),"monitor-live-")); t.after(()=>rmSync(root,{recursive:true,force:true})); mkdirSync(join(root,"profile"));
   const bridge=createMonitorSessionBridge(); const lifecycle=createMonitorLifecycle({registry:new MonitorRegistry({runtimeDir:join(root,"runtime")})});
   const registration=await lifecycle.start({profilePath:join(root,"profile"),hubInstanceId:"hub",snapshot:()=>bridge.snapshot(),output:(r:any)=>bridge.readOutput?.(r)});
   try {
@@ -37,8 +37,8 @@ test("index keeps local operator cancellation independent from optional monitor 
   assert.match(source,/cancelLocalWaitOnly\(\{/);
 });
 
-test("registry persists owner-only profile discovery metadata with relative socket/token references and restart lease", () => {
-  const root=mkdtempSync(join(socketTempRoot(),"monitor-discovery-")); const profile=join(root,"profile"); mkdirSync(profile);
+test("registry persists owner-only profile discovery metadata with relative socket/token references and restart lease", t => {
+  const root=mkdtempSync(join(socketTempRoot(),"monitor-discovery-")); t.after(()=>rmSync(root,{recursive:true,force:true})); const profile=join(root,"profile"); mkdirSync(profile);
   const registration=new MonitorRegistry({runtimeDir:join(root,"runtime")}).register({profilePath:profile,hubInstanceId:"hub",snapshot:()=>({})}) as any;
   assert.ok(registration.discoveryPath,"registry must publish owner-only discovery metadata");
   const discovery=JSON.parse(readFileSync(registration.discoveryPath,"utf8"));

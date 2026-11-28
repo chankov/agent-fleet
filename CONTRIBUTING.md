@@ -80,6 +80,25 @@ syntax rather than matching import-looking fixture strings. Temporary-directory
 checks use `os.tmpdir()` and a second, non-default temp root; real-compiler
 regressions also exercise symlinked worktrees (including macOS path aliases).
 
+The fast and full runners (`bin/test/run-fast.js`, `bin/test/run-full.js`) run
+their parallel phase 4 test files at a time, the same as release CI. Many files
+spawn real Pi, `npm pack`, `tar` or `tsc` children, so on a desktop you can
+lower that with `AF_TEST_CONCURRENCY` (an integer 1-64). Phases pinned to one
+file stay serial, and `npm run test:portability` passes the value on to the fast
+lane it re-runs:
+
+```bash
+AF_TEST_CONCURRENCY=2 npm test
+```
+
+`AF_TEST_RETRIES` (0-3; default 1 under CI, 0 locally) sets how many times the
+fast and portability lanes rerun failed tests.
+
+Tests must not leave temporary directories behind: `/tmp` can be RAM-backed.
+Register the removal as soon as `mkdtempSync` returns, so it runs even when the
+test fails: `t.after(() => rmSync(dir, { recursive: true, force: true }))`
+inside a test, or `test.after?.(…)` in a fixture helper that has no `t`.
+
 The Release workflow runs the same Linux/macOS validation on pull requests and
 main. PR jobs have read-only permissions and cannot publish. Publishing runs only
 on main after both validation jobs pass. Repository administrators should make

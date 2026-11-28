@@ -112,8 +112,9 @@ test("fresh registry heartbeats remain live across PID namespaces", () => {
 	assert.equal(registryHeartbeatIsFresh({ ...entry, heartbeat_at: "invalid" }, now), false);
 });
 
-test("registry round trip + dead-entry pruning (own pid lives, fresh heartbeat survives namespace, stale fake pid pruned)", () => {
+test("registry round trip + dead-entry pruning (own pid lives, fresh heartbeat survives namespace, stale fake pid pruned)", (t) => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coms-envelope-test-"));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 	process.env.PI_COMS_DIR = dir; // NOTE: module already imported — path helpers read COMS_DIR at import; use explicit project via helpers
 	// The module captured COMS_DIR at import time, so exercise the fs shapes
 	// through writeRegistryAtomic with the captured dir instead:
@@ -144,8 +145,9 @@ test("registry round trip + dead-entry pruning (own pid lives, fresh heartbeat s
 	fs.rmSync(path.dirname(path.dirname(registryFilePath(project, "x"))), { recursive: true, force: true });
 });
 
-test("socket round trip: prompt → ack, response → ack, nack rejects", async () => {
+test("socket round trip: prompt → ack, response → ack, nack rejects", async (t) => {
 	const sockPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "coms-sock-")), "peer.sock");
+	t.after(() => fs.rmSync(path.dirname(sockPath), { recursive: true, force: true }));
 	const seen: Array<Record<string, unknown>> = [];
 	const server = await bindEndpoint(
 		sockPath,
@@ -171,8 +173,9 @@ test("socket round trip: prompt → ack, response → ack, nack rejects", async 
 	server.close();
 });
 
-test("bindEndpoint replaces a stale socket file and refuses a live one", async () => {
+test("bindEndpoint replaces a stale socket file and refuses a live one", async (t) => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coms-sock-"));
+	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const sockPath = path.join(dir, "peer.sock");
 	fs.writeFileSync(sockPath, ""); // stale plain file
 	const server = await bindEndpoint(sockPath, () => {});

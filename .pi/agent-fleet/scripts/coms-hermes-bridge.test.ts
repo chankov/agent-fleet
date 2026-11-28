@@ -399,9 +399,9 @@ test("a persistently invalid answer file is eventually rejected as invalid_json 
 	assert.equal(fs.existsSync(file), false);
 });
 
-test("bridge exit removes its registry entry and socket", async () => {
+test("bridge exit removes its registry entry and socket", async (t) => {
 	const f = makeFixture();
-	const child = startBridge({ after: () => {} }, f);
+	const child = startBridge(t, f);
 	const entry = await waitForBridge(f);
 	assert.equal(fs.existsSync(registryFile(f)), true);
 	assert.equal(fs.existsSync(entry.endpoint), true);

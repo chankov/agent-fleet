@@ -24,7 +24,10 @@ import {
 type Handler = (msg: { id: string; method: string; params: Record<string, unknown> }, sock: net.Socket) => void;
 
 function tmpSock(): string {
-	return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "herdr-mock-")), "herdr.sock");
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "herdr-mock-"));
+	// Removed when the current test (or the file) finishes, even on failure.
+	test.after?.(() => fs.rmSync(dir, { recursive: true, force: true }));
+	return path.join(dir, "herdr.sock");
 }
 
 // Mock server: per-line handler decides what to write; by default it closes

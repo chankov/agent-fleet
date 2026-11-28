@@ -19,6 +19,13 @@ import {
 	type ResolvedTypeScriptProject,
 } from "./changed-file-diagnostics.ts";
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure.
+function tempDir(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+	return dir;
+}
+
 test("parseCompilerOutput preserves positioned, global, and multiline diagnostics", () => {
 	const diagnostics = parseCompilerOutput([
 		"src/api.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
@@ -44,7 +51,7 @@ test("groupDiagnostics retains downstream and global errors", () => {
 });
 
 test("build-info cache leases isolate concurrent runs and preserve the warm lane", () => {
-	const cacheRoot = mkdtempSync(join(tmpdir(), "af-diagnostics-cache-"));
+	const cacheRoot = tempDir("af-diagnostics-cache-");
 	const input = {
 		cacheRoot,
 		worktree: "/repo/worktree",
@@ -71,7 +78,7 @@ test("build-info cache leases isolate concurrent runs and preserve the warm lane
 });
 
 function projectFixture(config: Record<string, unknown> = { compilerOptions: { strict: true }, include: ["src/**/*"], exclude: ["src/excluded.ts"] }) {
-	const root = mkdtempSync(join(tmpdir(), "af-diagnostics-project-"));
+	const root = tempDir("af-diagnostics-project-");
 	mkdirSync(join(root, "src", "nested"), { recursive: true });
 	mkdirSync(join(root, "node_modules"), { recursive: true });
 	const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -159,7 +166,7 @@ test("valid exclusions and missing config candidates do not become config failur
 	assert.deepEqual(excluded.projects, []);
 	assert.match(excluded.reason ?? "", /excludes|could not be verified/);
 
-	const noConfig = mkdtempSync(join(tmpdir(), "af-diagnostics-no-config-"));
+	const noConfig = tempDir("af-diagnostics-no-config-");
 	const skipped = await diagnoseChangedTypeScript(["deleted.ts"], { cwd: noConfig }, { findGitRoot: () => noConfig });
 	assert.equal(skipped.status, "skipped");
 	assert.deepEqual(skipped.projects, []);
@@ -167,12 +174,12 @@ test("valid exclusions and missing config candidates do not become config failur
 });
 
 test("resolver reports absent config and absent local compiler without fallback", async () => {
-	const noConfig = mkdtempSync(join(tmpdir(), "af-diagnostics-no-config-"));
+	const noConfig = tempDir("af-diagnostics-no-config-");
 	const skipped = await diagnoseChangedTypeScript(["deleted.ts"], { cwd: noConfig }, { findGitRoot: () => noConfig });
 	assert.equal(skipped.status, "skipped");
 	assert.deepEqual(skipped.uncoveredFiles, ["deleted.ts"]);
 
-	const noCompiler = mkdtempSync(join(tmpdir(), "af-diagnostics-no-compiler-"));
+	const noCompiler = tempDir("af-diagnostics-no-compiler-");
 	writeFileSync(join(noCompiler, "tsconfig.json"), JSON.stringify({ include: ["*.ts"] }), "utf8");
 	const incomplete = await diagnoseChangedTypeScript(["deleted.ts"], { cwd: noCompiler }, { findGitRoot: () => noCompiler });
 	assert.equal(incomplete.status, "incomplete");
@@ -219,7 +226,7 @@ test("real local compiler reports diagnostics in unchanged consumers", async () 
 	writeFileSync(join(root, "src", "consumer.ts"), "import { value } from './api.js';\nconst text: string = value;\n", "utf8");
 	const result = await diagnoseChangedTypeScript(["src/api.ts"], {
 		cwd: root,
-		cacheRoot: mkdtempSync(join(tmpdir(), "af-diagnostics-real-cache-")),
+		cacheRoot: tempDir("af-diagnostics-real-cache-"),
 		cacheLane: "real",
 	}, { findGitRoot: () => root });
 	assert.equal(result.status, "completed");
@@ -234,7 +241,7 @@ test("nonzero without parseable positions remains an error and retains output", 
 	const project: ResolvedTypeScriptProject = {
 		project: "/repo/tsconfig.json", changedFiles: ["src/a.ts"], compilerPath: "/repo/node_modules/typescript/bin/tsc", compilerVersion: "5.9.3",
 	};
-	const result = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: mkdtempSync(join(tmpdir(), "af-diagnostics-cache-")) }, {
+	const result = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: tempDir("af-diagnostics-cache-") }, {
 		runProcess: async () => ({ exitCode: 1, stdout: "unexpected compiler output", stderr: "raw failure", durationMs: 1 }),
 	});
 	assert.equal(result.status, "errors");
@@ -251,7 +258,7 @@ test("timeout and spawn failure are unavailable without throwing", async () => {
 	const project: ResolvedTypeScriptProject = {
 		project: "/repo/tsconfig.json", changedFiles: ["src/a.ts"], compilerPath: "/repo/node_modules/typescript/bin/tsc", compilerVersion: "5.9.3",
 	};
-	const timed = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: mkdtempSync(join(tmpdir(), "af-diagnostics-cache-")), timeoutMs: 25 }, {
+	const timed = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: tempDir("af-diagnostics-cache-"), timeoutMs: 25 }, {
 		runProcess: async () => ({ exitCode: null, stdout: "partial", stderr: "timeout", durationMs: 25, timedOut: true }),
 	});
 	assert.equal(timed.status, "unavailable");
@@ -260,12 +267,12 @@ test("timeout and spawn failure are unavailable without throwing", async () => {
 	assert.equal(timed.stdout, "partial");
 
 	const failed = await runProjectDiagnostics(project, {
-		gitRoot: "/repo", cacheRoot: mkdtempSync(join(tmpdir(), "af-diagnostics-cache-")), nodeExecutable: join(tmpdir(), "missing-node"),
+		gitRoot: "/repo", cacheRoot: tempDir("af-diagnostics-cache-"), nodeExecutable: join(tmpdir(), "missing-node"),
 	});
 	assert.equal(failed.status, "unavailable");
 	assert.match(failed.reason ?? "", /spawn failed/);
 
-	const thrown = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: mkdtempSync(join(tmpdir(), "af-diagnostics-cache-")) }, {
+	const thrown = await runProjectDiagnostics(project, { gitRoot: "/repo", cacheRoot: tempDir("af-diagnostics-cache-") }, {
 		runProcess: async () => { throw new Error("runner exploded"); },
 	});
 	assert.equal(thrown.status, "unavailable");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadManifest } from "../lib/manifest.js";
@@ -9,7 +9,11 @@ import { defaultDesired, resolveDesiredState, renderDesired } from "../lib/desir
 const root = process.cwd();
 const manifest = loadManifest(root);
 
-function workspace() { return mkdtempSync(join(tmpdir(), "af-desired-")); }
+function workspace() {
+  const dir = mkdtempSync(join(tmpdir(), "af-desired-"));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
 
 test("missing desired state resolves to Default without features and is transactionally creatable", () => {
   const result = resolveDesiredState({ workspace: workspace(), manifest });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,11 @@ import { planStt } from "../lib/stt-wizard.js";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(root, "bin/cli.js");
 const manifest = loadManifest(root);
-const ws = () => mkdtempSync(join(tmpdir(), "af-reliability-"));
+const ws = () => {
+  const dir = mkdtempSync(join(tmpdir(), "af-reliability-"));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 const run = (workspace, ...args) => spawnSync(process.execPath, [cli, ...args, "--workspace", workspace], { encoding: "utf8" });
 function snapshot(rootDir) {
   const out = {};

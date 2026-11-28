@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import { makeWorkflow, parsePhaseList, readWorkflowShapes, renameWorkflowSymbols
 
 function fixture(): { cwd: string; workflows: string } {
 	const cwd = mkdtempSync(resolve(tmpdir(), "make-workflow-"));
+	test.after?.(() => rmSync(cwd, { recursive: true, force: true }));
 	const workflows = resolve(cwd, ".pi/agent-fleet/scripts/workflows");
 	mkdirSync(workflows, { recursive: true });
 	writeFileSync(resolve(workflows, "tsconfig.json"), "{}\n");

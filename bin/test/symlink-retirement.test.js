@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, existsSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, existsSync, rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -26,7 +26,11 @@ const CLI = join(repoRoot, "bin", "cli.js");
 const AGENT = "pi";
 const VERSION = "1.0.0";
 
-const tmp = (label) => mkdtempSync(join(tmpdir(), `af-symlink-${label}-`));
+const tmp = (label) => {
+  const dir = mkdtempSync(join(tmpdir(), `af-symlink-${label}-`));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 
 function write(root, rel, text) {
   const path = join(root, rel);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +12,8 @@ const def = { name: "researcher", description: "Research", tools: "bash", system
 
 function fixture(overrides: Record<string, unknown> = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "research-runtime-"));
+	// Removed when the current test (or the file) finishes, even on failure.
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
 	mkdirSync(join(dir, "transcripts"), { recursive: true });
 	let states = new Map<number, ResearchState<typeof def>>();
 	let nextId = 1;

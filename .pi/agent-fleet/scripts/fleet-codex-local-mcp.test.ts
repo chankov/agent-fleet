@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
 import { mkdtemp, rm, readdir, readFile, writeFile, mkdir, chmod, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -14,8 +15,12 @@ const q = { project: target.project, peer: target.peer };
 const ctx = (threadId = A) => ({ hostProfile: 'fake-host', principal: 'fake-owner', threadId });
 const meta = (threadId = A) => ({ threadId, sessionId: 'fake-host-session' });
 const denied = (code: string, fn: () => Promise<unknown>) => assert.rejects(fn, (e: unknown) => e instanceof McpFault && e.code === code);
+// A late fire-and-forget presence publish can recreate a root after its test's rm,
+// even after the last test; sweep every fixture root again when the process exits.
+const fixtureRoots: string[] = [];
+process.once('exit', () => { for (const root of fixtureRoots) try { rmSync(root, { recursive: true, force: true }); } catch {} });
 async function fixture(t: { after: (f: () => Promise<void>) => void }, options: Partial<LocalMcpOptions> = {}) {
- const root = await mkdtemp(join(tmpdir(), 'fake-local-codex-s4-')); t.after(() => rm(root, { recursive: true, force: true }));
+ const root = await mkdtemp(join(tmpdir(), 'fake-local-codex-s4-')); fixtureRoots.push(root); t.after(() => rm(root, { recursive: true, force: true }));
  let ms = Date.parse(at), mono = 0, reads = 0;
  let snapshot: RegistrySnapshot = { status: 'complete', partial: false, reasons: [], observedAt: at, entriesSeen: 1,
  candidates: [{ target: { ...target }, heartbeatAt: at, presence: 'fresh' }] };

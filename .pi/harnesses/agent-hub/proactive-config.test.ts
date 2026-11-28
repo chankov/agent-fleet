@@ -36,8 +36,9 @@ test("Rankedin-shaped external includes need a directory grant, preserve config 
  assert.equal(loadSystem1Snapshot(repo).consumers.proactiveReview.status,"invalid");
 });
 
-test("missing and off consumer configs cannot capture or infer", () => {
+test("missing and off consumer configs cannot capture or infer", t => {
  const repo = mkdtempSync(join(tmpdir(), "proactive-off-"));
+ t.after(() => rmSync(repo, { recursive: true, force: true }));
  writeFileSync(join(repo, "SECRET.ts"), "SENTINEL_DO_NOT_READ");
  assert.equal(isCaptureEnabled(loadProactiveConfig(repo)), false);
  mkdirSync(join(repo, ".ai"));

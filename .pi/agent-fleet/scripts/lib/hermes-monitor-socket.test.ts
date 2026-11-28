@@ -1,15 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as net from "node:net";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { socketTempRoot } from "./monitor-env.ts";
 import { MonitorRegistry } from "./hermes-monitor-registry.ts";
 import { MAX_SOCKET_FRAME_BYTES, MonitorSocketServer } from "./hermes-monitor-socket.ts";
 
+// Removed at file end: each test's socket.close() hook needs its socket dir, and
+// node:test runs a test's after hooks in registration order.
+const fixtureRoots: string[] = [];
+test.after(() => { for (const root of fixtureRoots) rmSync(root, { recursive: true, force: true }); });
+
 function fixtureRoot(): string {
-	return mkdtempSync(join(socketTempRoot(), "af-mon-sock-"));
+	const root = mkdtempSync(join(socketTempRoot(), "af-mon-sock-"));
+	fixtureRoots.push(root);
+	return root;
 }
 
 function request(socketPath: string, frame: string): Promise<string> {

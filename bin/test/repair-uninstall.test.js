@@ -29,7 +29,11 @@ const VERSION = "1.0.0";
 
 // ── synthetic world ─────────────────────────────────────────────────────────
 
-const tmp = (label) => mkdtempSync(join(tmpdir(), `af-ru-${label}-`));
+const tmp = (label) => {
+  const dir = mkdtempSync(join(tmpdir(), `af-ru-${label}-`));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
 
 function write(root, rel, text) {
   const path = join(root, rel);

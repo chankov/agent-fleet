@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,8 @@ import { requireSafetyHarness, resolveSafetyHarness } from "./safety-routing.ts"
 
 function fixtureWithHarness() {
 	const cwd = mkdtempSync(join(tmpdir(), "agent-hub-safety-"));
+	// Removed when the current test (or the file) finishes, even on failure.
+	test.after?.(() => rmSync(cwd, { recursive: true, force: true }));
 	const continuePath = join(cwd, ".pi", "harnesses", "damage-control-continue", "index.ts");
 	mkdirSync(join(continuePath, ".."), { recursive: true });
 	writeFileSync(continuePath, "export default () => {};");
@@ -28,8 +30,9 @@ test("resolveSafetyHarness uses the repo-local continue harness", () => {
 	assert.equal(resolveSafetyHarness(cwd, ["pi"]), continuePath);
 });
 
-test("resolveSafetyHarness never falls back to the retired hard-stop harness", () => {
+test("resolveSafetyHarness never falls back to the retired hard-stop harness", t => {
 	const cwd = mkdtempSync(join(tmpdir(), "agent-hub-safety-"));
+	t.after(() => rmSync(cwd, { recursive: true, force: true }));
 	const hardStop = join(cwd, ".pi", "harnesses", "damage-control", "index.ts");
 	mkdirSync(join(hardStop, ".."), { recursive: true });
 	writeFileSync(hardStop, "export default () => {};");

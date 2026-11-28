@@ -81,8 +81,8 @@ test("Hub hook finish crossing reset cannot submit to replacement session, even 
  hooks.end(1, "missing baseline"); await hooks.capture;
  assert.deepEqual(next.records.map(r => r.status), ["not_checked"]);
 });
-test("production composition binds task bytes and refs to one discovered snapshot, shares service, retains privately", async () => {
- const root = mkdtempSync(join(tmpdir(), "proactive-compose-"));
+test("production composition binds task bytes and refs to one discovered snapshot, shares service, retains privately", async t => {
+ const root = mkdtempSync(join(tmpdir(), "proactive-compose-")); t.after(() => rmSync(root, { recursive: true, force: true }));
  const sessionDir = join(root, ".pi", "sessions", "one");
  mkdirSync(sessionDir, { recursive: true }); mkdirSync(join(root, "rules"));
  writeFileSync(join(root, "rules", "README.md"), "# Rule\nCheck this unit.\n");
@@ -156,8 +156,8 @@ test("parent production capture composes nested Git evidence with pinned nested 
  capture.reset();
 });
 
-test("composition without consent, service, approved roots or task never infers or reviews", async () => {
- const root = mkdtempSync(join(tmpdir(), "proactive-compose-off-")); const sessionDir = join(root, "session"); mkdirSync(sessionDir);
+test("composition without consent, service, approved roots or task never infers or reviews", async t => {
+ const root = mkdtempSync(join(tmpdir(), "proactive-compose-off-")); t.after(() => rmSync(root, { recursive: true, force: true })); const sessionDir = join(root, "session"); mkdirSync(sessionDir);
  let calls = 0; const service = { evaluate: async () => { calls++; throw new Error("unexpected"); } } as unknown as System1Service;
  const run = async (cfg: ProactiveConfig, task: string | undefined, shared?: System1Service) => {
   let context: any, turnId = "";
@@ -175,8 +175,8 @@ test("composition without consent, service, approved roots or task never infers 
  assert.equal(absent.runtime.records[0].status, "not_checked"); assert.equal(absent.context, undefined);
  assert.equal(calls, 0);
 });
-test("composed native turns use parent task bytes and the Hub catalog snapshot, never child prose", async () => {
- const root = mkdtempSync(join(tmpdir(), "proactive-native-"));
+test("composed native turns use parent task bytes and the Hub catalog snapshot, never child prose", async t => {
+ const root = mkdtempSync(join(tmpdir(), "proactive-native-")); t.after(() => rmSync(root, { recursive: true, force: true }));
  const sessionDir = join(root, "session"), dir = join(root, "attempt");
  mkdirSync(sessionDir); mkdirSync(dir); mkdirSync(join(root, "rules"));
  writeFileSync(join(root, "rules", "README.md"), "# Rule\nCheck this unit.\n");
@@ -258,8 +258,8 @@ test("observer manifests accept a physical-root alias but reject symlinked child
  assert.equal(ingest(), 0);
 });
 
-test("native assignment validates attempt, owner, sequence, paths, hashes and bounded snapshot", () => {
- const root = mkdtempSync(join(tmpdir(), "proactive-runtime-")); const dir = join(root, "attempt"); mkdirSync(dir);
+test("native assignment validates attempt, owner, sequence, paths, hashes and bounded snapshot", t => {
+ const root = mkdtempSync(join(tmpdir(), "proactive-runtime-")); t.after(() => rmSync(root, { recursive: true, force: true })); const dir = join(root, "attempt"); mkdirSync(dir);
  const assignment: ObserverAssignment = { root, directory: dir, session: "session", owner: "a", attempt: "1", config, context: snap("a", "1", 0).context };
  const snapshot = snap("a", "1", 0), data = JSON.stringify(snapshot);
  writeFileSync(join(dir, "snapshot-0.json"), data);

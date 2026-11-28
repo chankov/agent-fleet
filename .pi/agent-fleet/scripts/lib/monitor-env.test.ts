@@ -11,7 +11,11 @@ import {
 	resolveMonitorEnv,
 } from "./monitor-env.ts";
 
-const tmp = () => fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : os.tmpdir(), "monitor-env-"));
+const tmp = () => {
+	const dir = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : os.tmpdir(), "monitor-env-"));
+	test.after?.(() => fs.rmSync(dir, { recursive: true, force: true }));
+	return dir;
+};
 
 test("an operator's own export always wins over the defaults", () => {
 	const runtime = path.join(tmp(), "chosen");

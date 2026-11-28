@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 import { MonitorRegistry } from "./hermes-monitor-registry.ts";
 
 function fixtureRoot(): string {
-	return mkdtempSync(join(tmpdir(), "agent-fleet-monitor-registry-"));
+	const root = mkdtempSync(join(tmpdir(), "agent-fleet-monitor-registry-"));
+	test.after?.(() => rmSync(root, { recursive: true, force: true }));
+	return root;
 }
 
 test("registry canonicalizes profiles and isolates simultaneous hub namespaces", () => {

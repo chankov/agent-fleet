@@ -32,6 +32,7 @@ const CURRENT_VERSION = "1.1.0";
 
 function tmp(label) {
   const dir = mkdtempSync(join(tmpdir(), `af-plan-${label}-`));
+  test.after?.(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
 

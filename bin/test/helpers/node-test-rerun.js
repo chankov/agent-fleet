@@ -9,6 +9,7 @@
 // step-summary entry, so flakiness stays visible and fixable.
 //
 // Retries default to 1 under CI and 0 locally; AF_TEST_RETRIES overrides.
+// AF_TEST_CONCURRENCY overrides the runners' parallel-phase concurrency (default 4).
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +23,19 @@ export function configuredRetries(env = process.env) {
     return value;
   }
   return env.CI && env.CI !== "false" ? 1 : 0;
+}
+
+// The fast and full runners run their parallel phases at 4 files at a time,
+// which is what release CI uses. Many files spawn real Pi, npm pack, tar or tsc
+// children, so a desktop can lower it (AF_TEST_CONCURRENCY=1 runs one file at a
+// time). Phases pinned to a single file stay serial whatever the override.
+export const DEFAULT_TEST_CONCURRENCY = 4;
+export function configuredConcurrency(env = process.env, fallback = DEFAULT_TEST_CONCURRENCY) {
+  const raw = env.AF_TEST_CONCURRENCY;
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 64) throw new Error(`AF_TEST_CONCURRENCY must be an integer 1-64; got ${raw}`);
+  return value;
 }
 
 // Tests whose last recorded attempt passed after the first one.

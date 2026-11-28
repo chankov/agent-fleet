@@ -17,7 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,9 +66,10 @@ print(json.dumps(tasks.tasks_for_pane(${JSON.stringify(paneId)}, env={
 	});
 }
 
-test("a monitored hub is discovered, read and joined to its pane by the herdr plugin", async () => {
+test("a monitored hub is discovered, read and joined to its pane by the herdr plugin", async (t) => {
 	// 1. The launcher decides where the runtime lives, and creates it 0700.
 	const home = mkdtempSync(join(socketTempRoot(), "handshake-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
 	const env = resolveMonitorEnv({ XDG_RUNTIME_DIR: home, AGENT_FLEET_PROFILE_ID: PROFILE });
 	assert.ok(env, "the launcher must produce a usable runtime directory");
 	const runtimeDir = env.AGENT_FLEET_MONITOR_RUNTIME_DIR;
@@ -130,8 +131,9 @@ test("a monitored hub is discovered, read and joined to its pane by the herdr pl
 	}
 });
 
-test("no hub registered under the profile is an absence, not an error", async () => {
+test("no hub registered under the profile is an absence, not an error", async (t) => {
 	const home = mkdtempSync(join(socketTempRoot(), "handshake-empty-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
 	const env = resolveMonitorEnv({ XDG_RUNTIME_DIR: home, AGENT_FLEET_PROFILE_ID: PROFILE });
 	assert.ok(env);
 

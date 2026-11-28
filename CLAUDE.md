@@ -67,7 +67,7 @@ docs/         → ARCHITECTURE.md (runtime layers + module map), UPSTREAM-SKILLS
 
 ## Commands
 
-- `npm test` — CLI smoke test (`--version`, `--help`) plus the `node --test` unit tests in `bin/test/`
+- `npm test` — CLI smoke test (`--version`, `--help`) plus the `node --test` unit tests in `bin/test/`. The fast and full runners run 4 files at a time; `AF_TEST_CONCURRENCY=<n>` lowers that on a loaded machine (see CONTRIBUTING.md). Remove every temp dir a test creates with `t.after`/`test.after?.`
 - `just flow <name> [args] [--allow-dirty] [--run-id <id>] [--dry-run]` — headless deterministic workflow execution; exit `0` accepted, `1` failed/unaccepted, `2` invalid/unknown, and `3` startup refusal. Quality and build-test flows require `## workflows` → non-empty `quality:` in `.ai/agent-fleet-overrides.md`; see `docs/workflows.md`. Runtime traces stay under the gitignored `.pi/flow-sessions/`
 - `just flow cleanup [number|flow/branch] [--discard] [--yes]` — list/select flow branches and remove them through Worktrunk; normal cleanup is non-forcing, `--discard` explicitly permits deletion of clean unmerged work, and dirty worktrees are always refused. Example: `just flow cleanup` then `just flow cleanup 2`
 - `just flow merge [number|flow/branch] [--target <branch>] [--yes]` — squash-merge an accepted, clean flow through Worktrunk into its recorded source branch, then remove the flow branch/worktree. Example: `just flow merge` then `just flow merge 2`; old branches without source metadata need `--target`

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAssertionsArtifactsContext, type Assertion } from "./assertions-artifacts.ts";
 
 function fixture(assertions: Assertion[] = []) {
 	const sessionDir = mkdtempSync(join(tmpdir(), "hub-context-"));
+	test.after?.(() => rmSync(sessionDir, { recursive: true, force: true }));
 	const statuses: Array<[string, string]> = [];
 	const context = createAssertionsArtifactsContext({
 		getAssertions: () => assertions,
@@ -50,6 +51,7 @@ test("artifact context archives non-empty prior layouts without deleting recover
 
 test("every delegated prompt carries the task brief once; briefs are working files and are not archived", () => {
 	const sessionDir = mkdtempSync(join(tmpdir(), "hub-context-brief-"));
+	test.after?.(() => rmSync(sessionDir, { recursive: true, force: true }));
 	let brief: string | null = null;
 	const context = createAssertionsArtifactsContext({
 		getAssertions: () => [], getSessionDir: () => sessionDir, getRunHistoryKeep: () => 2, setStatus() {},

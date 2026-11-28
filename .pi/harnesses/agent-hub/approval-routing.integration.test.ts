@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {PermissionRelay} from './permission-relay.ts';
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -46,6 +46,13 @@ test('relay dispatcher identifies each Docker request without logging its comman
  assert.doesNotMatch(JSON.stringify(logs),/docker stop fixture-/);
 });
 
+// Temp dirs are removed when the current test (or the file) finishes, even on failure.
+function tempDir(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 function fakeSocket() {
 	let output = "";
 	return {
@@ -60,7 +67,7 @@ function response(socket: ReturnType<typeof fakeSocket>) {
 }
 
 test("protected deletion routes only Deny and Allow once and persists no broad exemption", async () => {
-	const exemptionsFile = join(mkdtempSync(join(tmpdir(), "approval-routing-")), "exemptions.json");
+	const exemptionsFile = join(tempDir("approval-routing-"), "exemptions.json");
 	let presentedOptions: string[] = [];
 	const router = createAccessApprovalRouter({
 		getContext: () => ({
@@ -105,7 +112,7 @@ test("missing UI denies protected deletion fail-closed", async () => {
 });
 
 test("approval pending across a session reset is denied and never persisted", async () => {
-	const exemptionsFile = join(mkdtempSync(join(tmpdir(), "approval-routing-")), "exemptions.json");
+	const exemptionsFile = join(tempDir("approval-routing-"), "exemptions.json");
 	let answer!: (choice: string) => void;
 	const router = createAccessApprovalRouter({
 		getContext: () => ({
@@ -130,7 +137,7 @@ test("approval pending across a session reset is denied and never persisted", as
 });
 
 test("non-delete path approval can remain agent-scoped and is persisted", async () => {
-	const exemptionsFile = join(mkdtempSync(join(tmpdir(), "approval-routing-")), "exemptions.json");
+	const exemptionsFile = join(tempDir("approval-routing-"), "exemptions.json");
 	const router = createAccessApprovalRouter({
 		getContext: () => ({
 			hasUI: true,
@@ -155,7 +162,7 @@ test("non-delete path approval can remain agent-scoped and is persisted", async 
 });
 
 test('disconnected requester cannot create a late session exemption', async () => {
- const exemptionsFile = join(mkdtempSync(join(tmpdir(), 'approval-disconnect-')), 'exemptions.json');
+ const exemptionsFile = join(tempDir('approval-disconnect-'), 'exemptions.json');
  const { EventEmitter } = await import('node:events');
  const socket = Object.assign(new EventEmitter(), fakeSocket());
  let answer!: (value: string) => void;

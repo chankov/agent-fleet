@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,7 +16,11 @@ const invoke = {
 	basis: { deviation: "stalled_progress", judgment: "confirmed" },
 };
 
-const journalFile = () => join(mkdtempSync(join(tmpdir(), "invoke-")), "audit.ndjson");
+const journalFile = () => {
+	const dir = mkdtempSync(join(tmpdir(), "invoke-"));
+	test.after?.(() => rmSync(dir, { recursive: true, force: true }));
+	return join(dir, "audit.ndjson");
+};
 
 test("invoke intent is durable, field-redacted, and hash-safe across restart", () => {
 	const file = journalFile();
